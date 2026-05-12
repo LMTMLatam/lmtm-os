@@ -10,7 +10,7 @@ RUN apt-get update \
 
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml .npmrc ./ patches/
 COPY server/package.json server/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
