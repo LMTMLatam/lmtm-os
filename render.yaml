@@ -1,0 +1,29 @@
+# render.yaml - Render service definition for LMTM OS
+services:
+  - type: web
+    name: lmtm-os
+    repo: https://github.com/LMTMLatam/lmtm-os
+    branch: render-setup-lmtm
+    plan: starter
+    region: oregon
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/server build
+    startCommand: node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3100"
+      - key: SERVE_UI
+        value: "false"
+      - key: PAPERCLIP_HOME
+        value: /paperclip
+      - key: PAPERCLIP_INSTANCE_ID
+        value: lmtm
+      - key: PAPERCLIP_DEPLOYMENT_MODE
+        value: authenticated
+      - key: PAPERCLIP_DEPLOYMENT_EXPOSURE
+        value: public
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENCODE_ALLOW_ALL_MODELS
+        value: "true"
