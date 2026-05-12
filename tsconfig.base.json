@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "module": "NodeNext",
+    "module": "Node16",
     "moduleResolution": "NodeNext",
     "esModuleInterop": true,
     "strict": true,
