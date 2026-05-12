@@ -18,6 +18,7 @@ COPY server/package.json server/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 COPY packages/adapter-utils/package.json packages/adapter-utils/
+COPY cli/package.json cli/
 
 RUN pnpm install --frozen-lockfile
 
