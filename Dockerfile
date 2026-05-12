@@ -6,7 +6,8 @@ FROM node:20-slim AS base
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
-  && corepack enable
+  && corepack enable \
+  && corepack install -g pnpm@9.15.4
 
 FROM base AS deps
 WORKDIR /app
