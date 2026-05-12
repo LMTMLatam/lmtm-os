@@ -23,10 +23,7 @@ COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
 
-# Install db package devDependencies
-RUN cd packages/db && pnpm install --frozen-lockfile
-
-# Generate db migrations
+# Generate db migrations using globally installed drizzle-kit
 RUN tsx packages/db/src/check-migration-numbering.ts && drizzle-kit generate --config packages/db/drizzle.config.ts
 
 # Build plugin-sdk
