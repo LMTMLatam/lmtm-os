@@ -10,7 +10,7 @@ RUN apt-get update \
   && corepack install -g pnpm@9.15.4 \
   && npm install -g tsx
 
-FROM base AS deps
+FROM base AS build
 WORKDIR /app
 ENV NODE_ENV=development
 
@@ -21,14 +21,6 @@ COPY packages/*/package.json packages/
 COPY cli/package.json cli/
 
 RUN pnpm install --frozen-lockfile
-
-FROM base AS build
-WORKDIR /app
-COPY --from=deps /app /app
-COPY . .
-# Build steps - all dependencies are already installed from deps stage.
-# TypeScript type stubs (embedded-postgres.d.ts) satisfy type checking
-# without requiring the actual native binary package.
 RUN pnpm --filter @paperclipai/db generate
 RUN pnpm --filter @paperclipai/plugin-sdk build
 RUN pnpm --filter @paperclipai/server build
