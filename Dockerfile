@@ -24,7 +24,8 @@ COPY cli/ cli/
 RUN pnpm install --frozen-lockfile
 
 # Build db package: generate migrations + compile TypeScript
-RUN cd packages/db && pnpm run generate
+# Use pnpm exec so binaries resolve from workspace root node_modules/.bin
+RUN pnpm --filter @paperclipai/db exec -- pnpm run generate
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
