@@ -12,6 +12,7 @@ RUN apt-get update \
 
 FROM base AS deps
 WORKDIR /app
+ENV NODE_ENV=development
 
 COPY package.json pnpm-lock.yaml .npmrc ./
 COPY patches/ patches/
