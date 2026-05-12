@@ -24,7 +24,7 @@ COPY cli/ cli/
 RUN pnpm install --frozen-lockfile
 
 # Generate db migrations (runs tsx check + drizzle-kit generate, no tsc compilation needed)
-RUN cd packages/db && tsx src/check-migration-numbering.ts && node_modules/.bin/drizzle-kit generate
+RUN cd packages/db && tsx src/check-migration-numbering.ts && ./node_modules/.bin/drizzle-kit generate
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
