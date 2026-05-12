@@ -8,7 +8,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack install -g pnpm@9.15.4 \
-  && npm install -g tsx@4.19.2
+  && npm install -g tsx@4.19.2 typescript@5.9.3
 
 FROM base AS build
 WORKDIR /app
