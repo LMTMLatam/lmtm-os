@@ -21,9 +21,7 @@ COPY packages/*/package.json packages/
 COPY cli/package.json cli/
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @paperclipai/db generate
-RUN pnpm --filter @paperclipai/plugin-sdk build
-RUN pnpm --filter @paperclipai/server build
+RUN cd /app/packages/db && pnpm run generate && cd /app && pnpm --filter @paperclipai/plugin-sdk build && cd /app/server && pnpm run build
 
 FROM base AS production
 WORKDIR /app
