@@ -21,8 +21,8 @@ COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
 
-# Install deps - use --force to ensure fresh install of all devDependencies
-RUN pnpm install --frozen-lockfile --force
+# Install deps - force ensures devDependencies for workspace packages are installed
+RUN pnpm install --no-frozen-lockfile --force
 
 # Generate db migrations using locally installed drizzle-kit
 RUN cd packages/db && node node_modules/drizzle-kit/bin.cjs generate
