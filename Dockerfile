@@ -7,7 +7,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
-  && corepack install -g pnpm@9.15.4
+  && corepack install -g pnpm@9.15.4 \
+  && pnpm add -g tsx
 
 FROM base AS deps
 WORKDIR /app
