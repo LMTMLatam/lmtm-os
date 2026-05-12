@@ -24,7 +24,7 @@ COPY cli/ cli/
 RUN pnpm install --frozen-lockfile
 
 # Install db package devDependencies (includes drizzle-kit)
-RUN cd packages/db && pnpm install --frozen-lockfile
+RUN cd packages/db && pnpm install --no-frozen-lockfile
 
 # Generate db migrations using locally installed drizzle-kit (must run from package dir)
 RUN cd packages/db && node node_modules/drizzle-kit/bin.cjs generate
