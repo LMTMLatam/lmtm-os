@@ -28,6 +28,9 @@ WORKDIR /app
 ENV NODE_ENV=development
 COPY --from=deps /app /app
 COPY . .
+# Reinstall to ensure all devDependencies are available (especially embedded-postgres
+# which is needed by tsc for type checking, even though it's not used at runtime with Supabase)
+RUN pnpm install --frozen-lockfile
 # Skip preflight:workspace-links - it recreates workspace symlinks for dev,
 # but in a fresh Docker build everything is installed from scratch with correct links.
 # The --frozen-lockfile in deps stage already installed everything correctly.
