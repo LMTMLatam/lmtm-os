@@ -23,17 +23,13 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS build
 WORKDIR /app
-ENV NODE_ENV=development
 COPY --from=deps /app /app
-COPY patches/ patches/
 COPY . .
-# Skip preflight:workspace-links - it recreates workspace symlinks for dev,
-# but in a fresh Docker build everything is installed from scratch with correct links.
-# The --frozen-lockfile in deps stage already installed everything correctly.
-# Install embedded-postgres explicitly - it may fail silently as a native binary
-# during pnpm install, so we reinstall it specifically.
-RUN pnpm install embedded-postgres || true
+# Build steps - all dependencies are already installed from deps stage.
+# TypeScript type stubs (embedded-postgres.d.ts) satisfy type checking
+# without requiring the actual native binary package.
 RUN pnpm --filter @paperclipai/db generate
+RUN pnpm --filter @paperclipai/plugin-sdk build
 RUN pnpm --filter @paperclipai/server build
 
 FROM base AS production
