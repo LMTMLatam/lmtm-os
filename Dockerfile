@@ -13,6 +13,7 @@ RUN apt-get update \
 FROM base AS build
 WORKDIR /app
 ENV NODE_ENV=development
+ENV PATH="/app/node_modules/.bin:${PATH}"
 
 COPY package.json pnpm-lock.yaml .npmrc ./
 COPY patches/ patches/
@@ -26,10 +27,10 @@ RUN pnpm install --frozen-lockfile
 RUN cd packages/db && pnpm run generate
 
 # Build plugin-sdk
-RUN cd packages/plugins/sdk && pnpm run build
+RUN pnpm --filter @paperclipai/plugin-sdk build
 
 # Build server
-RUN cd server && pnpm run build
+RUN pnpm --filter @paperclipai/server build
 
 FROM base AS production
 WORKDIR /app
