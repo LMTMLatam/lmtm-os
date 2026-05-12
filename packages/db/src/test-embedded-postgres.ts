@@ -1,6 +1,13 @@
 // Stub implementation for test-embedded-postgres
 // These utilities are only used for local embedded-postgres mode (not used with Supabase)
-import type { EmbeddedPostgresInstance } from 'embedded-postgres';
+
+// Local type stub matching the embedded-postgres instance interface
+interface EmbeddedPostgresInstance {
+  initialise(): Promise<void>;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  port: number;
+}
 
 export type EmbeddedPostgresTestDatabase = EmbeddedPostgresInstance;
 export type EmbeddedPostgresTestSupport = unknown;
