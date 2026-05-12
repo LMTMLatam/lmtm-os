@@ -21,11 +21,10 @@ COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
 
-# Install deps - force ensures devDependencies for workspace packages are installed
-RUN pnpm install --no-frozen-lockfile --force
+RUN pnpm install --frozen-lockfile
 
-# Generate db migrations using locally installed drizzle-kit
-RUN cd packages/db && node node_modules/drizzle-kit/bin.cjs generate
+# Generate db migrations using drizzle-kit from workspace root
+RUN node node_modules/drizzle-kit/bin.cjs generate --schema packages/db/src/schema/index.ts
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
