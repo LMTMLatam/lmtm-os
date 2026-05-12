@@ -26,7 +26,9 @@ FROM base AS build
 WORKDIR /app
 COPY --from=deps /app /app
 COPY . .
-RUN pnpm run preflight:workspace-links
+# Skip preflight:workspace-links - it recreates workspace symlinks for dev,
+# but in a fresh Docker build everything is installed from scratch with correct links.
+# The --frozen-lockfile in deps stage already installed everything correctly.
 RUN pnpm --filter @paperclipai/db generate
 RUN pnpm --filter @paperclipai/server build
 
