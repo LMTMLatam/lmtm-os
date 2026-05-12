@@ -23,8 +23,11 @@ COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
 
-# Generate db migrations using tsx + drizzle-kit bin directly (bypass Windows-hardcoded shell scripts)
-RUN cd packages/db && tsx src/check-migration-numbering.ts && node node_modules/drizzle-kit/bin.cjs generate
+# Debug: list drizzle-kit directory
+RUN ls -la /app/packages/db/node_modules/drizzle-kit/ | head -5 || echo "DIR NOT FOUND"
+
+# Generate db migrations using tsx + drizzle-kit generate
+RUN tsx /app/packages/db/src/check-migration-numbering.ts && node /app/packages/db/node_modules/drizzle-kit/bin.cjs generate --schema /app/packages/db/src/schema/index.ts
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
