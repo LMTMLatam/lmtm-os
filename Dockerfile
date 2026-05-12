@@ -8,7 +8,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack install -g pnpm@9.15.4 \
-  && npm install -g tsx@4.19.2
+  && npm install -g tsx@4.19.2 drizzle-kit@0.31.9
 
 FROM base AS build
 WORKDIR /app
@@ -23,12 +23,9 @@ COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
 
-# Install db package devDependencies (includes drizzle-kit)
-# Use --no-frozen-lockfile since package doesn't have its own lockfile
-RUN cd packages/db && pnpm install --no-frozen-lockfile
-
-# Generate db migrations using locally installed drizzle-kit
-RUN cd packages/db && node node_modules/drizzle-kit/bin.cjs generate
+# Generate db migrations using globally installed drizzle-kit via tsx
+# tsx ensures ESM compatibility and runs from package context so it finds local drizzle-orm
+RUN cd packages/db && tsx node_modules/drizzle-kit/bin.cjs generate
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
