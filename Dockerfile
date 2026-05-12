@@ -16,12 +16,14 @@ ENV NODE_ENV=development
 
 COPY package.json pnpm-lock.yaml .npmrc ./
 COPY patches/ patches/
-COPY server/package.json server/
-COPY packages/*/package.json packages/
-COPY cli/package.json cli/
+COPY server/ server/
+COPY packages/ packages/
+COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
-RUN cd /app/packages/db && pnpm run generate && cd /app && pnpm --filter @paperclipai/plugin-sdk build && cd /app/server && pnpm run build
+RUN cd /app/packages/db && pnpm run generate
+RUN pnpm --filter @paperclipai/plugin-sdk build
+RUN pnpm --filter @paperclipai/server build
 
 FROM base AS production
 WORKDIR /app
