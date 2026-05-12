@@ -8,7 +8,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack install -g pnpm@9.15.4 \
-  && npm install -g tsx@4.19.2 typescript@5.9.3
+  && npm install -g tsx@4.19.2
 
 FROM base AS build
 WORKDIR /app
@@ -23,9 +23,8 @@ COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
 
-# Build db package: generate migrations + compile TypeScript
-# Use pnpm exec so binaries resolve from workspace root node_modules/.bin
-RUN pnpm --filter @paperclipai/db exec -- pnpm run generate
+# Generate db migrations (runs tsx check + drizzle-kit generate, no tsc compilation needed)
+RUN cd packages/db && tsx src/check-migration-numbering.ts && pnpm exec drizzle-kit generate
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
