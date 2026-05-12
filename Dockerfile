@@ -8,7 +8,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack install -g pnpm@9.15.4 \
-  && npm install -g tsx@4.19.2
+  && npm install -g tsx@4.19.2 drizzle-kit@0.31.9
 
 FROM base AS build
 WORKDIR /app
@@ -23,11 +23,11 @@ COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
 
-# Debug: list drizzle-kit directory
-RUN ls -la /app/packages/db/node_modules/drizzle-kit/ | head -5 || echo "DIR NOT FOUND"
+# Install db package devDependencies
+RUN cd packages/db && pnpm install --frozen-lockfile
 
-# Generate db migrations using tsx + drizzle-kit generate
-RUN tsx /app/packages/db/src/check-migration-numbering.ts && node /app/packages/db/node_modules/drizzle-kit/bin.cjs generate --schema /app/packages/db/src/schema/index.ts
+# Generate db migrations
+RUN tsx packages/db/src/check-migration-numbering.ts && drizzle-kit generate --config packages/db/drizzle.config.ts
 
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
