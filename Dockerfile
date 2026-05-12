@@ -25,6 +25,7 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS build
 WORKDIR /app
+ENV NODE_ENV=development
 COPY --from=deps /app /app
 COPY . .
 # Skip preflight:workspace-links - it recreates workspace symlinks for dev,
