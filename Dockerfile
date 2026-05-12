@@ -8,7 +8,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack install -g pnpm@9.15.4 \
-  && pnpm add -g tsx
+  && npm install -g tsx
 
 FROM base AS deps
 WORKDIR /app
