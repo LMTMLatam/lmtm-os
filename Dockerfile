@@ -21,7 +21,7 @@ COPY packages/ packages/
 COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
-RUN cd /app/packages/db && pnpm run generate
+RUN pnpm --filter @paperclipai/db exec -- pnpm run generate
 RUN pnpm --filter @paperclipai/plugin-sdk build
 RUN pnpm --filter @paperclipai/server build
 
