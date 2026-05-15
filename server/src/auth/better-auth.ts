@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import type { IncomingHttpHeaders } from "node:http";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { bearer } from "better-auth/plugins/bearer";
 import { toNodeHandler } from "better-auth/node";
 import type { Db } from "@paperclipai/db";
 import {
@@ -120,6 +121,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
       requireEmailVerification: false,
       disableSignUp: config.authDisableSignUp,
     },
+    plugins: [bearer()],
     advanced: buildBetterAuthAdvancedOptions({ disableSecureCookies: isHttpOnly }),
   };
 
