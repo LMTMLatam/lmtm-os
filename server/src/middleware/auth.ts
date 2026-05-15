@@ -36,71 +36,77 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     const runIdHeader = req.header("x-paperclip-run-id");
 
     const authHeader = req.header("authorization");
-    if (!authHeader?.toLowerCase().startsWith("bearer ")) {
-      if (opts.deploymentMode === "authenticated" && opts.resolveSession) {
-        const cloudTenantActor = await resolveCloudTenantActor(db, req);
-        if (cloudTenantActor) {
-          req.actor = {
-            ...cloudTenantActor,
-            runId: runIdHeader ?? undefined,
-          };
-          next();
-          return;
-        }
+    const hasBearer = Boolean(authHeader?.toLowerCase().startsWith("bearer "));
 
-        let session: BetterAuthSessionResult | null = null;
-        try {
-          session = await opts.resolveSession(req);
-        } catch (err) {
-          logger.warn(
-            { err, method: req.method, url: req.originalUrl },
-            "Failed to resolve auth session from request headers",
-          );
-        }
-        if (session?.user?.id) {
-          const userId = session.user.id;
-          const [roleRow, memberships] = await Promise.all([
-            db
-              .select({ id: instanceUserRoles.id })
-              .from(instanceUserRoles)
-              .where(and(eq(instanceUserRoles.userId, userId), eq(instanceUserRoles.role, "instance_admin")))
-              .then((rows) => rows[0] ?? null),
-            db
-              .select({
-                companyId: companyMemberships.companyId,
-                membershipRole: companyMemberships.membershipRole,
-                status: companyMemberships.status,
-              })
-              .from(companyMemberships)
-              .where(
-                and(
-                  eq(companyMemberships.principalType, "user"),
-                  eq(companyMemberships.principalId, userId),
-                  eq(companyMemberships.status, "active"),
-                ),
-              ),
-          ]);
-          req.actor = {
-            type: "board",
-            userId,
-            userName: session.user.name ?? null,
-            userEmail: session.user.email ?? null,
-            companyIds: memberships.map((row) => row.companyId),
-            memberships,
-            isInstanceAdmin: Boolean(roleRow),
-            runId: runIdHeader ?? undefined,
-            source: "session",
-          };
-          next();
-          return;
-        }
+    async function tryResolveBetterAuthSession(): Promise<boolean> {
+      if (opts.deploymentMode !== "authenticated" || !opts.resolveSession) return false;
+      const cloudTenantActor = await resolveCloudTenantActor(db, req);
+      if (cloudTenantActor) {
+        req.actor = {
+          ...cloudTenantActor,
+          runId: runIdHeader ?? undefined,
+        };
+        return true;
+      }
+
+      let session: BetterAuthSessionResult | null = null;
+      try {
+        session = await opts.resolveSession(req);
+      } catch (err) {
+        logger.warn(
+          { err, method: req.method, url: req.originalUrl },
+          "Failed to resolve auth session from request headers",
+        );
+      }
+      if (!session?.user?.id) return false;
+
+      const userId = session.user.id;
+      const [roleRow, memberships] = await Promise.all([
+        db
+          .select({ id: instanceUserRoles.id })
+          .from(instanceUserRoles)
+          .where(and(eq(instanceUserRoles.userId, userId), eq(instanceUserRoles.role, "instance_admin")))
+          .then((rows) => rows[0] ?? null),
+        db
+          .select({
+            companyId: companyMemberships.companyId,
+            membershipRole: companyMemberships.membershipRole,
+            status: companyMemberships.status,
+          })
+          .from(companyMemberships)
+          .where(
+            and(
+              eq(companyMemberships.principalType, "user"),
+              eq(companyMemberships.principalId, userId),
+              eq(companyMemberships.status, "active"),
+            ),
+          ),
+      ]);
+      req.actor = {
+        type: "board",
+        userId,
+        userName: session.user.name ?? null,
+        userEmail: session.user.email ?? null,
+        companyIds: memberships.map((row) => row.companyId),
+        memberships,
+        isInstanceAdmin: Boolean(roleRow),
+        runId: runIdHeader ?? undefined,
+        source: "session",
+      };
+      return true;
+    }
+
+    if (!hasBearer) {
+      if (await tryResolveBetterAuthSession()) {
+        next();
+        return;
       }
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();
       return;
     }
 
-    const token = authHeader.slice("bearer ".length).trim();
+    const token = (authHeader ?? "").slice("bearer ".length).trim();
     if (!token) {
       next();
       return;
@@ -138,6 +144,10 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     if (!key) {
       const claims = verifyLocalAgentJwt(token);
       if (!claims) {
+        if (await tryResolveBetterAuthSession()) {
+          next();
+          return;
+        }
         next();
         return;
       }
@@ -149,11 +159,19 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         .then((rows) => rows[0] ?? null);
 
       if (!agentRecord || agentRecord.companyId !== claims.company_id) {
+        if (await tryResolveBetterAuthSession()) {
+          next();
+          return;
+        }
         next();
         return;
       }
 
       if (agentRecord.status === "terminated" || agentRecord.status === "pending_approval") {
+        if (await tryResolveBetterAuthSession()) {
+          next();
+          return;
+        }
         next();
         return;
       }
