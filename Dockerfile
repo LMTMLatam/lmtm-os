@@ -15,8 +15,9 @@ WORKDIR /app
 ENV NODE_ENV=development
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
-COPY package.json pnpm-lock.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json ./
 COPY patches/ patches/
+COPY scripts/ scripts/
 COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
