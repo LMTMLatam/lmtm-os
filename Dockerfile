@@ -23,13 +23,10 @@ COPY cli/ cli/
 
 RUN pnpm install --frozen-lockfile
 
-# Generate db migrations using drizzle-kit from workspace root
-RUN node node_modules/drizzle-kit/bin.cjs generate --schema packages/db/src/schema/index.ts
-
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
 
-# Build server
+# Build server (db package consumed via TS source through workspace exports; migrations already committed)
 RUN pnpm --filter @paperclipai/server build
 
 FROM base AS production
