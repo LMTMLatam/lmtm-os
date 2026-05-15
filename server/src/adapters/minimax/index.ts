@@ -1,13 +1,14 @@
 import type { ServerAdapterModule } from "../types.js";
 import { execute } from "./execute.js";
 import { testEnvironment } from "./test.js";
-import { models } from "./models.js";
+import { listModels, models } from "./models.js";
 
 export const minimaxAdapter: ServerAdapterModule = {
   type: "minimax_cloud",
   execute,
   testEnvironment,
   models,
+  listModels,
   supportsLocalAgentJwt: false,
   supportsInstructionsBundle: false,
   requiresMaterializedRuntimeSkills: false,
