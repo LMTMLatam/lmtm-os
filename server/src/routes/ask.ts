@@ -88,10 +88,28 @@ export function askRoutes() {
       }
 
       const data: any = await response.json();
+      const upstreamStatus = data?.base_resp?.status_code;
+      if (upstreamStatus && upstreamStatus !== 0) {
+        return res.status(502).json({
+          error: "MiniMax rejected request",
+          status: upstreamStatus,
+          detail: data?.base_resp?.status_msg ?? "unknown",
+          agent: agentKey,
+        });
+      }
+
       const output =
         data?.choices?.[0]?.message?.content ??
         data?.reply ??
         "";
+
+      if (!output) {
+        return res.status(502).json({
+          error: "Empty response from MiniMax",
+          detail: JSON.stringify(data).slice(0, 400),
+          agent: agentKey,
+        });
+      }
 
       return res.json({
         output: typeof output === "string" ? output : JSON.stringify(output),
