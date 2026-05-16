@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { metaConnections } from "@paperclipai/db";
+import { metaConnections, metaAdAccountMappings } from "@paperclipai/db";
 import { badRequest, unauthorized } from "../errors.js";
 import { assertCompanyAccess } from "./authz.js";
 
@@ -39,10 +39,12 @@ const SYSTEM_PROMPTS: Record<string, string> = {
     "Sos el Dashboard Agent de LMTM, agencia de marketing latinoamericana.",
     "Tu objetivo: producir un dashboard web (HTML estático autocontenido) basado en datos REALES y deployarlo a Vercel.",
     "Flujo correcto:",
-    "1) Si te falta info crítica (cliente, KPIs, fuente de datos, periodo), pedila en UN solo mensaje breve.",
-    "2) Cuando tengas la conexión Meta y el ad account, llamá meta_insights para traer datos reales.",
-    "3) Generá un HTML completo (<!doctype html>...</html>) dark theme, sans-serif, sin frameworks externos, con KPI cards y tablas.",
-    "4) Llamá deploy_dashboard con name (slug) y html. Después respondé al usuario con el link de Vercel y un resumen breve.",
+    "1) Llamá list_meta_mappings para ver qué clientes (ad accounts) tenés conectados a esta company.",
+    "2) Si la company no tiene mappings, pedile al usuario que vaya a /integrations/meta a crearlos. NO inventes datos.",
+    "3) Si te falta info crítica (KPIs, periodo, foco), pedila en UN solo mensaje breve.",
+    "4) Llamá meta_insights con el adAccount correcto (o sin args si hay solo 1 mapping).",
+    "5) Generá un HTML completo (<!doctype html>...</html>) dark theme, sans-serif, sin frameworks externos, con KPI cards y tablas.",
+    "6) Llamá deploy_dashboard con name (slug) y html. Después respondé al usuario con el link de Vercel y un resumen breve.",
     "Reglas: Español rioplatense. No inventes números — si no tenés datos, decilo y deployá con placeholders marcados.",
   ].join("\n"),
   default:
@@ -54,8 +56,9 @@ const TOOLS_BY_AGENT: Record<string, unknown[]> = {
     {
       type: "function",
       function: {
-        name: "list_meta_connections",
-        description: "Lista las conexiones Meta (Facebook Ads) disponibles para esta company.",
+        name: "list_meta_mappings",
+        description:
+          "Lista los ad accounts de Meta Ads mapeados a esta company (cliente). Devuelve adAccountId y label. Si no hay mappings, devolver lista vacía y pedirle al usuario que los configure en /integrations/meta.",
         parameters: { type: "object", properties: {}, additionalProperties: false },
       },
     },
@@ -64,14 +67,14 @@ const TOOLS_BY_AGENT: Record<string, unknown[]> = {
       function: {
         name: "meta_insights",
         description:
-          "Obtiene métricas de Meta Ads (spend, impressions, clicks, ctr, cpc, reach, actions) para un ad account.",
+          "Obtiene métricas de Meta Ads (spend, impressions, clicks, ctr, cpc, reach, actions) para un ad account mapeado a esta company.",
         parameters: {
           type: "object",
           properties: {
-            connectionId: { type: "string", description: "ID de la conexión Meta (uuid)." },
             adAccount: {
               type: "string",
-              description: "Ad account ID con o sin prefijo act_. Si vacío, usa el del connection.",
+              description:
+                "Ad account ID (act_xxx) — usar uno de los que devuelve list_meta_mappings. Si la company solo tiene 1 mapping, podés omitir y se usa ese.",
             },
             datePreset: {
               type: "string",
@@ -89,7 +92,7 @@ const TOOLS_BY_AGENT: Record<string, unknown[]> = {
               description: "Rango de fechas. Default last_30d.",
             },
           },
-          required: ["connectionId"],
+          required: [],
           additionalProperties: false,
         },
       },
@@ -161,33 +164,53 @@ async function callMiniMax(messages: ChatMessage[], tools: unknown[]) {
   return json;
 }
 
-async function execListMetaConnections(db: Db, companyId: string) {
+async function execListMetaMappings(db: Db, companyId: string) {
   const rows = await db
     .select({
-      id: metaConnections.id,
-      label: metaConnections.label,
-      adAccountId: metaConnections.adAccountId,
-      pageId: metaConnections.pageId,
-      businessId: metaConnections.businessId,
-      status: metaConnections.status,
+      adAccountId: metaAdAccountMappings.adAccountId,
+      label: metaAdAccountMappings.label,
+      connectionId: metaAdAccountMappings.connectionId,
+      connectionLabel: metaConnections.label,
+      connectionStatus: metaConnections.status,
     })
-    .from(metaConnections)
-    .where(eq(metaConnections.companyId, companyId));
-  return { connections: rows };
+    .from(metaAdAccountMappings)
+    .leftJoin(metaConnections, eq(metaConnections.id, metaAdAccountMappings.connectionId))
+    .where(eq(metaAdAccountMappings.companyId, companyId));
+  return { mappings: rows };
 }
 
 async function execMetaInsights(
   db: Db,
   companyId: string,
-  args: { connectionId: string; adAccount?: string; datePreset?: string },
+  args: { adAccount?: string; datePreset?: string },
 ) {
+  // Resolve via mapping. If args.adAccount provided, match it; else use the single mapping.
+  const filters = [eq(metaAdAccountMappings.companyId, companyId)];
+  if (args.adAccount) {
+    const wanted = args.adAccount.startsWith("act_") ? args.adAccount : `act_${args.adAccount}`;
+    filters.push(eq(metaAdAccountMappings.adAccountId, wanted));
+  }
+  const mappings = await db
+    .select({
+      adAccountId: metaAdAccountMappings.adAccountId,
+      connectionId: metaAdAccountMappings.connectionId,
+    })
+    .from(metaAdAccountMappings)
+    .where(and(...filters));
+  if (mappings.length === 0) {
+    return { error: "No mapping found. Configure one in /integrations/meta first." };
+  }
+  if (mappings.length > 1 && !args.adAccount) {
+    return {
+      error: `Company has ${mappings.length} mappings. Call list_meta_mappings and pass adAccount explicitly.`,
+    };
+  }
+  const m = mappings[0];
   const conn = await db.query.metaConnections.findFirst({
-    where: and(eq(metaConnections.id, args.connectionId), eq(metaConnections.companyId, companyId)),
+    where: eq(metaConnections.id, m.connectionId),
   });
-  if (!conn) return { error: "Connection not found or not in this company" };
-  const adAccount = args.adAccount ?? conn.adAccountId;
-  if (!adAccount) return { error: "adAccount required (or set on connection)" };
-  const account = adAccount.startsWith("act_") ? adAccount : `act_${adAccount}`;
+  if (!conn) return { error: "Mapped connection not found" };
+  const account = m.adAccountId.startsWith("act_") ? m.adAccountId : `act_${m.adAccountId}`;
 
   const url = new URL(`${GRAPH}/${account}/insights`);
   url.searchParams.set("access_token", conn.accessToken);
@@ -271,9 +294,9 @@ async function executeTool(
   } catch {
     return { error: `Invalid JSON args: ${argsJson.slice(0, 200)}` };
   }
-  if (name === "list_meta_connections") return execListMetaConnections(db, companyId);
+  if (name === "list_meta_mappings") return execListMetaMappings(db, companyId);
   if (name === "meta_insights")
-    return execMetaInsights(db, companyId, args as { connectionId: string; adAccount?: string; datePreset?: string });
+    return execMetaInsights(db, companyId, args as { adAccount?: string; datePreset?: string });
   if (name === "deploy_dashboard")
     return execDeployDashboard(args as { name: string; html: string; target?: string });
   return { error: `Unknown tool: ${name}` };

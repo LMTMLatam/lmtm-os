@@ -76,3 +76,4 @@ export { pluginJobs, pluginJobRuns } from "./plugin_jobs.js";
 export { pluginWebhookDeliveries } from "./plugin_webhooks.js";
 export { pluginLogs } from "./plugin_logs.js";
 export { metaConnections } from "./meta_connections.js";
+export { metaAdAccountMappings } from "./meta_ad_account_mappings.js";

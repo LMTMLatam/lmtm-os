@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { metaConnections } from "@paperclipai/db";
+import { metaConnections, metaAdAccountMappings } from "@paperclipai/db";
 import { validate } from "../middleware/validate.js";
-import { badRequest, notFound, unauthorized } from "../errors.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { badRequest, notFound, unauthorized, forbidden } from "../errors.js";
+import { assertAuthenticated, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -21,6 +21,12 @@ const createManualSchema = z.object({
 });
 
 const updateSchema = createManualSchema.partial();
+
+const createMappingSchema = z.object({
+  connectionId: z.string().uuid(),
+  adAccountId: z.string().trim().min(1),
+  label: z.string().trim().max(120).optional(),
+});
 
 const insightsQuerySchema = z.object({
   company: z.string().uuid(),
@@ -95,8 +101,65 @@ async function exchangeForLongLivedUserToken(shortToken: string) {
   };
 }
 
+function accessibleCompanyIds(req: import("express").Request): string[] | "all" {
+  if (req.actor.type === "board") {
+    if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return "all";
+    return req.actor.companyIds ?? [];
+  }
+  if (req.actor.type === "agent" && req.actor.companyId) return [req.actor.companyId];
+  return [];
+}
+
 export function metaRoutes(db: Db) {
   const router = Router();
+
+  // ----- List ALL connections the caller can access across companies -----
+  router.get("/meta/connections", async (req, res) => {
+    assertAuthenticated(req);
+    const ids = accessibleCompanyIds(req);
+    if (Array.isArray(ids) && ids.length === 0) {
+      res.json([]);
+      return;
+    }
+    const where = ids === "all" ? undefined : inArray(metaConnections.companyId, ids);
+    const rows = await (where
+      ? db
+          .select({
+            id: metaConnections.id,
+            companyId: metaConnections.companyId,
+            label: metaConnections.label,
+            businessId: metaConnections.businessId,
+            pageId: metaConnections.pageId,
+            adAccountId: metaConnections.adAccountId,
+            tokenType: metaConnections.tokenType,
+            scopes: metaConnections.scopes,
+            status: metaConnections.status,
+            expiresAt: metaConnections.expiresAt,
+            lastCheckAt: metaConnections.lastCheckAt,
+            lastError: metaConnections.lastError,
+            createdAt: metaConnections.createdAt,
+          })
+          .from(metaConnections)
+          .where(where)
+      : db
+          .select({
+            id: metaConnections.id,
+            companyId: metaConnections.companyId,
+            label: metaConnections.label,
+            businessId: metaConnections.businessId,
+            pageId: metaConnections.pageId,
+            adAccountId: metaConnections.adAccountId,
+            tokenType: metaConnections.tokenType,
+            scopes: metaConnections.scopes,
+            status: metaConnections.status,
+            expiresAt: metaConnections.expiresAt,
+            lastCheckAt: metaConnections.lastCheckAt,
+            lastError: metaConnections.lastError,
+            createdAt: metaConnections.createdAt,
+          })
+          .from(metaConnections));
+    res.json(rows);
+  });
 
   // ----- OAuth start (redirect) -----
   router.get("/meta/oauth/start", async (req, res) => {
@@ -313,6 +376,70 @@ export function metaRoutes(db: Db) {
     res.json({ data: data.data ?? [] });
   });
 
+  // ----- Mappings: company → (connection, adAccount) -----
+  router.get("/companies/:companyId/meta/mappings", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const rows = await db
+      .select({
+        id: metaAdAccountMappings.id,
+        companyId: metaAdAccountMappings.companyId,
+        connectionId: metaAdAccountMappings.connectionId,
+        adAccountId: metaAdAccountMappings.adAccountId,
+        label: metaAdAccountMappings.label,
+        createdAt: metaAdAccountMappings.createdAt,
+        connectionLabel: metaConnections.label,
+        connectionStatus: metaConnections.status,
+      })
+      .from(metaAdAccountMappings)
+      .leftJoin(metaConnections, eq(metaConnections.id, metaAdAccountMappings.connectionId))
+      .where(eq(metaAdAccountMappings.companyId, companyId));
+    res.json(rows);
+  });
+
+  router.post(
+    "/companies/:companyId/meta/mappings",
+    validate(createMappingSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      const body = req.body as z.infer<typeof createMappingSchema>;
+      // Validate connection exists AND caller can access the connection's company.
+      const conn = await db.query.metaConnections.findFirst({
+        where: eq(metaConnections.id, body.connectionId),
+      });
+      if (!conn) throw notFound("Connection not found");
+      const ids = accessibleCompanyIds(req);
+      if (ids !== "all" && !ids.includes(conn.companyId)) {
+        throw forbidden("You cannot use a connection from a company you don't have access to");
+      }
+      const adAccount = body.adAccountId.startsWith("act_")
+        ? body.adAccountId
+        : `act_${body.adAccountId}`;
+      const rows = await db
+        .insert(metaAdAccountMappings)
+        .values({
+          companyId,
+          connectionId: body.connectionId,
+          adAccountId: adAccount,
+          label: body.label ?? null,
+        })
+        .returning({ id: metaAdAccountMappings.id });
+      res.status(201).json({ id: rows[0]?.id, adAccountId: adAccount });
+    },
+  );
+
+  router.delete("/meta/mappings/:id", async (req, res) => {
+    const id = req.params.id as string;
+    const existing = await db.query.metaAdAccountMappings.findFirst({
+      where: eq(metaAdAccountMappings.id, id),
+    });
+    if (!existing) throw notFound("Mapping not found");
+    assertCompanyAccess(req, existing.companyId);
+    await db.delete(metaAdAccountMappings).where(eq(metaAdAccountMappings.id, id));
+    res.status(204).end();
+  });
+
   // ----- Insights -----
   router.get("/meta/insights", async (req, res) => {
     const parsed = insightsQuerySchema.safeParse(req.query);
@@ -322,26 +449,69 @@ export function metaRoutes(db: Db) {
     const q = parsed.data;
     assertCompanyAccess(req, q.company);
 
-    // Pick connection: explicit id, else first active for this company
-    let conn = null;
+    // Resolve (connection, adAccount). Three paths:
+    //   1) explicit `connection` param → use that, with optional adAccount override
+    //   2) no `connection` → look up a mapping for this company. If `adAccount`
+    //      provided, find the mapping matching it. Else, use the single active
+    //      mapping (error if 0 or >1 without filter).
+    //   3) legacy fallback: company has a connection with adAccountId set on it.
+    let conn: typeof metaConnections.$inferSelect | null = null;
+    let resolvedAdAccount: string | null = null;
+
     if (q.connection) {
       conn =
         (await db.query.metaConnections.findFirst({
-          where: and(eq(metaConnections.id, q.connection), eq(metaConnections.companyId, q.company)),
+          where: eq(metaConnections.id, q.connection),
         })) ?? null;
+      if (!conn) throw notFound("Connection not found");
+      const ids = accessibleCompanyIds(req);
+      if (ids !== "all" && !ids.includes(conn.companyId)) {
+        throw forbidden("You cannot use that connection");
+      }
+      resolvedAdAccount = q.adAccount ?? conn.adAccountId ?? null;
     } else {
-      const rows = await db
-        .select()
-        .from(metaConnections)
-        .where(and(eq(metaConnections.companyId, q.company), eq(metaConnections.status, "active")))
-        .limit(1);
-      conn = rows[0] ?? null;
+      // Try mappings first
+      const mappingFilters = [eq(metaAdAccountMappings.companyId, q.company)];
+      if (q.adAccount) {
+        const wanted = q.adAccount.startsWith("act_") ? q.adAccount : `act_${q.adAccount}`;
+        mappingFilters.push(eq(metaAdAccountMappings.adAccountId, wanted));
+      }
+      const mappings = await db
+        .select({
+          adAccountId: metaAdAccountMappings.adAccountId,
+          connectionId: metaAdAccountMappings.connectionId,
+        })
+        .from(metaAdAccountMappings)
+        .where(and(...mappingFilters));
+      if (mappings.length > 1 && !q.adAccount) {
+        throw badRequest(
+          `Company has ${mappings.length} mappings. Pass adAccount=act_xxx to disambiguate.`,
+        );
+      }
+      if (mappings.length === 1) {
+        const m = mappings[0];
+        conn =
+          (await db.query.metaConnections.findFirst({
+            where: eq(metaConnections.id, m.connectionId),
+          })) ?? null;
+        resolvedAdAccount = m.adAccountId;
+      } else {
+        // Legacy: connection with adAccountId on the company itself
+        const rows = await db
+          .select()
+          .from(metaConnections)
+          .where(and(eq(metaConnections.companyId, q.company), eq(metaConnections.status, "active")))
+          .limit(1);
+        conn = rows[0] ?? null;
+        resolvedAdAccount = q.adAccount ?? conn?.adAccountId ?? null;
+      }
     }
-    if (!conn) throw notFound("No active Meta connection for this company");
 
-    const adAccount = q.adAccount ?? conn.adAccountId;
-    if (!adAccount) throw badRequest("adAccount is required (or set on connection)");
-    const account = adAccount.startsWith("act_") ? adAccount : `act_${adAccount}`;
+    if (!conn) throw notFound("No Meta connection / mapping found for this company");
+    if (!resolvedAdAccount) throw badRequest("adAccount is required (no mapping, no override)");
+    const account = resolvedAdAccount.startsWith("act_")
+      ? resolvedAdAccount
+      : `act_${resolvedAdAccount}`;
 
     const fields =
       q.fields ??
