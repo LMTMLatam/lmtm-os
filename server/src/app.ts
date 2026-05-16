@@ -12,6 +12,8 @@ import { privateHostnameGuard, resolvePrivateHostnameAllowSet } from "./middlewa
 import { healthRoutes } from "./routes/health.js";
 import { askRoutes } from "./routes/ask.js";
 import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
+import { metaRoutes } from "./routes/meta.js";
+import { agentChatRoutes } from "./routes/agent-chat.js";
 import { companyRoutes } from "./routes/companies.js";
 import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
@@ -221,6 +223,8 @@ export async function createApp(
   api.use(costRoutes(db, { pluginWorkerManager: workerManager }));
   api.use(activityRoutes(db));
   api.use(lmtmDashboardDeployRoutes());
+  api.use(metaRoutes(db));
+  api.use(agentChatRoutes(db));
   api.use(dashboardRoutes(db));
   api.use(userProfileRoutes(db));
   api.use(sidebarBadgeRoutes(db));
