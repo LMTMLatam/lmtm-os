@@ -67,6 +67,27 @@ interface VercelFilePayload {
   encoding?: "utf-8" | "base64";
 }
 
+async function disableProjectProtection(
+  token: string,
+  teamId: string | undefined,
+  projectName: string,
+): Promise<void> {
+  const url = new URL(`https://api.vercel.com/v9/projects/${encodeURIComponent(projectName)}`);
+  if (teamId) url.searchParams.set("teamId", teamId);
+  try {
+    await fetch(url.toString(), {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ssoProtection: null, passwordProtection: null }),
+    });
+  } catch {
+    // Best-effort: don't fail the deploy if protection toggle errors.
+  }
+}
+
 async function vercelDeploy(params: {
   token: string;
   teamId?: string;
@@ -141,6 +162,11 @@ export function lmtmDashboardDeployRoutes() {
       files,
       target: body.target,
     });
+
+    // The team applies SSO protection to new projects by default, which makes
+    // the deployed dashboard return 401 to anonymous browsers. Best-effort
+    // toggle it off so the URL is publicly viewable.
+    await disableProjectProtection(token, teamId || undefined, projectName);
 
     res.status(201).json({
       id: deployment.id,
