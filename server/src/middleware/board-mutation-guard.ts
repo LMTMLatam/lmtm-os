@@ -30,6 +30,25 @@ function trustedOriginsForRequest(req: Request) {
   // explicitly-configured PAPERCLIP_PUBLIC_URL when it's set.
   const publicUrl = parseOrigin(process.env.PAPERCLIP_PUBLIC_URL?.trim());
   if (publicUrl) origins.add(publicUrl);
+
+  // Trust additional browser origins that ship with the deployment, e.g. a
+  // remote SPA panel hosted on a different domain that talks to this API.
+  // Two env vars are accepted:
+  //   PAPERCLIP_TRUSTED_BROWSER_ORIGINS — comma-separated absolute origins
+  //   PAPERCLIP_ALLOWED_HOSTNAMES — comma-separated hostnames (we add
+  //     both http and https variants)
+  const explicitOrigins = process.env.PAPERCLIP_TRUSTED_BROWSER_ORIGINS?.split(",") ?? [];
+  for (const raw of explicitOrigins) {
+    const parsed = parseOrigin(raw.trim());
+    if (parsed) origins.add(parsed);
+  }
+  const allowedHostnames = process.env.PAPERCLIP_ALLOWED_HOSTNAMES?.split(",") ?? [];
+  for (const raw of allowedHostnames) {
+    const hostname = raw.trim().toLowerCase();
+    if (!hostname) continue;
+    origins.add(`https://${hostname}`);
+    origins.add(`http://${hostname}`);
+  }
   return origins;
 }
 
