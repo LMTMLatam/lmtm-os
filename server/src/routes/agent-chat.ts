@@ -371,8 +371,13 @@ export function agentChatRoutes(db: Db) {
       }
 
       // Final assistant message — return.
+      // M2.x reasoning models emit <think>...</think> traces inline. Strip them
+      // from the user-facing output (we keep them in toolTrace via content for
+      // debugging if needed).
+      const rawOutput = msg.content ?? "";
+      const cleaned = rawOutput.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim();
       return res.json({
-        output: msg.content ?? "",
+        output: cleaned,
         agent: agentKey,
         toolTrace,
       });
