@@ -235,7 +235,7 @@ export async function createApp(
   api.use(lmtmDashboardDeployRoutes());
   api.use(metaRoutes(db));
   api.use(agentChatRoutes(db));
-  api.use(waBotRoutes(db));
+  api.use("/wa-bot", waBotRoutes(db));
   initWaBot(db).catch(() => {});
   api.use(dashboardRoutes(db));
   api.use(userProfileRoutes(db));
