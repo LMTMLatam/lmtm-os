@@ -47,10 +47,11 @@ const AUTH_DIR = "/tmp/wa-auth";
 async function loadBaileys() {
   try {
     const mod = await import("@whiskeysockets/baileys") as unknown as BaileysModule;
-    // Baileys uses named exports; some bundlers expose a .default wrapper
-    baileys = mod.default ?? mod;
+    baileys = (mod.default as BaileysModule | undefined) ?? mod;
     baileysAvailable = !!baileys?.makeWASocket;
-  } catch {
+    console.log("[wa-bot] Baileys loaded, makeWASocket:", typeof baileys?.makeWASocket, "keys:", Object.keys(mod).slice(0, 10).join(","));
+  } catch (e) {
+    console.error("[wa-bot] Baileys import failed:", e);
     baileysAvailable = false;
   }
 }

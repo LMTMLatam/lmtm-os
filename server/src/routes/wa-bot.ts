@@ -74,5 +74,16 @@ export function waBotRoutes(db: Db) {
     res.json(result);
   });
 
+  router.get("/debug-import", async (_req, res) => {
+    try {
+      const mod = await import("@whiskeysockets/baileys") as Record<string, unknown>;
+      const keys = Object.keys(mod);
+      const defKeys = mod.default ? Object.keys(mod.default as object) : [];
+      res.json({ keys: keys.slice(0, 20), defKeys: defKeys.slice(0, 20), hasDefault: "default" in mod, hasMakeWASocket: "makeWASocket" in mod });
+    } catch (e) {
+      res.json({ error: String(e) });
+    }
+  });
+
   return router;
 }
