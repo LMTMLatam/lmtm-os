@@ -1,10 +1,11 @@
 import { Router } from "express";
-import QRCode from "qrcode";
 import type { Db } from "@paperclipai/db";
 import {
   startWaBot,
   stopWaBot,
   getWaBotStatus,
+  fetchQr,
+  handleWebhook,
   getWaBotGroups,
   getGroupMessages,
   getGroupSummaries,
@@ -20,15 +21,9 @@ export function waBotRoutes(db: Db) {
   });
 
   router.get("/qr", async (_req, res) => {
-    const { qr, status } = getWaBotStatus();
-    if (status === "connected") return res.json({ connected: true });
-    if (!qr) return res.json({ qr: null, status });
-    try {
-      const dataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
-      return res.json({ qr: dataUrl, status });
-    } catch {
-      return res.json({ qr, status });
-    }
+    const result = await fetchQr();
+    if (result.status === "connected") return res.json({ connected: true });
+    return res.json({ qr: result.qr, status: result.status });
   });
 
   router.post("/start", async (_req, res) => {
@@ -39,6 +34,11 @@ export function waBotRoutes(db: Db) {
   router.post("/stop", async (_req, res) => {
     const result = await stopWaBot();
     res.json(result);
+  });
+
+  router.post("/webhook", async (req, res) => {
+    res.json({ ok: true });
+    await handleWebhook(req.body as Record<string, unknown>).catch(() => {});
   });
 
   router.get("/groups", async (_req, res) => {
@@ -72,17 +72,6 @@ export function waBotRoutes(db: Db) {
     const { summaryHour } = req.body as { summaryHour?: number };
     const result = await updateWaBotConfig(db, { summaryHour });
     res.json(result);
-  });
-
-  router.get("/debug-import", async (_req, res) => {
-    try {
-      const mod = await import("@whiskeysockets/baileys") as Record<string, unknown>;
-      const keys = Object.keys(mod);
-      const defKeys = mod.default ? Object.keys(mod.default as object) : [];
-      res.json({ keys: keys.slice(0, 20), defKeys: defKeys.slice(0, 20), hasDefault: "default" in mod, hasMakeWASocket: "makeWASocket" in mod });
-    } catch (e) {
-      res.json({ error: String(e) });
-    }
   });
 
   return router;

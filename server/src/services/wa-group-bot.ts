@@ -2,71 +2,72 @@ import type { Db } from "@paperclipai/db";
 import { waGroupMessages, waGroupSummaries, waBotConfig } from "@paperclipai/db";
 import { desc, gte, eq, and } from "drizzle-orm";
 
-interface BaileysModule {
-  makeWASocket: (config: Record<string, unknown>) => WASocket;
-  useMultiFileAuthState: (path: string) => Promise<{ state: unknown; saveCreds: () => Promise<void> }>;
-  DisconnectReason: Record<string, number>;
-  fetchLatestBaileysVersion: () => Promise<{ version: number[] }>;
-  makeCacheableSignalKeyStore: (store: unknown, logger: unknown) => unknown;
-  proto: { WebMessageInfo: { fromObject: (m: unknown) => unknown } };
-  downloadMediaMessage: (msg: unknown, format: string) => Promise<Buffer>;
-  jidNormalizedUser: (jid: string) => string;
-  default?: BaileysModule;
+const SESSION_ID = "lmtm";
+
+function baseUrl() {
+  return (process.env.OPENWA_URL ?? "").replace(/\/$/, "");
 }
 
-interface WASocket {
-  ev: {
-    on: (event: string, handler: (...args: unknown[]) => void) => void;
-    off: (event: string, handler: (...args: unknown[]) => void) => void;
-  };
-  sendMessage: (jid: string, content: Record<string, unknown>) => Promise<unknown>;
-  logout: () => Promise<void>;
-  end: (error?: Error) => void;
-  ws: { readyState: number };
-  authState: { creds: unknown };
+function headers() {
+  const key = process.env.OPENWA_API_KEY ?? "";
+  return { "Content-Type": "application/json", ...(key ? { "X-API-Key": key } : {}) };
 }
 
-interface WAMessage {
-  key: { remoteJid?: string | null; fromMe?: boolean | null; id?: string | null };
-  message?: { conversation?: string | null; extendedTextMessage?: { text?: string | null } | null } | null;
-  pushName?: string | null;
-  messageTimestamp?: number | string | { toNumber: () => number } | null;
-}
+type OurStatus = "disconnected" | "connecting" | "connected";
 
-let sock: WASocket | null = null;
-let db: Db | null = null;
-let summaryTimer: ReturnType<typeof setInterval> | null = null;
-let currentQr: string | null = null;
-let status: "disconnected" | "connecting" | "connected" = "disconnected";
-let connectedPhone: string | null = null;
-let baileysAvailable = false;
-let baileys: BaileysModule | null = null;
-
-const AUTH_DIR = "/tmp/wa-auth";
-
-async function loadBaileys() {
-  try {
-    const mod = await import("@whiskeysockets/baileys") as unknown as BaileysModule;
-    baileys = (mod.default as BaileysModule | undefined) ?? mod;
-    baileysAvailable = !!baileys?.makeWASocket;
-    console.log("[wa-bot] Baileys loaded, makeWASocket:", typeof baileys?.makeWASocket, "keys:", Object.keys(mod).slice(0, 10).join(","));
-  } catch (e) {
-    console.error("[wa-bot] Baileys import failed:", e);
-    baileysAvailable = false;
+function mapStatus(s: string | undefined): OurStatus {
+  switch ((s ?? "").toUpperCase()) {
+    case "CONNECTED": return "connected";
+    case "INITIALIZING":
+    case "SCAN_QR":
+    case "CONNECTING":
+    case "AUTHENTICATED": return "connecting";
+    default: return "disconnected";
   }
 }
 
+let db: Db | null = null;
+let summaryTimer: ReturnType<typeof setInterval> | null = null;
+let cachedStatus: OurStatus = "disconnected";
+let cachedPhone: string | null = null;
+let cachedQr: string | null = null;
+
+// --- OpenWA HTTP helpers ---
+
+async function owGet(path: string) {
+  const url = `${baseUrl()}${path}`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error(`OpenWA ${path} → ${res.status}`);
+  return res.json() as Promise<Record<string, unknown>>;
+}
+
+async function owPost(path: string, body?: unknown) {
+  const url = `${baseUrl()}${path}`;
+  const res = await fetch(url, { method: "POST", headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`OpenWA POST ${path} → ${res.status} ${text}`);
+  }
+  return res.json() as Promise<Record<string, unknown>>;
+}
+
+async function owDelete(path: string) {
+  const url = `${baseUrl()}${path}`;
+  const res = await fetch(url, { method: "DELETE", headers: headers() });
+  if (!res.ok) throw new Error(`OpenWA DELETE ${path} → ${res.status}`);
+}
+
+// --- Summarization (unchanged) ---
+
 async function summarizeGroup(groupJid: string, groupName: string | null, messages: { senderName: string | null; body: string; timestamp: Date }[]) {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
+  const baseUrl2 = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
   const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2.7";
   if (!apiKey || messages.length === 0) return null;
 
-  const transcript = messages
-    .map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`)
-    .join("\n");
+  const transcript = messages.map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`).join("\n");
 
-  const r = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
+  const r = await fetch(`${baseUrl2}/text/chatcompletion_v2`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
@@ -76,8 +77,7 @@ async function summarizeGroup(groupJid: string, groupName: string | null, messag
       messages: [
         {
           role: "system",
-          content:
-            "Sos un asistente que resume conversaciones de grupos de WhatsApp para equipos de agencia. Generá un resumen conciso en español rioplatense con: temas tratados, decisiones tomadas, tareas mencionadas y puntos pendientes. Máximo 300 palabras.",
+          content: "Sos un asistente que resume conversaciones de grupos de WhatsApp para equipos de agencia. Generá un resumen conciso en español rioplatense con: temas tratados, decisiones tomadas, tareas mencionadas y puntos pendientes. Máximo 300 palabras.",
         },
         {
           role: "user",
@@ -92,18 +92,12 @@ async function summarizeGroup(groupJid: string, groupName: string | null, messag
   return raw.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
 }
 
-async function runDailySummary() {
-  if (!db || !sock || status !== "connected") return;
+export async function runDailySummary() {
+  if (!db || cachedStatus !== "connected") return;
 
-  // Get all groups that have messages in the last 24h
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const rows = await db
-    .select()
-    .from(waGroupMessages)
-    .where(gte(waGroupMessages.timestamp, since))
-    .orderBy(waGroupMessages.timestamp);
+  const rows = await db.select().from(waGroupMessages).where(gte(waGroupMessages.timestamp, since)).orderBy(waGroupMessages.timestamp);
 
-  // Group by groupJid
   const byGroup = new Map<string, typeof rows>();
   for (const row of rows) {
     if (!byGroup.has(row.groupJid)) byGroup.set(row.groupJid, []);
@@ -114,29 +108,16 @@ async function runDailySummary() {
 
   for (const [groupJid, msgs] of byGroup) {
     const groupName = msgs[0].groupName;
-    const summary = await summarizeGroup(
-      groupJid,
-      groupName,
-      msgs.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })),
-    );
+    const summary = await summarizeGroup(groupJid, groupName, msgs.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })));
     if (!summary) continue;
 
-    // Upsert summary
-    await db
-      .insert(waGroupSummaries)
-      .values({ groupJid, groupName, summaryDate: today, content: summary, messageCount: msgs.length })
-      .onConflictDoUpdate({
-        target: [waGroupSummaries.groupJid, waGroupSummaries.summaryDate],
-        set: { content: summary, messageCount: msgs.length },
-      });
+    await db.insert(waGroupSummaries).values({ groupJid, groupName, summaryDate: today, content: summary, messageCount: msgs.length })
+      .onConflictDoUpdate({ target: [waGroupSummaries.groupJid, waGroupSummaries.summaryDate], set: { content: summary, messageCount: msgs.length } });
 
-    // Send back to group
     try {
       const text = `📊 *Resumen del día ${today}*\nGrupo: ${groupName ?? groupJid}\n\n${summary}`;
-      await sock.sendMessage(groupJid, { text });
-      await db
-        .update(waGroupSummaries)
-        .set({ sentAt: new Date() })
+      await owPost(`/api/sessions/${SESSION_ID}/messages/send-text`, { chatId: groupJid, text });
+      await db.update(waGroupSummaries).set({ sentAt: new Date() })
         .where(and(eq(waGroupSummaries.groupJid, groupJid), eq(waGroupSummaries.summaryDate, today)));
     } catch { /* noop */ }
   }
@@ -144,155 +125,129 @@ async function runDailySummary() {
 
 function scheduleSummary(hour: number) {
   if (summaryTimer) clearInterval(summaryTimer);
-  // Check every minute if it's time for the daily summary
   summaryTimer = setInterval(() => {
     const now = new Date();
-    if (now.getHours() === hour && now.getMinutes() === 0) {
-      runDailySummary().catch(() => {});
-    }
+    if (now.getHours() === hour && now.getMinutes() === 0) runDailySummary().catch(() => {});
   }, 60_000);
 }
 
-async function connect() {
-  if (!baileysAvailable || !baileys || !db) return;
-  status = "connecting";
-  currentQr = null;
+// --- Webhook handler (called from route) ---
 
-  let state: unknown, saveCreds: () => Promise<void>;
-  try {
-    const auth = await baileys.useMultiFileAuthState(AUTH_DIR);
-    state = auth.state;
-    saveCreds = auth.saveCreds;
-  } catch (e) {
-    console.error("[wa-bot] useMultiFileAuthState failed:", e);
-    status = "disconnected";
-    return;
+export async function handleWebhook(payload: Record<string, unknown>) {
+  const event = payload.event as string | undefined;
+  const data = (payload.data ?? {}) as Record<string, unknown>;
+
+  if (event === "session.status") {
+    const newStatus = mapStatus(data.status as string);
+    cachedStatus = newStatus;
+    if (newStatus !== "connecting") cachedQr = null;
+    if (newStatus === "connected") {
+      cachedPhone = (data.phone as string | null) ?? null;
+      if (db) await db.update(waBotConfig).set({ status: "connected", connectedPhone: cachedPhone, lastQr: null, updatedAt: new Date() }).catch(() => {});
+    } else {
+      if (db) await db.update(waBotConfig).set({ status: newStatus, updatedAt: new Date() }).catch(() => {});
+    }
   }
 
-  let version: number[];
-  try {
-    const v = await baileys.fetchLatestBaileysVersion();
-    version = v.version;
-  } catch (e) {
-    console.warn("[wa-bot] fetchLatestBaileysVersion failed, using fallback:", e);
-    version = [2, 3000, 1024768614];
+  if (event === "session.qr") {
+    cachedQr = (data.qrCode as string | null) ?? null;
+    cachedStatus = "connecting";
+    if (db) await db.update(waBotConfig).set({ lastQr: cachedQr, status: "connecting", updatedAt: new Date() }).catch(() => {});
   }
 
-  try {
-    sock = baileys.makeWASocket({
-      version,
-      auth: state,
-      printQRInTerminal: false,
-      browser: ["LMTM Bot", "Chrome", "1.0"],
-      connectTimeoutMs: 60_000,
-      defaultQueryTimeoutMs: 30_000,
-    });
-  } catch (e) {
-    console.error("[wa-bot] makeWASocket failed:", e);
-    status = "disconnected";
-    return;
+  if (event === "session.disconnected") {
+    cachedStatus = "disconnected";
+    cachedQr = null;
+    if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
   }
 
-  sock.ev.on("connection.update", async (update: unknown) => {
-    const u = update as { connection?: string; lastDisconnect?: { error?: { output?: { statusCode?: number } } }; qr?: string };
-    if (u.qr) {
-      currentQr = u.qr;
-      await db!.update(waBotConfig).set({ lastQr: u.qr, status: "connecting", updatedAt: new Date() });
-    }
-    if (u.connection === "open") {
-      status = "connected";
-      currentQr = null;
-      const phone = (state as { creds?: { me?: { id?: string } } })?.creds?.me?.id?.split(":")[0] ?? null;
-      connectedPhone = phone;
-      await db!.update(waBotConfig).set({ status: "connected", connectedPhone: phone, lastQr: null, updatedAt: new Date() });
-    }
-    if (u.connection === "close") {
-      status = "disconnected";
-      const code = u.lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = code !== 401;
-      if (shouldReconnect) setTimeout(() => connect(), 5000);
-      else await db!.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() });
-    }
-  });
+  if (event === "message.received") {
+    const isGroup = data.isGroup as boolean | undefined;
+    if (!isGroup || !db) return;
 
-  sock.ev.on("creds.update", saveCreds!);
+    const groupJid = data.from as string;
+    const body = (data.body as string | undefined) ?? "";
+    if (!body) return;
 
-  sock.ev.on("messages.upsert", async (upsert: unknown) => {
-    const u = upsert as { type?: string; messages?: WAMessage[] };
-    if (u.type !== "notify" || !u.messages) return;
-    for (const msg of u.messages) {
-      if (msg.key.fromMe) continue;
-      const jid = msg.key.remoteJid;
-      if (!jid || !jid.endsWith("@g.us")) continue; // groups only
+    const contact = (data.contact ?? {}) as Record<string, unknown>;
+    const senderName = (contact.pushName as string | null) ?? (contact.name as string | null) ?? null;
+    const ts = data.timestamp ? new Date(data.timestamp as string) : new Date();
 
-      const body =
-        msg.message?.conversation ??
-        msg.message?.extendedTextMessage?.text ??
-        "";
-      if (!body) continue;
-
-      const ts = msg.messageTimestamp
-        ? new Date(
-            typeof msg.messageTimestamp === "object" && "toNumber" in msg.messageTimestamp
-              ? (msg.messageTimestamp as { toNumber: () => number }).toNumber() * 1000
-              : Number(msg.messageTimestamp) * 1000,
-          )
-        : new Date();
-
-      await db!.insert(waGroupMessages).values({
-        groupJid: jid,
-        groupName: null,
-        senderJid: msg.key.id ?? "unknown",
-        senderName: msg.pushName ?? null,
-        body,
-        timestamp: ts,
-      });
-    }
-  });
+    await db.insert(waGroupMessages).values({
+      groupJid,
+      groupName: null,
+      senderJid: (data.id as string | null) ?? "unknown",
+      senderName,
+      body,
+      timestamp: ts,
+    }).catch(() => {});
+  }
 }
+
+// --- Public API ---
 
 export async function initWaBot(database: Db) {
   db = database;
-  await loadBaileys();
 
-  // Ensure config row exists
   const existing = await db.select().from(waBotConfig).limit(1);
   if (existing.length === 0) {
     await db.insert(waBotConfig).values({});
   } else {
-    // Reset status on restart
     await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() });
   }
 
   const config = (await db.select().from(waBotConfig).limit(1))[0];
   scheduleSummary(config?.summaryHour ?? 20);
+
+  if (!baseUrl()) {
+    console.warn("[wa-bot] OPENWA_URL not set — WA bot disabled");
+  }
 }
 
 export async function startWaBot() {
-  if (!baileysAvailable) return { error: "Baileys not installed. Run: pnpm add @whiskeysockets/baileys" };
-  if (status === "connected") return { ok: true, status: "already connected" };
-  if (status === "connecting") return { ok: true, status: "already connecting" };
-  connect().catch((e) => { console.error("[wa-bot] connect() unhandled:", e); status = "disconnected"; });
-  return { ok: true };
+  if (!baseUrl()) return { error: "OPENWA_URL not configured" };
+  try {
+    const res = await owPost(`/api/sessions/${SESSION_ID}/start`);
+    cachedStatus = "connecting";
+    if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
+    return { ok: true, data: res };
+  } catch (e) {
+    return { error: String(e) };
+  }
 }
 
 export async function stopWaBot() {
-  if (sock) { try { sock.end(); } catch { /* noop */ } sock = null; }
-  status = "disconnected";
-  if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() });
+  if (baseUrl()) {
+    try { await owDelete(`/api/sessions/${SESSION_ID}`); } catch { /* noop */ }
+  }
+  cachedStatus = "disconnected";
+  cachedQr = null;
+  if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
   return { ok: true };
 }
 
 export function getWaBotStatus() {
-  return { status, connectedPhone, qr: currentQr, baileysAvailable };
+  return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, baileysAvailable: !!baseUrl() };
+}
+
+export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus }> {
+  if (!baseUrl()) return { qr: null, status: "disconnected" };
+  try {
+    const res = await owGet(`/api/sessions/${SESSION_ID}/qr`);
+    const d = (res.data ?? {}) as Record<string, unknown>;
+    const qr = (d.qrCode ?? d.image ?? null) as string | null;
+    if (qr) cachedQr = qr;
+    return { qr, status: cachedStatus };
+  } catch {
+    return { qr: cachedQr, status: cachedStatus };
+  }
 }
 
 export async function getWaBotGroups(database: Db) {
-  const rows = await database
+  return database
     .select({ groupJid: waGroupMessages.groupJid, groupName: waGroupMessages.groupName })
     .from(waGroupMessages)
     .groupBy(waGroupMessages.groupJid, waGroupMessages.groupName);
-  return rows;
 }
 
 export async function getGroupMessages(database: Db, groupJid: string, since?: Date) {
@@ -303,12 +258,7 @@ export async function getGroupMessages(database: Db, groupJid: string, since?: D
 }
 
 export async function getGroupSummaries(database: Db, groupJid: string) {
-  return database
-    .select()
-    .from(waGroupSummaries)
-    .where(eq(waGroupSummaries.groupJid, groupJid))
-    .orderBy(desc(waGroupSummaries.summaryDate))
-    .limit(30);
+  return database.select().from(waGroupSummaries).where(eq(waGroupSummaries.groupJid, groupJid)).orderBy(desc(waGroupSummaries.summaryDate)).limit(30);
 }
 
 export async function updateWaBotConfig(database: Db, opts: { summaryHour?: number }) {
@@ -316,5 +266,3 @@ export async function updateWaBotConfig(database: Db, opts: { summaryHour?: numb
   if (opts.summaryHour !== undefined) scheduleSummary(opts.summaryHour);
   return { ok: true };
 }
-
-export { runDailySummary };
