@@ -158,17 +158,40 @@ async function connect() {
   status = "connecting";
   currentQr = null;
 
-  const { state, saveCreds } = await baileys.useMultiFileAuthState(AUTH_DIR);
-  const { version } = await baileys.fetchLatestBaileysVersion();
+  let state: unknown, saveCreds: () => Promise<void>;
+  try {
+    const auth = await baileys.useMultiFileAuthState(AUTH_DIR);
+    state = auth.state;
+    saveCreds = auth.saveCreds;
+  } catch (e) {
+    console.error("[wa-bot] useMultiFileAuthState failed:", e);
+    status = "disconnected";
+    return;
+  }
 
-  sock = baileys.makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
-    browser: ["LMTM Bot", "Chrome", "1.0"],
-    connectTimeoutMs: 60_000,
-    defaultQueryTimeoutMs: 30_000,
-  });
+  let version: number[];
+  try {
+    const v = await baileys.fetchLatestBaileysVersion();
+    version = v.version;
+  } catch (e) {
+    console.warn("[wa-bot] fetchLatestBaileysVersion failed, using fallback:", e);
+    version = [2, 3000, 1024768614];
+  }
+
+  try {
+    sock = baileys.makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      browser: ["LMTM Bot", "Chrome", "1.0"],
+      connectTimeoutMs: 60_000,
+      defaultQueryTimeoutMs: 30_000,
+    });
+  } catch (e) {
+    console.error("[wa-bot] makeWASocket failed:", e);
+    status = "disconnected";
+    return;
+  }
 
   sock.ev.on("connection.update", async (update: unknown) => {
     const u = update as { connection?: string; lastDisconnect?: { error?: { output?: { statusCode?: number } } }; qr?: string };
@@ -192,7 +215,7 @@ async function connect() {
     }
   });
 
-  sock.ev.on("creds.update", saveCreds);
+  sock.ev.on("creds.update", saveCreds!);
 
   sock.ev.on("messages.upsert", async (upsert: unknown) => {
     const u = upsert as { type?: string; messages?: WAMessage[] };
@@ -248,7 +271,8 @@ export async function initWaBot(database: Db) {
 export async function startWaBot() {
   if (!baileysAvailable) return { error: "Baileys not installed. Run: pnpm add @whiskeysockets/baileys" };
   if (status === "connected") return { ok: true, status: "already connected" };
-  await connect();
+  if (status === "connecting") return { ok: true, status: "already connecting" };
+  connect().catch((e) => { console.error("[wa-bot] connect() unhandled:", e); status = "disconnected"; });
   return { ok: true };
 }
 
