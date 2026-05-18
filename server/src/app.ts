@@ -14,6 +14,8 @@ import { askRoutes } from "./routes/ask.js";
 import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
+import { waBotRoutes } from "./routes/wa-bot.js";
+import { initWaBot } from "./services/wa-group-bot.js";
 import { companyRoutes } from "./routes/companies.js";
 import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
@@ -225,6 +227,8 @@ export async function createApp(
   api.use(lmtmDashboardDeployRoutes());
   api.use(metaRoutes(db));
   api.use(agentChatRoutes(db));
+  api.use(waBotRoutes(db));
+  initWaBot(db).catch(() => {});
   api.use(dashboardRoutes(db));
   api.use(userProfileRoutes(db));
   api.use(sidebarBadgeRoutes(db));

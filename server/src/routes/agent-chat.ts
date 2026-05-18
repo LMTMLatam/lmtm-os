@@ -69,6 +69,17 @@ const SYSTEM_PROMPTS: Record<string, string> = {
     "",
     "REGLAS: Español rioplatense. Nunca inventés números — si no tenés datos, marcá el card con '[Sin datos — conectar fuente]' en gris.",
   ].join("\n"),
+  n8n: [
+    "Sos el Agente n8n de LMTM. Podés crear, listar y ejecutar workflows en n8n.",
+    "Cuando te pidan un flujo nuevo:",
+    "1) Usá n8n_search_nodes para encontrar los nodos necesarios.",
+    "2) Usá n8n_get_sdk_reference para entender el formato de código.",
+    "3) Creá el workflow con n8n_create_workflow.",
+    "4) Confirmá con el usuario qué hace y si lo activamos.",
+    "Cuando listen o busquen workflows: n8n_search_workflows + n8n_get_workflow_details.",
+    "Para ejecutar: n8n_execute_workflow.",
+    "Español rioplatense. Breve y accionable. Si algo falla, mostrá el error y proponé fix.",
+  ].join("\n"),
   default:
     "Sos un asistente de LMTM. Respondé en español, breve y accionable. Si te ofrecen tools, usalas.",
 };
@@ -133,6 +144,92 @@ const TOOLS_BY_AGENT: Record<string, unknown[]> = {
             target: { type: "string", enum: ["preview", "production"], description: "Default production." },
           },
           required: ["name", "html"],
+          additionalProperties: false,
+        },
+      },
+    },
+  ],
+  n8n: [
+    {
+      type: "function",
+      function: {
+        name: "n8n_search_workflows",
+        description: "Lista/busca workflows en n8n. Devuelve nombre, id, estado activo.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Filtrar por nombre o descripción" },
+            limit: { type: "integer", description: "Máximo de resultados (default 20)" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "n8n_get_workflow_details",
+        description: "Obtiene detalles de un workflow: nodos, trigger, configuración.",
+        parameters: {
+          type: "object",
+          properties: {
+            workflowId: { type: "string", description: "ID del workflow" },
+          },
+          required: ["workflowId"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "n8n_execute_workflow",
+        description: "Ejecuta un workflow de n8n por su ID.",
+        parameters: {
+          type: "object",
+          properties: {
+            workflowId: { type: "string", description: "ID del workflow a ejecutar" },
+            executionMode: { type: "string", enum: ["manual", "production"], description: "Default: production" },
+          },
+          required: ["workflowId"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "n8n_create_workflow",
+        description: "Crea un workflow nuevo en n8n desde código SDK. Consultá n8n_get_sdk_reference primero para entender el formato.",
+        parameters: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "Código TypeScript del n8n Workflow SDK" },
+          },
+          required: ["code"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "n8n_get_sdk_reference",
+        description: "Obtiene la documentación del n8n Workflow SDK para saber cómo escribir código de workflows.",
+        parameters: { type: "object", properties: {}, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "n8n_search_nodes",
+        description: "Busca nodos de n8n por servicio (ej: 'gmail', 'slack', 'webhook', 'http'). Usar al construir workflows.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Nombre del servicio o función a buscar" },
+          },
+          required: ["query"],
           additionalProperties: false,
         },
       },
@@ -304,6 +401,56 @@ async function execDeployDashboard(args: { name: string; html: string; target?: 
   return { id: raw.id, projectName, url: `https://${raw.url}`, target };
 }
 
+// n8n tool name mapping: our name (without n8n_ prefix) → MCP tool name
+const N8N_TOOL_MAP: Record<string, string> = {
+  search_workflows: "search_workflows",
+  get_workflow_details: "get_workflow_details",
+  execute_workflow: "execute_workflow",
+  create_workflow: "create_workflow_from_code",
+  get_sdk_reference: "get_sdk_reference",
+  search_nodes: "search_nodes",
+};
+
+async function callN8nMcp(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  const url = process.env.N8N_MCP_URL;
+  const token = process.env.N8N_MCP_TOKEN;
+  if (!url || !token) return { error: "N8N_MCP_URL / N8N_MCP_TOKEN not configured" };
+  let r: Response;
+  try {
+    r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name: toolName, arguments: args } }),
+    });
+  } catch (e) {
+    return { error: `n8n MCP fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const text = await r.text();
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    try {
+      const data = JSON.parse(line.slice(5).trim());
+      if (data.error) return { error: data.error.message ?? JSON.stringify(data.error) };
+      if (data.result) {
+        const content = data.result?.content;
+        if (Array.isArray(content)) {
+          const texts = (content as Array<{ type: string; text?: string }>)
+            .filter((c) => c.type === "text")
+            .map((c) => c.text ?? "");
+          if (texts.length === 1) { try { return JSON.parse(texts[0]); } catch { return { result: texts[0] }; } }
+          return { result: texts.join("\n") };
+        }
+        return data.result;
+      }
+    } catch { /* continue */ }
+  }
+  return { error: "No result from n8n MCP", raw: text.slice(0, 300) };
+}
+
 async function executeTool(
   db: Db,
   companyId: string,
@@ -321,6 +468,11 @@ async function executeTool(
     return execMetaInsights(db, companyId, args as { adAccount?: string; datePreset?: string });
   if (name === "deploy_dashboard")
     return execDeployDashboard(args as { name: string; html: string; target?: string });
+  if (name.startsWith("n8n_")) {
+    const key = name.slice(4);
+    const mcpTool = N8N_TOOL_MAP[key] ?? key;
+    return callN8nMcp(mcpTool, args);
+  }
   return { error: `Unknown tool: ${name}` };
 }
 
