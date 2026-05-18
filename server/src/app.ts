@@ -179,6 +179,14 @@ export async function createApp(
       bindHost: opts.bindHost,
     }),
   );
+  // Promote ?token= query param to Authorization header for browser-redirect OAuth flows
+  // (browser navigations don't send Authorization headers)
+  app.use((req, _res, next) => {
+    if (req.path.startsWith("/api/meta/oauth/") && typeof req.query.token === "string" && !req.headers.authorization) {
+      req.headers.authorization = `Bearer ${req.query.token}`;
+    }
+    next();
+  });
   app.use(
     actorMiddleware(db, {
       deploymentMode: opts.deploymentMode,
