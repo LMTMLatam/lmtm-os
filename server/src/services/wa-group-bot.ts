@@ -3,16 +3,15 @@ import { waGroupMessages, waGroupSummaries, waBotConfig } from "@paperclipai/db"
 import { desc, gte, eq, and } from "drizzle-orm";
 
 interface BaileysModule {
-  default: {
-    makeWASocket: (config: Record<string, unknown>) => WASocket;
-    useMultiFileAuthState: (path: string) => Promise<{ state: unknown; saveCreds: () => Promise<void> }>;
-    DisconnectReason: Record<string, number>;
-    fetchLatestBaileysVersion: () => Promise<{ version: number[] }>;
-    makeCacheableSignalKeyStore: (store: unknown, logger: unknown) => unknown;
-    proto: { WebMessageInfo: { fromObject: (m: unknown) => unknown } };
-    downloadMediaMessage: (msg: unknown, format: string) => Promise<Buffer>;
-    jidNormalizedUser: (jid: string) => string;
-  };
+  makeWASocket: (config: Record<string, unknown>) => WASocket;
+  useMultiFileAuthState: (path: string) => Promise<{ state: unknown; saveCreds: () => Promise<void> }>;
+  DisconnectReason: Record<string, number>;
+  fetchLatestBaileysVersion: () => Promise<{ version: number[] }>;
+  makeCacheableSignalKeyStore: (store: unknown, logger: unknown) => unknown;
+  proto: { WebMessageInfo: { fromObject: (m: unknown) => unknown } };
+  downloadMediaMessage: (msg: unknown, format: string) => Promise<Buffer>;
+  jidNormalizedUser: (jid: string) => string;
+  default?: BaileysModule;
 }
 
 interface WASocket {
@@ -41,16 +40,16 @@ let currentQr: string | null = null;
 let status: "disconnected" | "connecting" | "connected" = "disconnected";
 let connectedPhone: string | null = null;
 let baileysAvailable = false;
-let baileys: BaileysModule["default"] | null = null;
+let baileys: BaileysModule | null = null;
 
 const AUTH_DIR = "/tmp/wa-auth";
 
 async function loadBaileys() {
   try {
-    // Dynamic import so server starts even if baileys not installed
     const mod = await import("@whiskeysockets/baileys") as unknown as BaileysModule;
-    baileys = mod.default;
-    baileysAvailable = true;
+    // Baileys uses named exports; some bundlers expose a .default wrapper
+    baileys = mod.default ?? mod;
+    baileysAvailable = !!baileys?.makeWASocket;
   } catch {
     baileysAvailable = false;
   }
