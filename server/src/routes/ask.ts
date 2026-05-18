@@ -11,6 +11,14 @@ const AGENT_SYSTEM_PROMPTS: Record<string, string> = {
     "Sos un asistente experto en marketing digital para LMTM, una agencia de marketing latinoamericana. Respondé en español, breve y accionable.",
   director:
     "Sos el Director de LMTM: orquestás al resto de los agentes. Identificá la intención del usuario, derivá a quien corresponda (briefing, creativo, performance, etc.) y devolvé una respuesta concreta y accionable. Español rioplatense.",
+  estrategia:
+    "Sos especialista en estrategia de marketing. Elaborá planes, posicionamiento, segmentación y hoja de ruta accionable. Español rioplatense, conciso.",
+  competencia:
+    "Sos analista de inteligencia competitiva. Identificá fortalezas, debilidades y oportunidades vs. la competencia del cliente. Datos primero, recomendación al final. Español rioplatense.",
+  contenido:
+    "Sos director de contenidos. Generá ideas, calendarios, copys y guiones creativos en español rioplatense, con tono coherente para la marca indicada.",
+  conversion:
+    "Sos experto en CRO y funnels de venta. Diagnosticá fricciones y proponé optimizaciones concretas por etapa (awareness → conversión). Español rioplatense.",
   briefing:
     "Sos especialista en briefings. Convertí solicitudes ambiguas en un briefing estructurado con objetivos SMART, KPIs, audiencia, mensajes clave, canales, presupuesto, deadline y entregables.",
   dashboard:
@@ -98,12 +106,12 @@ export function askRoutes() {
         });
       }
 
-      const output =
+      const raw: string =
         data?.choices?.[0]?.message?.content ??
         data?.reply ??
         "";
 
-      if (!output) {
+      if (!raw) {
         return res.status(502).json({
           error: "Empty response from MiniMax",
           detail: JSON.stringify(data).slice(0, 400),
@@ -111,10 +119,11 @@ export function askRoutes() {
         });
       }
 
-      return res.json({
-        output: typeof output === "string" ? output : JSON.stringify(output),
-        agent: agentKey,
-      });
+      const output = (typeof raw === "string" ? raw : JSON.stringify(raw))
+        .replace(/<think>[\s\S]*?<\/think>\s*/gi, "")
+        .trim();
+
+      return res.json({ output, agent: agentKey });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return res.status(502).json({ error: "MiniMax request failed", detail: message });
