@@ -1,0 +1,14 @@
+name: keepalive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ping services
+        run: |
+          curl -sf https://lmtm.onrender.com/api/health && echo "lmtm ok"
+          curl -sf https://openwa-zpya.onrender.com/api/health && echo "openwa ok"
