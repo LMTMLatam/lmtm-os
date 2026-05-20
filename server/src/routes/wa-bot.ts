@@ -69,8 +69,8 @@ export function waBotRoutes(db: Db) {
   });
 
   router.patch("/config", async (req, res) => {
-    const { summaryHour } = req.body as { summaryHour?: number };
-    const result = await updateWaBotConfig(db, { summaryHour });
+    const { inactivityMinutes } = req.body as { inactivityMinutes?: number };
+    const result = await updateWaBotConfig(db, { inactivityMinutes });
     res.json(result);
   });
 

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
 
 export const waBotConfig = pgTable("wa_bot_config", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -7,6 +7,7 @@ export const waBotConfig = pgTable("wa_bot_config", {
   lastQr: text("last_qr"),
   summaryHour: integer("summary_hour").notNull().default(20),
   summaryDestination: text("summary_destination").notNull().default("group"),
+  inactivityMinutes: integer("inactivity_minutes").notNull().default(30),
   sessionData: jsonb("session_data"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -43,6 +44,7 @@ export const waGroupSummaries = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    uq: uniqueIndex("wa_group_summaries_group_date_uq").on(t.groupJid, t.summaryDate),
+    groupIdx: index("wa_group_summaries_group_idx").on(t.groupJid),
+    tsIdx: index("wa_group_summaries_ts_idx").on(t.createdAt),
   }),
 );

@@ -27,10 +27,12 @@ function mapStatus(s: string | undefined): OurStatus {
 }
 
 let db: Db | null = null;
-let summaryTimer: ReturnType<typeof setInterval> | null = null;
 let cachedStatus: OurStatus = "disconnected";
 let cachedPhone: string | null = null;
 let cachedQr: string | null = null;
+let inactivityMs = 30 * 60 * 1000;
+
+const groupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // --- OpenWA HTTP helpers ---
 
@@ -57,17 +59,17 @@ async function owDelete(path: string) {
   if (!res.ok) throw new Error(`OpenWA DELETE ${path} → ${res.status}`);
 }
 
-// --- Summarization (unchanged) ---
+// --- AI summarization ---
 
 async function summarizeGroup(groupJid: string, groupName: string | null, messages: { senderName: string | null; body: string; timestamp: Date }[]) {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const baseUrl2 = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
+  const minimaxBase = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
   const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2.7";
   if (!apiKey || messages.length === 0) return null;
 
   const transcript = messages.map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`).join("\n");
 
-  const r = await fetch(`${baseUrl2}/text/chatcompletion_v2`, {
+  const r = await fetch(`${minimaxBase}/text/chatcompletion_v2`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
@@ -81,7 +83,7 @@ async function summarizeGroup(groupJid: string, groupName: string | null, messag
         },
         {
           role: "user",
-          content: `Grupo: ${groupName ?? groupJid}\n\nConversación del día:\n${transcript.slice(0, 8000)}`,
+          content: `Grupo: ${groupName ?? groupJid}\n\nConversación:\n${transcript.slice(0, 8000)}`,
         },
       ],
     }),
@@ -92,46 +94,83 @@ async function summarizeGroup(groupJid: string, groupName: string | null, messag
   return raw.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
 }
 
+// --- Per-group inactivity-triggered summary ---
+
+async function runGroupSummary(groupJid: string, groupName: string | null) {
+  if (!db || cachedStatus !== "connected") return;
+
+  const lastRows = await db
+    .select({ createdAt: waGroupSummaries.createdAt })
+    .from(waGroupSummaries)
+    .where(eq(waGroupSummaries.groupJid, groupJid))
+    .orderBy(desc(waGroupSummaries.createdAt))
+    .limit(1);
+
+  const since = lastRows.length > 0
+    ? lastRows[0].createdAt
+    : new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const messages = await db
+    .select()
+    .from(waGroupMessages)
+    .where(and(eq(waGroupMessages.groupJid, groupJid), gte(waGroupMessages.timestamp, since)))
+    .orderBy(waGroupMessages.timestamp);
+
+  if (messages.length < 3) return;
+
+  const summary = await summarizeGroup(groupJid, groupName, messages.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })));
+  if (!summary) return;
+
+  const summaryDate = new Date().toISOString();
+  const [inserted] = await db
+    .insert(waGroupSummaries)
+    .values({ groupJid, groupName, summaryDate, content: summary, messageCount: messages.length })
+    .returning({ id: waGroupSummaries.id });
+
+  try {
+    const text = `📊 *Resumen de conversación*\nGrupo: ${groupName ?? groupJid}\n\n${summary}`;
+    await owPost(`/api/sessions/${SESSION_ID}/messages/send-text`, { chatId: groupJid, text });
+    if (inserted) {
+      await db.update(waGroupSummaries).set({ sentAt: new Date() }).where(eq(waGroupSummaries.id, inserted.id));
+    }
+  } catch { /* noop */ }
+}
+
+function resetGroupTimer(groupJid: string, groupName: string | null) {
+  const existing = groupTimers.get(groupJid);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    groupTimers.delete(groupJid);
+    runGroupSummary(groupJid, groupName).catch(() => {});
+  }, inactivityMs);
+
+  groupTimers.set(groupJid, timer);
+}
+
+// --- Manual "run now" ---
+
 export async function runDailySummary() {
   if (!db || cachedStatus !== "connected") return;
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const rows = await db.select().from(waGroupMessages).where(gte(waGroupMessages.timestamp, since)).orderBy(waGroupMessages.timestamp);
+  const rows = await db
+    .select()
+    .from(waGroupMessages)
+    .where(gte(waGroupMessages.timestamp, since))
+    .orderBy(waGroupMessages.timestamp);
 
-  const byGroup = new Map<string, typeof rows>();
+  const groups = new Map<string, string | null>();
   for (const row of rows) {
-    if (!byGroup.has(row.groupJid)) byGroup.set(row.groupJid, []);
-    byGroup.get(row.groupJid)!.push(row);
+    groups.set(row.groupJid, row.groupName ?? groups.get(row.groupJid) ?? null);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  for (const [groupJid, msgs] of byGroup) {
-    const groupName = msgs[0].groupName;
-    const summary = await summarizeGroup(groupJid, groupName, msgs.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })));
-    if (!summary) continue;
-
-    await db.insert(waGroupSummaries).values({ groupJid, groupName, summaryDate: today, content: summary, messageCount: msgs.length })
-      .onConflictDoUpdate({ target: [waGroupSummaries.groupJid, waGroupSummaries.summaryDate], set: { content: summary, messageCount: msgs.length } });
-
-    try {
-      const text = `📊 *Resumen del día ${today}*\nGrupo: ${groupName ?? groupJid}\n\n${summary}`;
-      await owPost(`/api/sessions/${SESSION_ID}/messages/send-text`, { chatId: groupJid, text });
-      await db.update(waGroupSummaries).set({ sentAt: new Date() })
-        .where(and(eq(waGroupSummaries.groupJid, groupJid), eq(waGroupSummaries.summaryDate, today)));
-    } catch { /* noop */ }
+  for (const [groupJid, groupName] of groups) {
+    await runGroupSummary(groupJid, groupName).catch(() => {});
   }
 }
 
-function scheduleSummary(hour: number) {
-  if (summaryTimer) clearInterval(summaryTimer);
-  summaryTimer = setInterval(() => {
-    const now = new Date();
-    if (now.getHours() === hour && now.getMinutes() === 0) runDailySummary().catch(() => {});
-  }, 60_000);
-}
-
-// --- Webhook handler (called from route) ---
+// --- Webhook handler ---
 
 export async function handleWebhook(payload: Record<string, unknown>) {
   const event = payload.event as string | undefined;
@@ -171,16 +210,22 @@ export async function handleWebhook(payload: Record<string, unknown>) {
 
     const contact = (data.contact ?? {}) as Record<string, unknown>;
     const senderName = (contact.pushName as string | null) ?? (contact.name as string | null) ?? null;
-    const ts = data.timestamp ? new Date(data.timestamp as string) : new Date();
+    const groupName = (data.groupName ?? data.chatName ?? null) as string | null;
+    const rawTs = data.timestamp;
+    const ts = rawTs
+      ? (typeof rawTs === "number" ? new Date((rawTs as number) * 1000) : new Date(rawTs as string))
+      : new Date();
 
     await db.insert(waGroupMessages).values({
       groupJid,
-      groupName: null,
+      groupName,
       senderJid: (data.id as string | null) ?? "unknown",
       senderName,
       body,
       timestamp: ts,
     }).catch(() => {});
+
+    resetGroupTimer(groupJid, groupName);
   }
 }
 
@@ -197,7 +242,7 @@ export async function initWaBot(database: Db) {
   }
 
   const config = (await db.select().from(waBotConfig).limit(1))[0];
-  scheduleSummary(config?.summaryHour ?? 20);
+  inactivityMs = (config?.inactivityMinutes ?? 30) * 60 * 1000;
 
   if (!baseUrl()) {
     console.warn("[wa-bot] OPENWA_URL not set — WA bot disabled");
@@ -220,6 +265,8 @@ export async function stopWaBot() {
   if (baseUrl()) {
     try { await owDelete(`/api/sessions/${SESSION_ID}`); } catch { /* noop */ }
   }
+  for (const timer of groupTimers.values()) clearTimeout(timer);
+  groupTimers.clear();
   cachedStatus = "disconnected";
   cachedQr = null;
   if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
@@ -227,7 +274,7 @@ export async function stopWaBot() {
 }
 
 export function getWaBotStatus() {
-  return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, baileysAvailable: !!baseUrl() };
+  return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, openwaAvailable: !!baseUrl() };
 }
 
 export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus }> {
@@ -258,11 +305,11 @@ export async function getGroupMessages(database: Db, groupJid: string, since?: D
 }
 
 export async function getGroupSummaries(database: Db, groupJid: string) {
-  return database.select().from(waGroupSummaries).where(eq(waGroupSummaries.groupJid, groupJid)).orderBy(desc(waGroupSummaries.summaryDate)).limit(30);
+  return database.select().from(waGroupSummaries).where(eq(waGroupSummaries.groupJid, groupJid)).orderBy(desc(waGroupSummaries.createdAt)).limit(30);
 }
 
-export async function updateWaBotConfig(database: Db, opts: { summaryHour?: number }) {
+export async function updateWaBotConfig(database: Db, opts: { inactivityMinutes?: number }) {
   await database.update(waBotConfig).set({ ...opts, updatedAt: new Date() });
-  if (opts.summaryHour !== undefined) scheduleSummary(opts.summaryHour);
+  if (opts.inactivityMinutes !== undefined) inactivityMs = opts.inactivityMinutes * 60 * 1000;
   return { ok: true };
 }
