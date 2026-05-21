@@ -18,8 +18,8 @@ export async function testEnvironment(
   const config = parseObject(ctx.config);
 
   const apiKey = asString(config.apiKey, process.env.MINIMAX_API_KEY ?? "");
-  const baseUrl = asString(config.baseUrl, process.env.MINIMAX_BASE_URL ?? "https://api.minimax.chat/v1");
-  const model = asString(config.model, process.env.MINIMAX_MODEL ?? "MiniMax-Text-01");
+  const baseUrl = asString(config.baseUrl, process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1");
+  const model = asString(config.model, process.env.MINIMAX_MODEL ?? "MiniMax-M2.7");
 
   if (!apiKey) {
     checks.push({
