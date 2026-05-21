@@ -254,7 +254,14 @@ export async function startWaBot() {
   try {
     const publicUrl = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
     const webhookUrl = publicUrl ? `${publicUrl}/api/wa-bot/webhook` : undefined;
-    const res = await owPost(`/api/sessions/${SESSION_ID}/start`, webhookUrl ? { webhook: webhookUrl } : undefined);
+
+    // Create session if it doesn't exist yet (ignore 409 conflict = already exists)
+    await owPost(`/api/sessions`, {
+      name: SESSION_ID,
+      ...(webhookUrl ? { config: { webhooks: [{ url: webhookUrl, events: ["*"] }] } } : {}),
+    }).catch(() => {});
+
+    const res = await owPost(`/api/sessions/${SESSION_ID}/start`);
     cachedStatus = "connecting";
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
     return { ok: true, data: res };
