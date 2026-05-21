@@ -252,7 +252,9 @@ export async function initWaBot(database: Db) {
 export async function startWaBot() {
   if (!baseUrl()) return { error: "OPENWA_URL not configured" };
   try {
-    const res = await owPost(`/api/sessions/${SESSION_ID}/start`);
+    const publicUrl = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+    const webhookUrl = publicUrl ? `${publicUrl}/api/wa-bot/webhook` : undefined;
+    const res = await owPost(`/api/sessions/${SESSION_ID}/start`, webhookUrl ? { webhook: webhookUrl } : undefined);
     cachedStatus = "connecting";
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
     return { ok: true, data: res };
