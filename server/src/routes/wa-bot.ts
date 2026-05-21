@@ -16,8 +16,14 @@ import {
 export function waBotRoutes(db: Db) {
   const router = Router({ mergeParams: true });
 
-  router.get("/status", (_req, res) => {
-    res.json(getWaBotStatus());
+  router.get("/status", async (_req, res) => {
+    const status = getWaBotStatus();
+    // Proactively fetch QR from OpenWA while connecting so panel can display it
+    if (status.status === "connecting" && !status.qr) {
+      const { qr } = await fetchQr();
+      return res.json({ ...status, qr });
+    }
+    res.json(status);
   });
 
   router.get("/qr", async (_req, res) => {

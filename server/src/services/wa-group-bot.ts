@@ -266,10 +266,16 @@ async function resolveSessionRef(): Promise<string | null> {
 export async function startWaBot() {
   if (!baseUrl()) return { error: "OPENWA_URL not configured" };
   try {
+    const publicUrl = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+    const webhookUrl = publicUrl ? `${publicUrl}/api/wa-bot/webhook` : undefined;
+
     const createRes = await fetch(`${baseUrl()}/api/sessions`, {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ name: SESSION_ID }),
+      body: JSON.stringify({
+        name: SESSION_ID,
+        ...(webhookUrl ? { config: { webhooks: [{ url: webhookUrl, events: ["*"] }] } } : {}),
+      }),
     });
     const createBody = await createRes.text().catch(() => "");
     console.log(`[wa-bot] session create → ${createRes.status} ${createBody.slice(0, 300)}`);
