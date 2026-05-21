@@ -258,9 +258,10 @@ export async function startWaBot() {
       headers: headers(),
       body: JSON.stringify({ name: SESSION_ID }),
     });
+    const createBody = await createRes.text().catch(() => "");
+    console.log(`[wa-bot] session create → ${createRes.status} ${createBody.slice(0, 300)}`);
     if (!createRes.ok && createRes.status !== 409) {
-      const text = await createRes.text().catch(() => "");
-      return { error: `Session create failed (${createRes.status}): ${text.slice(0, 300)}` };
+      return { error: `Session create failed (${createRes.status}): ${createBody.slice(0, 300)}` };
     }
 
     const res = await owPost(`/api/sessions/${SESSION_ID}/start`);
