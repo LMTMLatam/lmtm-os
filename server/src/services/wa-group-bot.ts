@@ -31,6 +31,7 @@ let cachedStatus: OurStatus = "disconnected";
 let cachedPhone: string | null = null;
 let cachedQr: string | null = null;
 let inactivityMs = 30 * 60 * 1000;
+let sessionRef = SESSION_ID; // updated to UUID after create
 
 const groupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -249,10 +250,22 @@ export async function initWaBot(database: Db) {
   }
 }
 
+async function resolveSessionRef(): Promise<string | null> {
+  // List all sessions and find ours by name to get the UUID
+  try {
+    const res = await fetch(`${baseUrl()}/api/sessions`, { headers: headers() });
+    if (!res.ok) return null;
+    const sessions = await res.json().catch(() => []) as Array<{ id?: string; name?: string }>;
+    const found = sessions.find((s) => s.name === SESSION_ID);
+    return found?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function startWaBot() {
   if (!baseUrl()) return { error: "OPENWA_URL not configured" };
   try {
-    // Create session — 201 = created, 409 = already exists (both ok)
     const createRes = await fetch(`${baseUrl()}/api/sessions`, {
       method: "POST",
       headers: headers(),
@@ -260,11 +273,21 @@ export async function startWaBot() {
     });
     const createBody = await createRes.text().catch(() => "");
     console.log(`[wa-bot] session create → ${createRes.status} ${createBody.slice(0, 300)}`);
-    if (!createRes.ok && createRes.status !== 409) {
+
+    if (createRes.ok) {
+      // Extract UUID from create response
+      const data = JSON.parse(createBody) as { id?: string };
+      if (data.id) sessionRef = data.id;
+    } else if (createRes.status === 409) {
+      // Already exists — look up UUID by name
+      const uuid = await resolveSessionRef();
+      if (uuid) sessionRef = uuid;
+    } else {
       return { error: `Session create failed (${createRes.status}): ${createBody.slice(0, 300)}` };
     }
 
-    const res = await owPost(`/api/sessions/${SESSION_ID}/start`);
+    console.log(`[wa-bot] starting session ref: ${sessionRef}`);
+    const res = await owPost(`/api/sessions/${sessionRef}/start`);
     cachedStatus = "connecting";
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
     return { ok: true, data: res };
@@ -275,7 +298,7 @@ export async function startWaBot() {
 
 export async function stopWaBot() {
   if (baseUrl()) {
-    try { await owDelete(`/api/sessions/${SESSION_ID}`); } catch { /* noop */ }
+    try { await owDelete(`/api/sessions/${sessionRef}`); } catch { /* noop */ }
   }
   for (const timer of groupTimers.values()) clearTimeout(timer);
   groupTimers.clear();
@@ -292,7 +315,7 @@ export function getWaBotStatus() {
 export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus }> {
   if (!baseUrl()) return { qr: null, status: "disconnected" };
   try {
-    const res = await owGet(`/api/sessions/${SESSION_ID}/qr`);
+    const res = await owGet(`/api/sessions/${sessionRef}/qr`);
     const d = (res.data ?? {}) as Record<string, unknown>;
     const qr = (d.qrCode ?? d.image ?? null) as string | null;
     if (qr) cachedQr = qr;
