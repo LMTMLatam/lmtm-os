@@ -252,14 +252,16 @@ export async function initWaBot(database: Db) {
 export async function startWaBot() {
   if (!baseUrl()) return { error: "OPENWA_URL not configured" };
   try {
-    const publicUrl = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
-    const webhookUrl = publicUrl ? `${publicUrl}/api/wa-bot/webhook` : undefined;
-
-    // Create session if it doesn't exist yet (ignore 409 conflict = already exists)
-    await owPost(`/api/sessions`, {
-      name: SESSION_ID,
-      ...(webhookUrl ? { config: { webhooks: [{ url: webhookUrl, events: ["*"] }] } } : {}),
-    }).catch(() => {});
+    // Create session — 201 = created, 409 = already exists (both ok)
+    const createRes = await fetch(`${baseUrl()}/api/sessions`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: SESSION_ID }),
+    });
+    if (!createRes.ok && createRes.status !== 409) {
+      const text = await createRes.text().catch(() => "");
+      return { error: `Session create failed (${createRes.status}): ${text.slice(0, 300)}` };
+    }
 
     const res = await owPost(`/api/sessions/${SESSION_ID}/start`);
     cachedStatus = "connecting";
