@@ -322,11 +322,15 @@ export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus 
   if (!baseUrl()) return { qr: null, status: "disconnected" };
   try {
     const res = await owGet(`/api/sessions/${sessionRef}/qr`);
-    const d = (res.data ?? {}) as Record<string, unknown>;
-    const qr = (d.qrCode ?? d.image ?? null) as string | null;
+    // Try multiple response shapes
+    const r = res as Record<string, unknown>;
+    const d = (r.data ?? {}) as Record<string, unknown>;
+    const qr = (r.qrCode ?? r.value ?? r.image ?? d.qrCode ?? d.image ?? d.value ?? null) as string | null;
+    console.log(`[wa-bot] fetchQr → keys: ${Object.keys(r).join(",")} qr: ${qr ? "present" : "null"}`);
     if (qr) cachedQr = qr;
     return { qr, status: cachedStatus };
-  } catch {
+  } catch (e) {
+    console.log(`[wa-bot] fetchQr failed: ${e instanceof Error ? e.message : e}`);
     return { qr: cachedQr, status: cachedStatus };
   }
 }
