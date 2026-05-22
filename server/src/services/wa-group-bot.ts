@@ -321,13 +321,37 @@ export function getWaBotStatus() {
   return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, openwaAvailable: !!baseUrl() };
 }
 
-function scheduleQrPoll(attemptsLeft = 60) {
+async function syncSessionStatus() {
+  try {
+    const res = await owGet(`/api/sessions/${sessionRef}`);
+    const r = res as Record<string, unknown>;
+    const d = (r.data ?? r) as Record<string, unknown>;
+    const rawStatus = (d.status ?? r.status ?? "") as string;
+    const newStatus = mapStatus(rawStatus);
+    console.log(`[wa-bot] syncStatus → raw: ${rawStatus} mapped: ${newStatus}`);
+    if (newStatus === "connected" && cachedStatus !== "connected") {
+      cachedStatus = "connected";
+      cachedQr = null;
+      cachedPhone = (d.phone ?? d.me ?? null) as string | null;
+      if (db) await db.update(waBotConfig).set({ status: "connected", connectedPhone: cachedPhone, lastQr: null, updatedAt: new Date() }).catch(() => {});
+    } else if (newStatus === "disconnected" && cachedStatus === "connecting") {
+      cachedStatus = "disconnected";
+      if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
+    }
+  } catch (e) {
+    console.log(`[wa-bot] syncStatus failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+function scheduleQrPoll(attemptsLeft = 90) {
   if (qrPollTimer) clearTimeout(qrPollTimer);
   if (attemptsLeft <= 0 || cachedStatus !== "connecting") return;
   qrPollTimer = setTimeout(async () => {
     qrPollTimer = null;
     if (cachedStatus !== "connecting") return;
-    await fetchQr(); // always refresh — WhatsApp QRs expire every ~20s
+    await syncSessionStatus();
+    if (cachedStatus !== "connecting") return; // connected or disconnected — stop
+    await fetchQr();
     scheduleQrPoll(attemptsLeft - 1);
   }, 2000);
 }
