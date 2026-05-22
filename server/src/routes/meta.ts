@@ -184,8 +184,6 @@ export function metaRoutes(db: Db) {
       "pages_read_engagement",
       "ads_read",
       "ads_management",
-      "business_management",
-      "read_insights",
     ].join(",");
 
     const state = Buffer.from(
@@ -255,8 +253,6 @@ export function metaRoutes(db: Db) {
           "pages_read_engagement",
           "ads_read",
           "ads_management",
-          "business_management",
-          "read_insights",
         ],
         status: "active",
         createdByUserId: actor.actorId ?? null,
