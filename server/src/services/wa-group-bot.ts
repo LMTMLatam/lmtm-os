@@ -32,6 +32,7 @@ let cachedPhone: string | null = null;
 let cachedQr: string | null = null;
 let inactivityMs = 30 * 60 * 1000;
 let sessionRef = SESSION_ID; // updated to UUID after create
+let qrPollTimer: ReturnType<typeof setTimeout> | null = null;
 
 const groupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -295,7 +296,9 @@ export async function startWaBot() {
     console.log(`[wa-bot] starting session ref: ${sessionRef}`);
     const res = await owPost(`/api/sessions/${sessionRef}/start`);
     cachedStatus = "connecting";
+    cachedQr = null;
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
+    scheduleQrPoll(); // server-side QR polling, no webhook required
     return { ok: true, data: res };
   } catch (e) {
     return { error: String(e) };
@@ -316,6 +319,17 @@ export async function stopWaBot() {
 
 export function getWaBotStatus() {
   return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, openwaAvailable: !!baseUrl() };
+}
+
+function scheduleQrPoll(attemptsLeft = 30) {
+  if (qrPollTimer) clearTimeout(qrPollTimer);
+  if (attemptsLeft <= 0 || cachedStatus !== "connecting" || cachedQr) return;
+  qrPollTimer = setTimeout(async () => {
+    qrPollTimer = null;
+    if (cachedStatus !== "connecting" || cachedQr) return;
+    const { qr } = await fetchQr();
+    if (!qr) scheduleQrPoll(attemptsLeft - 1);
+  }, 2000);
 }
 
 export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus }> {
