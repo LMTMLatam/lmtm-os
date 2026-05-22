@@ -321,14 +321,14 @@ export function getWaBotStatus() {
   return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, openwaAvailable: !!baseUrl() };
 }
 
-function scheduleQrPoll(attemptsLeft = 30) {
+function scheduleQrPoll(attemptsLeft = 60) {
   if (qrPollTimer) clearTimeout(qrPollTimer);
-  if (attemptsLeft <= 0 || cachedStatus !== "connecting" || cachedQr) return;
+  if (attemptsLeft <= 0 || cachedStatus !== "connecting") return;
   qrPollTimer = setTimeout(async () => {
     qrPollTimer = null;
-    if (cachedStatus !== "connecting" || cachedQr) return;
-    const { qr } = await fetchQr();
-    if (!qr) scheduleQrPoll(attemptsLeft - 1);
+    if (cachedStatus !== "connecting") return;
+    await fetchQr(); // always refresh — WhatsApp QRs expire every ~20s
+    scheduleQrPoll(attemptsLeft - 1);
   }, 2000);
 }
 
