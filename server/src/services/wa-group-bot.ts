@@ -294,12 +294,21 @@ export async function startWaBot() {
     }
 
     console.log(`[wa-bot] starting session ref: ${sessionRef}`);
-    const res = await owPost(`/api/sessions/${sessionRef}/start`);
+    let startData: Record<string, unknown> = {};
+    try {
+      startData = await owPost(`/api/sessions/${sessionRef}/start`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes("400") || !msg.toLowerCase().includes("already started")) {
+        return { error: msg };
+      }
+      console.log(`[wa-bot] session already started — treating as connecting`);
+    }
     cachedStatus = "connecting";
     cachedQr = null;
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
-    scheduleQrPoll(); // server-side QR polling, no webhook required
-    return { ok: true, data: res };
+    scheduleQrPoll(); // server-side status+QR polling, no webhook required
+    return { ok: true, data: startData };
   } catch (e) {
     return { error: String(e) };
   }
