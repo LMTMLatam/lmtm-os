@@ -7,7 +7,7 @@ import { validate } from "../middleware/validate.js";
 import { badRequest, notFound, unauthorized, forbidden } from "../errors.js";
 import { assertAuthenticated, assertCompanyAccess, getActorInfo } from "./authz.js";
 
-const GRAPH = "https://graph.facebook.com/v19.0";
+const GRAPH = "https://graph.facebook.com/v21.0";
 
 const createManualSchema = z.object({
   label: z.string().trim().min(1).max(80),
@@ -182,6 +182,7 @@ export function metaRoutes(db: Db) {
       "email",
       "pages_show_list",
       "pages_read_engagement",
+      "leads_retrieval",
       "ads_read",
       "ads_management",
     ].join(",");
@@ -194,7 +195,7 @@ export function metaRoutes(db: Db) {
       }),
     ).toString("base64url");
 
-    const url = new URL("https://www.facebook.com/v19.0/dialog/oauth");
+    const url = new URL("https://www.facebook.com/v21.0/dialog/oauth");
     url.searchParams.set("client_id", appId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
@@ -236,8 +237,7 @@ export function metaRoutes(db: Db) {
     // 2) Short-lived -> long-lived (~60d)
     const ll = await exchangeForLongLivedUserToken(codeRes.access_token);
 
-    // 3) Persist
-    const actor = getActorInfo(req);
+    // 3) Persist — callback arrives from Facebook with no JWT, skip actor resolution
     const inserted = await db
       .insert(metaConnections)
       .values({
@@ -251,11 +251,12 @@ export function metaRoutes(db: Db) {
           "email",
           "pages_show_list",
           "pages_read_engagement",
+          "leads_retrieval",
           "ads_read",
           "ads_management",
         ],
         status: "active",
-        createdByUserId: actor.actorId ?? null,
+        createdByUserId: null,
       })
       .returning({ id: metaConnections.id });
 
