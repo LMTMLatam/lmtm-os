@@ -334,16 +334,17 @@ export async function syncPagePosts(db: Db, companyId?: string) {
 
 // ── getDashboardData ──────────────────────────────────────────────────────────
 
-export async function getDashboardData(db: Db, companyId: string, opts: { since?: string; until?: string } = {}) {
+export async function getDashboardData(db: Db, companyId: string, opts: { since?: string; until?: string; adAccountId?: string } = {}) {
   const since = opts.since ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const until = opts.until ?? new Date().toISOString().slice(0, 10);
+  const { adAccountId } = opts;
 
   const [insights, campaigns, lastSync, alertCount] = await Promise.all([
     db.select().from(metaAdsInsights).where(
-      and(eq(metaAdsInsights.companyId, companyId), gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
+      and(eq(metaAdsInsights.companyId, companyId), adAccountId ? eq(metaAdsInsights.adAccountId, adAccountId) : undefined, gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
     ).orderBy(metaAdsInsights.date),
 
-    db.select().from(metaCampaigns).where(eq(metaCampaigns.companyId, companyId)),
+    db.select().from(metaCampaigns).where(and(eq(metaCampaigns.companyId, companyId), adAccountId ? eq(metaCampaigns.adAccountId, adAccountId) : undefined)),
 
     db.select({ completedAt: syncLogs.completedAt, jobName: syncLogs.jobName, status: syncLogs.status })
       .from(syncLogs)
@@ -410,14 +411,15 @@ export async function getDashboardData(db: Db, companyId: string, opts: { since?
 
 // ── getCampaignsData ──────────────────────────────────────────────────────────
 
-export async function getCampaignsData(db: Db, companyId: string, opts: { since?: string; until?: string } = {}) {
+export async function getCampaignsData(db: Db, companyId: string, opts: { since?: string; until?: string; adAccountId?: string } = {}) {
   const since = opts.since ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const until = opts.until ?? new Date().toISOString().slice(0, 10);
+  const { adAccountId } = opts;
 
   const [campaigns, insights] = await Promise.all([
-    db.select().from(metaCampaigns).where(eq(metaCampaigns.companyId, companyId)),
+    db.select().from(metaCampaigns).where(and(eq(metaCampaigns.companyId, companyId), adAccountId ? eq(metaCampaigns.adAccountId, adAccountId) : undefined)),
     db.select().from(metaAdsInsights).where(
-      and(eq(metaAdsInsights.companyId, companyId), gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
+      and(eq(metaAdsInsights.companyId, companyId), adAccountId ? eq(metaAdsInsights.adAccountId, adAccountId) : undefined, gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
     ),
   ]);
 
@@ -476,14 +478,15 @@ export async function getCampaignsData(db: Db, companyId: string, opts: { since?
 
 // ── getAdsetsData ─────────────────────────────────────────────────────────────
 
-export async function getAdsetsData(db: Db, companyId: string, opts: { since?: string; until?: string } = {}) {
+export async function getAdsetsData(db: Db, companyId: string, opts: { since?: string; until?: string; adAccountId?: string } = {}) {
   const since = opts.since ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const until = opts.until ?? new Date().toISOString().slice(0, 10);
+  const { adAccountId } = opts;
 
   const [adsets, insights] = await Promise.all([
-    db.select().from(metaAdsets).where(eq(metaAdsets.companyId, companyId)),
+    db.select().from(metaAdsets).where(and(eq(metaAdsets.companyId, companyId), adAccountId ? eq(metaAdsets.adAccountId, adAccountId) : undefined)),
     db.select().from(metaAdsInsights).where(
-      and(eq(metaAdsInsights.companyId, companyId), gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
+      and(eq(metaAdsInsights.companyId, companyId), adAccountId ? eq(metaAdsInsights.adAccountId, adAccountId) : undefined, gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
     ),
   ]);
 
@@ -548,14 +551,15 @@ export async function getAdsetsData(db: Db, companyId: string, opts: { since?: s
 
 // ── getAdsData ────────────────────────────────────────────────────────────────
 
-export async function getAdsData(db: Db, companyId: string, opts: { since?: string; until?: string } = {}) {
+export async function getAdsData(db: Db, companyId: string, opts: { since?: string; until?: string; adAccountId?: string } = {}) {
   const since = opts.since ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const until = opts.until ?? new Date().toISOString().slice(0, 10);
+  const { adAccountId } = opts;
 
   const [ads, insights] = await Promise.all([
-    db.select().from(metaAds).where(eq(metaAds.companyId, companyId)),
+    db.select().from(metaAds).where(and(eq(metaAds.companyId, companyId), adAccountId ? eq(metaAds.adAccountId, adAccountId) : undefined)),
     db.select().from(metaAdsInsights).where(
-      and(eq(metaAdsInsights.companyId, companyId), gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
+      and(eq(metaAdsInsights.companyId, companyId), adAccountId ? eq(metaAdsInsights.adAccountId, adAccountId) : undefined, gte(metaAdsInsights.date, since), lte(metaAdsInsights.date, until))
     ),
   ]);
 
@@ -669,9 +673,9 @@ export async function getPostsData(db: Db, companyId: string) {
 
 // ── getAlerts ─────────────────────────────────────────────────────────────────
 
-export async function getAlerts(db: Db, companyId: string) {
+export async function getAlerts(db: Db, companyId: string, adAccountId?: string) {
   return db.select().from(metaAlerts)
-    .where(eq(metaAlerts.companyId, companyId))
+    .where(and(eq(metaAlerts.companyId, companyId), adAccountId ? eq(metaAlerts.entityId, adAccountId) : undefined))
     .orderBy(desc(metaAlerts.createdAt))
     .limit(100);
 }
@@ -682,15 +686,15 @@ export async function updateAlertStatus(db: Db, alertId: string, status: string)
 
 // ── evaluateAlerts ────────────────────────────────────────────────────────────
 
-export async function evaluateAlerts(db: Db, companyId: string) {
-  // Delete all pending alerts and re-evaluate fresh
+export async function evaluateAlerts(db: Db, companyId: string, opts: { adAccountId?: string } = {}) {
+  const { adAccountId } = opts;
   await db.delete(metaAlerts).where(
-    and(eq(metaAlerts.companyId, companyId), eq(metaAlerts.status, "pending"))
+    and(eq(metaAlerts.companyId, companyId), eq(metaAlerts.status, "pending"), adAccountId ? eq(metaAlerts.entityId, adAccountId) : undefined)
   );
 
   const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const until = new Date().toISOString().slice(0, 10);
-  const campaigns = await getCampaignsData(db, companyId, { since, until });
+  const campaigns = await getCampaignsData(db, companyId, { since, until, adAccountId });
 
   type AlertInsert = typeof metaAlerts.$inferInsert;
   const alerts: AlertInsert[] = [];

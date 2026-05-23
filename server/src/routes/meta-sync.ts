@@ -1,5 +1,7 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
+import { eq } from "drizzle-orm";
+import { metaAdAccountMappings } from "@paperclipai/db";
 import { assertAuthenticated } from "./authz.js";
 import {
   syncCampaigns, syncAdsets, syncAds, syncAdsInsights,
@@ -34,14 +36,27 @@ export function metaSyncRoutes(db: Db) {
     }
   });
 
+  // GET /api/meta/mappings/:id  — resolve a mapping by ID (returns companyId + adAccountId)
+  router.get("/meta/mappings/:id", async (req, res) => {
+    assertAuthenticated(req);
+    try {
+      const [mapping] = await db.select().from(metaAdAccountMappings).where(eq(metaAdAccountMappings.id, req.params.id)).limit(1);
+      if (!mapping) return res.status(404).json({ error: "Mapping not found" });
+      res.json(mapping);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // GET /api/companies/:companyId/meta/dashboard
   router.get("/companies/:companyId/meta/dashboard", async (req, res) => {
     assertAuthenticated(req);
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
+    const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
-      const data = await getDashboardData(db, companyId, { since, until });
+      const data = await getDashboardData(db, companyId, { since, until, adAccountId });
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -54,8 +69,9 @@ export function metaSyncRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
+    const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
-      const data = await getCampaignsData(db, companyId, { since, until });
+      const data = await getCampaignsData(db, companyId, { since, until, adAccountId });
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -68,8 +84,9 @@ export function metaSyncRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
+    const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
-      const data = await getAdsetsData(db, companyId, { since, until });
+      const data = await getAdsetsData(db, companyId, { since, until, adAccountId });
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -82,8 +99,9 @@ export function metaSyncRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
+    const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
-      const data = await getAdsData(db, companyId, { since, until });
+      const data = await getAdsData(db, companyId, { since, until, adAccountId });
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -106,8 +124,9 @@ export function metaSyncRoutes(db: Db) {
   router.get("/companies/:companyId/meta/alerts", async (req, res) => {
     assertAuthenticated(req);
     const companyId = req.params.companyId as string;
+    const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
-      const data = await getAlerts(db, companyId);
+      const data = await getAlerts(db, companyId, adAccountId);
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -134,8 +153,9 @@ export function metaSyncRoutes(db: Db) {
   router.post("/companies/:companyId/meta/evaluate-alerts", async (req, res) => {
     assertAuthenticated(req);
     const companyId = req.params.companyId as string;
+    const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
-      const result = await evaluateAlerts(db, companyId);
+      const result = await evaluateAlerts(db, companyId, { adAccountId });
       res.json({ ok: true, ...result });
     } catch (e) {
       res.status(500).json({ error: String(e) });
