@@ -132,3 +132,23 @@ export const metaPostInsights = pgTable("meta_post_insights", {
 }, (t) => ({
   uniq: uniqueIndex("meta_post_insights_uniq").on(t.postId, t.metric),
 }));
+
+export const metaAlerts = pgTable("meta_alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  severity: text("severity").notNull(), // info | warning | critical
+  title: text("title").notNull(),
+  description: text("description"),
+  metric: text("metric"),
+  currentValue: numeric("current_value", { precision: 12, scale: 4 }),
+  thresholdValue: numeric("threshold_value", { precision: 12, scale: 4 }),
+  recommendation: text("recommendation"),
+  entityType: text("entity_type"), // campaign | adset | ad | account
+  entityId: text("entity_id"),
+  status: text("status").notNull().default("pending"), // pending | seen | resolved
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companyIdx: index("meta_alerts_company_idx").on(t.companyId),
+  statusIdx: index("meta_alerts_status_idx").on(t.companyId, t.status),
+}));

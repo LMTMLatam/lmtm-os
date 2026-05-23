@@ -610,6 +610,34 @@
       "when": 1779100000000,
       "tag": "0086_meta_ad_account_mappings",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1779200000000,
+      "tag": "0087_wa_bot",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1779300000000,
+      "tag": "0088_wa_bot_inactivity",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1779400000000,
+      "tag": "0089_meta_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1779500000000,
+      "tag": "0090_meta_alerts",
+      "breakpoints": true
     }
   ]
 }
