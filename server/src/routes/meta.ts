@@ -360,17 +360,21 @@ export function metaRoutes(db: Db) {
   // ----- Probe: list ad accounts the token can see -----
   router.get("/meta/connections/:id/ad-accounts", async (req, res) => {
     const id = req.params.id as string;
-    const conn = await db.query.metaConnections.findFirst({
-      where: eq(metaConnections.id, id),
-    });
+    const rows = await db.select().from(metaConnections).where(eq(metaConnections.id, id)).limit(1);
+    const conn = rows[0] ?? null;
     if (!conn) throw notFound("Connection not found");
     assertCompanyAccess(req, conn.companyId);
-    const data = (await graphGet("/me/adaccounts", {
-      access_token: conn.accessToken,
-      fields: "id,account_id,name,currency,business",
-      limit: "100",
-    })) as { data?: Array<{ id: string; account_id: string; name: string; currency: string }> };
-    res.json({ data: data.data ?? [] });
+    try {
+      const data = (await graphGet("/me/adaccounts", {
+        access_token: conn.accessToken,
+        fields: "id,account_id,name,currency,business",
+        limit: "100",
+      })) as { data?: Array<{ id: string; account_id: string; name: string; currency: string }> };
+      res.json({ data: data.data ?? [] });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(502).json({ error: msg, data: [] });
+    }
   });
 
   // ----- Mappings: company → (connection, adAccount) -----
