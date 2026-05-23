@@ -367,7 +367,7 @@ export function metaRoutes(db: Db) {
     try {
       const data = (await graphGet("/me/adaccounts", {
         access_token: conn.accessToken,
-        fields: "id,account_id,name,currency,business",
+        fields: "id,account_id,name,currency",
         limit: "100",
       })) as { data?: Array<{ id: string; account_id: string; name: string; currency: string }> };
       res.json({ data: data.data ?? [] });
