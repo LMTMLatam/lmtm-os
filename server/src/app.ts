@@ -13,6 +13,7 @@ import { healthRoutes } from "./routes/health.js";
 import { askRoutes } from "./routes/ask.js";
 import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
+import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
 import { initWaBot } from "./services/wa-group-bot.js";
@@ -234,6 +235,7 @@ export async function createApp(
   api.use(activityRoutes(db));
   api.use(lmtmDashboardDeployRoutes());
   api.use(metaRoutes(db));
+  api.use(metaSyncRoutes(db));
   api.use(agentChatRoutes(db));
   api.use("/wa-bot", waBotRoutes(db));
   initWaBot(db).catch(() => {});
