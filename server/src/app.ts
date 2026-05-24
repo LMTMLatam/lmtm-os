@@ -215,6 +215,8 @@ export async function createApp(
       companyDeletionEnabled: opts.companyDeletionEnabled,
     }),
   );
+  api.use(metaRoutes(db));
+  api.use(metaSyncRoutes(db));
   api.use("/companies", companyRoutes(db, opts.storageService));
   api.use(companySkillRoutes(db));
   api.use(agentRoutes(db, { pluginWorkerManager: workerManager }));
@@ -234,8 +236,6 @@ export async function createApp(
   api.use(costRoutes(db, { pluginWorkerManager: workerManager }));
   api.use(activityRoutes(db));
   api.use(lmtmDashboardDeployRoutes());
-  api.use(metaRoutes(db));
-  api.use(metaSyncRoutes(db));
   api.use(agentChatRoutes(db));
   api.use("/wa-bot", waBotRoutes(db));
   initWaBot(db).catch(() => {});
