@@ -27,3 +27,5 @@ services:
         sync: false
       - key: OPENCODE_ALLOW_ALL_MODELS
         value: "true"
+      - key: PAPERCLIP_MIGRATION_AUTO_APPLY
+        value: "true"
