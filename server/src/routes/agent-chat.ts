@@ -44,7 +44,7 @@ Tenés acceso completo a Meta Ads para todos los clientes:
 - list_all_meta_accounts: lista TODAS las cuentas de todos los clientes (para comparar)
 - meta_insights: métricas de una cuenta específica
 - compare_meta_accounts: compara múltiples cuentas lado a lado
-- search_ads_library: buscá anuncios públicos de cualquier empresa (competencia)
+- research_niche_competition: detecta el nicho del cliente y genera análisis de competencia, ideas virales y tendencias
 `.trim();
 
 const SYSTEM_PROMPTS: Record<string, string> = {
@@ -175,21 +175,31 @@ const META_TOOLS_DEF = [
   {
     type: "function",
     function: {
-      name: "search_ads_library",
-      description: "Busca anuncios activos en la Biblioteca de Anuncios de Meta (datos públicos). Útil para ver qué anuncia la competencia.",
+      name: "research_niche_competition",
+      description: "Detecta el nicho/industria del cliente a partir de sus campañas y genera un análisis competitivo: quiénes son los competidores típicos, qué tipo de contenido viral funciona en ese sector, tendencias actuales, ideas de anuncios, ángulos de copy y estrategias que están usando las marcas líderes. No requiere APIs externas.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Nombre del anunciante o keywords a buscar." },
-          country: { type: "string", description: "Código de país ISO (AR, MX, CO, US...). Default AR." },
-          adType: {
+          niche: {
             type: "string",
-            enum: ["ALL", "POLITICAL_AND_ISSUE_ADS"],
-            description: "Tipo de anuncio. Default ALL.",
+            description: "Nicho o industria del cliente (ej: 'inmobiliaria', 'ecommerce moda', 'gimnasio', 'restaurante', 'odontología'). Si no lo sabés, inferilo de los nombres de campaña.",
           },
-          limit: { type: "integer", description: "Máximo de resultados (default 10, max 25)." },
+          campaignNames: {
+            type: "array",
+            items: { type: "string" },
+            description: "Nombres de campañas del cliente para inferir el nicho automáticamente.",
+          },
+          country: {
+            type: "string",
+            description: "País de operación (AR, MX, CO, CL, ES...). Default AR. Afecta tendencias locales.",
+          },
+          focus: {
+            type: "string",
+            enum: ["viral_content", "competitor_strategies", "ad_copy", "seasonal_trends", "full_analysis"],
+            description: "Qué aspecto profundizar. Default full_analysis.",
+          },
         },
-        required: ["query"],
+        required: [],
         additionalProperties: false,
       },
     },
@@ -560,36 +570,89 @@ async function execCompareMetaAccounts(
   return { comparison: results, period: args.datePreset ?? "last_30d" };
 }
 
-async function execSearchAdsLibrary(
-  args: { query: string; country?: string; adType?: string; limit?: number },
+async function execResearchNicheCompetition(
+  args: { niche?: string; campaignNames?: string[]; country?: string; focus?: string },
 ) {
-  // Meta Ads Library API — public data, no auth needed for basic queries
-  // Requires the app to have ads_library permission for full access
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
 
-  const url = new URL(`${GRAPH}/ads_archive`);
-  url.searchParams.set("search_terms", args.query);
-  url.searchParams.set("ad_reached_countries", `["${args.country ?? "AR"}"]`);
-  url.searchParams.set("ad_type", args.adType ?? "ALL");
-  url.searchParams.set("fields", "id,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_delivery_start_time,ad_snapshot_url,page_name,page_id,impressions,spend,currency");
-  url.searchParams.set("limit", String(Math.min(args.limit ?? 10, 25)));
+  // Infer niche from campaign names if not provided
+  let niche = args.niche?.trim() ?? "";
+  if (!niche && args.campaignNames && args.campaignNames.length > 0) {
+    niche = `cliente con campañas: ${args.campaignNames.slice(0, 5).join(", ")}`;
+  }
+  if (!niche) return { error: "Proporcioná el nicho o nombres de campaña para inferirlo." };
 
-  // App access token for Ads Library
-  if (appId && appSecret) {
-    url.searchParams.set("access_token", `${appId}|${appSecret}`);
-  } else {
-    return { error: "META_APP_ID/META_APP_SECRET not configured — needed for Ads Library" };
+  const country = args.country ?? "AR";
+  const focus = args.focus ?? "full_analysis";
+  const countryNames: Record<string, string> = { AR: "Argentina", MX: "México", CO: "Colombia", CL: "Chile", ES: "España", US: "Estados Unidos", PE: "Perú", UY: "Uruguay" };
+  const countryName = countryNames[country.toUpperCase()] ?? country;
+
+  const focusInstructions: Record<string, string> = {
+    viral_content: "Enfocate en: tipos de contenido viral que funcionan en este nicho, formatos (Reels, carruseles, stories), hooks virales, tendencias de contenido orgánico vs pago.",
+    competitor_strategies: "Enfocate en: quiénes son los competidores típicos de este nicho, qué estrategias de Meta Ads usan, presupuestos estimados, segmentación típica, ofertas y propuestas de valor comunes.",
+    ad_copy: "Enfocate en: ángulos de copy que convierten en este nicho, headlines poderosos, CTAs efectivos, objeciones comunes y cómo rebatirlas, gatillos emocionales.",
+    seasonal_trends: "Enfocate en: estacionalidad del nicho, fechas clave del año para campañas, eventos relevantes, variaciones de demanda mensual.",
+    full_analysis: "Cubrí todos los aspectos: competidores típicos, estrategias de contenido viral, copy que convierte, estacionalidad, y 5 ideas concretas de anuncios.",
+  };
+
+  const prompt = `Sos un experto en marketing digital y publicidad en Meta Ads para ${countryName}.
+
+El cliente opera en el siguiente nicho: **${niche}**
+
+${focusInstructions[focus] ?? focusInstructions.full_analysis}
+
+Respondé en español rioplatense con:
+1. **Análisis del nicho** (2-3 párrafos): cómo funciona este mercado en Meta Ads, nivel de competencia, CPL/CPC típicos si los conocés
+2. **Competidores y estrategias típicas** (lista de 4-5 puntos): qué tipo de marcas dominan el espacio, qué ángulos usan, qué los hace efectivos
+3. **Ideas de contenido viral** (5 ideas concretas con formato, hook y call-to-action)
+4. **Copy que convierte** (3 ejemplos de headline + descripción para este nicho)
+5. **Recomendaciones de segmentación** (audiencias, intereses, lookalikes típicos)
+6. **Errores comunes** en este nicho que deben evitarse
+
+Sé específico y accionable. Basate en tendencias reales del mercado latinoamericano.`;
+
+  // Try Claude first
+  if (anthropicKey) {
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (r.ok) {
+        const data = (await r.json()) as { content?: Array<{ type: string; text?: string }> };
+        const text = data.content?.find(c => c.type === "text")?.text ?? "";
+        if (text) return { niche, country: countryName, focus, analysis: text };
+      }
+    } catch { /* fall through */ }
   }
 
-  try {
-    const r = await fetch(url.toString());
-    const json = (await r.json().catch(() => ({}))) as { data?: unknown[]; error?: { message?: string } };
-    if (!r.ok) return { error: json.error?.message ?? `Ads Library HTTP ${r.status}`, tip: "Make sure the app has ads_library permission and is active." };
-    return { results: json.data ?? [], count: (json.data ?? []).length, query: args.query };
-  } catch (e) {
-    return { error: String(e) };
+  // Fallback: OpenAI
+  if (openaiKey) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (r.ok) {
+        const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const text = data.choices?.[0]?.message?.content ?? "";
+        if (text) return { niche, country: countryName, focus, analysis: text };
+      }
+    } catch { /* noop */ }
   }
+
+  return { error: "No AI key configured (ANTHROPIC_API_KEY or OPENAI_API_KEY required)" };
 }
 
 async function execDeployDashboard(args: { name: string; html: string; target?: string }) {
@@ -677,7 +740,7 @@ async function executeTool(db: Db, companyId: string, name: string, argsJson: st
   if (name === "list_all_meta_accounts") return execListAllMetaAccounts(db);
   if (name === "meta_insights") return execMetaInsights(db, companyId, args as Parameters<typeof execMetaInsights>[2]);
   if (name === "compare_meta_accounts") return execCompareMetaAccounts(db, args as Parameters<typeof execCompareMetaAccounts>[1]);
-  if (name === "search_ads_library") return execSearchAdsLibrary(args as Parameters<typeof execSearchAdsLibrary>[0]);
+  if (name === "research_niche_competition") return execResearchNicheCompetition(args as Parameters<typeof execResearchNicheCompetition>[0]);
   if (name === "deploy_dashboard") return execDeployDashboard(args as Parameters<typeof execDeployDashboard>[0]);
 
   if (name.startsWith("n8n_")) {
