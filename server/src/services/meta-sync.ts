@@ -213,6 +213,18 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
     let count = 0;
     try {
       for (const account of accounts) {
+        // Delete existing rows for the period before inserting fresh data.
+        // Avoids onConflictDoUpdate issues with nullable columns in the unique index.
+        await db.delete(metaAdsInsights).where(
+          and(
+            eq(metaAdsInsights.connectionId, conn.id),
+            eq(metaAdsInsights.adAccountId, account),
+            gte(metaAdsInsights.date, since),
+            lte(metaAdsInsights.date, until),
+          ),
+        );
+
+        const allValues: (typeof metaAdsInsights.$inferInsert)[] = [];
         for await (const page of paginate(`/${account}/insights`, {
           access_token: conn.accessToken,
           fields: "campaign_id,campaign_name,adset_id,ad_id,date_start,impressions,clicks,spend,reach,ctr,cpc,cpm,frequency,actions,cost_per_action_type,action_values",
@@ -220,10 +232,10 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
           time_range: JSON.stringify({ since, until }),
           time_increment: "1",
         })) {
-          const values = page.map((r) => {
+          for (const r of page) {
             const actions = (r.actions as Array<{ action_type: string; value: string }> | undefined) ?? [];
             const leads = actions.find(a => a.action_type === "lead")?.value ?? "0";
-            return {
+            allValues.push({
               companyId: conn.companyId,
               connectionId: conn.id,
               adAccountId: account,
@@ -242,17 +254,17 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
               leads: parseInt(leads, 10),
               actions,
               syncedAt: new Date(),
-            };
-          });
-
-          for (const v of values) {
-            await db.insert(metaAdsInsights).values(v).onConflictDoUpdate({
-              target: [metaAdsInsights.connectionId, metaAdsInsights.adAccountId, metaAdsInsights.campaignId, metaAdsInsights.adsetId, metaAdsInsights.adId, metaAdsInsights.date],
-              set: { impressions: v.impressions, clicks: v.clicks, spend: v.spend, reach: v.reach, ctr: v.ctr, cpc: v.cpc, cpm: v.cpm, leads: v.leads, actions: v.actions, syncedAt: new Date() },
-            }).catch(() => {});
+            });
           }
-          count += values.length;
         }
+
+        if (allValues.length > 0) {
+          // Insert in batches of 500
+          for (let i = 0; i < allValues.length; i += 500) {
+            await db.insert(metaAdsInsights).values(allValues.slice(i, i + 500));
+          }
+        }
+        count += allValues.length;
       }
       await endLog(db, logId, "completed", count);
     } catch (e) {
