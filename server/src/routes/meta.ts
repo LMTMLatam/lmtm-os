@@ -460,6 +460,28 @@ export function metaRoutes(db: Db) {
     },
   );
 
+  router.get("/meta/mappings/:id", async (req, res) => {
+    const id = req.params.id as string;
+    const rows = await db
+      .select({
+        id: metaAdAccountMappings.id,
+        companyId: metaAdAccountMappings.companyId,
+        connectionId: metaAdAccountMappings.connectionId,
+        adAccountId: metaAdAccountMappings.adAccountId,
+        label: metaAdAccountMappings.label,
+        createdAt: metaAdAccountMappings.createdAt,
+        connectionLabel: metaConnections.label,
+        connectionStatus: metaConnections.status,
+      })
+      .from(metaAdAccountMappings)
+      .leftJoin(metaConnections, eq(metaConnections.id, metaAdAccountMappings.connectionId))
+      .where(eq(metaAdAccountMappings.id, id))
+      .limit(1);
+    if (!rows[0]) throw notFound("Mapping not found");
+    assertCompanyAccess(req, rows[0].companyId);
+    res.json(rows[0]);
+  });
+
   router.delete("/meta/mappings/:id", async (req, res) => {
     const id = req.params.id as string;
     const existing = await db.query.metaAdAccountMappings.findFirst({
