@@ -378,19 +378,48 @@ export async function syncPagePosts(db: Db, companyId?: string) {
   let total = 0;
   const errors: string[] = [];
   for (const conn of connections) {
-    if (!conn.pageId) continue;
-    const logId = await startLog(db, "page_posts", conn.companyId, conn.id);
+    // Auto-detect pages if pageId not set: call /me/accounts to list all pages.
+    let pageIds: string[] = conn.pageId ? [conn.pageId] : [];
+    if (pageIds.length === 0) {
+      try {
+        const accountsRes = await gGet("/me/accounts", {
+          access_token: conn.accessToken,
+          fields: "id,name,access_token",
+          limit: "50",
+        });
+        const pages = (accountsRes.data ?? []) as Array<{ id: string; name: string; access_token?: string }>;
+        pageIds = pages.map(p => p.id);
+        console.log(`[meta-sync] conn=${conn.id}: auto-detected ${pageIds.length} page(s): ${pageIds.join(",")}`);
+        // Persist the first page back to the connection so future syncs skip detection.
+        if (pages.length > 0) {
+          await db.update(metaConnections)
+            .set({ pageId: pages[0].id })
+            .where(eq(metaConnections.id, conn.id));
+        }
+      } catch (e) {
+        console.log(`[meta-sync] conn=${conn.id}: could not auto-detect pages: ${String(e)}`);
+      }
+    }
+    if (pageIds.length === 0) {
+      console.log(`[meta-sync] conn=${conn.id}: no pageId and no pages found — skipping page posts`);
+      continue;
+    }
+    // Use the first account's companyId (client) for the log
+    const firstPair = pairs.find(p => p.connection.id === conn.id);
+    const logCompanyId = firstPair?.accounts[0]?.companyId ?? conn.companyId;
+    const logId = await startLog(db, "page_posts", logCompanyId, conn.id);
     let count = 0;
     try {
-      for await (const page of paginate(`/${conn.pageId}/posts`, {
+      for (const pageId of pageIds) {
+      for await (const page of paginate(`/${pageId}/posts`, {
         access_token: conn.accessToken,
         fields: "id,message,story,full_picture,permalink_url,created_time,type",
       })) {
         const postValues = page.map((p) => ({
           id: p.id as string,
-          companyId: conn.companyId,
+          companyId: logCompanyId,
           connectionId: conn.id,
-          pageId: conn.pageId!,
+          pageId,
           message: p.message as string | undefined,
           story: p.story as string | undefined,
           fullPicture: p.full_picture as string | undefined,
@@ -416,7 +445,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
             for (const metric of insightData) {
               const val = metric.values?.[0]?.value ?? 0;
               await db.insert(metaPostInsights).values({
-                companyId: conn.companyId,
+                companyId: logCompanyId,
                 postId: post.id,
                 metric: metric.name,
                 value: typeof val === "number" ? val : 0,
@@ -432,6 +461,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
         }
         count += page.length;
       }
+      } // end for pageId
       await endLog(db, logId, "completed", count);
     } catch (e) {
       const msg = String(e);
