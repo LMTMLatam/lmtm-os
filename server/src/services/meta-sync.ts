@@ -45,41 +45,88 @@ async function endLog(db: Db, logId: string, status: "completed" | "failed" | "p
 }
 
 // ── connection resolver ───────────────────────────────────────────────────────
+//
+// Returns pairs of (connection, accounts[]) where each account carries the
+// companyId that SHOULD be used when storing/querying insights.
+//
+// KEY DESIGN: a Meta connection is owned by one company (e.g. the agency) but
+// can be mapped to many client ad accounts via meta_ad_account_mappings. Each
+// mapping row records which companyId "owns" that account for dashboard purposes.
+// When syncing for a specific companyId we resolve the connection via mappings
+// and store data with the MAPPING's companyId, not the connection owner's.
 
-async function resolveConnections(db: Db, companyId?: string) {
-  const rows = companyId
-    ? await db.select().from(metaConnections).where(and(eq(metaConnections.companyId, companyId), eq(metaConnections.status, "active")))
-    : await db.select().from(metaConnections).where(eq(metaConnections.status, "active"));
-  return rows;
-}
+type ConnAccount = { adAccountId: string; companyId: string };
+type ConnWithAccounts = { connection: typeof metaConnections.$inferSelect; accounts: ConnAccount[] };
 
-async function resolveAdAccounts(db: Db, connectionId: string): Promise<string[]> {
-  const conn = await db.select().from(metaConnections).where(eq(metaConnections.id, connectionId)).limit(1);
-  if (!conn[0]) return [];
-  const mappings = await db.select({ adAccountId: metaAdAccountMappings.adAccountId }).from(metaAdAccountMappings).where(eq(metaAdAccountMappings.connectionId, connectionId));
-  if (mappings.length) return mappings.map(m => m.adAccountId);
-  if (conn[0].adAccountId) return [conn[0].adAccountId];
-  return [];
+async function resolveConnectionMappings(db: Db, companyId?: string): Promise<ConnWithAccounts[]> {
+  if (!companyId) {
+    // Global sync — every active connection with every account it has mapped.
+    const connections = await db.select().from(metaConnections).where(eq(metaConnections.status, "active"));
+    const results: ConnWithAccounts[] = [];
+    for (const conn of connections) {
+      const maps = await db
+        .select({ adAccountId: metaAdAccountMappings.adAccountId, companyId: metaAdAccountMappings.companyId })
+        .from(metaAdAccountMappings)
+        .where(eq(metaAdAccountMappings.connectionId, conn.id));
+      const accounts: ConnAccount[] = maps.length
+        ? maps
+        : conn.adAccountId ? [{ adAccountId: conn.adAccountId, companyId: conn.companyId }] : [];
+      if (accounts.length) results.push({ connection: conn, accounts });
+    }
+    return results;
+  }
+
+  // Company-specific sync: find connections that have mappings for this company.
+  const maps = await db
+    .select({ connectionId: metaAdAccountMappings.connectionId, adAccountId: metaAdAccountMappings.adAccountId })
+    .from(metaAdAccountMappings)
+    .where(eq(metaAdAccountMappings.companyId, companyId));
+
+  if (maps.length > 0) {
+    const connIds = [...new Set(maps.map(m => m.connectionId))];
+    const connections = await db
+      .select()
+      .from(metaConnections)
+      .where(and(inArray(metaConnections.id, connIds), eq(metaConnections.status, "active")));
+    return connections.map(conn => ({
+      connection: conn,
+      accounts: maps
+        .filter(m => m.connectionId === conn.id)
+        .map(m => ({ adAccountId: m.adAccountId, companyId })),
+    })).filter(r => r.accounts.length > 0);
+  }
+
+  // Fallback: company directly owns a connection.
+  const directConns = await db
+    .select()
+    .from(metaConnections)
+    .where(and(eq(metaConnections.companyId, companyId), eq(metaConnections.status, "active")));
+  return directConns
+    .map(conn => ({
+      connection: conn,
+      accounts: conn.adAccountId ? [{ adAccountId: conn.adAccountId, companyId: conn.companyId }] : [],
+    }))
+    .filter(r => r.accounts.length > 0);
 }
 
 // ── syncCampaigns ─────────────────────────────────────────────────────────────
 
 export async function syncCampaigns(db: Db, companyId?: string) {
-  const connections = await resolveConnections(db, companyId);
+  const pairs = await resolveConnectionMappings(db, companyId);
   let total = 0;
-  for (const conn of connections) {
-    const accounts = await resolveAdAccounts(db, conn.id);
+  const errors: string[] = [];
+  for (const { connection: conn, accounts } of pairs) {
     const logId = await startLog(db, "campaigns", conn.companyId, conn.id);
     let count = 0;
     try {
-      for (const account of accounts) {
+      for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
         for await (const page of paginate(`/${account}/campaigns`, {
           access_token: conn.accessToken,
           fields: "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type,updated_time",
         })) {
           const values = page.map((c) => ({
             id: c.id as string,
-            companyId: conn.companyId,
+            companyId: accountCompanyId,
             connectionId: conn.id,
             adAccountId: account,
             name: (c.name as string) ?? "",
@@ -102,31 +149,33 @@ export async function syncCampaigns(db: Db, companyId?: string) {
       }
       await endLog(db, logId, "completed", count);
     } catch (e) {
-      await endLog(db, logId, "failed", count, String(e));
+      const msg = String(e);
+      await endLog(db, logId, "failed", count, msg);
+      errors.push(msg);
     }
     total += count;
   }
-  return { synced: total };
+  return { synced: total, errors };
 }
 
 // ── syncAdsets ────────────────────────────────────────────────────────────────
 
 export async function syncAdsets(db: Db, companyId?: string) {
-  const connections = await resolveConnections(db, companyId);
+  const pairs = await resolveConnectionMappings(db, companyId);
   let total = 0;
-  for (const conn of connections) {
-    const accounts = await resolveAdAccounts(db, conn.id);
+  const errors: string[] = [];
+  for (const { connection: conn, accounts } of pairs) {
     const logId = await startLog(db, "adsets", conn.companyId, conn.id);
     let count = 0;
     try {
-      for (const account of accounts) {
+      for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
         for await (const page of paginate(`/${account}/adsets`, {
           access_token: conn.accessToken,
           fields: "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,bid_strategy,billing_event,optimization_goal,targeting",
         })) {
           const values = page.map((s) => ({
             id: s.id as string,
-            companyId: conn.companyId,
+            companyId: accountCompanyId,
             connectionId: conn.id,
             campaignId: s.campaign_id as string | undefined,
             adAccountId: account,
@@ -147,31 +196,33 @@ export async function syncAdsets(db: Db, companyId?: string) {
       }
       await endLog(db, logId, "completed", count);
     } catch (e) {
-      await endLog(db, logId, "failed", count, String(e));
+      const msg = String(e);
+      await endLog(db, logId, "failed", count, msg);
+      errors.push(msg);
     }
     total += count;
   }
-  return { synced: total };
+  return { synced: total, errors };
 }
 
 // ── syncAds ───────────────────────────────────────────────────────────────────
 
 export async function syncAds(db: Db, companyId?: string) {
-  const connections = await resolveConnections(db, companyId);
+  const pairs = await resolveConnectionMappings(db, companyId);
   let total = 0;
-  for (const conn of connections) {
-    const accounts = await resolveAdAccounts(db, conn.id);
+  const errors: string[] = [];
+  for (const { connection: conn, accounts } of pairs) {
     const logId = await startLog(db, "ads", conn.companyId, conn.id);
     let count = 0;
     try {
-      for (const account of accounts) {
+      for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
         for await (const page of paginate(`/${account}/ads`, {
           access_token: conn.accessToken,
           fields: "id,name,status,effective_status,adset_id,campaign_id,creative{id,thumbnail_url,image_url,body,title,call_to_action_type,object_story_spec}",
         })) {
           const values = page.map((a) => ({
             id: a.id as string,
-            companyId: conn.companyId,
+            companyId: accountCompanyId,
             connectionId: conn.id,
             adsetId: a.adset_id as string | undefined,
             campaignId: a.campaign_id as string | undefined,
@@ -192,27 +243,29 @@ export async function syncAds(db: Db, companyId?: string) {
       }
       await endLog(db, logId, "completed", count);
     } catch (e) {
-      await endLog(db, logId, "failed", count, String(e));
+      const msg = String(e);
+      await endLog(db, logId, "failed", count, msg);
+      errors.push(msg);
     }
     total += count;
   }
-  return { synced: total };
+  return { synced: total, errors };
 }
 
 // ── syncAdsInsights ───────────────────────────────────────────────────────────
 
 export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?: string; until?: string } = {}) {
-  const connections = await resolveConnections(db, opts.companyId);
-  const since = opts.since ?? new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const pairs = await resolveConnectionMappings(db, opts.companyId);
+  const since = opts.since ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const until = opts.until ?? new Date().toISOString().slice(0, 10);
   let total = 0;
+  const errors: string[] = [];
 
-  for (const conn of connections) {
-    const accounts = await resolveAdAccounts(db, conn.id);
+  for (const { connection: conn, accounts } of pairs) {
     const logId = await startLog(db, "ads_insights", conn.companyId, conn.id);
     let count = 0;
     try {
-      for (const account of accounts) {
+      for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
         // Delete existing rows for the period before inserting fresh data.
         // Avoids onConflictDoUpdate issues with nullable columns in the unique index.
         await db.delete(metaAdsInsights).where(
@@ -234,9 +287,14 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
         })) {
           for (const r of page) {
             const actions = (r.actions as Array<{ action_type: string; value: string }> | undefined) ?? [];
-            const leads = actions.find(a => a.action_type === "lead")?.value ?? "0";
+            // Meta reports leads under multiple action_types depending on objective
+            const leadTypes = ["lead", "onsite_conversion.lead_grouped", "leadgen_other"];
+            const leads = leadTypes.reduce((sum, t) => {
+              const v = actions.find(a => a.action_type === t)?.value;
+              return sum + (v ? parseInt(v, 10) : 0);
+            }, 0);
             allValues.push({
-              companyId: conn.companyId,
+              companyId: accountCompanyId,
               connectionId: conn.id,
               adAccountId: account,
               campaignId: r.campaign_id as string | undefined,
@@ -251,7 +309,7 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
               ctr: r.ctr ? String(r.ctr) : null,
               cpc: r.cpc ? String(r.cpc) : null,
               cpm: r.cpm ? String(r.cpm) : null,
-              leads: parseInt(leads, 10),
+              leads,
               actions,
               syncedAt: new Date(),
             });
@@ -268,18 +326,26 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
       }
       await endLog(db, logId, "completed", count);
     } catch (e) {
-      await endLog(db, logId, "failed", count, String(e));
+      const msg = String(e);
+      await endLog(db, logId, "failed", count, msg);
+      errors.push(msg);
     }
     total += count;
   }
-  return { synced: total };
+  return { synced: total, errors };
 }
 
 // ── syncPagePosts ─────────────────────────────────────────────────────────────
 
 export async function syncPagePosts(db: Db, companyId?: string) {
-  const connections = await resolveConnections(db, companyId);
+  const pairs = await resolveConnectionMappings(db, companyId);
+  // For page posts we need the connection itself; deduplicate by connection id.
+  const seen = new Set<string>();
+  const connections = pairs
+    .map(p => p.connection)
+    .filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
   let total = 0;
+  const errors: string[] = [];
   for (const conn of connections) {
     if (!conn.pageId) continue;
     const logId = await startLog(db, "page_posts", conn.companyId, conn.id);
@@ -337,11 +403,13 @@ export async function syncPagePosts(db: Db, companyId?: string) {
       }
       await endLog(db, logId, "completed", count);
     } catch (e) {
-      await endLog(db, logId, "failed", count, String(e));
+      const msg = String(e);
+      await endLog(db, logId, "failed", count, msg);
+      errors.push(msg);
     }
     total += count;
   }
-  return { synced: total };
+  return { synced: total, errors };
 }
 
 // ── getDashboardData ──────────────────────────────────────────────────────────
