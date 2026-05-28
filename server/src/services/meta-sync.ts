@@ -3,7 +3,7 @@ import {
   metaConnections, metaAdAccountMappings,
   syncLogs, metaCampaigns, metaAdsets, metaAds, metaAdsInsights, metaPagePosts, metaPostInsights, metaAlerts,
 } from "@paperclipai/db";
-import { eq, and, gte, lte, inArray, desc } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, desc, notInArray } from "drizzle-orm";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const PAGE_LIMIT = 50;
@@ -58,10 +58,15 @@ async function endLog(db: Db, logId: string, status: "completed" | "failed" | "p
 type ConnAccount = { adAccountId: string; companyId: string };
 type ConnWithAccounts = { connection: typeof metaConnections.$inferSelect; accounts: ConnAccount[] };
 
+// Connections that should be tried for syncing: any status except explicitly revoked.
+// "expired" tokens sometimes still work; we let the API call determine validity.
+const SYNC_EXCLUDED_STATUSES = ["revoked"];
+
 async function resolveConnectionMappings(db: Db, companyId?: string): Promise<ConnWithAccounts[]> {
   if (!companyId) {
-    // Global sync — every active connection with every account it has mapped.
-    const connections = await db.select().from(metaConnections).where(eq(metaConnections.status, "active"));
+    // Global sync — every non-revoked connection with every account it has mapped.
+    const connections = await db.select().from(metaConnections)
+      .where(notInArray(metaConnections.status, SYNC_EXCLUDED_STATUSES));
     const results: ConnWithAccounts[] = [];
     for (const conn of connections) {
       const maps = await db
@@ -87,7 +92,7 @@ async function resolveConnectionMappings(db: Db, companyId?: string): Promise<Co
     const connections = await db
       .select()
       .from(metaConnections)
-      .where(and(inArray(metaConnections.id, connIds), eq(metaConnections.status, "active")));
+      .where(and(inArray(metaConnections.id, connIds), notInArray(metaConnections.status, SYNC_EXCLUDED_STATUSES)));
     return connections.map(conn => ({
       connection: conn,
       accounts: maps
@@ -100,7 +105,7 @@ async function resolveConnectionMappings(db: Db, companyId?: string): Promise<Co
   const directConns = await db
     .select()
     .from(metaConnections)
-    .where(and(eq(metaConnections.companyId, companyId), eq(metaConnections.status, "active")));
+    .where(and(eq(metaConnections.companyId, companyId), notInArray(metaConnections.status, SYNC_EXCLUDED_STATUSES)));
   return directConns
     .map(conn => ({
       connection: conn,
@@ -261,6 +266,10 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
   let total = 0;
   const errors: string[] = [];
 
+  if (pairs.length === 0) {
+    errors.push(`No connections found for companyId=${opts.companyId ?? "all"}. Check meta_ad_account_mappings and connection status.`);
+  }
+
   for (const { connection: conn, accounts } of pairs) {
     const logId = await startLog(db, "ads_insights", conn.companyId, conn.id);
     let count = 0;
@@ -317,9 +326,9 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
         }
 
         if (allValues.length > 0) {
-          // Insert in batches of 500
+          // Insert in batches of 500; onConflictDoNothing guards against any remaining duplicates
           for (let i = 0; i < allValues.length; i += 500) {
-            await db.insert(metaAdsInsights).values(allValues.slice(i, i + 500));
+            await db.insert(metaAdsInsights).values(allValues.slice(i, i + 500)).onConflictDoNothing();
           }
         }
         count += allValues.length;
