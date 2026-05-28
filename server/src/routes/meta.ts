@@ -358,6 +358,7 @@ export function metaRoutes(db: Db) {
   });
 
   // ----- Probe: list ad accounts the token can see -----
+  // Fetches from /me/adaccounts (owned) + Business Manager owned/client accounts
   router.get("/meta/connections/:id/ad-accounts", async (req, res) => {
     const id = req.params.id as string;
     const rows = await db.select().from(metaConnections).where(eq(metaConnections.id, id)).limit(1);
@@ -365,12 +366,41 @@ export function metaRoutes(db: Db) {
     if (!conn) throw notFound("Connection not found");
     assertCompanyAccess(req, conn.companyId);
     try {
-      const data = (await graphGet("/me/adaccounts", {
-        access_token: conn.accessToken,
-        fields: "id,account_id,name,currency",
-        limit: "100",
-      })) as { data?: Array<{ id: string; account_id: string; name: string; currency: string }> };
-      res.json({ data: data.data ?? [] });
+      type AdAcc = { id: string; account_id: string; name: string; currency: string };
+      const accountMap = new Map<string, AdAcc>();
+
+      // 1) Directly owned ad accounts
+      try {
+        const direct = (await graphGet("/me/adaccounts", {
+          access_token: conn.accessToken,
+          fields: "id,account_id,name,currency",
+          limit: "200",
+        })) as { data?: AdAcc[] };
+        for (const acc of direct.data ?? []) accountMap.set(acc.id, acc);
+      } catch { /* continue to business accounts */ }
+
+      // 2) Business Manager — owned + client ad accounts
+      try {
+        const bizRes = (await graphGet("/me/businesses", {
+          access_token: conn.accessToken,
+          fields: "id,name",
+          limit: "50",
+        })) as { data?: Array<{ id: string; name: string }> };
+        for (const biz of bizRes.data ?? []) {
+          for (const endpoint of ["owned_ad_accounts", "client_ad_accounts"]) {
+            try {
+              const bizAccs = (await graphGet(`/${biz.id}/${endpoint}`, {
+                access_token: conn.accessToken,
+                fields: "id,account_id,name,currency",
+                limit: "200",
+              })) as { data?: AdAcc[] };
+              for (const acc of bizAccs.data ?? []) accountMap.set(acc.id, acc);
+            } catch { /* this business may not have this endpoint */ }
+          }
+        }
+      } catch { /* user may not have any businesses */ }
+
+      res.json({ data: Array.from(accountMap.values()) });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       res.status(502).json({ error: msg, data: [] });

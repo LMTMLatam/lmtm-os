@@ -64,36 +64,89 @@ async function owDelete(path: string) {
 // --- AI summarization ---
 
 async function summarizeGroup(groupJid: string, groupName: string | null, messages: { senderName: string | null; body: string; timestamp: Date }[]) {
-  const apiKey = process.env.MINIMAX_API_KEY;
-  const minimaxBase = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
-  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2.7";
-  if (!apiKey || messages.length === 0) return null;
+  if (messages.length === 0) return null;
 
   const transcript = messages.map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`).join("\n");
+  const systemPrompt = "Sos un asistente que resume conversaciones de grupos de WhatsApp para equipos de agencia. Generá un resumen conciso en español rioplatense con: temas tratados, decisiones tomadas, tareas mencionadas y puntos pendientes. Máximo 300 palabras.";
+  const userContent = `Grupo: ${groupName ?? groupJid}\n\nConversación:\n${transcript.slice(0, 8000)}`;
 
-  const r = await fetch(`${minimaxBase}/text/chatcompletion_v2`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      temperature: 0.4,
-      messages: [
-        {
-          role: "system",
-          content: "Sos un asistente que resume conversaciones de grupos de WhatsApp para equipos de agencia. Generá un resumen conciso en español rioplatense con: temas tratados, decisiones tomadas, tareas mencionadas y puntos pendientes. Máximo 300 palabras.",
+  // Try Anthropic (Claude) first
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
         },
-        {
-          role: "user",
-          content: `Grupo: ${groupName ?? groupJid}\n\nConversación:\n${transcript.slice(0, 8000)}`,
-        },
-      ],
-    }),
-  });
-  if (!r.ok) return null;
-  const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const raw = data?.choices?.[0]?.message?.content ?? "";
-  return raw.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userContent }],
+        }),
+      });
+      if (r.ok) {
+        const data = (await r.json()) as { content?: Array<{ type: string; text?: string }> };
+        const text = data.content?.find(c => c.type === "text")?.text ?? "";
+        if (text) return text.trim();
+      }
+    } catch { /* fall through to OpenAI */ }
+  }
+
+  // Fallback: OpenAI
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          max_tokens: 1024,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
+          ],
+        }),
+      });
+      if (r.ok) {
+        const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const text = data.choices?.[0]?.message?.content ?? "";
+        if (text) return text.trim();
+      }
+    } catch { /* noop */ }
+  }
+
+  // Last resort: MiniMax
+  const minimaxKey = process.env.MINIMAX_API_KEY;
+  if (minimaxKey) {
+    try {
+      const minimaxBase = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
+      const r = await fetch(`${minimaxBase}/text/chatcompletion_v2`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${minimaxKey}` },
+        body: JSON.stringify({
+          model: process.env.MINIMAX_MODEL ?? "MiniMax-M2.7",
+          max_tokens: 1024,
+          temperature: 0.4,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
+          ],
+        }),
+      });
+      if (r.ok) {
+        const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const raw = data?.choices?.[0]?.message?.content ?? "";
+        return raw.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
+      }
+    } catch { /* noop */ }
+  }
+
+  return null;
 }
 
 // --- Per-group inactivity-triggered summary ---
@@ -153,7 +206,8 @@ function resetGroupTimer(groupJid: string, groupName: string | null) {
 // --- Manual "run now" ---
 
 export async function runDailySummary() {
-  if (!db || cachedStatus !== "connected") return;
+  if (!db) return;
+  // Note: don't gate on cachedStatus — after server restart it may be stale
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const rows = await db

@@ -79,3 +79,4 @@ export { metaConnections } from "./meta_connections.js";
 export { metaAdAccountMappings } from "./meta_ad_account_mappings.js";
 export { waBotConfig, waGroupMessages, waGroupSummaries } from "./wa_bot.js";
 export { syncLogs, metaCampaigns, metaAdsets, metaAds, metaAdsInsights, metaPagePosts, metaPostInsights, metaAlerts } from "./meta_sync.js";
+export { agentChatSessions } from "./agent_chat_sessions.js";
