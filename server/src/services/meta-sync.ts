@@ -67,6 +67,7 @@ async function resolveConnectionMappings(db: Db, companyId?: string): Promise<Co
     // Global sync — every non-revoked connection with every account it has mapped.
     const connections = await db.select().from(metaConnections)
       .where(notInArray(metaConnections.status, SYNC_EXCLUDED_STATUSES));
+    console.log(`[meta-sync] global: found ${connections.length} non-revoked connections`);
     const results: ConnWithAccounts[] = [];
     for (const conn of connections) {
       const maps = await db
@@ -87,12 +88,23 @@ async function resolveConnectionMappings(db: Db, companyId?: string): Promise<Co
     .from(metaAdAccountMappings)
     .where(eq(metaAdAccountMappings.companyId, companyId));
 
+  console.log(`[meta-sync] companyId=${companyId}: found ${maps.length} mapping row(s) in meta_ad_account_mappings`);
+
   if (maps.length > 0) {
     const connIds = [...new Set(maps.map(m => m.connectionId))];
+    console.log(`[meta-sync] connectionIds from mappings: ${connIds.join(", ")}`);
     const connections = await db
       .select()
       .from(metaConnections)
       .where(and(inArray(metaConnections.id, connIds), notInArray(metaConnections.status, SYNC_EXCLUDED_STATUSES)));
+    console.log(`[meta-sync] found ${connections.length} non-revoked connection(s) for those IDs: ${connections.map(c => `${c.id}(${c.status})`).join(", ")}`);
+    // Also log any connections that were filtered out due to status
+    const allConns = await db.select({ id: metaConnections.id, status: metaConnections.status })
+      .from(metaConnections).where(inArray(metaConnections.id, connIds));
+    const filtered = allConns.filter(c => SYNC_EXCLUDED_STATUSES.includes(c.status));
+    if (filtered.length > 0) {
+      console.log(`[meta-sync] EXCLUDED connections (status in [${SYNC_EXCLUDED_STATUSES}]): ${filtered.map(c => `${c.id}(${c.status})`).join(", ")}`);
+    }
     return connections.map(conn => ({
       connection: conn,
       accounts: maps
@@ -102,10 +114,12 @@ async function resolveConnectionMappings(db: Db, companyId?: string): Promise<Co
   }
 
   // Fallback: company directly owns a connection.
+  console.log(`[meta-sync] companyId=${companyId}: no mappings found, trying direct ownership fallback`);
   const directConns = await db
     .select()
     .from(metaConnections)
     .where(and(eq(metaConnections.companyId, companyId), notInArray(metaConnections.status, SYNC_EXCLUDED_STATUSES)));
+  console.log(`[meta-sync] direct connections: ${directConns.length}`);
   return directConns
     .map(conn => ({
       connection: conn,
@@ -121,7 +135,9 @@ export async function syncCampaigns(db: Db, companyId?: string) {
   let total = 0;
   const errors: string[] = [];
   for (const { connection: conn, accounts } of pairs) {
-    const logId = await startLog(db, "campaigns", conn.companyId, conn.id);
+    // Use the first account's companyId (client) for the log so it's visible to the client company.
+    const logCompanyId = accounts[0]?.companyId ?? conn.companyId;
+    const logId = await startLog(db, "campaigns", logCompanyId, conn.id);
     let count = 0;
     try {
       for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
@@ -170,7 +186,8 @@ export async function syncAdsets(db: Db, companyId?: string) {
   let total = 0;
   const errors: string[] = [];
   for (const { connection: conn, accounts } of pairs) {
-    const logId = await startLog(db, "adsets", conn.companyId, conn.id);
+    const logCompanyId = accounts[0]?.companyId ?? conn.companyId;
+    const logId = await startLog(db, "adsets", logCompanyId, conn.id);
     let count = 0;
     try {
       for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
@@ -217,7 +234,8 @@ export async function syncAds(db: Db, companyId?: string) {
   let total = 0;
   const errors: string[] = [];
   for (const { connection: conn, accounts } of pairs) {
-    const logId = await startLog(db, "ads", conn.companyId, conn.id);
+    const logCompanyId = accounts[0]?.companyId ?? conn.companyId;
+    const logId = await startLog(db, "ads", logCompanyId, conn.id);
     let count = 0;
     try {
       for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
@@ -271,10 +289,13 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
   }
 
   for (const { connection: conn, accounts } of pairs) {
-    const logId = await startLog(db, "ads_insights", conn.companyId, conn.id);
+    const logCompanyId = accounts[0]?.companyId ?? conn.companyId;
+    console.log(`[meta-sync] syncAdsInsights: conn=${conn.id} status=${conn.status} accounts=${accounts.map(a => a.adAccountId).join(",")}`);
+    const logId = await startLog(db, "ads_insights", logCompanyId, conn.id);
     let count = 0;
     try {
       for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
+        console.log(`[meta-sync] syncing insights for account=${account} companyId=${accountCompanyId} since=${since} until=${until}`);
         // Delete existing rows for the period before inserting fresh data.
         // Avoids onConflictDoUpdate issues with nullable columns in the unique index.
         await db.delete(metaAdsInsights).where(
@@ -325,6 +346,7 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
           }
         }
 
+        console.log(`[meta-sync] account=${account}: fetched ${allValues.length} insight rows from Meta API`);
         if (allValues.length > 0) {
           // Insert in batches of 500; onConflictDoNothing guards against any remaining duplicates
           for (let i = 0; i < allValues.length; i += 500) {
