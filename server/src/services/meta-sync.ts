@@ -415,7 +415,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
       for (const { id: pageId, pageToken } of pages) {
       for await (const page of paginate(`/${pageId}/posts`, {
         access_token: pageToken,
-        fields: "id,message,story,full_picture,permalink_url,created_time,type",
+        fields: "id,message,story,full_picture,permalink_url,created_time",
       })) {
         const postValues = page.map((p) => ({
           id: p.id as string,
