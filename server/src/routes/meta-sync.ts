@@ -116,8 +116,9 @@ export function metaSyncRoutes(db: Db) {
   router.get("/companies/:companyId/meta/posts", async (req, res) => {
     assertAuthenticated(req);
     const companyId = req.params.companyId as string;
+    const pageId = req.query.pageId as string | undefined;
     try {
-      const data = await getPostsData(db, companyId);
+      const data = await getPostsData(db, companyId, pageId);
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: String(e) });

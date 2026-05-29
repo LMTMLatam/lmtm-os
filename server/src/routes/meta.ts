@@ -468,6 +468,7 @@ export function metaRoutes(db: Db) {
         companyId: metaAdAccountMappings.companyId,
         connectionId: metaAdAccountMappings.connectionId,
         adAccountId: metaAdAccountMappings.adAccountId,
+        pageId: metaAdAccountMappings.pageId,
         label: metaAdAccountMappings.label,
         createdAt: metaAdAccountMappings.createdAt,
         connectionLabel: metaConnections.label,

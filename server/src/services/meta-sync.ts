@@ -393,11 +393,17 @@ export async function syncPagePosts(db: Db, companyId?: string) {
         .filter(p => p.access_token)
         .map(p => ({ id: p.id, name: p.name, pageToken: p.access_token! }));
       console.log(`[meta-sync] conn=${conn.id}: found ${pages.length} page(s) with tokens: ${pages.map(p => p.id).join(",")}`);
-      // Persist first pageId if not set
+      // Persist first pageId to connection if not set
       if (pages.length > 0 && !conn.pageId) {
         await db.update(metaConnections)
           .set({ pageId: pages[0].id })
           .where(eq(metaConnections.id, conn.id));
+      }
+      // If only one page → set it on all mappings that don't have one yet
+      if (pages.length === 1) {
+        await db.update(metaAdAccountMappings)
+          .set({ pageId: pages[0].id })
+          .where(and(eq(metaAdAccountMappings.connectionId, conn.id), eq(metaAdAccountMappings.pageId, null as unknown as string)));
       }
     } catch (e) {
       console.log(`[meta-sync] conn=${conn.id}: /me/accounts failed: ${String(e)}`);
@@ -776,9 +782,9 @@ export async function getAdsData(db: Db, companyId: string, opts: { since?: stri
 
 // ── getPostsData ──────────────────────────────────────────────────────────────
 
-export async function getPostsData(db: Db, companyId: string) {
+export async function getPostsData(db: Db, companyId: string, pageId?: string) {
   const posts = await db.select().from(metaPagePosts)
-    .where(eq(metaPagePosts.companyId, companyId))
+    .where(and(eq(metaPagePosts.companyId, companyId), pageId ? eq(metaPagePosts.pageId, pageId) : undefined))
     .orderBy(desc(metaPagePosts.createdTime))
     .limit(200);
 

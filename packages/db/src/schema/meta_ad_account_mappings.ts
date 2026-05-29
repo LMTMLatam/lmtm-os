@@ -14,6 +14,7 @@ export const metaAdAccountMappings = pgTable(
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     connectionId: uuid("connection_id").notNull().references(() => metaConnections.id, { onDelete: "cascade" }),
     adAccountId: text("ad_account_id").notNull(),
+    pageId: text("page_id"),
     label: text("label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
