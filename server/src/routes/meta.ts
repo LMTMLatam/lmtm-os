@@ -483,6 +483,36 @@ export function metaRoutes(db: Db) {
     res.json(rows[0]);
   });
 
+  // PATCH /api/meta/mappings/:id — update pageId (and/or label)
+  router.patch("/meta/mappings/:id", async (req, res) => {
+    const id = req.params.id as string;
+    const existing = await db.query.metaAdAccountMappings.findFirst({ where: eq(metaAdAccountMappings.id, id) });
+    if (!existing) throw notFound("Mapping not found");
+    assertCompanyAccess(req, existing.companyId);
+    const { pageId, label } = req.body as { pageId?: string | null; label?: string };
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (pageId !== undefined) updates.pageId = pageId || null;
+    if (label !== undefined) updates.label = label;
+    await db.update(metaAdAccountMappings).set(updates).where(eq(metaAdAccountMappings.id, id));
+    res.json({ ok: true });
+  });
+
+  // GET /api/meta/connections/:id/pages — list pages accessible via this connection's token
+  router.get("/meta/connections/:id/pages", async (req, res) => {
+    assertAuthenticated(req);
+    const connId = req.params.id as string;
+    const conn = await db.query.metaConnections.findFirst({ where: eq(metaConnections.id, connId) });
+    if (!conn) throw notFound("Connection not found");
+    const url = new URL(`https://graph.facebook.com/v21.0/me/accounts`);
+    url.searchParams.set("access_token", conn.accessToken);
+    url.searchParams.set("fields", "id,name");
+    url.searchParams.set("limit", "200");
+    const r = await fetch(url.toString());
+    const json = await r.json() as { data?: Array<{ id: string; name: string }>; error?: { message: string } };
+    if (!r.ok) throw new Error(json.error?.message ?? "Graph error");
+    res.json(json.data ?? []);
+  });
+
   router.delete("/meta/mappings/:id", async (req, res) => {
     const id = req.params.id as string;
     const existing = await db.query.metaAdAccountMappings.findFirst({

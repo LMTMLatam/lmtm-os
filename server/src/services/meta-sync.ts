@@ -370,55 +370,63 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
 
 export async function syncPagePosts(db: Db, companyId?: string) {
   const pairs = await resolveConnectionMappings(db, companyId);
-  // For page posts we need the connection itself; deduplicate by connection id.
-  const seen = new Set<string>();
-  const connections = pairs
-    .map(p => p.connection)
-    .filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
   let total = 0;
   const errors: string[] = [];
-  for (const conn of connections) {
-    // Always call /me/accounts to get pages WITH their page-specific access tokens.
-    // The connection's main token is an ad/user token; page posts require the Page Access Token.
-    type PageEntry = { id: string; name: string; pageToken: string };
-    let pages: PageEntry[] = [];
+
+  // Build list of (connection, pageId, companyId) from mappings that have pageId configured.
+  // Each unique (connectionId, pageId) pair is synced once.
+  type PageJob = { conn: typeof metaConnections.$inferSelect; pageId: string; logCompanyId: string };
+  const seen = new Set<string>();
+  const jobs: PageJob[] = [];
+  for (const { connection: conn, accounts } of pairs) {
+    for (const { companyId: acctCompanyId } of accounts) {
+      // Find the mapping row for this (connectionId, companyId) to get pageId
+      const mappingRow = await db.select({ pageId: metaAdAccountMappings.pageId })
+        .from(metaAdAccountMappings)
+        .where(and(eq(metaAdAccountMappings.connectionId, conn.id), eq(metaAdAccountMappings.companyId, acctCompanyId)))
+        .limit(1);
+      const pageId = mappingRow[0]?.pageId;
+      if (!pageId) continue;
+      const key = `${conn.id}::${pageId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      jobs.push({ conn, pageId, logCompanyId: acctCompanyId });
+    }
+  }
+
+  if (jobs.length === 0) {
+    errors.push("No mappings have a pageId configured. Set a Facebook Page on each client mapping via Configuración.");
+    return { synced: 0, errors };
+  }
+
+  // Get page tokens once per connection via /me/accounts
+  const pageTokenCache = new Map<string, string>(); // pageId → pageAccessToken
+  const connsSeen = new Set<string>();
+  for (const { conn } of jobs) {
+    if (connsSeen.has(conn.id)) continue;
+    connsSeen.add(conn.id);
     try {
-      const accountsRes = await gGet("/me/accounts", {
+      const res = await gGet("/me/accounts", {
         access_token: conn.accessToken,
-        fields: "id,name,access_token",
-        limit: "50",
+        fields: "id,access_token",
+        limit: "200",
       });
-      const raw = (accountsRes.data ?? []) as Array<{ id: string; name: string; access_token?: string }>;
-      pages = raw
-        .filter(p => p.access_token)
-        .map(p => ({ id: p.id, name: p.name, pageToken: p.access_token! }));
-      console.log(`[meta-sync] conn=${conn.id}: found ${pages.length} page(s) with tokens: ${pages.map(p => p.id).join(",")}`);
-      // Persist first pageId to connection if not set
-      if (pages.length > 0 && !conn.pageId) {
-        await db.update(metaConnections)
-          .set({ pageId: pages[0].id })
-          .where(eq(metaConnections.id, conn.id));
+      const raw = (res.data ?? []) as Array<{ id: string; access_token?: string }>;
+      for (const p of raw) {
+        if (p.access_token) pageTokenCache.set(p.id, p.access_token);
       }
-      // If only one page → set it on all mappings that don't have one yet
-      if (pages.length === 1) {
-        await db.update(metaAdAccountMappings)
-          .set({ pageId: pages[0].id })
-          .where(and(eq(metaAdAccountMappings.connectionId, conn.id), eq(metaAdAccountMappings.pageId, null as unknown as string)));
-      }
+      console.log(`[meta-sync] conn=${conn.id}: loaded ${raw.length} page token(s) from /me/accounts`);
     } catch (e) {
       console.log(`[meta-sync] conn=${conn.id}: /me/accounts failed: ${String(e)}`);
     }
-    if (pages.length === 0) {
-      console.log(`[meta-sync] conn=${conn.id}: no pages with access tokens found — skipping page posts`);
-      continue;
-    }
-    // Use the first account's companyId (client) for the log
-    const firstPair = pairs.find(p => p.connection.id === conn.id);
-    const logCompanyId = firstPair?.accounts[0]?.companyId ?? conn.companyId;
+  }
+
+  for (const { conn, pageId, logCompanyId } of jobs) {
+    const pageToken = pageTokenCache.get(pageId) ?? conn.accessToken;
+    console.log(`[meta-sync] syncing page posts: pageId=${pageId} companyId=${logCompanyId} hasPageToken=${pageTokenCache.has(pageId)}`);
     const logId = await startLog(db, "page_posts", logCompanyId, conn.id);
     let count = 0;
     try {
-      for (const { id: pageId, pageToken } of pages) {
       for await (const page of paginate(`/${pageId}/posts`, {
         access_token: pageToken,
         fields: "id,message,story,full_picture,permalink_url,created_time",
@@ -433,7 +441,6 @@ export async function syncPagePosts(db: Db, companyId?: string) {
           fullPicture: p.full_picture as string | undefined,
           permalinkUrl: p.permalink_url as string | undefined,
           createdTime: p.created_time ? new Date(p.created_time as string) : undefined,
-          postType: p.type as string | undefined,
           raw: p,
           syncedAt: new Date(),
         }));
@@ -441,8 +448,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
           target: metaPagePosts.id,
           set: { message: metaPagePosts.message, syncedAt: new Date(), raw: metaPagePosts.raw },
         });
-
-        // Fetch insights for each post
+        // Fetch insights per post
         for (const post of postValues) {
           try {
             const insightRes = await gGet(`/${post.id}/insights`, {
@@ -453,23 +459,17 @@ export async function syncPagePosts(db: Db, companyId?: string) {
             for (const metric of insightData) {
               const val = metric.values?.[0]?.value ?? 0;
               await db.insert(metaPostInsights).values({
-                companyId: logCompanyId,
-                postId: post.id,
-                metric: metric.name,
-                value: typeof val === "number" ? val : 0,
-                syncedAt: new Date(),
+                companyId: logCompanyId, postId: post.id, metric: metric.name,
+                value: typeof val === "number" ? val : 0, syncedAt: new Date(),
               }).onConflictDoUpdate({
                 target: [metaPostInsights.postId, metaPostInsights.metric],
                 set: { value: typeof val === "number" ? val : 0, syncedAt: new Date() },
               }).catch(() => {});
             }
-          } catch {
-            // post insights may fail silently
-          }
+          } catch { /* silent */ }
         }
         count += page.length;
       }
-      } // end for pageId
       await endLog(db, logId, "completed", count);
     } catch (e) {
       const msg = String(e);
