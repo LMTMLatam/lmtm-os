@@ -378,30 +378,32 @@ export async function syncPagePosts(db: Db, companyId?: string) {
   let total = 0;
   const errors: string[] = [];
   for (const conn of connections) {
-    // Auto-detect pages if pageId not set: call /me/accounts to list all pages.
-    let pageIds: string[] = conn.pageId ? [conn.pageId] : [];
-    if (pageIds.length === 0) {
-      try {
-        const accountsRes = await gGet("/me/accounts", {
-          access_token: conn.accessToken,
-          fields: "id,name,access_token",
-          limit: "50",
-        });
-        const pages = (accountsRes.data ?? []) as Array<{ id: string; name: string; access_token?: string }>;
-        pageIds = pages.map(p => p.id);
-        console.log(`[meta-sync] conn=${conn.id}: auto-detected ${pageIds.length} page(s): ${pageIds.join(",")}`);
-        // Persist the first page back to the connection so future syncs skip detection.
-        if (pages.length > 0) {
-          await db.update(metaConnections)
-            .set({ pageId: pages[0].id })
-            .where(eq(metaConnections.id, conn.id));
-        }
-      } catch (e) {
-        console.log(`[meta-sync] conn=${conn.id}: could not auto-detect pages: ${String(e)}`);
+    // Always call /me/accounts to get pages WITH their page-specific access tokens.
+    // The connection's main token is an ad/user token; page posts require the Page Access Token.
+    type PageEntry = { id: string; name: string; pageToken: string };
+    let pages: PageEntry[] = [];
+    try {
+      const accountsRes = await gGet("/me/accounts", {
+        access_token: conn.accessToken,
+        fields: "id,name,access_token",
+        limit: "50",
+      });
+      const raw = (accountsRes.data ?? []) as Array<{ id: string; name: string; access_token?: string }>;
+      pages = raw
+        .filter(p => p.access_token)
+        .map(p => ({ id: p.id, name: p.name, pageToken: p.access_token! }));
+      console.log(`[meta-sync] conn=${conn.id}: found ${pages.length} page(s) with tokens: ${pages.map(p => p.id).join(",")}`);
+      // Persist first pageId if not set
+      if (pages.length > 0 && !conn.pageId) {
+        await db.update(metaConnections)
+          .set({ pageId: pages[0].id })
+          .where(eq(metaConnections.id, conn.id));
       }
+    } catch (e) {
+      console.log(`[meta-sync] conn=${conn.id}: /me/accounts failed: ${String(e)}`);
     }
-    if (pageIds.length === 0) {
-      console.log(`[meta-sync] conn=${conn.id}: no pageId and no pages found — skipping page posts`);
+    if (pages.length === 0) {
+      console.log(`[meta-sync] conn=${conn.id}: no pages with access tokens found — skipping page posts`);
       continue;
     }
     // Use the first account's companyId (client) for the log
@@ -410,9 +412,9 @@ export async function syncPagePosts(db: Db, companyId?: string) {
     const logId = await startLog(db, "page_posts", logCompanyId, conn.id);
     let count = 0;
     try {
-      for (const pageId of pageIds) {
+      for (const { id: pageId, pageToken } of pages) {
       for await (const page of paginate(`/${pageId}/posts`, {
-        access_token: conn.accessToken,
+        access_token: pageToken,
         fields: "id,message,story,full_picture,permalink_url,created_time,type",
       })) {
         const postValues = page.map((p) => ({
@@ -438,7 +440,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
         for (const post of postValues) {
           try {
             const insightRes = await gGet(`/${post.id}/insights`, {
-              access_token: conn.accessToken,
+              access_token: pageToken,
               metric: "post_impressions_unique,post_impressions,post_engaged_users,post_clicks,post_reactions_by_type_total",
             });
             const insightData = (insightRes.data ?? []) as Array<{ name: string; values?: Array<{ value: number }> }>;
