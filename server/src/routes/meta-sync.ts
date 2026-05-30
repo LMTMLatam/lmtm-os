@@ -28,6 +28,30 @@ export function metaSyncRoutes(db: Db) {
         case "ads":              result = await syncAds(db, companyId); break;
         case "ads-insights":     result = await syncAdsInsights(db, { companyId, since, until }); break;
         case "page-posts":       result = await syncPagePosts(db, companyId); break;
+        case "all": {
+          // Full refresh: ads pipeline + organic posts. Aggregate counts/errors
+          // so a failure in one step (e.g. organic page access) doesn't block
+          // the rest. Used by the dashboard's automatic background sync.
+          const steps = await Promise.allSettled([
+            syncCampaigns(db, companyId),
+            syncAdsets(db, companyId),
+            syncAds(db, companyId),
+            syncAdsInsights(db, { companyId, since, until }),
+            syncPagePosts(db, companyId),
+          ]);
+          let synced = 0;
+          const errors: string[] = [];
+          for (const s of steps) {
+            if (s.status === "fulfilled") {
+              synced += s.value.synced;
+              if (s.value.errors) errors.push(...s.value.errors);
+            } else {
+              errors.push(String(s.reason));
+            }
+          }
+          result = { synced, errors };
+          break;
+        }
         default: return res.status(400).json({ error: `Unknown job: ${job}` });
       }
       // If ALL connections errored and nothing synced, surface the errors.

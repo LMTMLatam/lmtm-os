@@ -201,6 +201,9 @@ export function metaRoutes(db: Db) {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", scope);
     url.searchParams.set("state", state);
+    // Force Facebook to re-show the permission + page-selection screen so the
+    // user can grant access to client Pages they previously skipped.
+    url.searchParams.set("auth_type", "rerequest");
     res.redirect(url.toString());
   });
 

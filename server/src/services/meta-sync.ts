@@ -366,36 +366,96 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
   return { synced: total, errors };
 }
 
+// ── page auto-detection ─────────────────────────────────────────────────────
+//
+// Derive the Facebook Page a client publishes ads from, by inspecting the ad
+// account's creatives (object_story_spec.page_id / effective_object_story_id).
+// Returns the most frequently used page_id. This lets us map ad account → page
+// automatically, without any manual dropdown.
+
+async function detectPageIdForAdAccount(token: string, adAccountId: string): Promise<string | null> {
+  try {
+    const res = await gGet(`/${adAccountId}/ads`, {
+      access_token: token,
+      fields: "creative{effective_object_story_id,object_story_spec{page_id}}",
+      limit: "50",
+    });
+    const ads = (res.data ?? []) as Array<{ creative?: { effective_object_story_id?: string; object_story_spec?: { page_id?: string } } }>;
+    const counts = new Map<string, number>();
+    for (const a of ads) {
+      const cr = a.creative;
+      let pid: string | undefined;
+      if (cr?.object_story_spec?.page_id) pid = cr.object_story_spec.page_id;
+      else if (cr?.effective_object_story_id) pid = cr.effective_object_story_id.split("_")[0];
+      if (pid) counts.set(pid, (counts.get(pid) ?? 0) + 1);
+    }
+    let best: string | null = null;
+    let max = 0;
+    for (const [pid, n] of counts) if (n > max) { max = n; best = pid; }
+    return best;
+  } catch (e) {
+    console.log(`[meta-sync] detectPageId ${adAccountId} failed: ${String(e)}`);
+    return null;
+  }
+}
+
 // ── syncPagePosts ─────────────────────────────────────────────────────────────
 
 export async function syncPagePosts(db: Db, companyId?: string) {
-  const pairs = await resolveConnectionMappings(db, companyId);
+  // Operate per MAPPING (ad account), not per company — many mappings can share
+  // one companyId. For each mapping we ensure a pageId (auto-detecting from the
+  // ad account's creatives when missing), then sync that page's organic posts.
+  const mappingRows = await db
+    .select({
+      id: metaAdAccountMappings.id,
+      adAccountId: metaAdAccountMappings.adAccountId,
+      pageId: metaAdAccountMappings.pageId,
+      companyId: metaAdAccountMappings.companyId,
+      connectionId: metaAdAccountMappings.connectionId,
+    })
+    .from(metaAdAccountMappings)
+    .where(companyId ? eq(metaAdAccountMappings.companyId, companyId) : undefined);
+
   let total = 0;
   const errors: string[] = [];
 
-  // Build list of (connection, pageId, companyId) from mappings that have pageId configured.
-  // Each unique (connectionId, pageId) pair is synced once.
+  // Load connections referenced by these mappings (skip revoked).
+  const connIds = [...new Set(mappingRows.map((m) => m.connectionId))];
+  const connList = connIds.length
+    ? await db.select().from(metaConnections).where(inArray(metaConnections.id, connIds))
+    : [];
+  const connById = new Map(connList.map((c) => [c.id, c]));
+
   type PageJob = { conn: typeof metaConnections.$inferSelect; pageId: string; logCompanyId: string };
   const seen = new Set<string>();
   const jobs: PageJob[] = [];
-  for (const { connection: conn, accounts } of pairs) {
-    for (const { companyId: acctCompanyId } of accounts) {
-      // Find the mapping row for this (connectionId, companyId) to get pageId
-      const mappingRow = await db.select({ pageId: metaAdAccountMappings.pageId })
-        .from(metaAdAccountMappings)
-        .where(and(eq(metaAdAccountMappings.connectionId, conn.id), eq(metaAdAccountMappings.companyId, acctCompanyId)))
-        .limit(1);
-      const pageId = mappingRow[0]?.pageId;
-      if (!pageId) continue;
-      const key = `${conn.id}::${pageId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      jobs.push({ conn, pageId, logCompanyId: acctCompanyId });
+
+  for (const m of mappingRows) {
+    const conn = connById.get(m.connectionId);
+    if (!conn || SYNC_EXCLUDED_STATUSES.includes(conn.status)) continue;
+
+    let pageId = m.pageId;
+    if (!pageId) {
+      pageId = await detectPageIdForAdAccount(conn.accessToken, m.adAccountId);
+      if (pageId) {
+        await db.update(metaAdAccountMappings)
+          .set({ pageId, updatedAt: new Date() })
+          .where(eq(metaAdAccountMappings.id, m.id));
+        console.log(`[meta-sync] auto-detected pageId=${pageId} for mapping=${m.id} (${m.adAccountId})`);
+      }
     }
+    if (!pageId) {
+      errors.push(`No se pudo detectar la página para ${m.adAccountId}.`);
+      continue;
+    }
+    const key = `${conn.id}::${pageId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    jobs.push({ conn, pageId, logCompanyId: m.companyId });
   }
 
   if (jobs.length === 0) {
-    errors.push("No mappings have a pageId configured. Set a Facebook Page on each client mapping via Configuración.");
+    if (errors.length === 0) errors.push("No hay mappings para sincronizar.");
     return { synced: 0, errors };
   }
 
@@ -422,10 +482,21 @@ export async function syncPagePosts(db: Db, companyId?: string) {
   }
 
   for (const { conn, pageId, logCompanyId } of jobs) {
+    const hasPageToken = pageTokenCache.has(pageId);
     const pageToken = pageTokenCache.get(pageId) ?? conn.accessToken;
-    console.log(`[meta-sync] syncing page posts: pageId=${pageId} companyId=${logCompanyId} hasPageToken=${pageTokenCache.has(pageId)}`);
+    console.log(`[meta-sync] syncing page posts: pageId=${pageId} companyId=${logCompanyId} hasPageToken=${hasPageToken}`);
     const logId = await startLog(db, "page_posts", logCompanyId, conn.id);
     let count = 0;
+    if (!hasPageToken) {
+      // No Page access token for this page → the connected user has no role on
+      // this Facebook Page. Organic posts cannot be read until the page is
+      // granted to the connection (reconnect selecting this page, or add the
+      // user as admin/editor in Business Manager).
+      const msg = `Sin acceso a la página ${pageId}. Reconectá Meta y seleccioná esta página, o agregá al usuario como administrador/editor de la página en Business Manager.`;
+      await endLog(db, logId, "failed", 0, msg);
+      errors.push(msg);
+      continue;
+    }
     try {
       for await (const page of paginate(`/${pageId}/posts`, {
         access_token: pageToken,
