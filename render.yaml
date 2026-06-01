@@ -6,7 +6,7 @@ services:
     branch: render-setup-lmtm
     plan: starter
     region: oregon
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/server build
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/adapter-minimax-local build && pnpm --filter @paperclipai/server build
     startCommand: node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
     envVars:
       - key: NODE_ENV

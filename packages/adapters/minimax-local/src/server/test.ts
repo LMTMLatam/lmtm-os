@@ -1,9 +1,12 @@
+// LMTM-OS: minimax_local environment test.
+// Probes the MiniMax API with a tiny request to validate the key + reachability.
+
 import type {
   AdapterEnvironmentCheck,
   AdapterEnvironmentTestContext,
   AdapterEnvironmentTestResult,
-} from "../types.js";
-import { asString, parseObject } from "../utils.js";
+} from "@paperclipai/adapter-utils";
+import { resolveApiKey, resolveBaseUrl, resolveModel } from "./models.js";
 
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((c) => c.level === "error")) return "fail";
@@ -15,11 +18,10 @@ export async function testEnvironment(
   ctx: AdapterEnvironmentTestContext,
 ): Promise<AdapterEnvironmentTestResult> {
   const checks: AdapterEnvironmentCheck[] = [];
-  const config = parseObject(ctx.config);
-
-  const apiKey = asString(config.apiKey, process.env.MINIMAX_API_KEY ?? "");
-  const baseUrl = asString(config.baseUrl, process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1");
-  const model = asString(config.model, process.env.MINIMAX_MODEL ?? "MiniMax-M3");
+  const config = (ctx.config ?? {}) as Record<string, unknown>;
+  const apiKey = resolveApiKey(typeof config.apiKey === "string" ? config.apiKey : null);
+  const baseUrl = resolveBaseUrl(typeof config.baseUrl === "string" ? config.baseUrl : null);
+  const model = resolveModel(typeof config.model === "string" ? config.model : null);
 
   if (!apiKey) {
     checks.push({
@@ -36,28 +38,14 @@ export async function testEnvironment(
     };
   }
 
-  checks.push({
-    code: "minimax_api_key_present",
-    level: "info",
-    message: "API key configured.",
-  });
-
-  checks.push({
-    code: "minimax_base_url",
-    level: "info",
-    message: `Base URL: ${baseUrl}`,
-  });
-
-  checks.push({
-    code: "minimax_model",
-    level: "info",
-    message: `Default model: ${model}`,
-  });
+  checks.push({ code: "minimax_api_key_present", level: "info", message: "API key configured." });
+  checks.push({ code: "minimax_base_url", level: "info", message: `Base URL: ${baseUrl}` });
+  checks.push({ code: "minimax_model", level: "info", message: `Default model: ${model}` });
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    const probe = await fetch(`${baseUrl.replace(/\/$/, "")}/text/chatcompletion_v2`, {
+    const probe = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -75,16 +63,19 @@ export async function testEnvironment(
     };
     const upstream = data.base_resp?.status_code;
     if (typeof upstream === "number" && upstream !== 0) {
+      const code = upstream === 1002 || upstream === 1004 || upstream === 1008 ? "warn" : "error";
       checks.push({
         code: `minimax_probe_${upstream}`,
-        level: "error",
+        level: code as "warn" | "error",
         message: `MiniMax rejected probe: ${data.base_resp?.status_msg ?? "unknown"}`,
+        hint: code === "warn" ? "Reachable but the probe message was filtered. The agent itself should still work." : "Verify the API key has access to the configured model.",
       });
     } else if (!probe.ok) {
       checks.push({
         code: `minimax_probe_http_${probe.status}`,
         level: "error",
         message: `MiniMax probe returned HTTP ${probe.status}.`,
+        hint: "Check that the baseUrl is correct and reachable from this host.",
       });
     } else {
       checks.push({
@@ -101,7 +92,7 @@ export async function testEnvironment(
       hint: "Network restriction or invalid endpoint; verify reachability from this host.",
     });
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 
   return {

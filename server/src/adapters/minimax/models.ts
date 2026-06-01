@@ -1,16 +1,18 @@
 import type { AdapterModel } from "../types.js";
 
 export const models: AdapterModel[] = [
-  { id: "MiniMax-M2", label: "MiniMax M2" },
-  { id: "MiniMax-M2.1", label: "MiniMax M2.1" },
-  { id: "MiniMax-M2.1-highspeed", label: "MiniMax M2.1 (highspeed)" },
-  { id: "MiniMax-M2.5", label: "MiniMax M2.5" },
-  { id: "MiniMax-M2.5-highspeed", label: "MiniMax M2.5 (highspeed)" },
+  { id: "MiniMax-M3", label: "MiniMax M3 (default para LMTM)" },
+  { id: "MiniMax-M3-highspeed", label: "MiniMax M3 (highspeed)" },
   { id: "MiniMax-M2.7", label: "MiniMax M2.7" },
   { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7 (highspeed)" },
+  { id: "MiniMax-M2.5", label: "MiniMax M2.5" },
+  { id: "MiniMax-M2.5-highspeed", label: "MiniMax M2.5 (highspeed)" },
+  { id: "MiniMax-M2.1", label: "MiniMax M2.1" },
+  { id: "MiniMax-M2.1-highspeed", label: "MiniMax M2.1 (highspeed)" },
+  { id: "MiniMax-M2", label: "MiniMax M2 (legacy)" },
 ];
 
-export const DEFAULT_MODEL = "MiniMax-M2";
+export const DEFAULT_MODEL = "MiniMax-M3";
 
 export async function listModels(): Promise<AdapterModel[]> {
   const apiKey = process.env.MINIMAX_API_KEY;

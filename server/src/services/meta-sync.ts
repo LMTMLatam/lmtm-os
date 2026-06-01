@@ -340,7 +340,9 @@ export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?
               cpc: r.cpc ? String(r.cpc) : null,
               cpm: r.cpm ? String(r.cpm) : null,
               leads,
-              actions,
+              conversions: 0,
+              conversionValue: null,
+              videoViews: 0,
               syncedAt: new Date(),
             });
           }
@@ -529,12 +531,13 @@ export async function syncPagePosts(db: Db, companyId?: string) {
             const insightData = (insightRes.data ?? []) as Array<{ name: string; values?: Array<{ value: number }> }>;
             for (const metric of insightData) {
               const val = metric.values?.[0]?.value ?? 0;
+              const valueStr = String(typeof val === "number" ? val : 0);
               await db.insert(metaPostInsights).values({
                 companyId: logCompanyId, postId: post.id, metric: metric.name,
-                value: typeof val === "number" ? val : 0, syncedAt: new Date(),
+                value: valueStr, syncedAt: new Date(),
               }).onConflictDoUpdate({
                 target: [metaPostInsights.postId, metaPostInsights.metric],
-                set: { value: typeof val === "number" ? val : 0, syncedAt: new Date() },
+                set: { value: valueStr, syncedAt: new Date() },
               }).catch(() => {});
             }
           } catch { /* silent */ }
@@ -871,7 +874,12 @@ export async function getPostsData(db: Db, companyId: string, pageId?: string) {
 
   return posts.map(p => {
     const pi = insights.filter(i => i.postId === p.id);
-    const getM = (m: string) => pi.find(i => i.metric === m)?.value ?? 0;
+    const getM = (m: string): number => {
+      const v = pi.find(i => i.metric === m)?.value;
+      if (v == null) return 0;
+      const n = typeof v === "number" ? v : Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
     const reach = getM("post_impressions_unique");
     const impressions = getM("post_impressions");
     const engagement = getM("post_engaged_users");

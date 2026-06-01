@@ -12,6 +12,7 @@ export const BUILTIN_ADAPTER_TYPES = new Set([
   "opencode_local",
   "pi_local",
   "hermes_local",
+  "minimax_local",
   "process",
   "http",
   "minimax_cloud",

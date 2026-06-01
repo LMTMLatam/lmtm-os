@@ -1,3 +1,8 @@
+// LMTM-OS schema barrel.
+// New tables (0094-0096) are the canonical names; legacy "meta_*" names
+// are kept as aliases so existing routes/services keep compiling while
+// we migrate them in subsequent phases.
+
 export { companies } from "./companies.js";
 export { companyLogos } from "./company_logos.js";
 export { authUsers, authSessions, authAccounts, authVerifications } from "./auth.js";
@@ -75,8 +80,49 @@ export { pluginDatabaseNamespaces, pluginMigrations } from "./plugin_database.js
 export { pluginJobs, pluginJobRuns } from "./plugin_jobs.js";
 export { pluginWebhookDeliveries } from "./plugin_webhooks.js";
 export { pluginLogs } from "./plugin_logs.js";
-export { metaConnections } from "./meta_connections.js";
-export { metaAdAccountMappings } from "./meta_ad_account_mappings.js";
 export { waBotConfig, waGroupMessages, waGroupSummaries } from "./wa_bot.js";
-export { syncLogs, metaCampaigns, metaAdsets, metaAds, metaAdsInsights, metaPagePosts, metaPostInsights, metaAlerts } from "./meta_sync.js";
 export { agentChatSessions } from "./agent_chat_sessions.js";
+
+// LMTM-OS new tables (canonical, post-0094).
+export { clients } from "./clients.js";
+export type { Client, NewClient } from "./clients.js";
+export { adsConnections } from "./ads_connections.js";
+export type { AdsConnection, NewAdsConnection } from "./ads_connections.js";
+export { adsAccountMappings } from "./ads_account_mappings.js";
+export type { AdsAccountMapping, NewAdsAccountMapping } from "./ads_account_mappings.js";
+export {
+  syncLogs,
+  adsCampaigns,
+  adsAdsets,
+  adsCreatives,
+  adsInsights,
+  organicPosts,
+  organicPostInsights,
+  adsAlerts,
+} from "./ads_data.js";
+export {
+  planillaSyncState,
+  clientDashboardLinks,
+} from "./planilla.js";
+export type {
+  PlanillaSyncState,
+  NewPlanillaSyncState,
+  ClientDashboardLink,
+  NewClientDashboardLink,
+} from "./planilla.js";
+
+// Legacy "meta_*" names — kept as re-exports of the renamed tables so the
+// existing routes/services compile while we migrate them. Will be removed
+// once the refactor lands.
+export { adsConnections as metaConnections } from "./ads_connections.js";
+export { adsAccountMappings as metaAdAccountMappings } from "./ads_account_mappings.js";
+export {
+  syncLogs as metaSyncLogs,
+  adsCampaigns as metaCampaigns,
+  adsAdsets as metaAdsets,
+  adsCreatives as metaAds,
+  adsInsights as metaAdsInsights,
+  organicPosts as metaPagePosts,
+  organicPostInsights as metaPostInsights,
+  adsAlerts as metaAlerts,
+} from "./ads_data.js";

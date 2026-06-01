@@ -125,6 +125,19 @@ import {
   agentConfigurationDoc as hermesAgentConfigurationDoc,
   models as hermesModels,
 } from "hermes-paperclip-adapter";
+import {
+  execute as minimaxLocalExecute,
+  testEnvironment as minimaxLocalTestEnvironment,
+  sessionCodec as minimaxLocalSessionCodec,
+  listMinimaxModels as listMinimaxLocalModels,
+  listMinimaxSkills as listMinimaxLocalSkills,
+  syncMinimaxSkills as syncMinimaxLocalSkills,
+} from "@paperclipai/adapter-minimax-local/server";
+import {
+  agentConfigurationDoc as minimaxLocalAgentConfigurationDoc,
+  models as minimaxLocalModels,
+  modelProfiles as minimaxLocalModelProfiles,
+} from "@paperclipai/adapter-minimax-local";
 import { BUILTIN_ADAPTER_TYPES } from "./builtin-adapter-types.js";
 import { buildExternalAdapters } from "./plugin-loader.js";
 import { getDisabledAdapterTypes } from "../services/adapter-plugin-store.js";
@@ -466,6 +479,25 @@ const hermesLocalAdapter: ServerAdapterModule = {
   detectModel: () => detectModelFromHermes(),
 };
 
+// LMTM-OS: MiniMax M3 first-class adapter.
+const minimaxLocalAdapter: ServerAdapterModule = {
+  type: "minimax_local",
+  execute: minimaxLocalExecute,
+  testEnvironment: minimaxLocalTestEnvironment,
+  listSkills: listMinimaxLocalSkills,
+  syncSkills: syncMinimaxLocalSkills,
+  sessionCodec: minimaxLocalSessionCodec,
+  sessionManagement: getAdapterSessionManagement("minimax_local") ?? undefined,
+  models: minimaxLocalModels,
+  modelProfiles: minimaxLocalModelProfiles,
+  listModels: listMinimaxLocalModels,
+  supportsLocalAgentJwt: true,
+  supportsInstructionsBundle: true,
+  instructionsPathKey: "instructionsFilePath",
+  requiresMaterializedRuntimeSkills: false,
+  agentConfigurationDoc: minimaxLocalAgentConfigurationDoc,
+};
+
 const adaptersByType = new Map<string, ServerAdapterModule>();
 
 // For builtin types that are overridden by an external adapter, we keep the
@@ -489,6 +521,7 @@ function registerBuiltInAdapters() {
     geminiLocalAdapter,
     openclawGatewayAdapter,
     hermesLocalAdapter,
+    minimaxLocalAdapter,
     processAdapter,
     httpAdapter,
     minimaxAdapter,

@@ -14,6 +14,7 @@ import { askRoutes } from "./routes/ask.js";
 import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
+import { adsRoutes } from "./routes/ads.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
 import { initWaBot } from "./services/wa-group-bot.js";
@@ -217,6 +218,7 @@ export async function createApp(
   );
   api.use(metaRoutes(db));
   api.use(metaSyncRoutes(db));
+  api.use(adsRoutes(db));
   api.use("/companies", companyRoutes(db, opts.storageService));
   api.use(companySkillRoutes(db));
   api.use(agentRoutes(db, { pluginWorkerManager: workerManager }));

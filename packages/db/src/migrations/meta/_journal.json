@@ -659,6 +659,34 @@
       "when": 1779800000000,
       "tag": "0093_alert_ad_account",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1779900000000,
+      "tag": "0094_ads_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1779910000000,
+      "tag": "0095_clients_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1779920000000,
+      "tag": "0096_planilla_and_dashboard_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1779930000000,
+      "tag": "0097_lmtm_seed",
+      "breakpoints": true
     }
   ]
 }
