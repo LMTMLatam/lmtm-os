@@ -27,6 +27,9 @@ RUN pnpm install --frozen-lockfile
 # Build plugin-sdk
 RUN pnpm --filter @paperclipai/plugin-sdk build
 
+# Build the M3 first-class adapter (LMTM-OS)
+RUN pnpm --filter @paperclipai/adapter-minimax-local build
+
 # Build server (db package consumed via TS source through workspace exports; migrations already committed)
 RUN pnpm --filter @paperclipai/server build
 
