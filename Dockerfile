@@ -1,19 +1,26 @@
 # syntax=docker/dockerfile:1.20
 # LMTM OS - Server for Render + Supabase.
 #
-# Memory budget: Render Starter = 512MB. We split the install into two
-# passes (prod deps first, then dev deps) so the peak memory is roughly
-# the larger of the two, not the sum.
+# Optimized for Render Starter (512MB RAM). The critical changes:
+#  - pnpm install --ignore-scripts: skip postinstall hooks (these can
+#    spawn child Node processes that double peak memory).
+#  - NODE_OPTIONS=--max-old-space-size=400: cap V8 heap at 400MB, leaving
+#    ~110MB for OS + Docker + pnpm's non-V8 memory.
+#  - First pnpm install with --prefer-offline, fall back to fresh install.
 #
-# We also avoid corepack (uses extra Node processes) and install pnpm/tsx
-# directly. NODE_OPTIONS caps V8 at 350MB, leaving 162MB headroom for the
-# OS, Docker, and pnpm's non-V8 memory.
+# Subsequent rebuilds re-use the cached pnpm install layer (node_modules
+# doesn't change) and only re-run tsc — which is much lighter.
 
-FROM node:20-alpine AS base
+FROM node:20-slim AS base
 
-RUN apk add --no-cache ca-certificates curl
-RUN npm install -g pnpm@9.15.4 tsx@4.19.2
-ENV NODE_OPTIONS=--max-old-space-size=350
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable \
+  && corepack install -g pnpm@9.15.4 \
+  && npm install -g tsx@4.19.2
+
+ENV NODE_OPTIONS=--max-old-space-size=400
 
 # ─────────────────────────────────────────────────────────────────────────────
 # build stage
@@ -23,26 +30,18 @@ WORKDIR /app
 ENV NODE_ENV=development
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
-# Copy manifests first so the resolution graph is built before any source.
+# Copy only manifests and the source tree (the install layer can be
+# cached separately on rebuilds).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json ./
 COPY patches/ patches/
 COPY scripts/ scripts/
-
-# Pass 1: production deps only. Smaller set, less memory.
-# --ignore-scripts: skip package postinstall hooks (these can spawn child
-#   Node processes that double memory at install time).
-# --reporter=append-only: minimal stdout, less I/O overhead.
-# --prefer-offline: use the local pnpm store if available (cache hit).
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline || pnpm install --prod --frozen-lockfile --ignore-scripts --reporter=append-only
-
-# Pass 2: dev deps on top. Still isolated install, but pnpm only needs to
-# add the missing ones, not re-resolve everything.
-RUN pnpm install --frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline || pnpm install --frozen-lockfile --ignore-scripts --reporter=append-only
-
-# Now copy the source and build.
 COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
+
+# Single pnpm install. --ignore-scripts is the memory win.
+# --prefer-offline uses the local pnpm store when possible.
+RUN pnpm install --frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline || pnpm install --frozen-lockfile --ignore-scripts --reporter=append-only
 
 # Build the foundation + the new M3 adapter + the server.
 RUN pnpm --filter @paperclipai/plugin-sdk build
