@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { metaConnections, metaAdAccountMappings } from "@paperclipai/db";
 import { validate } from "../middleware/validate.js";
@@ -208,65 +208,111 @@ export function metaRoutes(db: Db) {
   });
 
   // ----- OAuth callback -----
+  const panelBase = () => (process.env.LMTM_PANEL_URL?.trim() ?? "").replace(/\/$/, "");
+  const oauthFail = (res: import("express").Response, reason: string) => {
+    const base = panelBase();
+    const q = `meta_error=${encodeURIComponent(reason)}`;
+    res.redirect(base ? `${base}/integrations/meta?${q}` : `/integrations/meta?${q}`);
+  };
+
   router.get("/meta/oauth/callback", async (req, res) => {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const stateRaw = typeof req.query.state === "string" ? req.query.state : "";
-    if (!code) throw badRequest("Missing code");
+
+    // Facebook redirects back with error params when the user cancels or denies
+    // (e.g. access_denied), or with neither code nor error on a stale/refreshed
+    // callback. Surface a readable reason in the panel instead of raw JSON.
+    const fbError = typeof req.query.error === "string" ? req.query.error : "";
+    const fbErrorDesc = typeof req.query.error_description === "string" ? req.query.error_description : "";
+    if (fbError) return oauthFail(res, fbErrorDesc || fbError);
+    if (!code) return oauthFail(res, "No se recibió el código de autorización de Meta. Reintentá la conexión.");
 
     let state: { companyId?: string; label?: string } = {};
     try {
       state = JSON.parse(Buffer.from(stateRaw, "base64url").toString());
     } catch {
-      throw badRequest("Invalid state");
+      return oauthFail(res, "Estado de OAuth inválido. Reintentá desde Configuración.");
     }
-    if (!state.companyId) throw badRequest("Invalid state (no companyId)");
+    if (!state.companyId) return oauthFail(res, "Estado de OAuth sin companyId. Reintentá desde Configuración.");
 
     const appId = process.env.META_APP_ID?.trim();
     const appSecret = process.env.META_APP_SECRET?.trim();
     const redirectUri = process.env.META_REDIRECT_URI?.trim();
     if (!appId || !appSecret || !redirectUri) {
-      throw badRequest("META env vars not configured");
+      return oauthFail(res, "Variables de entorno de Meta no configuradas en el servidor.");
     }
 
-    // 1) Exchange code -> short-lived token
-    const codeRes = (await graphGet("/oauth/access_token", {
-      client_id: appId,
-      client_secret: appSecret,
-      redirect_uri: redirectUri,
-      code,
-    })) as { access_token?: string };
-    if (!codeRes.access_token) throw badRequest("Meta did not return access_token");
+    let ll: Awaited<ReturnType<typeof exchangeForLongLivedUserToken>>;
+    try {
+      // 1) Exchange code -> short-lived token
+      const codeRes = (await graphGet("/oauth/access_token", {
+        client_id: appId,
+        client_secret: appSecret,
+        redirect_uri: redirectUri,
+        code,
+      })) as { access_token?: string };
+      if (!codeRes.access_token) return oauthFail(res, "Meta no devolvió un access_token.");
 
-    // 2) Short-lived -> long-lived (~60d)
-    const ll = await exchangeForLongLivedUserToken(codeRes.access_token);
+      // 2) Short-lived -> long-lived (~60d)
+      ll = await exchangeForLongLivedUserToken(codeRes.access_token);
+    } catch (e) {
+      return oauthFail(res, `Error al intercambiar el código con Meta: ${String((e as Error).message ?? e)}`);
+    }
 
-    // 3) Persist — callback arrives from Facebook with no JWT, skip actor resolution
-    const inserted = await db
-      .insert(metaConnections)
-      .values({
-        companyId: state.companyId,
-        label: state.label ?? "Meta Ads",
-        tokenType: "user",
+    // 3) Persist. Reconnect must REFRESH the existing connection's token rather
+    //    than insert a new row — mappings reference a connectionId, and a fresh
+    //    row would orphan the new token (with newly-granted page access) from
+    //    every mapping. Upsert by companyId: update the existing connection if
+    //    one exists, else insert.
+    const scopes = [
+      "public_profile",
+      "email",
+      "pages_show_list",
+      "pages_read_engagement",
+      "leads_retrieval",
+      "ads_read",
+      "ads_management",
+    ];
+    const existing = await db
+      .select({ id: metaConnections.id })
+      .from(metaConnections)
+      .where(eq(metaConnections.companyId, state.companyId))
+      .orderBy(desc(metaConnections.createdAt))
+      .limit(1);
+
+    let connectionId: string | undefined;
+    if (existing[0]?.id) {
+      connectionId = existing[0].id;
+      await db.update(metaConnections).set({
         accessToken: ll.accessToken,
         expiresAt: ll.expiresAt ?? null,
-        scopes: [
-          "public_profile",
-          "email",
-          "pages_show_list",
-          "pages_read_engagement",
-          "leads_retrieval",
-          "ads_read",
-          "ads_management",
-        ],
+        scopes,
         status: "active",
-        createdByUserId: null,
-      })
-      .returning({ id: metaConnections.id });
+        lastError: null,
+        tokenType: "user",
+        updatedAt: new Date(),
+      }).where(eq(metaConnections.id, connectionId));
+    } else {
+      const inserted = await db
+        .insert(metaConnections)
+        .values({
+          companyId: state.companyId,
+          label: state.label ?? "Meta Ads",
+          tokenType: "user",
+          accessToken: ll.accessToken,
+          expiresAt: ll.expiresAt ?? null,
+          scopes,
+          status: "active",
+          createdByUserId: null,
+        })
+        .returning({ id: metaConnections.id });
+      connectionId = inserted[0]?.id;
+    }
 
-    const panel = process.env.LMTM_PANEL_URL?.trim() ?? "";
+    const panel = panelBase();
     const target = panel
-      ? `${panel.replace(/\/$/, "")}/integrations/meta?connection=${inserted[0]?.id}`
-      : `/integrations/meta?connection=${inserted[0]?.id}`;
+      ? `${panel}/integrations/meta?connection=${connectionId}&meta_ok=1`
+      : `/integrations/meta?connection=${connectionId}&meta_ok=1`;
     res.redirect(target);
   });
 
