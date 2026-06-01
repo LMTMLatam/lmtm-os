@@ -136,6 +136,7 @@ export const metaPostInsights = pgTable("meta_post_insights", {
 export const metaAlerts = pgTable("meta_alerts", {
   id: uuid("id").primaryKey().defaultRandom(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  adAccountId: text("ad_account_id"), // which client ad account this alert belongs to
   severity: text("severity").notNull(), // info | warning | critical
   title: text("title").notNull(),
   description: text("description"),
@@ -151,4 +152,5 @@ export const metaAlerts = pgTable("meta_alerts", {
 }, (t) => ({
   companyIdx: index("meta_alerts_company_idx").on(t.companyId),
   statusIdx: index("meta_alerts_status_idx").on(t.companyId, t.status),
+  accountIdx: index("meta_alerts_account_idx").on(t.adAccountId),
 }));

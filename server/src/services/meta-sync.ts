@@ -573,7 +573,7 @@ export async function getDashboardData(db: Db, companyId: string, opts: { since?
       .limit(5),
 
     db.select({ id: metaAlerts.id }).from(metaAlerts)
-      .where(and(eq(metaAlerts.companyId, companyId), eq(metaAlerts.status, "pending"))),
+      .where(and(eq(metaAlerts.companyId, companyId), eq(metaAlerts.status, "pending"), adAccountId ? eq(metaAlerts.adAccountId, adAccountId) : undefined)),
   ]);
 
   const totals = insights.reduce((acc, r) => ({
@@ -854,8 +854,12 @@ export async function getAdsData(db: Db, companyId: string, opts: { since?: stri
 // ── getPostsData ──────────────────────────────────────────────────────────────
 
 export async function getPostsData(db: Db, companyId: string, pageId?: string) {
+  // Organic posts are isolated per Facebook Page. Without a pageId we must NOT
+  // fall back to "all posts for the company" — that leaks every client's posts
+  // into one dashboard. No page → no data.
+  if (!pageId) return [];
   const posts = await db.select().from(metaPagePosts)
-    .where(and(eq(metaPagePosts.companyId, companyId), pageId ? eq(metaPagePosts.pageId, pageId) : undefined))
+    .where(and(eq(metaPagePosts.companyId, companyId), eq(metaPagePosts.pageId, pageId)))
     .orderBy(desc(metaPagePosts.createdTime))
     .limit(200);
 
@@ -895,7 +899,7 @@ export async function getPostsData(db: Db, companyId: string, pageId?: string) {
 
 export async function getAlerts(db: Db, companyId: string, adAccountId?: string) {
   return db.select().from(metaAlerts)
-    .where(and(eq(metaAlerts.companyId, companyId), adAccountId ? eq(metaAlerts.entityId, adAccountId) : undefined))
+    .where(and(eq(metaAlerts.companyId, companyId), adAccountId ? eq(metaAlerts.adAccountId, adAccountId) : undefined))
     .orderBy(desc(metaAlerts.createdAt))
     .limit(100);
 }
@@ -909,7 +913,7 @@ export async function updateAlertStatus(db: Db, alertId: string, status: string)
 export async function evaluateAlerts(db: Db, companyId: string, opts: { adAccountId?: string } = {}) {
   const { adAccountId } = opts;
   await db.delete(metaAlerts).where(
-    and(eq(metaAlerts.companyId, companyId), eq(metaAlerts.status, "pending"), adAccountId ? eq(metaAlerts.entityId, adAccountId) : undefined)
+    and(eq(metaAlerts.companyId, companyId), eq(metaAlerts.status, "pending"), adAccountId ? eq(metaAlerts.adAccountId, adAccountId) : undefined)
   );
 
   const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
@@ -928,7 +932,7 @@ export async function evaluateAlerts(db: Db, companyId: string, opts: { adAccoun
         description: `"${c.name}" está activa pero no registró gasto en el período.`,
         metric: "spend", currentValue: "0", thresholdValue: "1",
         recommendation: "Verificar estado real en Meta Ads Manager y revisar límites de presupuesto.",
-        entityType: "campaign", entityId: c.id, status: "pending",
+        adAccountId: c.adAccountId ?? adAccountId, entityType: "campaign", entityId: c.id, status: "pending",
       });
     }
     // 2. Campaigns spending without leads
@@ -939,7 +943,7 @@ export async function evaluateAlerts(db: Db, companyId: string, opts: { adAccoun
         description: `"${c.name}" gastó $${c.spend.toFixed(0)} sin generar leads.`,
         metric: "leads", currentValue: "0", thresholdValue: "1",
         recommendation: "Revisar targeting, formulario de leads y creatividades.",
-        entityType: "campaign", entityId: c.id, status: "pending",
+        adAccountId: c.adAccountId ?? adAccountId, entityType: "campaign", entityId: c.id, status: "pending",
       });
     }
   }
@@ -954,7 +958,7 @@ export async function evaluateAlerts(db: Db, companyId: string, opts: { adAccoun
         description: `"${c.name}" tiene CTR de ${((c.ctr ?? 0) * 100).toFixed(2)}%.`,
         metric: "ctr", currentValue: String(((c.ctr ?? 0) * 100).toFixed(4)), thresholdValue: "0.5",
         recommendation: "Probar nuevas creatividades más atractivas o ajustar el targeting.",
-        entityType: "campaign", entityId: c.id, status: "pending",
+        adAccountId: c.adAccountId ?? adAccountId, entityType: "campaign", entityId: c.id, status: "pending",
       });
     }
   }
@@ -973,7 +977,7 @@ export async function evaluateAlerts(db: Db, companyId: string, opts: { adAccoun
           currentValue: String((c.cpl ?? 0).toFixed(2)),
           thresholdValue: String((avgCpl * 2).toFixed(2)),
           recommendation: "Revisar segmento, creatividades y página de destino para mejorar la tasa de conversión.",
-          entityType: "campaign", entityId: c.id, status: "pending",
+          adAccountId: c.adAccountId ?? adAccountId, entityType: "campaign", entityId: c.id, status: "pending",
         });
       }
     }
