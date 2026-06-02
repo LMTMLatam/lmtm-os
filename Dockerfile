@@ -32,11 +32,20 @@ COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
 
-# Full workspace install. The full install (~635 packages) is too
-# heavy for Render's 512MB build env, but GitHub Actions has 7GB so
-# it completes in a few minutes. The resulting artifacts are baked
-# into the runtime image.
+# Patch all workspace package.jsons BEFORE the install so any postinstall
+# scripts see the production conditions. (Currently no postinstall
+# scripts, but this keeps the resolution stable.)
+RUN node /app/scripts/patch-package-exports.mjs /app
+
+# Full workspace install. Needs ~1.5GB of memory which is too much for
+# Render Starter (512MB) but fine in GitHub Actions (7GB).
 RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only
+
+# Re-apply the package.json patch AFTER pnpm install, because pnpm may
+# re-resolve links and rewrite some package.json files during install.
+# After this, every workspace package.json has a "production" conditional
+# in its exports pointing to the compiled dist/*.js.
+RUN node /app/scripts/patch-package-exports.mjs /app
 
 # Build the foundation + the new M3 adapter + the server.
 RUN pnpm --filter @paperclipai/shared build
@@ -52,7 +61,7 @@ FROM node:20-slim AS runtime
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund
+  && npm install -g pnpm@9.15.4 --no-audit --no-fund
 
 ENV NODE_OPTIONS=--max-old-space-size=380
 ENV NODE_ENV=production \
@@ -62,13 +71,15 @@ ENV NODE_ENV=production \
   PAPERCLIP_HOME=/paperclip \
   PAPERCLIP_INSTANCE_ID=lmtm \
   PAPERCLIP_DEPLOYMENT_MODE=authenticated \
-  PAPERCLIP_DEPLOYMENT_EXPOSURE=public \
-  DATABASE_URL="${DATABASE_URL}"
+  PAPERCLIP_DEPLOYMENT_EXPOSURE=public
 
 WORKDIR /app
 
-# Copy manifests + code from the builder. Skip the devDeps (which
-# are not needed at runtime) by re-installing with --prod.
+# Copy the entire pnpm-resolved workspace from the builder: the
+# pnpm-lock.yaml, all package.jsons (already patched with the
+# "production" conditional), and node_modules with every workspace
+# package's prod deps. We do NOT re-run pnpm install here because
+# the full install OOMs even with 380MB heap limits.
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/.npmrc ./
 COPY --from=builder /app/tsconfig.json /app/tsconfig.base.json ./
 COPY --from=builder /app/patches/ patches/
@@ -76,20 +87,7 @@ COPY --from=builder /app/scripts/ scripts/
 COPY --from=builder /app/server/ server/
 COPY --from=builder /app/packages/ packages/
 COPY --from=builder /app/cli/ cli/
-
-# Install only the runtime deps (no devDeps) for the 6 packages we
-# need. This is the lightweight install (~120 packages) that doesn't
-# OOM in Render's runtime. tsc is in devDeps and not needed at
-# runtime, so we use --prod here.
-# Patch all workspace package.jsons to add a "production" condition to
-# their exports so Node loads the compiled dist/ at runtime instead of
-# trying to import .ts source files.
-RUN node /app/scripts/patch-package-exports.mjs /app && \
-  pnpm install \
-    --ignore-scripts \
-    --no-frozen-lockfile \
-    --reporter=append-only \
-    --prod
+COPY --from=builder /app/node_modules/ node_modules/
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
