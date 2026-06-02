@@ -84,9 +84,7 @@ COPY --from=builder /app/cli/ cli/
 # Patch all workspace package.jsons to add a "production" condition to
 # their exports so Node loads the compiled dist/ at runtime instead of
 # trying to import .ts source files.
-RUN for pkg in $(find /app/packages -name "package.json" -not -path "*/node_modules/*"); do \
-    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(!p.exports)return;const fix=v=>{if(typeof v==='string'&&v.startsWith('./src/')&&v.endsWith('.ts')){const inner=v.slice(6,-3);return{types:v,production:'./dist/'+inner+'.js',import:v,default:v};}if(typeof v==='object'&&v!==null){const o={};for(const[k,vv]of Object.entries(v))o[k]=fix(vv);return o;}return v;};p.exports=fix(p.exports);fs.writeFileSync(process.argv[1],JSON.stringify(p,null,2)+'\n');" "$pkg"; \
-  done && echo "patched package.json exports" && \
+RUN node /app/scripts/patch-package-exports.mjs /app && \
   pnpm install \
     --ignore-scripts \
     --no-frozen-lockfile \

@@ -14,16 +14,46 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": {
+        "types": "./src/index.ts",
+        "production": "./dist/index.js",
+        "import": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
       "production": "./dist/index.js",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
+      "import": {
+        "types": "./src/index.ts",
+        "production": "./dist/index.js",
+        "import": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./src/index.ts",
+        "production": "./dist/index.js",
+        "import": "./src/index.ts",
+        "default": "./src/index.ts"
+      }
     },
     "./*": {
-      "types": "./src/*.ts",
+      "types": {
+        "types": "./src/*.ts",
+        "production": "./dist/*.js",
+        "import": "./src/*.ts",
+        "default": "./src/*.ts"
+      },
       "production": "./dist/*.js",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
+      "import": {
+        "types": "./src/*.ts",
+        "production": "./dist/*.js",
+        "import": "./src/*.ts",
+        "default": "./src/*.ts"
+      },
+      "default": {
+        "types": "./src/*.ts",
+        "production": "./dist/*.js",
+        "import": "./src/*.ts",
+        "default": "./src/*.ts"
+      }
     }
   },
   "publishConfig": {
