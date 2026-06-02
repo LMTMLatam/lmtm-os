@@ -714,6 +714,13 @@ function resolveBundledSkillsRoot() {
     path.resolve(moduleDir, "../../skills"),
     path.resolve(process.cwd(), "skills"),
     path.resolve(moduleDir, "../../../skills"),
+    // LMTM-OS: bundled skills ship inside the minimax-local adapter
+    // (and any other adapter that wants to ship skills). Try the
+    // adapter's actual location too so a fresh deploy finds them
+    // without needing a separate "skills" directory at the project
+    // root.
+    path.resolve(process.cwd(), "packages/adapters/minimax-local/skills"),
+    path.resolve(moduleDir, "../../../packages/adapters/minimax-local/skills"),
   ];
 }
 

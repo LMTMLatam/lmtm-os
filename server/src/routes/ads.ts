@@ -29,6 +29,75 @@ import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsConnections, clients } from "@paperclipai/db";
 import { and, eq } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
+import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
+import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
+import { linkedinAdsProviderScopes } from "../services/ads/providers/linkedin.js";
+import { logActivity } from "../services/activity-log.js";
+import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { badRequest, unprocessable } from "../errors.js";
+
+// Per-platform OAuth configuration. The start route redirects the user
+// to the platform's auth URL with a base64url-encoded `state` payload
+// (companyId + label + ts); the callback decodes it, exchanges the
+// code for tokens via the provider, and persists an `ads_connections`
+// row tagged with the right platform.
+type PlatformOAuthConfig = {
+  authUrl: string;
+  clientIdEnv: string;
+  redirectUriEnv: string;
+  scope: string[];
+  extraAuthParams?: Record<string, string>;
+};
+
+const OAUTH_CONFIGS: Record<"google" | "tiktok" | "linkedin", PlatformOAuthConfig> = {
+  google: {
+    authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    clientIdEnv: "GOOGLE_ADS_CLIENT_ID",
+    redirectUriEnv: "GOOGLE_ADS_REDIRECT_URI",
+    scope: googleAdsProviderScopes,
+    extraAuthParams: {
+      access_type: "offline", // required to get a refresh_token
+      prompt: "consent",       // force Google to re-issue refresh_token
+      include_granted_scopes: "true",
+    },
+  },
+  tiktok: {
+    authUrl: "https://www.tiktok.com/v2/auth/authorize/",
+    clientIdEnv: "TIKTOK_APP_ID",
+    redirectUriEnv: "TIKTOK_REDIRECT_URI",
+    scope: tiktokAdsProviderScopes,
+  },
+  linkedin: {
+    authUrl: "https://www.linkedin.com/oauth/v2/authorization",
+    clientIdEnv: "LINKEDIN_CLIENT_ID",
+    redirectUriEnv: "LINKEDIN_REDIRECT_URI",
+    scope: linkedinAdsProviderScopes,
+  },
+};
+
+function panelUrl(): string {
+  return (process.env.LMTM_PANEL_URL?.trim() ?? "").replace(/\/$/, "");
+}
+
+function oauthFailRedirect(res: Response, platform: string, reason: string): void {
+  const base = panelUrl();
+  const qs = `${platform}_error=${encodeURIComponent(reason)}`;
+  // We send the user back to the integrations page for that platform;
+  // the panel renders an error banner from the query string.
+  res.redirect(base ? `${base}/integrations/${platform}?${qs}` : `/integrations/${platform}?${qs}`);
+}
+
+function encodeState(payload: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify({ ...payload, ts: Date.now() })).toString("base64url");
+}
+
+function decodeState<T extends Record<string, unknown>>(raw: string): T | null {
+  try {
+    return JSON.parse(Buffer.from(raw, "base64url").toString()) as T;
+  } catch {
+    return null;
+  }
+}
 
 export function adsRoutes(db: Db): Router {
   const router = Router();
@@ -173,6 +242,132 @@ export function adsRoutes(db: Db): Router {
   router.delete("/ads/mappings/:id", async (req, res) => {
     await db.delete(adsAccountMappings).where(eq(adsAccountMappings.id, req.params.id));
     res.status(204).end();
+  });
+
+  // ---- OAuth start (per platform) ----
+  //
+  // GET /api/ads/oauth/start?platform=google|tiktok|linkedin&companyId=...&label=...
+  // Builds the platform's authorization URL with a base64url-encoded
+  // state payload and 302-redirects the browser. After the user
+  // grants access, the platform sends them back to /api/ads/oauth/callback.
+  router.get("/ads/oauth/start", async (req, res) => {
+    const platform = String(req.query.platform ?? "");
+    if (!isKnownAdsPlatform(platform) || platform === "meta") {
+      // Meta uses the legacy /api/meta/oauth/start route for now.
+      throw badRequest(`unsupported platform for this route: ${platform}`);
+    }
+    const cfg = OAUTH_CONFIGS[platform as "google" | "tiktok" | "linkedin"];
+    const companyId = String(req.query.companyId ?? "");
+    if (!companyId) throw badRequest("companyId is required");
+    assertCompanyAccess(req, companyId);
+    const label = typeof req.query.label === "string" ? req.query.label : `${platform} Ads`;
+
+    const clientId = (process.env[cfg.clientIdEnv] ?? "").trim();
+    const redirectUri = (process.env[cfg.redirectUriEnv] ?? "").trim();
+    if (!clientId || !redirectUri) {
+      throw unprocessable(
+        `${cfg.clientIdEnv} / ${cfg.redirectUriEnv} not configured in Render env`,
+      );
+    }
+
+    const url = new URL(cfg.authUrl);
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set(
+      "scope",
+      cfg.scope.join(platform === "linkedin" ? " " : " "),
+    );
+    url.searchParams.set("state", encodeState({ companyId, label, platform }));
+    if (cfg.extraAuthParams) {
+      for (const [k, v] of Object.entries(cfg.extraAuthParams)) {
+        url.searchParams.set(k, v);
+      }
+    }
+    res.redirect(url.toString());
+  });
+
+  // ---- OAuth callback (per platform) ----
+  //
+  // GET /api/ads/oauth/callback?code=...&state=...
+  // Exchanges the code for tokens via the provider, persists an
+  // `ads_connections` row, and redirects the user back to the
+  // integrations page.
+  router.get("/ads/oauth/callback", async (req, res) => {
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const stateRaw = typeof req.query.state === "string" ? req.query.state : "";
+    const errorParam = typeof req.query.error === "string" ? req.query.error : "";
+    const errorDesc = typeof req.query.error_description === "string"
+      ? req.query.error_description
+      : "";
+
+    const state = decodeState<{ companyId?: string; label?: string; platform?: string }>(stateRaw);
+    if (!state || !state.platform) {
+      return oauthFailRedirect(res, "ads", "Estado de OAuth inválido.");
+    }
+    const platform = state.platform as "google" | "tiktok" | "linkedin";
+    if (!isKnownAdsPlatform(platform)) {
+      return oauthFailRedirect(res, "ads", `Plataforma no soportada: ${platform}`);
+    }
+    if (errorParam) {
+      return oauthFailRedirect(res, platform, errorDesc || errorParam);
+    }
+    if (!code) {
+      return oauthFailRedirect(res, platform, "No se recibió el código de autorización.");
+    }
+    if (!state.companyId) {
+      return oauthFailRedirect(res, platform, "Estado de OAuth sin companyId.");
+    }
+
+    const cfg = OAUTH_CONFIGS[platform];
+    const redirectUri = (process.env[cfg.redirectUriEnv] ?? "").trim();
+    const provider = getAdsProvider(platform);
+
+    try {
+      const tokenSet = await provider.exchangeOAuthCode(code, redirectUri);
+      // Persist the connection. We let the user pick the ad account
+      // mapping after the fact — /api/ads/connections/:id/ad-accounts
+      // calls provider.listAdAccounts() once they hit the UI.
+      const [row] = await db
+        .insert(adsConnections)
+        .values({
+          companyId: state.companyId,
+          clientId: null,
+          platform,
+          label: state.label ?? `${platform} Ads`,
+          accessToken: tokenSet.accessToken,
+          refreshToken: tokenSet.refreshToken ?? null,
+          developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? null, // only used for google
+          clientIdText: process.env[cfg.clientIdEnv] ?? null,
+          clientSecret: null, // we don't store app secrets server-side; OAuth flow uses env var directly
+          managerAccountId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? null,
+          tokenType: "user",
+          scopes: tokenSet.scopes,
+          status: "active",
+          expiresAt: tokenSet.expiresAt ?? null,
+        })
+        .returning();
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: state.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "ads.connection_connected",
+        entityType: "ads_connection",
+        entityId: row?.id ?? "",
+        details: { platform, source: "oauth_callback" },
+      });
+
+      const base = panelUrl();
+      const params = new URLSearchParams({ connected: platform, connectionId: row?.id ?? "" });
+      res.redirect(base ? `${base}/integrations/${platform}?${params}` : `/integrations/${platform}?${params}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return oauthFailRedirect(res, platform, msg.slice(0, 240));
+    }
   });
 
   // ---- Clients (LMTM) ----
