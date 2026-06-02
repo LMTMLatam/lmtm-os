@@ -38,8 +38,12 @@ COPY cli/ cli/
 RUN node /app/scripts/patch-package-exports.mjs /app
 
 # Full workspace install. Needs ~1.5GB of memory which is too much for
-# Render Starter (512MB) but fine in GitHub Actions (7GB).
-RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only
+# Render Starter (512MB) but fine in GitHub Actions (7GB). We do NOT
+# use --ignore-scripts here because several workspace packages have
+# native bindings (sqlite3, embedded-postgres native libs) that need
+# to be compiled at install time on the same Linux platform that the
+# runtime container will use.
+RUN pnpm install --no-frozen-lockfile --reporter=append-only
 
 # Re-apply the package.json patch AFTER pnpm install, because pnpm may
 # re-resolve links and rewrite some package.json files during install.
