@@ -96,4 +96,7 @@ RUN pnpm install \
 VOLUME ["/paperclip"]
 EXPOSE 3100
 
-CMD ["node", "server/dist/index.js"]
+# Debug wrapper: runs node, prints output, stays alive 5min on crash so we can read logs
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+CMD ["/app/start.sh"]
