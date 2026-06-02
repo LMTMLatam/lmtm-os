@@ -47,10 +47,11 @@ RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only
 # in its exports pointing to the compiled dist/*.js.
 RUN node /app/scripts/patch-package-exports.mjs /app
 
-# Build the foundation + the new M3 adapter + the server.
-RUN pnpm --filter @paperclipai/shared build
-RUN pnpm --filter @paperclipai/plugin-sdk build
-RUN pnpm --filter @paperclipai/adapter-minimax-local build
+# Build everything the runtime needs. We build every workspace
+# package that the server's adapter registry imports statically,
+# because the production condition in their exports points to
+# dist/*.js.
+RUN pnpm -r --filter "./packages/**" build
 RUN pnpm --filter @paperclipai/server build
 
 # ─────────────────────────────────────────────────────────────────────────────
