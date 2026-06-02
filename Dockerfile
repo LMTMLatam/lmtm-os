@@ -96,7 +96,7 @@ COPY --from=builder /app/scripts/ scripts/
 COPY --from=builder /app/server/ server/
 COPY --from=builder /app/packages/ packages/
 COPY --from=builder /app/cli/ cli/
-COPY --from=builder /app/ui/dist/ ui-dist/
+COPY --from=builder /app/ui/dist/ server/ui-dist/
 COPY --from=builder /app/node_modules/ node_modules/
 
 VOLUME ["/paperclip"]
