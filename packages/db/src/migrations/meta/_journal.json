@@ -687,6 +687,13 @@
       "when": 1779930000000,
       "tag": "0097_lmtm_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1779940000000,
+      "tag": "0098_lmtm_skills_expansion",
+      "breakpoints": true
     }
   ]
 }
