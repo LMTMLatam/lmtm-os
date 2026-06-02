@@ -5,7 +5,7 @@
 -- and other migrations must reference the new names.
 
 ALTER TABLE "meta_connections" RENAME TO "ads_connections";
-ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "platform" text NOT NULL DEFAULT 'meta";
+ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "platform" text NOT NULL DEFAULT 'meta';
 ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "refresh_token" text;
 ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "developer_token" text;
 -- Rename the legacy OAuth app client_id (text) to client_id_text so the
