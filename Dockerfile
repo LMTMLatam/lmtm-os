@@ -1,23 +1,20 @@
 # syntax=docker/dockerfile:1.20
 # LMTM OS - Server for Render + Supabase.
-#
-# Render Docker build: pnpm install has been OOMing on the build
-# environment (which has its own memory budget, separate from the
-# runtime plan). Last successful approach: install with
-# --no-frozen-lockfile (lockfile has Windows-specific URLs) and let
-# pnpm re-resolve, which is the only way past the build-env OOM.
-#
-# The build is structured to use a slim base image and minimize
-# memory pressure: --ignore-scripts (no postinstall child processes),
-# NODE_OPTIONS=--max-old-space-size=380 (V8 heap cap), and
-# --reporter=append-only (minimal stdout buffering).
+# Debug build: each major step prints a marker so the dashboard
+# log shows where the build fails (Render API doesn't return build
+# logs, so the only way to debug is via the dashboard's log view).
 
-FROM node:20-slim
+FROM node:20-slim AS base
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund
+RUN echo "===[$(date +%s)] step 1: apt-get===" && \
+  apt-get update && \
+  apt-get install -y --no-install-recommends ca-certificates curl && \
+  rm -rf /var/lib/apt/lists/* && \
+  echo "===[$(date +%s)] step 1: done==="
+
+RUN echo "===[$(date +%s)] step 2: pnpm global===" && \
+  npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund && \
+  echo "===[$(date +%s)] step 2: done==="
 
 ENV NODE_OPTIONS=--max-old-space-size=380
 ENV NODE_ENV=production \
@@ -32,7 +29,6 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Copy manifests first (Docker layer cache).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json ./
 COPY patches/ patches/
 COPY scripts/ scripts/
@@ -40,15 +36,21 @@ COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
 
-# pnpm install. The install is the heavy step.
-# --no-frozen-lockfile because the lockfile was generated on Windows.
-# --ignore-scripts to skip postinstall hooks (memory saver).
-RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline
+RUN echo "===[$(date +%s)] step 3: pnpm install start===" && \
+  pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline 2>&1 | tail -30; \
+  echo "===[$(date +%s)] step 3: pnpm install exit=${PIPESTATUS[0]}==="
 
-# Build the foundation + the new M3 adapter + the server.
-RUN pnpm --filter @paperclipai/plugin-sdk build
-RUN pnpm --filter @paperclipai/adapter-minimax-local build
-RUN pnpm --filter @paperclipai/server build
+RUN echo "===[$(date +%s)] step 4: sdk build===" && \
+  pnpm --filter @paperclipai/plugin-sdk build 2>&1 | tail -10; \
+  echo "===[$(date +%s)] step 4: sdk build exit=${PIPESTATUS[0]}==="
+
+RUN echo "===[$(date +%s)] step 5: m3 build===" && \
+  pnpm --filter @paperclipai/adapter-minimax-local build 2>&1 | tail -10; \
+  echo "===[$(date +%s)] step 5: m3 build exit=${PIPESTATUS[0]}==="
+
+RUN echo "===[$(date +%s)] step 6: server build===" && \
+  pnpm --filter @paperclipai/server build 2>&1 | tail -10; \
+  echo "===[$(date +%s)] step 6: server build exit=${PIPESTATUS[0]}==="
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
