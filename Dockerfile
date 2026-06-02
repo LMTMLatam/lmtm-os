@@ -81,22 +81,24 @@ COPY --from=builder /app/cli/ cli/
 # need. This is the lightweight install (~120 packages) that doesn't
 # OOM in Render's runtime. tsc is in devDeps and not needed at
 # runtime, so we use --prod here.
-RUN pnpm install \
-  --filter @paperclipai/server \
-  --filter @paperclipai/adapter-minimax-local \
-  --filter @paperclipai/plugin-sdk \
-  --filter @paperclipai/shared \
-  --filter @paperclipai/db \
-  --filter @paperclipai/adapter-utils \
-  --ignore-scripts \
-  --no-frozen-lockfile \
-  --reporter=append-only \
-  --prod
+# Patch all workspace package.jsons to add a "production" condition to
+# their exports so Node loads the compiled dist/ at runtime instead of
+# trying to import .ts source files.
+RUN for pkg in $(find /app/packages -name "package.json" -not -path "*/node_modules/*"); do \
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(!p.exports)return;const fix=v=>{if(typeof v==='string'&&v.startsWith('./src/')&&v.endsWith('.ts')){const inner=v.slice(6,-3);return{types:v,production:'./dist/'+inner+'.js',import:v,default:v};}if(typeof v==='object'&&v!==null){const o={};for(const[k,vv]of Object.entries(v))o[k]=fix(vv);return o;}return v;};p.exports=fix(p.exports);fs.writeFileSync(process.argv[1],JSON.stringify(p,null,2)+'\n');" "$pkg"; \
+  done && echo "patched package.json exports" && \
+  pnpm install \
+    --ignore-scripts \
+    --no-frozen-lockfile \
+    --reporter=append-only \
+    --prod
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
 
-# Debug wrapper: runs node, prints output, stays alive 5min on crash so we can read logs
+# Production node: use --conditions=production so packages with the
+# production conditional load dist/ (compiled JS) instead of src/ (.ts).
+# The /app/start.sh wrapper logs everything to Render's log stream.
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 CMD ["/app/start.sh"]

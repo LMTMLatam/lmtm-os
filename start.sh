@@ -7,7 +7,7 @@ echo "DATABASE_URL set: $([ -n "$DATABASE_URL" ] && echo yes || echo NO)"
 echo "USER=$(id -u) PWD=$(pwd)"
 ls -la /app/server/dist/index.js 2>&1
 echo "--- starting node ---"
-node server/dist/index.js > /tmp/server.log 2>&1
+node --conditions=production server/dist/index.js > /tmp/server.log 2>&1
 NODE_EXIT=$?
 echo "--- node exited with code $NODE_EXIT ---"
 echo "--- server.log contents ---"
