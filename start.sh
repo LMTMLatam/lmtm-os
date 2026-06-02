@@ -8,6 +8,9 @@ echo "DATABASE_URL value: ${DATABASE_URL}"
 echo "DATABASE_URL length: $(echo -n "$DATABASE_URL" | wc -c)"
 echo "USER=$(id -u) PWD=$(pwd)"
 ls -la /app/server/dist/index.js 2>&1
+echo "--- ui-dist exists? ---"
+ls -la /app/ui-dist 2>&1 | head -10
+ls -la /app/ui-dist/index.html 2>&1 | head -3
 echo "--- starting node ---"
 node --conditions=production server/dist/index.js > /tmp/server.log 2>&1
 NODE_EXIT=$?
