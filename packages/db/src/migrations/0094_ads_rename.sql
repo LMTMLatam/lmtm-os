@@ -10,20 +10,9 @@ ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "refresh_token" text;
 ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "developer_token" text;
 -- Rename the legacy OAuth app client_id (text) to client_id_text so the
 -- LMTM-OS client FK (uuid) can use the "client_id" column name in 0095.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'ads_connections'
-      AND column_name = 'client_id' AND data_type = 'text'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'ads_connections'
-      AND column_name = 'client_id_text'
-  ) THEN
-    ALTER TABLE "ads_connections" RENAME COLUMN "client_id" TO "client_id_text";
-  END IF;
-END $$;
+-- The rename was already applied directly to the production database; this
+-- guard is a no-op for fresh installs where the column was always uuid
+-- (we drop the original text-column branch entirely).
 ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "client_id_text" text;
 ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "client_secret" text;
 ALTER TABLE "ads_connections" ADD COLUMN IF NOT EXISTS "manager_account_id" text;
