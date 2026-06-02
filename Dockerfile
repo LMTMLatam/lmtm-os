@@ -31,6 +31,7 @@ COPY scripts/ scripts/
 COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
+COPY ui/ ui/
 
 # Patch all workspace package.jsons BEFORE the install so any postinstall
 # scripts see the production conditions. (Currently no postinstall
@@ -57,6 +58,9 @@ RUN node /app/scripts/patch-package-exports.mjs /app
 # dist/*.js.
 RUN pnpm -r --filter "./packages/**" build
 RUN pnpm --filter @paperclipai/server build
+# Build the React/Vite UI so the server can serve it as a SPA on `/`.
+# vite build needs ~1.5GB of heap for our 14 LMTM routes; fine in GH Actions.
+RUN pnpm --filter @paperclipai/ui build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
@@ -72,7 +76,7 @@ ENV NODE_OPTIONS=--max-old-space-size=380
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
   PORT=3100 \
-  SERVE_UI=false \
+  SERVE_UI=true \
   PAPERCLIP_HOME=/paperclip \
   PAPERCLIP_INSTANCE_ID=lmtm \
   PAPERCLIP_DEPLOYMENT_MODE=authenticated \
@@ -92,6 +96,7 @@ COPY --from=builder /app/scripts/ scripts/
 COPY --from=builder /app/server/ server/
 COPY --from=builder /app/packages/ packages/
 COPY --from=builder /app/cli/ cli/
+COPY --from=builder /app/ui/dist/ ui-dist/
 COPY --from=builder /app/node_modules/ node_modules/
 
 VOLUME ["/paperclip"]
