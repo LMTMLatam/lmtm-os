@@ -19,7 +19,7 @@ FROM node:20-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund
+  && npm install -g pnpm@9.15.4 tsx@4.19.2 typescript@5.7.2 --no-audit --no-fund
 
 ENV NODE_OPTIONS=--max-old-space-size=350
 ENV NODE_ENV=production \
