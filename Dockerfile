@@ -44,13 +44,19 @@ COPY cli/ cli/
 # Install ONLY the packages the server needs at runtime. This drops
 # the install from 635 packages to ~120, well under the 512MB heap.
 # The full workspace is still on disk (for the build step), but pnpm
-# only resolves and links these 6 packages.
+# only resolves and links these 6 packages. NOTE: --filter only; the
+# `...` (recursive) was wrong because it pulls in the whole workspace.
 RUN pnpm install \
-  --filter @paperclipai/server... \
-  --filter @paperclipai/adapter-minimax-local... \
+  --filter @paperclipai/server \
+  --filter @paperclipai/adapter-minimax-local \
+  --filter @paperclipai/plugin-sdk \
+  --filter @paperclipai/shared \
+  --filter @paperclipai/db \
+  --filter @paperclipai/adapter-utils \
   --ignore-scripts \
   --no-frozen-lockfile \
-  --reporter=append-only
+  --reporter=append-only \
+  --prod
 
 # Build only the needed packages. The `...` filter means "and all
 # transitive workspace deps of the matching packages".
