@@ -5,12 +5,21 @@
 // Paperclip's REST API for tool calls.
 
 import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AdapterExecutionContext,
   AdapterExecutionResult,
 } from "@paperclipai/adapter-utils";
+import {
+  readPaperclipRuntimeSkillEntries,
+  resolvePaperclipDesiredSkillNames,
+} from "@paperclipai/adapter-utils/server-utils";
 import { parseMinimaxCompletion, describeMinimaxFailure } from "./parse.js";
 import { resolveApiKey, resolveBaseUrl, resolveModel } from "./models.js";
+
+const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 type MiniMaxChatMessage =
   | { role: "system"; content: string }
@@ -73,6 +82,33 @@ function buildUserPrompt(ctx: AdapterExecutionContext, config: Record<string, un
   return JSON.stringify(ctx.context ?? {}, null, 2);
 }
 
+async function loadDesiredSkillBlocks(config: Record<string, unknown>): Promise<string[]> {
+  // Skill discovery: read everything under the adapter's bundled `skills/`
+  // tree. Each skill is a directory with a SKILL.md frontmatter file. The
+  // Paperclip runtime decides which skills apply to this agent by setting
+  // `config.paperclipSkillSync.desiredSkills = ["skill-key-1", ...]`.
+  let available;
+  try {
+    available = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
+  } catch {
+    return [];
+  }
+  const desired = resolvePaperclipDesiredSkillNames(config, available);
+  if (desired.length === 0) return [];
+
+  const wantedByKey = new Map(available.map((entry) => [entry.key, entry]));
+  const blocks: string[] = [];
+  for (const key of desired) {
+    const entry = wantedByKey.get(key);
+    if (!entry) continue;
+    const file = path.join(entry.source, "SKILL.md");
+    const content = await fs.readFile(file, "utf8").catch(() => null);
+    if (!content) continue;
+    blocks.push(`## Skill: ${entry.runtimeName ?? entry.key}\n\n${content.trim()}`);
+  }
+  return blocks;
+}
+
 function truncateMessages(
   messages: MiniMaxChatMessage[],
   max: number,
@@ -107,9 +143,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   const session = readSession(ctx);
-  const systemPrompt =
+  const baseSystemPrompt =
     asString(config.systemPrompt) ??
     "Sos un agente de LMTM-OS (Paperclip). Respondé en español rioplatense cuando sea posible.";
+
+  // Load and inject the agent's desired skills. Skills live as SKILL.md
+  // files under the adapter's bundled `skills/` directory; the agent's
+  // `adapterConfig.paperclipSkillSync.desiredSkills` selects which ones
+  // to include on this run. The skill markdown becomes part of the
+  // system prompt so the model has the business context.
+  const skillBlocks = await loadDesiredSkillBlocks(config);
+  const systemPrompt =
+    skillBlocks.length > 0
+      ? `${baseSystemPrompt}\n\n# Skills (injected by LMTM-OS)\n\n${skillBlocks.join("\n\n---\n\n")}\n`
+      : baseSystemPrompt;
+
   const userPrompt = buildUserPrompt(ctx, config);
   const tools = readTools(ctx);
 
