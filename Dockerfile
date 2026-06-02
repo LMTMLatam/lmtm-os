@@ -96,4 +96,4 @@ RUN pnpm install \
 VOLUME ["/paperclip"]
 EXPOSE 3100
 
-CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
+CMD ["node", "server/dist/index.js"]
