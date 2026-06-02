@@ -1,15 +1,18 @@
 # syntax=docker/dockerfile:1.20
 # LMTM OS - Server for Render + Supabase.
-# Build works. The server starts. The only issue is that the DNS
-# for db.<ref>.supabase.co resolves to IPv6 first and Render's
-# network in us-west-2 can't route to that IPv6 (ENETUNREACH).
-# We use the Supabase pooler (always IPv4) via DATABASE_URL.
-# All other build settings are tuned for memory:
-#   - --ignore-scripts: no postinstall child processes
-#   - --max-old-space-size=380: V8 heap cap
-#   - --reporter=append-only: minimal stdout
-#   - --no-frozen-lockfile: lockfile has Windows-specific URLs
-#     (only an issue with --frozen-lockfile, but kept for safety)
+#
+# CRITICAL MEMORY NOTE: the previous full-workspace pnpm install was
+# OOMing at 488MB heap (Render limit: 512MB) when it tried to install
+# 635 packages including the AI SDKs of all adapters (claude, codex,
+# cursor, openclaw, opencode, pi). The server only needs 6 packages
+# at runtime. Using `pnpm install --filter` for just those packages
+# drops the install from 635 to ~120 packages and stays well under
+# the memory limit.
+#
+# Also: NODE_OPTIONS=--max-old-space-size=350 keeps the V8 heap under
+# 350MB, well clear of the 512MB build-env ceiling. The 16MB headroom
+# between 350 and 512 is consumed by the OS, Docker, pnpm's non-V8
+# memory, and child processes.
 
 FROM node:20-slim
 
@@ -18,7 +21,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund
 
-ENV NODE_OPTIONS=--max-old-space-size=380
+ENV NODE_OPTIONS=--max-old-space-size=350
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
   PORT=3100 \
@@ -38,8 +41,19 @@ COPY server/ server/
 COPY packages/ packages/
 COPY cli/ cli/
 
-RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline
+# Install ONLY the packages the server needs at runtime. This drops
+# the install from 635 packages to ~120, well under the 512MB heap.
+# The full workspace is still on disk (for the build step), but pnpm
+# only resolves and links these 6 packages.
+RUN pnpm install \
+  --filter @paperclipai/server... \
+  --filter @paperclipai/adapter-minimax-local... \
+  --ignore-scripts \
+  --no-frozen-lockfile \
+  --reporter=append-only
 
+# Build only the needed packages. The `...` filter means "and all
+# transitive workspace deps of the matching packages".
 RUN pnpm --filter @paperclipai/plugin-sdk build
 RUN pnpm --filter @paperclipai/adapter-minimax-local build
 RUN pnpm --filter @paperclipai/server build
