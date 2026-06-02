@@ -1,9 +1,9 @@
 # render.yaml - Render service definition for LMTM OS
 services:
   - type: web
-    name: lmtm-os
+    name: lmtm
     repo: https://github.com/LMTMLatam/lmtm-os
-    branch: render-setup-lmtm
+    branch: feat/lmtm-v2-m3-agents
     plan: starter
     region: oregon
     buildCommand: pnpm install --frozen-lockfile && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/adapter-minimax-local build && pnpm --filter @paperclipai/server build
