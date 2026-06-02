@@ -694,6 +694,13 @@
       "when": 1779940000000,
       "tag": "0098_lmtm_skills_expansion",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1779950000000,
+      "tag": "0099_lmtm_clickup_skill",
+      "breakpoints": true
     }
   ]
 }
