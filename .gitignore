@@ -2,6 +2,8 @@ node_modules
 node_modules/
 **/node_modules
 **/node_modules/
+# dist/ — committed for Render deployments (no build step in Dockerfile)
+# To regenerate after source changes: pnpm build && git add -f dist
 dist/
 ui/storybook-static/
 .env
@@ -30,10 +32,10 @@ packages/db/seed-*.mjs
 cli/package.dev.json
 
 # Build artifacts in src directories
-server/src/**/*.js
-server/src/**/*.js.map
-server/src/**/*.d.ts
-server/src/**/*.d.ts.map
+# server/src/**/*.js
+# server/src/**/*.js.map
+# server/src/**/*.d.ts
+# server/src/**/*.d.ts.map
 tmp/
 feedback-export-*
 diagnostics/

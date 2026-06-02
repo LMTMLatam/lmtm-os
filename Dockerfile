@@ -1,19 +1,23 @@
 # syntax=docker/dockerfile:1.20
 # LMTM OS - Server for Render + Supabase.
-# Debug build: minimal steps to isolate which step is failing.
-# Each RUN writes a marker file so we can see how far the build got.
+#
+# Render Docker build: pnpm install has been OOMing on the build
+# environment (which has its own memory budget, separate from the
+# runtime plan). Last successful approach: install with
+# --no-frozen-lockfile (lockfile has Windows-specific URLs) and let
+# pnpm re-resolve, which is the only way past the build-env OOM.
+#
+# The build is structured to use a slim base image and minimize
+# memory pressure: --ignore-scripts (no postinstall child processes),
+# NODE_OPTIONS=--max-old-space-size=380 (V8 heap cap), and
+# --reporter=append-only (minimal stdout buffering).
 
 FROM node:20-slim
-
-RUN echo "step 1: base image ok" && date > /tmp/m1
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
-  && echo "step 2: apt install ok" && date > /tmp/m2
-
-RUN npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund \
-  && echo "step 3: pnpm install ok" && date > /tmp/m3
+  && npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund
 
 ENV NODE_OPTIONS=--max-old-space-size=380
 ENV NODE_ENV=production \
@@ -28,31 +32,25 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Copy manifests first.
+# Copy manifests first (Docker layer cache).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json ./
-RUN echo "step 4: manifests copied" && date > /tmp/m4
-
 COPY patches/ patches/
 COPY scripts/ scripts/
-RUN echo "step 5: patches/scripts copied" && date > /tmp/m5
-
 COPY server/ server/
-RUN echo "step 6: server copied" && date > /tmp/m6
-
 COPY packages/ packages/
-RUN echo "step 7: packages copied" && date > /tmp/m7
-
 COPY cli/ cli/
-RUN echo "step 8: cli copied" && date > /tmp/m8
 
-# Real install step. --no-frozen-lockfile bypasses Windows-specific URLs.
-RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only 2>&1 | tee /tmp/pnpm.log; echo "step 9: pnpm install exit=$?" && date > /tmp/m9
+# pnpm install. The install is the heavy step.
+# --no-frozen-lockfile because the lockfile was generated on Windows.
+# --ignore-scripts to skip postinstall hooks (memory saver).
+RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only --prefer-offline
 
-RUN pnpm --filter @paperclipai/plugin-sdk build 2>&1 | tail -20; echo "step 10: sdk build exit=$?" && date > /tmp/m10
-RUN pnpm --filter @paperclipai/adapter-minimax-local build 2>&1 | tail -20; echo "step 11: m3 build exit=$?" && date > /tmp/m11
-RUN pnpm --filter @paperclipai/server build 2>&1 | tail -20; echo "step 12: server build exit=$?" && date > /tmp/m12
+# Build the foundation + the new M3 adapter + the server.
+RUN pnpm --filter @paperclipai/plugin-sdk build
+RUN pnpm --filter @paperclipai/adapter-minimax-local build
+RUN pnpm --filter @paperclipai/server build
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
 
-CMD ["sh", "-c", "ls /tmp/m* /tmp/pnpm.log; cat /tmp/pnpm.log | tail -50; node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js"]
+CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
