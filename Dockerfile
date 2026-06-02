@@ -1,27 +1,60 @@
 # syntax=docker/dockerfile:1.20
-# LMTM OS - Server for Render + Supabase.
+# LMTM OS - Server.
 #
-# CRITICAL MEMORY NOTE: the previous full-workspace pnpm install was
-# OOMing at 488MB heap (Render limit: 512MB) when it tried to install
-# 635 packages including the AI SDKs of all adapters (claude, codex,
-# cursor, openclaw, opencode, pi). The server only needs 6 packages
-# at runtime. Using `pnpm install --filter` for just those packages
-# drops the install from 635 to ~120 packages and stays well under
-# the memory limit.
-#
-# Also: NODE_OPTIONS=--max-old-space-size=350 keeps the V8 heap under
-# 350MB, well clear of the 512MB build-env ceiling. The 16MB headroom
-# between 350 and 512 is consumed by the OS, Docker, pnpm's non-V8
-# memory, and child processes.
+# Multi-stage build:
+#   - builder: does the heavy pnpm install (full workspace) and runs
+#     tsc on the packages. The full install needs ~1.5GB of memory
+#     (Render Starter is 512MB), so this stage only runs in
+#     GitHub Actions (7GB). The resulting image is pushed to GHCR
+#     and Render pulls it, skipping its own Docker build entirely.
+#   - runtime: a slim image with just the built artifacts and runtime
+#     deps. This stage is what Render actually runs.
 
-FROM node:20-slim
+# ─────────────────────────────────────────────────────────────────────────────
+# builder stage
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-slim AS builder
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g pnpm@9.15.4 tsx@4.19.2 typescript@5.7.2 --no-audit --no-fund
+  && npm install -g pnpm@9.15.4 --no-audit --no-fund
 
-ENV NODE_OPTIONS=--max-old-space-size=350
+ENV NODE_OPTIONS=--max-old-space-size=3000
+ENV NODE_ENV=development
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json ./
+COPY patches/ patches/
+COPY scripts/ scripts/
+COPY server/ server/
+COPY packages/ packages/
+COPY cli/ cli/
+
+# Full workspace install. The full install (~635 packages) is too
+# heavy for Render's 512MB build env, but GitHub Actions has 7GB so
+# it completes in a few minutes. The resulting artifacts are baked
+# into the runtime image.
+RUN pnpm install --no-frozen-lockfile --ignore-scripts --reporter=append-only
+
+# Build the foundation + the new M3 adapter + the server.
+RUN pnpm --filter @paperclipai/shared build
+RUN pnpm --filter @paperclipai/plugin-sdk build
+RUN pnpm --filter @paperclipai/adapter-minimax-local build
+RUN pnpm --filter @paperclipai/server build
+
+# ─────────────────────────────────────────────────────────────────────────────
+# runtime stage
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-slim AS runtime
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g pnpm@9.15.4 tsx@4.19.2 --no-audit --no-fund
+
+ENV NODE_OPTIONS=--max-old-space-size=380
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
   PORT=3100 \
@@ -34,36 +67,31 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json ./
-COPY patches/ patches/
-COPY scripts/ scripts/
-COPY server/ server/
-COPY packages/ packages/
-COPY cli/ cli/
+# Copy manifests + code from the builder. Skip the devDeps (which
+# are not needed at runtime) by re-installing with --prod.
+COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/.npmrc ./
+COPY --from=builder /app/tsconfig.json /app/tsconfig.base.json ./
+COPY --from=builder /app/patches/ patches/
+COPY --from=builder /app/scripts/ scripts/
+COPY --from=builder /app/server/ server/
+COPY --from=builder /app/packages/ packages/
+COPY --from=builder /app/cli/ cli/
 
-# Install ONLY the packages the server needs. This drops the install
-# from 635 (full workspace) to 567 (filtered) packages, well under
-# the 512MB heap. We do NOT use --prod because the build step below
-# needs tsc, which is a devDependency. The full workspace is still on
-# disk (for the build step), but pnpm only resolves and links the
-# 6 packages we need. The plugin-sdk needs its devDeps too (vitest,
-# @types/node) for the tsc step.
+# Install only the runtime deps (no devDeps) for the 6 packages we
+# need. This is the lightweight install (~120 packages) that doesn't
+# OOM in Render's runtime. tsc is in devDeps and not needed at
+# runtime, so we use --omit=dev here.
 RUN pnpm install \
   --filter @paperclipai/server \
   --filter @paperclipai/adapter-minimax-local \
-  --filter @paperclipai/plugin-sdk... \
+  --filter @paperclipai/plugin-sdk \
   --filter @paperclipai/shared \
   --filter @paperclipai/db \
   --filter @paperclipai/adapter-utils \
   --ignore-scripts \
   --no-frozen-lockfile \
-  --reporter=append-only
-
-# Build only the needed packages. The `...` filter means "and all
-# transitive workspace deps of the matching packages".
-RUN pnpm --filter @paperclipai/plugin-sdk build
-RUN pnpm --filter @paperclipai/adapter-minimax-local build
-RUN pnpm --filter @paperclipai/server build
+  --reporter=append-only \
+  --omit=dev
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
