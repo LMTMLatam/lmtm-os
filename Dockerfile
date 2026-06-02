@@ -80,7 +80,7 @@ COPY --from=builder /app/cli/ cli/
 # Install only the runtime deps (no devDeps) for the 6 packages we
 # need. This is the lightweight install (~120 packages) that doesn't
 # OOM in Render's runtime. tsc is in devDeps and not needed at
-# runtime, so we use --omit=dev here.
+# runtime, so we use --prod here.
 RUN pnpm install \
   --filter @paperclipai/server \
   --filter @paperclipai/adapter-minimax-local \
@@ -91,7 +91,7 @@ RUN pnpm install \
   --ignore-scripts \
   --no-frozen-lockfile \
   --reporter=append-only \
-  --omit=dev
+  --prod
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
