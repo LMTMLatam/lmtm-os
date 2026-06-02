@@ -46,11 +46,12 @@ COPY cli/ cli/
 # the 512MB heap. We do NOT use --prod because the build step below
 # needs tsc, which is a devDependency. The full workspace is still on
 # disk (for the build step), but pnpm only resolves and links the
-# 6 packages we need.
+# 6 packages we need. The plugin-sdk needs its devDeps too (vitest,
+# @types/node) for the tsc step.
 RUN pnpm install \
   --filter @paperclipai/server \
   --filter @paperclipai/adapter-minimax-local \
-  --filter @paperclipai/plugin-sdk \
+  --filter @paperclipai/plugin-sdk... \
   --filter @paperclipai/shared \
   --filter @paperclipai/db \
   --filter @paperclipai/adapter-utils \
