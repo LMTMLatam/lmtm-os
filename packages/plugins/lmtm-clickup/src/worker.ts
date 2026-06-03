@@ -662,3 +662,4 @@ const plugin = definePlugin({
 
 export default plugin;
 runWorker(plugin, import.meta.url);
+// force-rebuild-marker: 2026-06-03T22:59:18.5066879Z
