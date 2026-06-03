@@ -65,6 +65,9 @@ RUN pnpm --filter @paperclipai/ui build
 # installed into /app/.paperclip/plugins/ in the runtime stage
 # below.
 RUN pnpm --filter @paperclipai/lmtm-clickup build
+# Build the n8n MCP bridge plugin (uses HTTP transport against
+# https://lmtmlatam.app.n8n.cloud/mcp-server/http).
+RUN pnpm --filter @paperclipai/lmtm-n8n build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
@@ -123,6 +126,7 @@ COPY --from=builder /app/node_modules/ node_modules/
 # guarantees resolution.
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
+    # ── lmtm-clickup ──
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
     # zod: source's node_modules/zod is a symlink to .pnpm/zod@.../
     # The actual path inside the source is
@@ -133,7 +137,11 @@ RUN mkdir -p /app/.paperclip/plugins && \
     rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
     cp -rL /app/packages/plugins/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
-    echo "--- zod in plugin? ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod/ | head -10
+    # ── lmtm-n8n (HTTP MCP bridge to n8n) ──
+    cp -r /app/packages/plugins/lmtm-n8n /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n && \
+    rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
+    cp -rL /app/packages/plugins/lmtm-n8n/node_modules/@paperclipai/plugin-sdk/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
+    echo "Installed lmtm-n8n plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/dist/
 
 VOLUME ["/paperclip"]
 EXPOSE 3100

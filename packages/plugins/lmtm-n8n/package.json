@@ -1,0 +1,31 @@
+{
+  "name": "@paperclipai/lmtm-n8n",
+  "version": "0.1.0",
+  "description": "n8n MCP bridge for LMTM-OS agents — discover and invoke workflow tools exposed by the agency's n8n instance (instance-level MCP, HTTP transport).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "production": "./dist/index.js",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "paperclipPlugin": {
+    "manifest": "./dist/manifest.js",
+    "worker": "./dist/worker.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@paperclipai/plugin-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.7.3"
+  }
+}
