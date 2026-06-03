@@ -136,28 +136,34 @@ RUN mkdir -p /app/.paperclip/plugins && \
     # a transitive of plugin-sdk, not a direct dep of any workspace
     # package at the root). We need a real zod directory on the
     # resolver's walk-up path from the SDK's actual location.
-    # The most reliable place is alongside the SDK source itself:
-    #   /app/packages/plugins/sdk/node_modules/zod
-    # This way, no matter which path Node uses for resolution, zod
-    # is found within 2 levels of the SDK's dist/index.js.
-    ZOD_SRC=/app/packages/plugins/lmtm-clickup/node_modules/.pnpm/zod@3.25.76/node_modules/zod && \
-    if [ ! -d "$ZOD_SRC" ]; then ZOD_SRC=/app/node_modules/.pnpm/zod@3.25.76/node_modules/zod; fi && \
+    # Most reliable place: alongside the SDK source itself
+    # (/app/packages/plugins/sdk/node_modules/zod) — found within
+    # 2 levels of the SDK's dist/index.js.
+    ZOD_SRC=/app/node_modules/.pnpm/zod@3.25.76/node_modules/zod && \
+    if [ ! -d "$ZOD_SRC" ]; then ZOD_SRC=/app/packages/plugins/lmtm-clickup/node_modules/.pnpm/zod@3.25.76/node_modules/zod; fi && \
     echo "zod source dir: $ZOD_SRC" && \
-    ls -la "$ZOD_SRC" | head -5 && \
-    # Drop zod beside the SDK source so the resolver finds it via
-    # the SDK's real path (/app/packages/plugins/sdk/node_modules/zod).
+    ls -la "$ZOD_SRC" | head -3 && \
+    # Copy zod to a tmpdir first (cp -rL semantics with an
+    # existing target dir copy INTO it instead of becoming the
+    # target). Then move the contents.
+    ZOD_TMP=$(mktemp -d) && \
+    cp -rL "$ZOD_SRC/." "$ZOD_TMP/" && \
+    rm -rf /app/packages/plugins/sdk/node_modules && \
     mkdir -p /app/packages/plugins/sdk/node_modules && \
-    cp -rL "$ZOD_SRC" /app/packages/plugins/sdk/node_modules/zod && \
-    # Also drop it beside the server, the UI adapter, and the
-    # runtime plugin's own node_modules for any worker path that
-    # doesn't traverse the SDK symlink.
-    cp -rL "$ZOD_SRC" /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
+    mv "$ZOD_TMP" /app/packages/plugins/sdk/node_modules/zod && \
+    rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
+    ZOD_TMP=$(mktemp -d) && \
+    cp -rL "$ZOD_SRC/." "$ZOD_TMP/" && \
+    mv "$ZOD_TMP" /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
     echo "  zod at sdk: $(ls -d /app/packages/plugins/sdk/node_modules/zod 2>&1)" && \
     echo "  zod pkg main: $(cat /app/packages/plugins/sdk/node_modules/zod/package.json 2>/dev/null | grep -oE '\"(main|module|type)\":[^,}]*' | head -3 || echo MISSING)" && \
     # ── lmtm-n8n (HTTP MCP bridge to n8n) ──
     cp -r /app/packages/plugins/lmtm-n8n /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n && \
-    cp -rL "$ZOD_SRC" /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
+    rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
+    ZOD_TMP=$(mktemp -d) && \
+    cp -rL "$ZOD_SRC/." "$ZOD_TMP/" && \
+    mv "$ZOD_TMP" /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
     echo "Installed lmtm-n8n plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/dist/ && \
     echo "  zod at sdk: $(ls -d /app/packages/plugins/sdk/node_modules/zod 2>&1)"
 
