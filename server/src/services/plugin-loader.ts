@@ -1834,12 +1834,20 @@ export function pluginLoader(
       // hijacking standard node_modules resolution for transitive deps
       // (e.g. zod) that the SDK imports. Gate on NODE_ENV !== "production"
       // to keep dev mode working but skip the loader in the runtime image.
+      //
+      // In production we still need to enable the "production" export
+      // condition so that @paperclipai/shared resolves to dist/index.js
+      // (its "import" condition otherwise points to src/index.ts, which
+      // Node can't load without the tsx loader).
+      const isProduction = process.env.NODE_ENV === "production";
       if (
         activePlugin.packagePath &&
-        process.env.NODE_ENV !== "production" &&
+        !isProduction &&
         existsSync(DEV_TSX_LOADER_PATH)
       ) {
         workerOptions.execArgv = ["--import", DEV_TSX_LOADER_PATH];
+      } else if (isProduction) {
+        workerOptions.execArgv = ["--conditions=production"];
       }
 
       await workerManager.startWorker(pluginId, workerOptions);
