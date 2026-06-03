@@ -484,7 +484,10 @@ export async function createApp(
     try {
       const discovered = await loader.discoverAll();
       if (discovered.discovered.length === 0) {
-        logger.info("lmtm: no local plugins discovered on startup");
+        logger.info(
+          { localPluginDir: process.env.LMTM_LOCAL_PLUGIN_DIR },
+          "lmtm: no local plugins discovered on startup",
+        );
         return;
       }
       logger.info(
@@ -509,16 +512,21 @@ export async function createApp(
       // After installs, the plugins are in "installed" status. We
       // also need to transition them to "ready" so loadAll picks
       // them up. lifecycle.load() does that.
+      // LMTM-OS: also handle "uninstalled" status (e.g. after a
+      // soft-delete via DELETE /api/plugins/:id). installPlugin()
+      // reuses the existing row and sets status to "installed",
+      // but if the row is missing entirely (e.g. after purge=true)
+      // installPlugin() will insert a fresh "installed" row.
       const newPluginIds: string[] = [];
       for (const plugin of discovered.discovered) {
         const existing = await pluginRegistry.getByKey(plugin.manifest?.id ?? "");
-        if (existing && existing.status === "installed") {
+        if (existing && (existing.status === "installed" || existing.status === "uninstalled")) {
           try {
             await lifecycle.load(existing.id);
             newPluginIds.push(existing.id);
           } catch (e) {
             logger.error(
-              { err: e, pluginKey: plugin.manifest?.id },
+              { err: e, pluginKey: plugin.manifest?.id, status: existing.status },
               "lmtm: failed to load bundled plugin after install",
             );
           }
