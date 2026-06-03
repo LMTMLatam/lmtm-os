@@ -108,24 +108,25 @@ COPY --from=builder /app/node_modules/ node_modules/
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
 # will discover lmtm-clickup.
 #
-# Approach: copy the entire plugin source directory (which
-# already has a working node_modules from the pnpm install in the
-# builder stage) into the runtime plugin dir. pnpm's symlinks in
-# the source's node_modules point to /app/node_modules, which is
-# also present in the runtime image (via the
-# `COPY --from=builder /app/node_modules/ node_modules/` line
-# above), so the resolution chain still works at runtime.
+# Approach: copy the entire plugin source (with its pnpm-managed
+# node_modules) into the runtime plugin dir. The source's
+# node_modules uses pnpm's symlinks pointing to the virtual store
+# at /app/node_modules/.pnpm/... which IS present in the runtime
+# image (copied by `COPY --from=builder /app/node_modules/
+# node_modules/` above).
 #
-# The only risk: the symlinks from the source's node_modules
-# reference pnpm virtual store paths under /app/node_modules/.pnpm/.
-# Those paths ARE present in the runtime image, so resolution
-# works. We don't need to re-run pnpm install.
+# After the copy, we also explicitly copy zod into the plugin's
+# local node_modules because the SDK's compiled dist imports it
+# as a transitive dep, and pnpm's nested symlinks don't always
+# resolve cleanly in the tsx loader context. Copying zod
+# directly into the plugin's node_modules zod/ folder
+# guarantees resolution.
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
+    cp -r /app/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod 2>/dev/null || true && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
-    echo "--- source node_modules (top-level) ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/ | head -20 && \
-    echo "--- SDK package via symlink? ---" && readlink /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk 2>&1 || true
+    echo "--- zod in plugin? ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod/ 2>&1 | head -5
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
