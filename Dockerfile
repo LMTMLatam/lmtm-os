@@ -124,11 +124,14 @@ COPY --from=builder /app/node_modules/ node_modules/
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
-    # zod: cp -L dereferences the symlink chain (source's node_modules/zod
-    # is itself a symlink to /app/node_modules/.pnpm/zod@.../node_modules/zod)
-    # so we end up with a real directory the runtime can resolve.
+    # zod: source's node_modules/zod is a symlink to .pnpm/zod@.../
+    # The actual path inside the source is
+    # packages/plugins/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/node_modules/zod
+    # (a symlink too). We use cp -rL to follow the symlink chain and
+    # copy the real files so the runtime can resolve without multi-hop
+    # symlinks that the tsx loader sometimes fails on.
     rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
-    cp -rL /app/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
+    cp -rL /app/packages/plugins/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
     echo "--- zod in plugin? ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod/ | head -10
 
