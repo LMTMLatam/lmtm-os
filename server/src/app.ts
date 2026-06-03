@@ -472,6 +472,68 @@ export async function createApp(
   }).catch((err) => {
     logger.error({ err }, "Failed to load ready plugins on startup");
   });
+
+  // LMTM-OS: auto-discover + auto-install plugins baked into the
+  // runtime image. The plugin loader normally requires the admin to
+  // install each plugin via the UI before `loadAll()` will pick it
+  // up, but for our baked-in approach (Dockerfile copies plugins to
+  // /app/.paperclip/plugins/) we want them registered automatically
+  // on first boot. Idempotent: re-installs are no-ops because
+  // installPlugin dedupes by packagePath.
+  void (async () => {
+    try {
+      const discovered = await loader.discoverAll();
+      if (discovered.discovered.length === 0) {
+        logger.info("lmtm: no local plugins discovered on startup");
+        return;
+      }
+      logger.info(
+        { count: discovered.discovered.length, errors: discovered.errors.length },
+        "lmtm: discovered local plugins on startup, installing",
+      );
+      for (const plugin of discovered.discovered) {
+        if (!plugin.packagePath) continue;
+        try {
+          await loader.installPlugin({ localPath: plugin.packagePath });
+          logger.info(
+            { packageName: plugin.packageName, manifestId: plugin.manifest?.id },
+            "lmtm: auto-installed bundled plugin",
+          );
+        } catch (e) {
+          logger.error(
+            { err: e, packageName: plugin.packageName },
+            "lmtm: failed to auto-install bundled plugin",
+          );
+        }
+      }
+      // After installs, the plugins are in "installed" status. We
+      // also need to transition them to "ready" so loadAll picks
+      // them up. lifecycle.load() does that.
+      const newPluginIds: string[] = [];
+      for (const plugin of discovered.discovered) {
+        const existing = await pluginRegistry.getByKey(plugin.manifest?.id ?? "");
+        if (existing && existing.status === "installed") {
+          try {
+            await lifecycle.load(existing.id);
+            newPluginIds.push(existing.id);
+          } catch (e) {
+            logger.error(
+              { err: e, pluginKey: plugin.manifest?.id },
+              "lmtm: failed to load bundled plugin after install",
+            );
+          }
+        }
+      }
+      if (newPluginIds.length > 0) {
+        logger.info(
+          { count: newPluginIds.length, pluginIds: newPluginIds },
+          "lmtm: bundled plugins ready",
+        );
+      }
+    } catch (e) {
+      logger.error({ err: e }, "lmtm: auto-install of bundled plugins failed");
+    }
+  })();
   process.once("exit", () => {
     if (feedbackExportTimer) clearInterval(feedbackExportTimer);
     devWatcher?.close();
