@@ -1925,10 +1925,16 @@ export function pluginLoader(
 
       // ------------------------------------------------------------------
       // 8. Register agent tools
+      //
+      // The dispatcher keys tools by `pluginId` (manifest id), but the
+      // worker manager is keyed by the plugin's database UUID. The
+      // dispatcher → registry path needs the UUID too so the
+      // executeTool route can call `workerManager.isRunning(uuid)` and
+      // dispatch the RPC to the right worker.
       // ------------------------------------------------------------------
       const toolDeclarations = manifest.tools ?? [];
       if (toolDeclarations.length > 0) {
-        toolDispatcher.registerPluginTools(pluginKey, manifest);
+        toolDispatcher.registerPluginTools(pluginKey, manifest, pluginId);
         registered.tools = toolDeclarations.length;
 
         log.info(
