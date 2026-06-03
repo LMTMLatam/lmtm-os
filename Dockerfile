@@ -106,26 +106,26 @@ COPY --from=builder /app/node_modules/ node_modules/
 
 # Install the LMTM-bundled plugins into the runtime plugin dir.
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
-# will discover lmtm-clickup. We copy the built dist/ + package.json
-# AND the SDK peer dependency's dist/ directly into the plugin's
-# local node_modules, avoiding any multi-hop symlink that pnpm
-# or the tsx loader might fail to resolve.
+# will discover lmtm-clickup.
 #
-# Why copy instead of symlink: pnpm's virtual store uses
-# /app/node_modules/.pnpm/<name>@<ver>/node_modules/... and the
-# public path /app/node_modules/@paperclipai/plugin-sdk is itself
-# a symlink. Node's ESM loader with tsx sometimes doesn't follow
-# multi-hop symlinks correctly during package resolution. Copying
-# the actual files guarantees resolution works.
+# Approach: copy the entire plugin source directory (which
+# already has a working node_modules from the pnpm install in the
+# builder stage) into the runtime plugin dir. pnpm's symlinks in
+# the source's node_modules point to /app/node_modules, which is
+# also present in the runtime image (via the
+# `COPY --from=builder /app/node_modules/ node_modules/` line
+# above), so the resolution chain still works at runtime.
+#
+# The only risk: the symlinks from the source's node_modules
+# reference pnpm virtual store paths under /app/node_modules/.pnpm/.
+# Those paths ARE present in the runtime image, so resolution
+# works. We don't need to re-run pnpm install.
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
-    rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules && \
-    mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk && \
-    cp -r /app/packages/plugins/sdk/dist /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/dist && \
-    cp /app/packages/plugins/sdk/package.json /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/package.json && \
-    echo "Installed lmtm-clickup plugin (SDK copied):" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
-    echo "--- SDK files ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/
+    echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
+    echo "--- source node_modules (top-level) ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/ | head -20 && \
+    echo "--- SDK package via symlink? ---" && readlink /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk 2>&1 || true
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
