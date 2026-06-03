@@ -13,7 +13,7 @@
 // so operators can also wire them through the PluginManager UI.
 
 import { definePlugin } from "@paperclipai/plugin-sdk";
-import { PLUGIN_ID, TOOL_NAMES } from "./manifest.js";
+import { PLUGIN_ID, PLUGIN_VERSION, TOOL_NAMES } from "./manifest.js";
 
 type ToolResult = {
   content?: string;
