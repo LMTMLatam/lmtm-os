@@ -516,6 +516,13 @@ export function isPluginPackageName(name: string): boolean {
   // Also accept scoped packages like @acme/plugin-linear or @paperclipai/plugin-*
   if (name.includes("/")) {
     const localPart = name.split("/")[1] ?? "";
+    // LMTM-OS: also accept scoped @paperclipai/lmtm-* packages. These
+    // are baked into /app/.paperclip/plugins/ by the Dockerfile and
+    // need a way to be discovered without the strict "plugin-" prefix
+    // convention.
+    if (name.startsWith("@paperclipai/") && localPart.startsWith("lmtm-")) {
+      return true;
+    }
     return localPart.startsWith("plugin-");
   }
   return false;
