@@ -107,15 +107,25 @@ COPY --from=builder /app/node_modules/ node_modules/
 # Install the LMTM-bundled plugins into the runtime plugin dir.
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
 # will discover lmtm-clickup. We copy the built dist/ + package.json
-# (NOT the source's own node_modules, which contains a stale SDK
-# symlink) and create a fresh symlink to the SDK peer dependency.
+# AND the SDK peer dependency's dist/ directly into the plugin's
+# local node_modules, avoiding any multi-hop symlink that pnpm
+# or the tsx loader might fail to resolve.
+#
+# Why copy instead of symlink: pnpm's virtual store uses
+# /app/node_modules/.pnpm/<name>@<ver>/node_modules/... and the
+# public path /app/node_modules/@paperclipai/plugin-sdk is itself
+# a symlink. Node's ESM loader with tsx sometimes doesn't follow
+# multi-hop symlinks correctly during package resolution. Copying
+# the actual files guarantees resolution works.
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
     rm -rf /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules && \
-    mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai && \
-    ln -s /app/node_modules/@paperclipai/plugin-sdk /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk && \
-    echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/
+    mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk && \
+    cp -r /app/packages/plugins/sdk/dist /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/dist && \
+    cp /app/packages/plugins/sdk/package.json /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/package.json && \
+    echo "Installed lmtm-clickup plugin (SDK copied):" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
+    echo "--- SDK files ---" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
