@@ -106,13 +106,14 @@ COPY --from=builder /app/node_modules/ node_modules/
 
 # Install the LMTM-bundled plugins into the runtime plugin dir.
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
-# will discover lmtm-clickup. We use npm install with a local
-# --prefix so the plugin gets its own node_modules with the SDK
-# resolved correctly.
+# will discover lmtm-clickup. We copy the built dist/ + package.json
+# and symlink the SDK peer dependency so the plugin can resolve it
+# at runtime.
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
     cd /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
+    mkdir -p node_modules/@paperclipai && \
     ln -s /app/node_modules/@paperclipai/plugin-sdk node_modules/@paperclipai/plugin-sdk && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/
 
