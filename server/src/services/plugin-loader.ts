@@ -1829,7 +1829,16 @@ export function pluginLoader(
       // Repo-local plugin installs can resolve workspace TS sources at runtime
       // (for example @paperclipai/shared exports). Run those workers through
       // the tsx loader so first-party example plugins work in development.
-      if (activePlugin.packagePath && existsSync(DEV_TSX_LOADER_PATH)) {
+      // In production, the worker entrypoint is the pre-compiled dist/*.js so
+      // the tsx loader is unnecessary — and using it has the side effect of
+      // hijacking standard node_modules resolution for transitive deps
+      // (e.g. zod) that the SDK imports. Gate on NODE_ENV !== "production"
+      // to keep dev mode working but skip the loader in the runtime image.
+      if (
+        activePlugin.packagePath &&
+        process.env.NODE_ENV !== "production" &&
+        existsSync(DEV_TSX_LOADER_PATH)
+      ) {
         workerOptions.execArgv = ["--import", DEV_TSX_LOADER_PATH];
       }
 
