@@ -111,33 +111,54 @@ COPY --from=builder /app/node_modules/ node_modules/
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
 # will discover lmtm-clickup and lmtm-n8n.
 #
-# We copy the entire plugin source dir (with its pnpm-managed
-# node_modules) into the runtime plugin dir. pnpm's symlinks point
-# to the virtual store at /app/node_modules/.pnpm/... which is
-# already present in the runtime image (copied by the previous
-# `COPY --from=builder /app/node_modules/ node_modules/` step).
+# We use `cp -rL` to dereference symlinks: pnpm's symlinks inside
+# the plugin's node_modules are relative to /app/packages/plugins/
+# and become broken when the plugin is copied to a new location.
+# Dereferencing them turns the symlinks into real copies of the
+# target packages.
 #
-# We deliberately do NOT mutate /app/packages/plugins/sdk/node_modules
-# because the SDK uses pnpm's standard hoisting (zod and
-# @paperclipai/shared are resolvable from the SDK's dist/ via the
-# standard ESM walk-up to /app/node_modules/). The plugin worker
-# runs with NODE_ENV=production so the tsx loader is skipped
-# (plugin-loader.ts:1837-1843), and standard Node ESM resolution
-# finds transitive deps correctly.
+# After the copy, the plugin worker (at
+# /app/.paperclip/plugins/.../lmtm-clickup/dist/worker.js) imports
+# @paperclipai/plugin-sdk. Node ESM resolver finds the local copy
+# and then needs to resolve the SDK's transitive deps (zod and
+# @paperclipai/shared) via walk-up. Because pnpm does NOT hoist
+# these in NODE_ENV=production (root package.json has no
+# production deps), we manually symlink them into /app/node_modules/
+# so they're findable from the SDK's real path anywhere in the
+# filesystem.
+#
+# The tsx loader is skipped in production (see plugin-loader.ts:1837-1843),
+# so standard Node ESM resolution is what runs.
 RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     # ── lmtm-clickup ──
-    cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
+    cp -rL /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
     # ── lmtm-n8n (HTTP MCP bridge to n8n) ──
-    cp -r /app/packages/plugins/lmtm-n8n /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n && \
+    cp -rL /app/packages/plugins/lmtm-n8n /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n && \
     echo "Installed lmtm-n8n plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/dist/ && \
-    # Sanity check: ensure the SDK's required deps are findable
-    # from the clickup plugin's worker via pnpm's hoisting.
+    # Hoist the SDK's transitive deps into /app/node_modules/ so
+    # the SDK can find them via the standard ESM walk-up from
+    # anywhere it's loaded. We create real symlinks pointing to
+    # pnpm's virtual store.
+    ZOD_SRC=$(ls -d /app/node_modules/.pnpm/zod@*/node_modules/zod 2>/dev/null | head -1) && \
+    SHARED_SRC=$(ls -d /app/node_modules/.pnpm/@paperclipai+shared@*/node_modules/@paperclipai/shared 2>/dev/null | head -1) && \
+    if [ -n "$ZOD_SRC" ]; then \
+      ln -sf "$ZOD_SRC" /app/node_modules/zod && echo "hoisted zod -> $ZOD_SRC"; \
+    else \
+      echo "WARN: zod not found in /app/node_modules/.pnpm/"; \
+    fi && \
+    if [ -n "$SHARED_SRC" ]; then \
+      mkdir -p /app/node_modules/@paperclipai && \
+      ln -sf "$SHARED_SRC" /app/node_modules/@paperclipai/shared && echo "hoisted shared -> $SHARED_SRC"; \
+    else \
+      echo "WARN: @paperclipai/shared not found in /app/node_modules/.pnpm/"; \
+    fi && \
+    # Sanity check
     echo "SDK resolution sanity check:" && \
-    echo "  /app/node_modules/zod: $(test -d /app/node_modules/zod && echo OK || echo MISSING)" && \
-    echo "  /app/node_modules/@paperclipai/shared: $(test -d /app/node_modules/@paperclipai/shared && echo OK || echo MISSING)" && \
-    echo "  /app/node_modules/@paperclipai/plugin-sdk: $(test -d /app/node_modules/@paperclipai/plugin-sdk && echo OK || echo MISSING)"
+    echo "  /app/node_modules/zod: $(test -L /app/node_modules/zod && readlink /app/node_modules/zod || echo MISSING)" && \
+    echo "  /app/node_modules/@paperclipai/shared: $(test -L /app/node_modules/@paperclipai/shared && readlink /app/node_modules/@paperclipai/shared || echo MISSING)" && \
+    echo "  /app/node_modules/@paperclipai/plugin-sdk: $(test -L /app/node_modules/@paperclipai/plugin-sdk && readlink /app/node_modules/@paperclipai/plugin-sdk || echo MISSING)"
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
