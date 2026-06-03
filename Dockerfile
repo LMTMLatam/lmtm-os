@@ -61,6 +61,10 @@ RUN pnpm --filter @paperclipai/server build
 # Build the React/Vite UI so the server can serve it as a SPA on `/`.
 # vite build needs ~1.5GB of heap for our 14 LMTM routes; fine in GH Actions.
 RUN pnpm --filter @paperclipai/ui build
+# Build the LMTM bundled plugins (e.g. lmtm-clickup). They are
+# installed into /app/.paperclip/plugins/ in the runtime stage
+# below.
+RUN pnpm --filter @paperclipai/lmtm-clickup build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
@@ -80,7 +84,8 @@ ENV NODE_ENV=production \
   PAPERCLIP_HOME=/paperclip \
   PAPERCLIP_INSTANCE_ID=lmtm \
   PAPERCLIP_DEPLOYMENT_MODE=authenticated \
-  PAPERCLIP_DEPLOYMENT_EXPOSURE=public
+  PAPERCLIP_DEPLOYMENT_EXPOSURE=public \
+  LMTM_LOCAL_PLUGIN_DIR=/app/.paperclip/plugins
 
 WORKDIR /app
 
@@ -98,6 +103,18 @@ COPY --from=builder /app/packages/ packages/
 COPY --from=builder /app/cli/ cli/
 COPY --from=builder /app/ui/dist/ server/ui-dist/
 COPY --from=builder /app/node_modules/ node_modules/
+
+# Install the LMTM-bundled plugins into the runtime plugin dir.
+# The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
+# will discover lmtm-clickup. We use npm install with a local
+# --prefix so the plugin gets its own node_modules with the SDK
+# resolved correctly.
+RUN mkdir -p /app/.paperclip/plugins && \
+    mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
+    cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
+    cd /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
+    ln -s /app/node_modules/@paperclipai/plugin-sdk node_modules/@paperclipai/plugin-sdk && \
+    echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/
 
 VOLUME ["/paperclip"]
 EXPOSE 3100

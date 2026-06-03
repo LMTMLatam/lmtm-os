@@ -593,9 +593,15 @@ export async function startServer(): Promise<StartedServer> {
     }
   };
   const pluginWorkerManager = createPluginWorkerManager();
+  // LMTM-OS: allow ops to override the local plugin directory via env var.
+  // The default (`~/.paperclip/plugins`) is fine for dev, but in the
+  // Render image we bake the bundled plugins (lmtm-clickup, future ones)
+  // into `/app/.paperclip/plugins/` and point the loader there.
+  const lmtmLocalPluginDir = process.env.LMTM_LOCAL_PLUGIN_DIR?.trim() || undefined;
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,
+    localPluginDir: lmtmLocalPluginDir,
     storageService,
     feedbackExportService: feedback,
     databaseBackupService: {
