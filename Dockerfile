@@ -128,27 +128,38 @@ RUN mkdir -p /app/.paperclip/plugins && \
     mkdir -p /app/.paperclip/plugins/node_modules/@paperclipai && \
     # ── lmtm-clickup ──
     cp -r /app/packages/plugins/lmtm-clickup /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup && \
-    # zod: plugin-sdk's dist/index.js does `export { z } from "zod"`. Node's
-    # ESM resolver walks up from the symlinked SDK path
-    # (/app/.paperclip/.../plugin-sdk/dist/index.js) and looks for zod at
-    # each level's node_modules. We pre-populate two locations to make
-    # resolution succeed in all import paths:
-    #   1. The plugin's own node_modules/zod (so a copy of the source
-    #      plugin-sdk's zod symlink chain dereferences to real files).
-    #   2. The plugin-sdk's own node_modules/zod (so the SDK's own
-    #      dist/index.js resolves zod from its parent dir directly).
-    cp -rL /app/packages/plugins/lmtm-clickup/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
-    cp -rL /app/packages/plugins/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/@paperclipai/plugin-sdk/node_modules/zod 2>/dev/null || true && \
+    # zod fix: plugin-sdk's dist/index.js does `export { z } from "zod"`.
+    # Node's ESM resolver uses the file's REAL path (after symlink
+    # resolution) when walking up to find node_modules. The SDK's
+    # symlinked path resolves to /app/packages/plugins/sdk/, and
+    # pnpm does NOT hoist zod to /app/node_modules/zod (zod is only
+    # a transitive of plugin-sdk, not a direct dep of any workspace
+    # package at the root). We need a real zod directory on the
+    # resolver's walk-up path from the SDK's actual location.
+    # The most reliable place is alongside the SDK source itself:
+    #   /app/packages/plugins/sdk/node_modules/zod
+    # This way, no matter which path Node uses for resolution, zod
+    # is found within 2 levels of the SDK's dist/index.js.
+    ZOD_SRC=/app/packages/plugins/lmtm-clickup/node_modules/.pnpm/zod@3.25.76/node_modules/zod && \
+    if [ ! -d "$ZOD_SRC" ]; then ZOD_SRC=/app/node_modules/.pnpm/zod@3.25.76/node_modules/zod; fi && \
+    echo "zod source dir: $ZOD_SRC" && \
+    ls -la "$ZOD_SRC" | head -5 && \
+    # Drop zod beside the SDK source so the resolver finds it via
+    # the SDK's real path (/app/packages/plugins/sdk/node_modules/zod).
+    mkdir -p /app/packages/plugins/sdk/node_modules && \
+    cp -rL "$ZOD_SRC" /app/packages/plugins/sdk/node_modules/zod && \
+    # Also drop it beside the server, the UI adapter, and the
+    # runtime plugin's own node_modules for any worker path that
+    # doesn't traverse the SDK symlink.
+    cp -rL "$ZOD_SRC" /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod && \
     echo "Installed lmtm-clickup plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/dist/ && \
-    echo "  zod at: $(ls -d /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod 2>&1)" && \
-    echo "  zod pkg main: $(cat /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-clickup/node_modules/zod/package.json 2>/dev/null | grep -oE '\"(main|module|type)\":[^,}]*' | head -3 || echo MISSING)" && \
+    echo "  zod at sdk: $(ls -d /app/packages/plugins/sdk/node_modules/zod 2>&1)" && \
+    echo "  zod pkg main: $(cat /app/packages/plugins/sdk/node_modules/zod/package.json 2>/dev/null | grep -oE '\"(main|module|type)\":[^,}]*' | head -3 || echo MISSING)" && \
     # ── lmtm-n8n (HTTP MCP bridge to n8n) ──
     cp -r /app/packages/plugins/lmtm-n8n /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n && \
-    cp -rL /app/packages/plugins/lmtm-n8n/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
-    cp -rL /app/packages/plugins/lmtm-n8n/node_modules/@paperclipai/plugin-sdk/node_modules/zod /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/@paperclipai/plugin-sdk/node_modules/zod 2>/dev/null || true && \
+    cp -rL "$ZOD_SRC" /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod && \
     echo "Installed lmtm-n8n plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/dist/ && \
-    echo "  zod at: $(ls -d /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod 2>&1)" && \
-    echo "  zod pkg main: $(cat /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/node_modules/zod/package.json 2>/dev/null | grep -oE '\"(main|module|type)\":[^,}]*' | head -3 || echo MISSING)"
+    echo "  zod at sdk: $(ls -d /app/packages/plugins/sdk/node_modules/zod 2>&1)"
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
