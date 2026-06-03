@@ -12,7 +12,7 @@
 // process.env first (cheap, no UI) and falls back to ctx.secrets.resolve
 // so operators can also wire them through the PluginManager UI.
 
-import { definePlugin } from "@paperclipai/plugin-sdk";
+import { definePlugin, runWorker } from "@paperclipai/plugin-sdk";
 import { PLUGIN_ID, PLUGIN_VERSION, TOOL_NAMES } from "./manifest.js";
 
 type ToolResult = {
@@ -208,7 +208,7 @@ type Ctx = {
   };
 };
 
-export default definePlugin({
+const plugin = definePlugin({
   async setup(ctx: Ctx) {
     let cached: ResolvedConfig | null = null;
     let toolListCache: { tools: Array<Record<string, unknown>>; fetchedAt: number } | null = null;
@@ -370,3 +370,6 @@ export default definePlugin({
     );
   },
 });
+
+export default plugin;
+runWorker(plugin, import.meta.url);

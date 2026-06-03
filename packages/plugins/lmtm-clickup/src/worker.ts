@@ -7,7 +7,7 @@
 //
 // Reference: https://clickup.com/api
 
-import { definePlugin } from "@paperclipai/plugin-sdk";
+import { definePlugin, runWorker } from "@paperclipai/plugin-sdk";
 import { PLUGIN_ID, TOOL_NAMES } from "./manifest.js";
 
 const DEFAULT_API_BASE = "https://api.clickup.com/api/v2";
@@ -166,7 +166,7 @@ function err(message: string): ToolResult {
 
 // ── Plugin ─────────────────────────────────────────────────────────────
 
-export default definePlugin({
+const plugin = definePlugin({
   async setup(ctx) {
     // Resolve config once at setup so we can fail fast if the secret
     // is missing. If the secret is rotated, the operator can reload
@@ -659,3 +659,6 @@ export default definePlugin({
     );
   },
 });
+
+export default plugin;
+runWorker(plugin, import.meta.url);
