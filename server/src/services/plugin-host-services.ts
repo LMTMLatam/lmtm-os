@@ -1021,6 +1021,11 @@ export function buildHostServices(
             tokenType: adsConnectionsTable.tokenType,
             expiresAt: adsConnectionsTable.expiresAt,
             status: adsConnectionsTable.status,
+            developerToken: adsConnectionsTable.developerToken,
+            managerAccountId: adsConnectionsTable.managerAccountId,
+            appId: adsConnectionsTable.appId,
+            merchantId: adsConnectionsTable.merchantId,
+            tenantId: adsConnectionsTable.tenantId,
           })
           .from(adsConnectionsTable)
           .where(
@@ -1039,6 +1044,13 @@ export function buildHostServices(
           label: row.label,
           tokenType: row.tokenType,
           expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+          metadata: {
+            developerToken: row.developerToken ?? null,
+            managerAccountId: row.managerAccountId ?? null,
+            appId: row.appId ?? null,
+            merchantId: row.merchantId ?? null,
+            tenantId: row.tenantId ?? null,
+          },
         };
       },
     },

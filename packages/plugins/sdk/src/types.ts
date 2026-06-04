@@ -618,6 +618,33 @@ export interface PluginSecretsClient {
  *
  * @see PLUGIN_SPEC.md §23 — Ad Platform Tokens
  */
+export interface PluginAdsConnectionMetadata {
+  /** Google Ads developer token (per MCC). */
+  developerToken: string | null;
+  /** Google Ads manager account (MCC) id, used as `login-customer-id`. */
+  managerAccountId: string | null;
+  /** TikTok app id used for app-level auth. */
+  appId: string | null;
+  /** TikTok catalog id (for catalog-driven ads). */
+  merchantId: string | null;
+  /** LinkedIn ad account URN or tenant id. */
+  tenantId: string | null;
+}
+
+export interface PluginAdsResolvedToken {
+  accessToken: string;
+  label: string;
+  tokenType: string;
+  expiresAt: string | null;
+  /**
+   * Platform-specific connection metadata. Most platforms only need
+   * `accessToken`; some need additional values (e.g. Google Ads requires
+   * a separate `developerToken` and a `managerAccountId` MCC).
+   * All fields are `null` when not applicable to the platform.
+   */
+  metadata: PluginAdsConnectionMetadata;
+}
+
 export interface PluginAdsClient {
   /**
    * Resolve the active OAuth access token for an ad platform + company.
@@ -629,12 +656,7 @@ export interface PluginAdsClient {
   resolveToken(
     platform: "meta" | "google" | "tiktok" | "linkedin",
     companyId: string,
-  ): Promise<{
-    accessToken: string;
-    label: string;
-    tokenType: string;
-    expiresAt: string | null;
-  } | null>;
+  ): Promise<PluginAdsResolvedToken | null>;
 }
 
 /**

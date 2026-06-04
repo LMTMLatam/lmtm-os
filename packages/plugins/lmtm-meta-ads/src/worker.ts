@@ -47,6 +47,13 @@ type ResolvedToken = {
   tokenType: string;
   expiresAt: string | null;
   apiVersion: string;
+  metadata: {
+    developerToken: string | null;
+    managerAccountId: string | null;
+    appId: string | null;
+    merchantId: string | null;
+    tenantId: string | null;
+  };
 };
 
 async function resolveToken(
@@ -61,6 +68,13 @@ async function resolveToken(
         label: string;
         tokenType: string;
         expiresAt: string | null;
+        metadata: {
+          developerToken: string | null;
+          managerAccountId: string | null;
+          appId: string | null;
+          merchantId: string | null;
+          tenantId: string | null;
+        };
       } | null>;
     };
   },

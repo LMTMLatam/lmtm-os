@@ -28,10 +28,11 @@ const PLATFORMS: PlatformDescriptor[] = [
   {
     id: "google",
     name: "Google Ads",
-    description: "OAuth flow not configured in this build yet. Will be enabled once a Google Ads developer token + OAuth client are wired.",
+    description:
+      "Read and write Google Ads campaigns, ad groups, and pull performance insights (spend, impressions, CTR, conversions, cost-per-conversion). The plugin is shipped; the OAuth flow will be enabled once a Google Ads developer token + OAuth client are wired.",
     scopes: ["https://www.googleapis.com/auth/adwords"],
     ready: false,
-    reason: "Awaiting Google Ads developer token + OAuth client",
+    reason: "Plugin built. Awaiting Google Ads developer token + OAuth client (similar to Meta's /api/meta/oauth/start).",
   },
   {
     id: "tiktok",

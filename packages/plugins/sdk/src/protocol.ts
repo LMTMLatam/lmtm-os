@@ -728,6 +728,13 @@ export interface WorkerToHostMethods {
       label: string;
       tokenType: string;
       expiresAt: string | null;
+      metadata: {
+        developerToken: string | null;
+        managerAccountId: string | null;
+        appId: string | null;
+        merchantId: string | null;
+        tenantId: string | null;
+      };
     } | null,
   ];
 

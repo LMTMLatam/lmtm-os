@@ -1,0 +1,32 @@
+{
+  "name": "@paperclipai/lmtm-google-ads",
+  "version": "0.1.0",
+  "description": "Google Ads tools for LMTM-OS agents — read/create/update campaigns, ad groups, and pull performance insights via the Google Ads REST API v17.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "production": "./dist/index.js",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "paperclipPlugin": {
+    "manifest": "./dist/manifest.js",
+    "worker": "./dist/worker.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@paperclipai/plugin-sdk": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.7.3"
+  }
+}

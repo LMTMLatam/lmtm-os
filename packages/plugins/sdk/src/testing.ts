@@ -755,9 +755,16 @@ export function createTestHarness(options: TestHarnessOptions): TestHarness {
         requireCapability(manifest, capabilitySet, "ads.token.resolve");
         return {
           accessToken: `test-access-token:${platform}:${companyId}`,
-          label: "Test Meta Connection",
+          label: "Test Connection",
           tokenType: "user",
           expiresAt: null,
+          metadata: {
+            developerToken: "test-developer-token",
+            managerAccountId: "test-manager-account",
+            appId: "test-app-id",
+            merchantId: "test-merchant-id",
+            tenantId: "test-tenant-id",
+          },
         };
       },
     },

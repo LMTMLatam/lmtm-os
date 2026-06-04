@@ -69,9 +69,11 @@ RUN pnpm --filter @paperclipai/lmtm-clickup build
 # https://lmtmlatam.app.n8n.cloud/mcp-server/http).
 RUN pnpm --filter @paperclipai/lmtm-n8n build
 # Build the Meta Marketing API plugin (Graph API v21.0, 9 tools).
-# Reads META_ACCESS_TOKEN from process.env (forwarded via the
-# plugin-worker-manager allowlist) or via ctx.secrets.resolve.
+# Auth: per-company OAuth via ctx.ads.resolveToken("meta", companyId).
 RUN pnpm --filter @paperclipai/lmtm-meta-ads build
+# Build the Google Ads plugin (REST API v17, 8 tools).
+# Auth: per-company OAuth + developer_token via ctx.ads.resolveToken("google", companyId).
+RUN pnpm --filter @paperclipai/lmtm-google-ads build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
@@ -144,6 +146,9 @@ RUN mkdir -p /app/.paperclip/plugins && \
     # ── lmtm-meta-ads (Graph API v21.0, 9 tools) ──
     cp -rL /app/packages/plugins/lmtm-meta-ads /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-meta-ads && \
     echo "Installed lmtm-meta-ads plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-meta-ads/dist/ && \
+    # ── lmtm-google-ads (Google Ads REST API v17, 8 tools) ──
+    cp -rL /app/packages/plugins/lmtm-google-ads /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-google-ads && \
+    echo "Installed lmtm-google-ads plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-google-ads/dist/ && \
     # Hoist the SDK's transitive deps into /app/node_modules/ so
     # the SDK can find them via the standard ESM walk-up from
     # anywhere it's loaded. We create real symlinks pointing to
