@@ -27,6 +27,23 @@ seed-*.mjs
 server/check-*.mjs
 server/seed-*.mjs
 packages/db/seed-*.mjs
+# Dev / debug .cjs scripts at repo root (kept in scripts/ if needed)
+check-*.cjs
+db-*.cjs
+del-*.cjs
+delete-*.cjs
+diag-*.cjs
+get-ctx.cjs
+install-*.cjs
+install-test.cjs
+relogin.cjs
+set-env.cjs
+test-*.cjs
+gen-hash.mjs
+!scripts/gen-hash.mjs
+!scripts/seed-*.cjs
+scripts/lmtm-cookie.txt
+scripts/seed-clients-*.json
 
 # npm publish build artifacts
 cli/package.dev.json

@@ -1,0 +1,15 @@
+{
+  "total": 14,
+  "by_role": {
+    "cmo": 1,
+    "pm": 5,
+    "engineer": 4,
+    "researcher": 3,
+    "designer": 1
+  },
+  "by_heartbeat_enabled": {
+    "on": 8,
+    "off": 6
+  },
+  "total_budget_cents": 450000
+}
