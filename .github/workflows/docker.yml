@@ -42,6 +42,8 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=feat-lmtm-v2
+            type=raw,value=feat-lmtm-v2-{{short_sha}}
+            type=raw,value=feat-lmtm-v2-{{date 'YYYYMMDD-HHmmss'}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
