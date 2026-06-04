@@ -84,3 +84,49 @@
 - `.github/workflows/docker.yml` — added `provenance: false`, `sbom: false`;
   removed `cache-to: type=gha,mode=max` (no-op once provenance/sbom are off)
 - `scripts/.deploy-trigger` — marker file to trigger GH Actions (can delete)
+
+
+## RESOLUTION (2026-06-04T18:09Z)
+
+The deploy saga is **RESOLVED**. Final deploy dep-d8grt9d8nd3s739co4bg (image SHA
+sha256:acae649647b230b96c8ce45c4e2d2435ed8b34ac6ac5f2e7cd93b8e5eb0c2ec0) went from
+update_in_progress → live in 2.5 min, with 1/1 ready and no earlyExit events.
+
+### Root cause (final)
+
+The Dockerfile was building all 4 plugins correctly, but the source for
+lmtm-meta-ads was **incomplete** — src/ only had manifest.ts and
+worker.ts, missing the standard index.ts that all other plugins
+(lmtm-clickup, lmtm-n8n, lmtm-google-ads) include.
+
+The plugin's package.json declared exports['.'].production: "./dist/index.js",
+but index.ts never existed, so dist/index.js was never emitted. The
+autoInstall IIFE imported the main entry and crashed the process before
+the health check could ever respond.
+
+### Fix
+
+- Added packages/plugins/lmtm-meta-ads/src/index.ts with:
+  `	s
+  export { default } from "./manifest.js";
+  export { default as manifest } from "./manifest.js";
+  `
+- Commit: 3c6b08b — ix(plugins): add missing src/index.ts to lmtm-meta-ads
+- Pushed → new GH Actions build #26970033342 → new image SHA
+  cae649647b2... tagged eat-lmtm-v2
+- Render deploy API picked the correct SHA (because provenance: false, sbom: false fix
+  earlier eliminated the 3-manifest confusion)
+- Deploy went live cleanly
+- Re-enabled the 2 stale error plugins via POST /api/plugins/:id/enable
+  (PowerShell Invoke-WebRequest was double-encoding cookies; switched to
+  node script)
+
+### Final state (2026-06-04T18:09Z)
+
+- Service: https://lmtm.onrender.com, status live, ootstrapStatus=ready
+- Workers: **4/4 running** (lmtm-clickup, lmtm-n8n, lmtm-meta-ads, lmtm-google-ads)
+- Plugin DB: **4/4 ready** (no errors)
+- Smoke test: **8/8 OK** (health, 67 clients, 14 agents, 4/4 workers, Meta list,
+  Google list, ClickUp folders, n8n ping)
+- Meta + Google connections **already exist** in DB from prior setup — user can
+  test ad account queries tomorrow without further setup
