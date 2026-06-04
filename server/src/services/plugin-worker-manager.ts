@@ -611,11 +611,12 @@ export function createPluginWorkerHandle(
     // secrets (like DATABASE_URL, internal API keys, etc.).
     //
     // LMTM-OS: forward env vars matching a per-plugin allowlist. This lets
-    // the bundled plugins (lmtm-clickup, lmtm-n8n) read their API tokens
-    // via `process.env[refName]` instead of going through the
-    // company-secrets UI (which is gated behind
-    // PLUGIN_SECRET_REFS_DISABLED_MESSAGE right now).
-    const allowedPluginEnvPrefixes = ["N8N_", "CLICKUP_"];
+    // the bundled plugins (lmtm-clickup, lmtm-n8n, lmtm-meta-ads, ...)
+    // read their API tokens via `process.env[refName]` instead of going
+    // through the company-secrets UI (which is gated behind
+    // PLUGIN_SECRET_REFS_DISABLED_MESSAGE right now). Add a new prefix
+    // here whenever you ship a new bundled plugin that needs a token.
+    const allowedPluginEnvPrefixes = ["N8N_", "CLICKUP_", "META_"];
     const forwardedEnv: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
       if (typeof v === "string" && allowedPluginEnvPrefixes.some((p) => k.startsWith(p))) {

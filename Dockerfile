@@ -68,6 +68,10 @@ RUN pnpm --filter @paperclipai/lmtm-clickup build
 # Build the n8n MCP bridge plugin (uses HTTP transport against
 # https://lmtmlatam.app.n8n.cloud/mcp-server/http).
 RUN pnpm --filter @paperclipai/lmtm-n8n build
+# Build the Meta Marketing API plugin (Graph API v21.0, 9 tools).
+# Reads META_ACCESS_TOKEN from process.env (forwarded via the
+# plugin-worker-manager allowlist) or via ctx.secrets.resolve.
+RUN pnpm --filter @paperclipai/lmtm-meta-ads build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
@@ -137,6 +141,9 @@ RUN mkdir -p /app/.paperclip/plugins && \
     # ── lmtm-n8n (HTTP MCP bridge to n8n) ──
     cp -rL /app/packages/plugins/lmtm-n8n /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n && \
     echo "Installed lmtm-n8n plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-n8n/dist/ && \
+    # ── lmtm-meta-ads (Graph API v21.0, 9 tools) ──
+    cp -rL /app/packages/plugins/lmtm-meta-ads /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-meta-ads && \
+    echo "Installed lmtm-meta-ads plugin:" && ls /app/.paperclip/plugins/node_modules/@paperclipai/lmtm-meta-ads/dist/ && \
     # Hoist the SDK's transitive deps into /app/node_modules/ so
     # the SDK can find them via the standard ESM walk-up from
     # anywhere it's loaded. We create real symlinks pointing to
