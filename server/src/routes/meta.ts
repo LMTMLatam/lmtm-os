@@ -212,7 +212,7 @@ export function metaRoutes(db: Db) {
   const oauthFail = (res: import("express").Response, reason: string) => {
     const base = panelBase();
     const q = `meta_error=${encodeURIComponent(reason)}`;
-    res.redirect(base ? `${base}/integrations/meta?${q}` : `/integrations/meta?${q}`);
+    res.redirect(base ? `${base}/company/settings/integrations/ads?${q}` : `/company/settings/integrations/ads?${q}`);
   };
 
   router.get("/meta/oauth/callback", async (req, res) => {
@@ -311,8 +311,8 @@ export function metaRoutes(db: Db) {
 
     const panel = panelBase();
     const target = panel
-      ? `${panel}/integrations/meta?connection=${connectionId}&meta_ok=1`
-      : `/integrations/meta?connection=${connectionId}&meta_ok=1`;
+      ? `${panel}/company/settings/integrations/ads?connection=${connectionId}&meta_ok=1`
+      : `/company/settings/integrations/ads?connection=${connectionId}&meta_ok=1`;
     res.redirect(target);
   });
 
