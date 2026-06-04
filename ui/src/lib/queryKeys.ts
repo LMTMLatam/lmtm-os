@@ -135,6 +135,10 @@ export const queryKeys = {
   ads: {
     connections: (companyId: string) => ["ads", "connections", companyId] as const,
   },
+  clients: {
+    list: (status?: string) => ["clients", "list", status ?? "all"] as const,
+    detail: (idOrSlug: string) => ["clients", "detail", idOrSlug] as const,
+  },
   secrets: {
     list: (companyId: string) => ["secrets", companyId] as const,
     providers: (companyId: string) => ["secret-providers", companyId] as const,
