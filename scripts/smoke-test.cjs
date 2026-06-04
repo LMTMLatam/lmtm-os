@@ -33,12 +33,16 @@ const https = require("https");
 const BASE = "https://lmtm.onrender.com";
 const LMTM_COMPANY_ID = "00000000-0000-4000-8000-000000000001";
 const CLICKUP_CLIENTES_SPACE = "90131985551";
-const PROJECT_ID = "00000000-0000-4000-8000-000000000123"; // any UUID works for the tool execute call
 const EXPECTED_AGENT_COUNT = 14;
 const MILO_AGENT_ID = "11111111-0000-4000-8000-000000000002";
 const NICOLAS_AGENT_ID = "11111111-0000-4000-8000-000000000007";
 const PABLO_AGENT_ID = "11111111-0000-4000-8000-00000000000e";
 const COOKIE_DEFAULT = path.join(process.env.TEMP || "C:\\Users\\Administrator\\AppData\\Local\\Temp", "lmtm-cookie.txt");
+
+// Per-agent lastRunId + projectId, populated from /api/agents/:id/runtime-state
+// The server validates that runContext.runId is a real heartbeat_run that
+// belongs to (companyId, agentId), so we can't use a random UUID.
+const agentContext = {};
 
 const args = process.argv.slice(2);
 const JSON_OUT = args.includes("--json");
@@ -101,6 +105,28 @@ async function step1Health() {
   return ok(`bootstrapStatus=ready`);
 }
 
+async function resolveAgentContext(agentId) {
+  // /api/agents/:id/runtime-state returns the lastRunId for that agent.
+  // We also need a projectId that belongs to the company — use the
+  // first project we find via /api/companies/:id/projects.
+  if (agentContext[agentId]) return agentContext[agentId];
+  const r = await fetch_(`${BASE}/api/agents/${agentId}/runtime-state`);
+  if (r.status !== 200) return null;
+  const runId = r.json?.lastRunId;
+  if (!runId) return null;
+  // Find a project for the company. The agent runs are associated with
+  // a project via the wakeup flow, but the tool execute validator only
+  // checks that projectId is a real project in the same company.
+  const pr = await fetch_(`${BASE}/api/companies/${LMTM_COMPANY_ID}/projects?limit=1`);
+  let projectId = "00000000-0000-4000-8000-000000000123"; // safe fallback
+  if (pr.status === 200) {
+    const list = pr.json?.projects ?? pr.json;
+    if (Array.isArray(list) && list.length > 0) projectId = list[0].id;
+  }
+  agentContext[agentId] = { runId, projectId };
+  return agentContext[agentId];
+}
+
 async function step2Clients() {
   const r = await fetch_(`${BASE}/api/clients?status=active`);
   if (r.status !== 200) return fail(`HTTP ${r.status}: ${r.text.slice(0, 200)}`);
@@ -130,10 +156,12 @@ async function step4Workers() {
 }
 
 async function step5MetaAds() {
+  const ctx = await resolveAgentContext(MILO_AGENT_ID);
+  if (!ctx) return warn("no lastRunId for Milo — agent hasn't run yet");
   const body = JSON.stringify({
     tool: "lmtm-meta-ads:meta-list-ad-accounts",
     parameters: {},
-    runContext: { agentId: MILO_AGENT_ID, runId: randomRunId(), companyId: LMTM_COMPANY_ID, projectId: PROJECT_ID },
+    runContext: { agentId: MILO_AGENT_ID, runId: ctx.runId, companyId: LMTM_COMPANY_ID, projectId: ctx.projectId },
   });
   const r = await fetch_(`${BASE}/api/plugins/tools/execute`, { method: "POST", body });
   if (r.status === 200) return ok("200 OK (Meta connection exists)");
@@ -143,10 +171,12 @@ async function step5MetaAds() {
 }
 
 async function step6GoogleAds() {
+  const ctx = await resolveAgentContext(MILO_AGENT_ID);
+  if (!ctx) return warn("no lastRunId for Milo — agent hasn't run yet");
   const body = JSON.stringify({
     tool: "lmtm-google-ads:google-list-accounts",
     parameters: {},
-    runContext: { agentId: MILO_AGENT_ID, runId: randomRunId(), companyId: LMTM_COMPANY_ID, projectId: PROJECT_ID },
+    runContext: { agentId: MILO_AGENT_ID, runId: ctx.runId, companyId: LMTM_COMPANY_ID, projectId: ctx.projectId },
   });
   const r = await fetch_(`${BASE}/api/plugins/tools/execute`, { method: "POST", body });
   if (r.status === 200) return ok("200 OK (Google connection exists)");
@@ -156,10 +186,12 @@ async function step6GoogleAds() {
 }
 
 async function step7ClickUp() {
+  const ctx = await resolveAgentContext(PABLO_AGENT_ID);
+  if (!ctx) return warn("no lastRunId for Pablo — agent hasn't run yet");
   const body = JSON.stringify({
     tool: "lmtm-clickup:clickup-list-folders",
     parameters: { spaceId: CLICKUP_CLIENTES_SPACE },
-    runContext: { agentId: PABLO_AGENT_ID, runId: randomRunId(), companyId: LMTM_COMPANY_ID, projectId: PROJECT_ID },
+    runContext: { agentId: PABLO_AGENT_ID, runId: ctx.runId, companyId: LMTM_COMPANY_ID, projectId: ctx.projectId },
   });
   const r = await fetch_(`${BASE}/api/plugins/tools/execute`, { method: "POST", body });
   if (r.status !== 200) return fail(`HTTP ${r.status}: ${r.text.slice(0, 200)}`);
@@ -172,18 +204,16 @@ async function step7ClickUp() {
 }
 
 async function step8N8n() {
+  const ctx = await resolveAgentContext(NICOLAS_AGENT_ID);
+  if (!ctx) return warn("no lastRunId for Nicolas — agent hasn't run yet");
   const body = JSON.stringify({
     tool: "lmtm-n8n:n8n-ping",
     parameters: {},
-    runContext: { agentId: NICOLAS_AGENT_ID, runId: randomRunId(), companyId: LMTM_COMPANY_ID, projectId: PROJECT_ID },
+    runContext: { agentId: NICOLAS_AGENT_ID, runId: ctx.runId, companyId: LMTM_COMPANY_ID, projectId: ctx.projectId },
   });
   const r = await fetch_(`${BASE}/api/plugins/tools/execute`, { method: "POST", body });
   if (r.status === 200) return ok("200 OK");
   return fail(`HTTP ${r.status}: ${r.text.slice(0, 200)}`);
-}
-
-function randomRunId() {
-  return "00000000-0000-4000-8000-" + Math.random().toString(16).slice(2, 14).padEnd(12, "0").slice(0, 12);
 }
 
 async function main() {
