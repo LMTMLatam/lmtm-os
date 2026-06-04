@@ -41,6 +41,23 @@ Cada cliente tiene:
 - `GET /api/clients/{id}` — detalle de un cliente
 - `GET /api/clients/{id}/dashboard` — métricas agregadas
 
+## Estado actual (junio 2026)
+
+67 clientes sembrados desde el workspace LMTM de ClickUp (space
+"Clientes" id `90131985551`). Todos con `planillaSource="clickup"` y
+`planillaExternalId` apuntando al folder id de ClickUp. El script
+idempotente que hizo el seed vive en
+`scripts/seed-clients-from-clickup.cjs` y se puede re-correr.
+
+Para re-sincronizar después de agregar un cliente nuevo en ClickUp:
+
+```bash
+node scripts/seed-clients-from-clickup.cjs
+```
+
+(omite los que ya existen por slug; crea los nuevos con
+`status="active"` y `tier` derivado del # de listas en el folder).
+
 ## Reglas
 
 - **No** divulgar `monthlyRetainerCents` a clientes (es interno).
