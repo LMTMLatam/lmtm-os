@@ -538,6 +538,20 @@ export function startWorkerRpcHost(options: WorkerRpcHostOptions): WorkerRpcHost
         },
       },
 
+      ads: {
+        async resolveToken(
+          platform: "meta" | "google" | "tiktok" | "linkedin",
+          companyId: string,
+        ): Promise<{
+          accessToken: string;
+          label: string;
+          tokenType: string;
+          expiresAt: string | null;
+        } | null> {
+          return callHost("ads.resolveToken", { platform, companyId });
+        },
+      },
+
       activity: {
         async log(entry): Promise<void> {
           await callHost("activity.log", {

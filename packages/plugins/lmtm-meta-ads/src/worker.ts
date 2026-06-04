@@ -5,9 +5,11 @@
 //
 // Reference: https://developers.facebook.com/docs/marketing-apis
 //
-// Auth: long-lived Meta system-user access token. The plugin reads
-// META_ACCESS_TOKEN from process.env (forwarded by the host) or via
-// ctx.secrets.resolve if the instance config points at a company secret.
+// Auth: the active per-company Meta OAuth access token. Resolved at
+// call time via ctx.ads.resolveToken("meta", runContext.companyId),
+// which reads from the unified ads_connections table (the legacy
+// meta_connections export is an alias of this table). Tokens are
+// created by the existing /api/ads/oauth/start OAuth flow.
 
 import { definePlugin, runWorker } from "@paperclipai/plugin-sdk";
 import { PLUGIN_ID, PLUGIN_VERSION, TOOL_NAMES } from "./manifest.js";
@@ -39,41 +41,40 @@ class MetaApiError extends Error {
   }
 }
 
-type ResolvedConfig = {
+type ResolvedToken = {
   accessToken: string;
+  label: string;
+  tokenType: string;
+  expiresAt: string | null;
   apiVersion: string;
 };
 
-async function resolveConfig(ctx: {
-  config: { get(): Promise<Record<string, unknown>> };
-  secrets: { resolve(ref: string): Promise<string | null> };
-}): Promise<ResolvedConfig> {
-  const cfg = (await ctx.config.get()) as {
-    accessTokenSecretRef?: string;
-    apiVersion?: string;
-  };
-  const ref = cfg.accessTokenSecretRef ?? "META_ACCESS_TOKEN";
-  // LMTM-OS: prefer process.env (forwarded by host allowlist) so the
-  // plugin works in Render-style env-var-only deployments without
-  // company-secrets UI plumbing. Fall back to ctx.secrets.resolve for
-  // setups that use the secret-ref flow.
-  let accessToken: string | null = "";
-  if (process.env[ref]) {
-    accessToken = process.env[ref]!;
-  } else {
-    try {
-      accessToken = (await ctx.secrets.resolve(ref)) ?? "";
-    } catch {
-      accessToken = "";
-    }
-  }
-  if (!accessToken) {
+async function resolveToken(
+  ctx: {
+    config: { get(): Promise<Record<string, unknown>> };
+    ads: {
+      resolveToken(
+        platform: "meta",
+        companyId: string,
+      ): Promise<{
+        accessToken: string;
+        label: string;
+        tokenType: string;
+        expiresAt: string | null;
+      } | null>;
+    };
+  },
+  companyId: string,
+): Promise<ResolvedToken> {
+  const cfg = (await ctx.config.get()) as { apiVersion?: string };
+  const tok = await ctx.ads.resolveToken("meta", companyId);
+  if (!tok) {
     throw new Error(
-      `Meta access token not configured. Set env var "${ref}" or the secret ref UUID in the plugin instance config.`,
+      `No active Meta connection for company ${companyId}. Have an admin connect Meta via /api/ads/oauth/start?platform=meta&companyId=${companyId}.`,
     );
   }
   return {
-    accessToken,
+    ...tok,
     apiVersion: cfg.apiVersion ?? DEFAULT_GRAPH_VERSION,
   };
 }
@@ -83,7 +84,7 @@ function graphUrl(apiVersion: string, path: string): string {
 }
 
 async function graphFetch<T = unknown>(
-  cfg: ResolvedConfig,
+  cfg: ResolvedToken,
   path: string,
   init?: {
     method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -94,7 +95,7 @@ async function graphFetch<T = unknown>(
   const url = new URL(graphUrl(cfg.apiVersion, path));
   if (init?.query) {
     for (const [k, v] of Object.entries(init.query)) {
-      if (v === undefined || v === null) continue;
+      if (v === undefined || v === v?.valueOf?.() && v === null) continue;
       if (Array.isArray(v)) url.searchParams.set(k, JSON.stringify(v));
       else if (v === "") continue;
       else url.searchParams.set(k, String(v));
@@ -289,13 +290,20 @@ function ensureActPrefix(id: string): string {
 
 const plugin = definePlugin({
   async setup(ctx) {
-    let cached: ResolvedConfig | null = null;
-    const getCfg = async (): Promise<ResolvedConfig> => {
-      if (!cached) cached = await resolveConfig(ctx);
-      return cached;
-    };
-
     ctx.logger.info(`${PLUGIN_ID} v${PLUGIN_VERSION} starting`);
+
+    const getToken = async (run: RunContextLike): Promise<ResolvedToken> => {
+      if (!run?.companyId) {
+        throw new Error("Run context missing companyId; cannot resolve Meta token.");
+      }
+      return resolveToken(
+        {
+          config: ctx.config,
+          ads: ctx.ads,
+        },
+        run.companyId,
+      );
+    };
 
     // ── list_ad_accounts ─────────────────────────────────────────────
     ctx.tools.register(
@@ -306,9 +314,9 @@ const plugin = definePlugin({
           "Discover the ad accounts the current access token can access. Call this first to get an act_... id for the other tools.",
         parametersSchema: { type: "object", properties: {} },
       },
-      async (_params, _run: RunContextLike): Promise<ToolResult> => {
+      async (_params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const data = await graphFetch<{
             data: Parameters<typeof normalizeAccount>[0][];
           }>(cfg, "/me/adaccounts", {
@@ -343,9 +351,9 @@ const plugin = definePlugin({
           required: ["adAccountId"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as {
             adAccountId: string;
             statusFilter?: "ACTIVE" | "PAUSED" | "ARCHIVED" | "all";
@@ -387,9 +395,9 @@ const plugin = definePlugin({
           required: ["campaignId"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as { campaignId: string };
           const data = await graphFetch<Parameters<typeof normalizeCampaign>[0]>(
             cfg,
@@ -429,9 +437,9 @@ const plugin = definePlugin({
           required: ["adAccountId", "name"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as {
             adAccountId: string;
             name: string;
@@ -482,9 +490,9 @@ const plugin = definePlugin({
           required: ["campaignId"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as {
             campaignId: string;
             name?: string;
@@ -529,9 +537,9 @@ const plugin = definePlugin({
           required: ["adAccountId"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as {
             adAccountId: string;
             campaignId?: string;
@@ -587,9 +595,9 @@ const plugin = definePlugin({
           required: ["adAccountId"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as {
             adAccountId: string;
             campaignId?: string;
@@ -650,9 +658,9 @@ const plugin = definePlugin({
           required: ["adAccountId"],
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as {
             adAccountId: string;
             level?: "account" | "campaign" | "adset" | "ad";
@@ -730,9 +738,9 @@ const plugin = definePlugin({
           properties: { limit: { type: "number" } },
         },
       },
-      async (params, _run): Promise<ToolResult> => {
+      async (params, run): Promise<ToolResult> => {
         try {
-          const cfg = await getCfg();
+          const cfg = await getToken(run);
           const p = params as { limit?: number };
           const data = await graphFetch<{
             data: Array<{ id: string; name: string; access_token?: string; category?: string; fan_count?: number }>;

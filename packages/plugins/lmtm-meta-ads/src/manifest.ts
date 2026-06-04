@@ -25,7 +25,7 @@ const manifest: PaperclipPluginManifestV1 = {
   author: "LMTM",
   categories: ["connector"],
   capabilities: [
-    "secrets.read-ref",
+    "ads.token.resolve",
     "http.outbound",
     "agent.tools.register",
   ],
@@ -35,13 +35,6 @@ const manifest: PaperclipPluginManifestV1 = {
   instanceConfigSchema: {
     type: "object",
     properties: {
-      accessTokenSecretRef: {
-        type: "string",
-        title: "Meta access token (secret ref or env var name)",
-        description:
-          "Reference to the long-lived Meta system-user access token. The plugin also reads process.env[refName] as a fallback for Render-style env-var-only deployments.",
-        default: "META_ACCESS_TOKEN",
-      },
       apiVersion: {
         type: "string",
         title: "Graph API version",

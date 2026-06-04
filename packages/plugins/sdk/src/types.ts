@@ -592,14 +592,6 @@ export interface PluginHttpClient {
  */
 export interface PluginSecretsClient {
   /**
-   * Resolve a secret reference to its current value.
-   *
-   * The reference is a string identifier pointing to a secret configured
-   * in the Paperclip secret provider (e.g. `"MY_API_KEY"`).
-   *
-   * Secret values are resolved at call time and must never be cached or
-   * written to logs, config, or other persistent storage.
-   *
    * @param secretRef - The secret reference string from plugin config
    * @returns The resolved secret value
    */
@@ -607,7 +599,46 @@ export interface PluginSecretsClient {
 }
 
 /**
- * Input for writing a plugin activity log entry.
+ * `ctx.ads` — resolve per-company ad platform OAuth tokens.
+ *
+ * Requires `ads.token.resolve` capability.
+ *
+ * LMTM-OS: ad platforms (Meta, Google, TikTok, LinkedIn) use OAuth flows
+ * that store a per-company access token in the host's `ads_connections`
+ * (or legacy `meta_connections`) table. Plugins that wrap these platforms
+ * (lmtm-meta-ads, future lmtm-google-ads / lmtm-tiktok-ads /
+ * lmtm-linkedin-ads) call `resolveToken(platform, companyId)` from their
+ * tool handlers with the `companyId` from the `ToolRunContext`. The host
+ * returns the active access token for that company, or `null` if the
+ * company has not connected that platform.
+ *
+ * Tokens are never cached across requests and are scoped to the requesting
+ * company. The host enforces company access — a plugin cannot resolve a
+ * token for a company it is not currently servicing.
+ *
+ * @see PLUGIN_SPEC.md §23 — Ad Platform Tokens
+ */
+export interface PluginAdsClient {
+  /**
+   * Resolve the active OAuth access token for an ad platform + company.
+   *
+   * @param platform - The ad platform identifier.
+   * @param companyId - The company the token belongs to (from `runContext.companyId`).
+   * @returns The active access token, or `null` if no connection exists.
+   */
+  resolveToken(
+    platform: "meta" | "google" | "tiktok" | "linkedin",
+    companyId: string,
+  ): Promise<{
+    accessToken: string;
+    label: string;
+    tokenType: string;
+    expiresAt: string | null;
+  } | null>;
+}
+
+/**
+ * `ctx.ads` — resolve per-company ad platform OAuth tokens.
  *
  * @see PLUGIN_SPEC.md §21.4 — Activity Log Changes
  */
@@ -1629,6 +1660,9 @@ export interface PluginContext {
 
   /** Resolve secret references. Requires `secrets.read-ref`. */
   secrets: PluginSecretsClient;
+
+  /** Resolve per-company ad platform OAuth tokens. Requires `ads.token.resolve`. */
+  ads: PluginAdsClient;
 
   /** Write activity log entries. Requires `activity.log.write`. */
   activity: PluginActivityClient;

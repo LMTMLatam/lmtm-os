@@ -741,6 +741,7 @@ export const PLUGIN_CAPABILITIES = [
   "api.routes.register",
   "http.outbound",
   "secrets.read-ref",
+  "ads.token.resolve",
   "environment.drivers.register",
   "local.folders",
   // Agent Tools

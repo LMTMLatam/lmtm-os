@@ -716,6 +716,21 @@ export interface WorkerToHostMethods {
     result: string,
   ];
 
+  // Ads OAuth tokens (LMTM-OS)
+  // Resolves the active OAuth access token for a per-company ad platform
+  // connection. Returns null if the company has no active connection of the
+  // requested platform. The host enforces company-scoped access; plugins can
+  // only resolve tokens for the company that owns the run they are servicing.
+  "ads.resolveToken": [
+    params: { platform: "meta" | "google" | "tiktok" | "linkedin"; companyId: string },
+    result: {
+      accessToken: string;
+      label: string;
+      tokenType: string;
+      expiresAt: string | null;
+    } | null,
+  ];
+
   // Activity
   "activity.log": [
     params: {

@@ -750,6 +750,17 @@ export function createTestHarness(options: TestHarnessOptions): TestHarness {
         return `resolved:${secretRef}`;
       },
     },
+    ads: {
+      async resolveToken(platform, companyId) {
+        requireCapability(manifest, capabilitySet, "ads.token.resolve");
+        return {
+          accessToken: `test-access-token:${platform}:${companyId}`,
+          label: "Test Meta Connection",
+          tokenType: "user",
+          expiresAt: null,
+        };
+      },
+    },
     activity: {
       async log(entry) {
         requireCapability(manifest, capabilitySet, "activity.log.write");

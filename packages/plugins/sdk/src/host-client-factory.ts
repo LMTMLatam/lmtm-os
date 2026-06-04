@@ -137,6 +137,11 @@ export interface HostServices {
     resolve(params: WorkerToHostMethods["secrets.resolve"][0]): Promise<string>;
   };
 
+  /** Provides `ads.resolveToken`. */
+  ads: {
+    resolveToken(params: WorkerToHostMethods["ads.resolveToken"][0]): Promise<WorkerToHostMethods["ads.resolveToken"][1]>;
+  };
+
   /** Provides `activity.log`. */
   activity: {
     log(params: {
@@ -345,6 +350,9 @@ const METHOD_CAPABILITY_MAP: Record<WorkerToHostMethodName, PluginCapability | n
 
   // Secrets
   "secrets.resolve": "secrets.read-ref",
+
+  // Ads OAuth tokens
+  "ads.resolveToken": "ads.token.resolve",
 
   // Activity
   "activity.log": "activity.log.write",
@@ -562,6 +570,11 @@ export function createHostClientHandlers(
     // Secrets
     "secrets.resolve": gated("secrets.resolve", async (params) => {
       return services.secrets.resolve(params);
+    }),
+
+    // Ads OAuth tokens
+    "ads.resolveToken": gated("ads.resolveToken", async (params) => {
+      return services.ads.resolveToken(params);
     }),
 
     // Activity

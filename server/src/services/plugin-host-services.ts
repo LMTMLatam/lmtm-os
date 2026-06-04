@@ -7,6 +7,7 @@ import {
   heartbeatRuns,
   issues as issuesTable,
   pluginLogs,
+  adsConnections as adsConnectionsTable,
 } from "@paperclipai/db";
 import { eq, and, like, desc, inArray, sql } from "drizzle-orm";
 import type {
@@ -989,6 +990,56 @@ export function buildHostServices(
     secrets: {
       async resolve(params) {
         return secretsHandler.resolve(params);
+      },
+    },
+
+    ads: {
+      /**
+       * LMTM-OS: resolve the active OAuth access token for an ad platform +
+       * company pair. Reads from the unified `ads_connections` table (the
+       * legacy `meta_connections` export is just an alias of this table),
+       * returning the most recent active connection. The host enforces
+       * company scoping — a plugin can only resolve tokens for the company
+       * that owns the run it is currently servicing.
+       *
+       * Token refresh is platform-dependent and out of scope here: Meta
+       * long-lived user tokens last 60d, system-user tokens never expire,
+       * and the caller is expected to surface an expired token to the user
+       * for re-authorization via the existing `/api/ads/oauth/start` flow.
+       */
+      async resolveToken(params) {
+        const companyId = ensureCompanyId(params.companyId);
+        await ensurePluginAvailableForCompany(companyId);
+        const platform = params.platform;
+        if (!["meta", "google", "tiktok", "linkedin"].includes(platform)) {
+          throw new Error(`Unsupported ads platform: ${String(platform)}`);
+        }
+        const rows = await db
+          .select({
+            accessToken: adsConnectionsTable.accessToken,
+            label: adsConnectionsTable.label,
+            tokenType: adsConnectionsTable.tokenType,
+            expiresAt: adsConnectionsTable.expiresAt,
+            status: adsConnectionsTable.status,
+          })
+          .from(adsConnectionsTable)
+          .where(
+            and(
+              eq(adsConnectionsTable.companyId, companyId),
+              eq(adsConnectionsTable.platform, platform),
+              eq(adsConnectionsTable.status, "active"),
+            ),
+          )
+          .orderBy(desc(adsConnectionsTable.updatedAt))
+          .limit(1);
+        const row = rows[0];
+        if (!row) return null;
+        return {
+          accessToken: row.accessToken,
+          label: row.label,
+          tokenType: row.tokenType,
+          expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+        };
       },
     },
 
