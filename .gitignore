@@ -44,6 +44,8 @@ gen-hash.mjs
 !scripts/seed-*.cjs
 scripts/lmtm-cookie.txt
 scripts/seed-clients-*.json
+scripts/env-backup.json
+scripts/local-secrets.json
 
 # npm publish build artifacts
 cli/package.dev.json
