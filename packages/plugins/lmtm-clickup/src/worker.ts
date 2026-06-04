@@ -46,10 +46,25 @@ async function resolveConfig(ctx: {
 }): Promise<ResolvedConfig> {
   const cfg = (await ctx.config.get()) as { apiTokenSecretRef?: string; apiBase?: string };
   const ref = cfg.apiTokenSecretRef ?? "CLICKUP_API_TOKEN";
-  const apiToken = (await ctx.secrets.resolve(ref)) ?? "";
+  // LMTM-OS: also accept the token via process.env (same name as the
+  // secret ref) so operators can configure it via Render env vars
+  // without going through the company-secrets UI. This mirrors what
+  // the lmtm-n8n plugin does and lets the plugin run in environments
+  // where company-secrets refs are disabled.
+  let apiToken: string | null = "";
+  if (process.env[ref]) {
+    apiToken = process.env[ref]!;
+  } else {
+    try {
+      apiToken = (await ctx.secrets.resolve(ref)) ?? "";
+    } catch {
+      // secrets.resolve throws on invalid ref shape (non-UUID) — fall through to env
+      apiToken = "";
+    }
+  }
   if (!apiToken) {
     throw new Error(
-      `ClickUp API token not configured. Set secret ref "${ref}" in the plugin instance config.`,
+      `ClickUp API token not configured. Set env var "${ref}" or the secret ref UUID in the plugin instance config.`,
     );
   }
   return {
