@@ -529,9 +529,10 @@ export function adsRoutes(db: Db): Router {
           acc.clicks += Number(r.clicks ?? 0);
           acc.spend += Number(r.spend ?? 0);
           acc.leads += Number(r.leads ?? 0);
+          acc.days = Math.max(acc.days, Number(r.days ?? 0));
           return acc;
         },
-        { impressions: 0, clicks: 0, spend: 0, leads: 0, ctr: 0, cpc: 0 },
+        { impressions: 0, clicks: 0, spend: 0, leads: 0, days: 0, ctr: 0, cpc: 0 },
       ),
     };
 
