@@ -8,7 +8,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { useCompany } from "../context/CompanyContext";
 import {
   Building2,
   ExternalLink,
@@ -264,7 +263,7 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
       />
       <KpiCard
         title="Leads (30d)"
-        value={hasSpend ? fmtInt(totals!.leads + totals!.conversions) : "—"}
+        value={hasSpend ? fmtInt(totals!.leads) : "—"}
         sub={hasSpend ? `CPC ${fmtSpend(totals!.cpc)}` : "Awaiting first sync"}
         icon={Target}
         status={hasSpend ? "ok" : "empty"}
@@ -306,7 +305,6 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
 }
 
 function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }) {
-  const { selectedCompanyId } = useCompany();
   const hasAccounts = (ads?.accounts?.length ?? 0) > 0;
   const hasData = (ads?.insights?.totals?.spend ?? 0) > 0 || hasAccounts;
   const fmtSpend = (n: number) =>
@@ -447,7 +445,7 @@ function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary 
               />
               <KpiCard
                 title="Leads"
-                value={fmtInt(ads!.insights.totals.leads + ads!.insights.totals.conversions)}
+                value={fmtInt(ads!.insights.totals.leads)}
                 sub={`${ads!.insights.totals.days} days of data`}
                 icon={Target}
                 status="ok"
@@ -467,7 +465,7 @@ function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary 
                     </div>
                     <p className="text-lg font-semibold tabular-nums">{fmtSpend(p.spend)}</p>
                     <p className="text-muted-foreground">
-                      {fmtInt(p.impressions)} imp · {fmtInt(p.clicks)} clicks · {fmtPct(p.ctr)} CTR · {fmtInt(p.leads + p.conversions)} leads
+                      {fmtInt(p.impressions)} imp · {fmtInt(p.clicks)} clicks · {fmtPct(p.ctr)} CTR · {fmtInt(p.leads)} leads
                     </p>
                   </div>
                 ))}

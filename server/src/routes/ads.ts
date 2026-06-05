@@ -484,7 +484,8 @@ export function adsRoutes(db: Db): Router {
       }, {}),
     };
 
-    // Last-30-day rollup of insights
+    // Last-30-day rollup of insights. Note: we intentionally only select
+    // columns that exist in the live DB (no `conversions` / `video_views`).
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - 30);
     const sinceDate = since.toISOString().slice(0, 10);
@@ -495,7 +496,6 @@ export function adsRoutes(db: Db): Router {
         clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
         spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
         leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-        conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
         days: sql<number>`count(distinct ${adsInsights.date})::int`,
       })
       .from(adsInsights)
@@ -506,7 +506,7 @@ export function adsRoutes(db: Db): Router {
     const insights = {
       since: sinceDate,
       byPlatform: insightRows.reduce<Record<string, {
-        platform: string; impressions: number; clicks: number; spend: number; leads: number; conversions: number; days: number; ctr: number; cpc: number;
+        platform: string; impressions: number; clicks: number; spend: number; leads: number; days: number; ctr: number; cpc: number;
       }>>((acc, r) => {
         const impressions = Number(r.impressions ?? 0);
         const clicks = Number(r.clicks ?? 0);
@@ -517,7 +517,6 @@ export function adsRoutes(db: Db): Router {
           clicks,
           spend,
           leads: Number(r.leads ?? 0),
-          conversions: Number(r.conversions ?? 0),
           days: Number(r.days ?? 0),
           ctr: impressions > 0 ? clicks / impressions : 0,
           cpc: clicks > 0 ? spend / clicks : 0,
@@ -530,10 +529,9 @@ export function adsRoutes(db: Db): Router {
           acc.clicks += Number(r.clicks ?? 0);
           acc.spend += Number(r.spend ?? 0);
           acc.leads += Number(r.leads ?? 0);
-          acc.conversions += Number(r.conversions ?? 0);
           return acc;
         },
-        { impressions: 0, clicks: 0, spend: 0, leads: 0, conversions: 0, ctr: 0, cpc: 0 },
+        { impressions: 0, clicks: 0, spend: 0, leads: 0, ctr: 0, cpc: 0 },
       ),
     };
 

@@ -73,7 +73,6 @@ export interface ClientAdsSummary {
       clicks: number;
       spend: number;
       leads: number;
-      conversions: number;
       days: number;
       ctr: number;
       cpc: number;
@@ -83,7 +82,6 @@ export interface ClientAdsSummary {
       clicks: number;
       spend: number;
       leads: number;
-      conversions: number;
       days: number;
       ctr: number;
       cpc: number;
