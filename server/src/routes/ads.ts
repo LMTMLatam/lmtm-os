@@ -424,21 +424,22 @@ export function adsRoutes(db: Db): Router {
   // "Connect Meta" CTA.
   router.get("/clients/:idOrSlug/ads-summary", async (req, res) => {
     const { idOrSlug } = req.params;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
-    const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
-    const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
-      .from(clients).where(clientCondition);
-    if (!client) return res.status(404).json({ error: "client not found" });
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+      const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
+        .from(clients).where(clientCondition);
+      if (!client) return res.status(404).json({ error: "client not found" });
 
-    // Linked ad accounts (the "what is this client connected to?" map)
-    const mappings = await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
+      // Linked ad accounts (the "what is this client connected to?" map)
+      const mappings = await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
 
-    // Distinct (connection, adAccount) pairs the client touches
-    const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter(Boolean)));
-    const connections = connectionIds.length
-      ? await db.select().from(adsConnections).where(inArray(adsConnections.id, connectionIds))
-      : [];
-    const connectionById = new Map(connections.map((c) => [c.id, c]));
+      // Distinct (connection, adAccount) pairs the client touches
+      const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter(Boolean)));
+      const connections = connectionIds.length
+        ? await db.select().from(adsConnections).where(inArray(adsConnections.id, connectionIds))
+        : [];
+      const connectionById = new Map(connections.map((c) => [c.id, c]));
 
     const accounts = mappings.map((m) => {
       const conn = connectionById.get(m.connectionId);
@@ -548,6 +549,12 @@ export function adsRoutes(db: Db): Router {
         ? `/api/ads/oauth/start?platform=meta&companyId=${companyId}&label=${encodeURIComponent(client.name)}`
         : null,
     });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const stack = e instanceof Error ? e.stack : "";
+      console.error("[ads-summary] failed for", idOrSlug, msg, stack);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
   });
 
   // ---- Sync trigger (lightweight; the real sync job lives in services/ads/aggregator.ts) ----
