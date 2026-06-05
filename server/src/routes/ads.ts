@@ -27,7 +27,7 @@
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsCampaigns, adsConnections, adsInsights, clients } from "@paperclipai/db";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -436,7 +436,7 @@ export function adsRoutes(db: Db): Router {
     // Distinct (connection, adAccount) pairs the client touches
     const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter(Boolean)));
     const connections = connectionIds.length
-      ? await db.select().from(adsConnections).where(sql`${adsConnections.id} = ANY(${connectionIds})`)
+      ? await db.select().from(adsConnections).where(inArray(adsConnections.id, connectionIds))
       : [];
     const connectionById = new Map(connections.map((c) => [c.id, c]));
 
