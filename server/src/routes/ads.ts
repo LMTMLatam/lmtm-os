@@ -27,7 +27,7 @@
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsCampaigns, adsConnections, adsInsights, clients } from "@paperclipai/db";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -35,6 +35,7 @@ import { linkedinAdsProviderScopes } from "../services/ads/providers/linkedin.js
 import { logActivity } from "../services/activity-log.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable } from "../errors.js";
+import { adsAggregator } from "../services/ads/aggregator.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -578,8 +579,16 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  // ---- Sync trigger (lightweight; the real sync job lives in services/ads/aggregator.ts) ----
-
+  // ---- Sync trigger ----
+  //
+  // POST /api/ads/sync/:job
+  //   job: "campaigns" | "adsets" | "ads" | "insights" | "organic" | "all"
+  //   body: { connectionId, mappingId, since?, until? }
+  //
+  // Runs the actual aggregator synchronously and returns the per-job record
+  // counts. For "all" we run campaigns + adsets + ads + insights in sequence
+  // (organic is opt-in via "organic" job because it requires a page mapping
+  // and is slower).
   router.post("/ads/sync/:job", async (req, res) => {
     const job = req.params.job;
     if (!["campaigns", "adsets", "ads", "insights", "organic", "all"].includes(job)) {
@@ -589,19 +598,179 @@ export function adsRoutes(db: Db): Router {
     if (!connectionId || !mappingId) {
       return res.status(400).json({ error: "missing connectionId or mappingId" });
     }
-    // Defer the actual sync to the aggregator (avoid blocking the HTTP
-    // request — return 202 Accepted and let the aggregator run in the
-    // background). The aggregator is invoked by the routine scheduler
-    // in the long run; this endpoint is a manual kick for the team.
-    res.status(202).json({
-      accepted: true,
+    // Authorize: actor must have access to the connection's company.
+    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, connectionId));
+    if (!conn) return res.status(404).json({ error: "connection not found" });
+    assertCompanyAccess(req, conn.companyId);
+
+    const sinceDate = since ? new Date(since) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const untilDate = until ? new Date(until) : new Date();
+    const opts = { jobName: job, connectionId, mappingId, since: sinceDate, until: untilDate };
+
+    const runJob = async (name: string) => {
+      const startedAt = new Date();
+      try {
+        let n = 0;
+        if (name === "campaigns") n = await adsAggregator.syncCampaigns(db, opts);
+        else if (name === "adsets") n = await adsAggregator.syncAdsets(db, opts);
+        else if (name === "ads") n = await adsAggregator.syncCreatives(db, opts);
+        else if (name === "insights") n = await adsAggregator.syncInsights(db, opts);
+        else if (name === "organic") n = await adsAggregator.syncOrganic(db, opts);
+        return { job: name, status: "completed" as const, recordsSynced: n, startedAt, completedAt: new Date() };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { job: name, status: "failed" as const, error: msg.slice(0, 300), startedAt, completedAt: new Date() };
+      }
+    };
+
+    const jobsToRun = job === "all"
+      ? ["campaigns", "adsets", "ads", "insights"]
+      : [job];
+    const results = await Promise.all(jobsToRun.map(runJob));
+    const total = results.reduce((acc, r) => acc + (r.recordsSynced ?? 0), 0);
+    const failed = results.filter((r) => r.status === "failed");
+    res.json({
+      ok: failed.length === 0,
       job,
       connectionId,
       mappingId,
-      since: since ?? "last-30-days",
-      until: until ?? "today",
-      message: "Sync job queued. Check /api/companies/:id/ads/sync-status for progress.",
+      since: sinceDate.toISOString().slice(0, 10),
+      until: untilDate.toISOString().slice(0, 10),
+      totalRecords: total,
+      results,
     });
+  });
+
+  // ---- Detailed campaigns view for the ClientDashboard ----
+  //
+  // GET /api/clients/:idOrSlug/campaigns?since=YYYY-MM-DD&until=YYYY-MM-DD
+  //
+  // Returns the per-campaign rollup needed to render the Meta-style
+  // campaigns table: name, id, status, objective, daily budget, and the
+  // sum of (impressions, clicks, spend, leads) per campaign inside the
+  // date window. Also returns the 4 top-line KPIs.
+  router.get("/clients/:idOrSlug/campaigns", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const sinceParam = (req.query.since as string) || (() => {
+      const d = new Date(); d.setUTCDate(d.getUTCDate() - 30); return d.toISOString().slice(0, 10);
+    })();
+    const untilParam = (req.query.until as string) || new Date().toISOString().slice(0, 10);
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+      const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name, currency: clients.currency })
+        .from(clients).where(clientCondition);
+      if (!client) return res.status(404).json({ error: "client not found" });
+
+      // Campaigns linked to this client (any mapping that touches it)
+      const mappings = await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
+      const mappingIds = mappings.map((m) => m.id);
+      if (mappingIds.length === 0) {
+        return res.json({
+          client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency },
+          since: sinceParam, until: untilParam,
+          totals: { spend: 0, impressions: 0, clicks: 0, leads: 0, ctr: 0, cpc: 0, cpm: 0 },
+          campaigns: [],
+        });
+      }
+
+      // Per-campaign rows
+      const campaignRows = await db
+        .select({
+          id: adsCampaigns.id,
+          name: adsCampaigns.name,
+          status: adsCampaigns.status,
+          objective: adsCampaigns.objective,
+          dailyBudget: adsCampaigns.dailyBudget,
+          lifetimeBudget: adsCampaigns.lifetimeBudget,
+          platform: adsCampaigns.platform,
+          adAccountId: adsCampaigns.adAccountId,
+        })
+        .from(adsCampaigns)
+        .where(and(
+          eq(adsCampaigns.clientId, client.id),
+          inArray(adsCampaigns.id, (await db
+            .select({ id: adsCampaigns.id })
+            .from(adsCampaigns)
+            .where(eq(adsCampaigns.clientId, client.id))).map((r) => r.id)),
+        ));
+
+      // Per-campaign insights rollup
+      const insightRows = await db
+        .select({
+          campaignId: adsInsights.campaignId,
+          campaignName: adsInsights.campaignName,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, sinceParam),
+          lte(adsInsights.date, untilParam),
+        ))
+        .groupBy(adsInsights.campaignId, adsInsights.campaignName);
+
+      const byCampaign = new Map<string, { impressions: number; clicks: number; spend: number; leads: number }>();
+      for (const r of insightRows) {
+        const id = r.campaignId ?? "";
+        byCampaign.set(id, {
+          impressions: Number(r.impressions ?? 0),
+          clicks: Number(r.clicks ?? 0),
+          spend: Number(r.spend ?? 0),
+          leads: Number(r.leads ?? 0),
+        });
+      }
+
+      // Merge: every campaign in the DB gets a row, with 0s if no insights.
+      const rows = campaignRows.map((c) => {
+        const m = byCampaign.get(c.id) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0 };
+        const ctr = m.impressions > 0 ? m.clicks / m.impressions : 0;
+        const cpc = m.clicks > 0 ? m.spend / m.clicks : 0;
+        const cpm = m.impressions > 0 ? (m.spend / m.impressions) * 1000 : 0;
+        const cpl = m.leads > 0 ? m.spend / m.leads : 0;
+        return {
+          id: c.id,
+          name: c.name,
+          status: c.status ?? "unknown",
+          objective: c.objective ?? null,
+          platform: c.platform,
+          adAccountId: c.adAccountId,
+          dailyBudget: c.dailyBudget ? Number(c.dailyBudget) : null,
+          lifetimeBudget: c.lifetimeBudget ? Number(c.lifetimeBudget) : null,
+          ...m,
+          ctr, cpc, cpm, cpl,
+        };
+      }).sort((a, b) => b.spend - a.spend);
+
+      const totals = rows.reduce(
+        (acc, r) => {
+          acc.spend += r.spend;
+          acc.impressions += r.impressions;
+          acc.clicks += r.clicks;
+          acc.leads += r.leads;
+          return acc;
+        },
+        { spend: 0, impressions: 0, clicks: 0, leads: 0, ctr: 0, cpc: 0, cpm: 0 },
+      );
+      totals.ctr = totals.impressions > 0 ? totals.clicks / totals.impressions : 0;
+      totals.cpc = totals.clicks > 0 ? totals.spend / totals.clicks : 0;
+      totals.cpm = totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0;
+
+      res.json({
+        client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency },
+        since: sinceParam,
+        until: untilParam,
+        totals,
+        campaigns: rows,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client campaigns] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
   });
 
   return router;
