@@ -300,6 +300,7 @@ export function App() {
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
+          <Route path="connect-ads" element={<UnprefixedBoardRedirect />} />
           <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
           <Route path="company/settings/*" element={<UnprefixedBoardRedirect />} />
           <Route path="company/export" element={<UnprefixedBoardRedirect />} />
