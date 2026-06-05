@@ -41,4 +41,54 @@ export const clientsApi = {
   get: (idOrSlug: string) => api.get<Client>(`/clients/${idOrSlug}`),
   create: (body: Partial<Client> & { name: string; slug: string }) =>
     api.post<Client>("/clients", body),
+  adsSummary: (idOrSlug: string) =>
+    api.get<ClientAdsSummary>(`/clients/${idOrSlug}/ads-summary`),
 };
+
+export interface ClientAdsAccount {
+  mappingId: string;
+  connectionId: string;
+  platform: string;
+  adAccountId: string;
+  mappingLabel: string | null;
+  pageId: string | null;
+  connectionLabel: string | null;
+  connectionStatus: string;
+  businessId: string | null;
+}
+
+export interface ClientAdsSummary {
+  client: { id: string; slug: string; name: string };
+  accounts: ClientAdsAccount[];
+  campaigns: {
+    total: number;
+    byStatus: Record<string, number>;
+    byPlatform: Record<string, number>;
+  };
+  insights: {
+    since: string;
+    byPlatform: Record<string, {
+      platform: string;
+      impressions: number;
+      clicks: number;
+      spend: number;
+      leads: number;
+      conversions: number;
+      days: number;
+      ctr: number;
+      cpc: number;
+    }>;
+    totals: {
+      impressions: number;
+      clicks: number;
+      spend: number;
+      leads: number;
+      conversions: number;
+      days: number;
+      ctr: number;
+      cpc: number;
+    };
+  };
+  oauthReady: { meta: boolean };
+  oauthStartUrl: string | null;
+}

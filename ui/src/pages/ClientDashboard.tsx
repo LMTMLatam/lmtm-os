@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
-import { clientsApi, type Client } from "../api/clients";
+import { clientsApi, type Client, type ClientAdsSummary } from "../api/clients";
 import { queryKeys } from "../lib/queryKeys";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { useCompany } from "../context/CompanyContext";
 import {
   Building2,
   ExternalLink,
@@ -23,6 +25,13 @@ import {
   AlertCircle,
   Calendar,
   Briefcase,
+  Facebook,
+  CheckCircle2,
+  RefreshCcw,
+  Link2,
+  Eye,
+  MousePointerClick,
+  Megaphone,
 } from "lucide-react";
 
 type Tab = "overview" | "paid-media" | "organic" | "crm" | "initiatives" | "team";
@@ -49,6 +58,13 @@ export function ClientDashboard() {
   });
 
   const client: Client | undefined = clientQuery.data;
+  const adsQuery = useQuery({
+    queryKey: queryKeys.clients.adsSummary(slug ?? ""),
+    queryFn: () => clientsApi.adsSummary(slug!),
+    enabled: !!slug,
+    retry: false,
+  });
+  const ads: ClientAdsSummary | undefined = adsQuery.data;
 
   useEffect(() => {
     if (client) {
@@ -199,17 +215,17 @@ export function ClientDashboard() {
       </div>
 
       {/* Tab content */}
-      <TabContent tab={activeTab} client={client} />
+      <TabContent tab={activeTab} client={client} ads={ads} />
     </div>
   );
 }
 
-function TabContent({ tab, client }: { tab: Tab; client: Client }) {
+function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: ClientAdsSummary }) {
   switch (tab) {
     case "overview":
-      return <OverviewTab client={client} />;
+      return <OverviewTab client={client} ads={ads} />;
     case "paid-media":
-      return <PaidMediaTab client={client} />;
+      return <PaidMediaTab client={client} ads={ads} />;
     case "organic":
       return <OrganicTab client={client} />;
     case "crm":
@@ -221,21 +237,43 @@ function TabContent({ tab, client }: { tab: Tab; client: Client }) {
   }
 }
 
-function OverviewTab({ client }: { client: Client }) {
+function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }) {
+  const hasAccounts = (ads?.accounts?.length ?? 0) > 0;
+  const totals = ads?.insights?.totals;
+  const hasSpend = totals && totals.spend > 0;
+  const fmtSpend = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: client.currency, maximumFractionDigits: 0 }).format(n);
+  const fmtPct = (n: number) => `${(n * 100).toFixed(2)}%`;
+  const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
       <KpiCard
         title="Spend (30d)"
-        value="—"
-        sub="Meta + Google"
+        value={hasSpend ? fmtSpend(totals!.spend) : "—"}
+        sub={hasAccounts ? `${Object.keys(ads!.insights.byPlatform).join(" + ") || "Meta + Google"}` : "No ad accounts linked"}
         icon={DollarSign}
-        status="empty"
+        status={hasSpend ? "ok" : hasAccounts ? "empty" : "warn"}
+      />
+      <KpiCard
+        title="Impressions (30d)"
+        value={hasSpend ? fmtInt(totals!.impressions) : "—"}
+        sub={hasSpend ? `${fmtInt(totals!.clicks)} clicks · ${fmtPct(totals!.ctr)} CTR` : "Connect Meta to see real numbers"}
+        icon={Eye}
+        status={hasSpend ? "ok" : "empty"}
+      />
+      <KpiCard
+        title="Leads (30d)"
+        value={hasSpend ? fmtInt(totals!.leads + totals!.conversions) : "—"}
+        sub={hasSpend ? `CPC ${fmtSpend(totals!.cpc)}` : "Awaiting first sync"}
+        icon={Target}
+        status={hasSpend ? "ok" : "empty"}
       />
       <KpiCard
         title="Pipeline value"
         value="—"
         sub="ClickUp + CRM"
-        icon={Target}
+        icon={Briefcase}
         status="empty"
       />
       <KpiCard
@@ -243,13 +281,6 @@ function OverviewTab({ client }: { client: Client }) {
         value="0"
         sub="Across 14 agents"
         icon={Briefcase}
-        status="empty"
-      />
-      <KpiCard
-        title="Health score"
-        value="—"
-        sub="Composite"
-        icon={Activity}
         status="empty"
       />
       <KpiCard
@@ -274,13 +305,193 @@ function OverviewTab({ client }: { client: Client }) {
   );
 }
 
-function PaidMediaTab({ client }: { client: Client }) {
+function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }) {
+  const { selectedCompanyId } = useCompany();
+  const hasAccounts = (ads?.accounts?.length ?? 0) > 0;
+  const hasData = (ads?.insights?.totals?.spend ?? 0) > 0 || hasAccounts;
+  const fmtSpend = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: client.currency, maximumFractionDigits: 0 }).format(n);
+  const fmtPct = (n: number) => `${(n * 100).toFixed(2)}%`;
+  const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
+
   return (
-    <div className="space-y-3">
-      <EmptyState
-        title="Paid media dashboard"
-        body={`Once Meta and Google ad accounts are linked to "${client.name}", the campaigns, spend, and ROAS tiles will populate here. Click "Connect" in the Ad Integrations page to start an OAuth flow.`}
-      />
+    <div className="space-y-4">
+      {!hasAccounts ? (
+        <Card className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="rounded-md bg-blue-500/10 p-2.5 shrink-0">
+              <Facebook className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="flex-1 space-y-2">
+              <h3 className="text-sm font-medium">Connect Meta to see paid media for {client.name}</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Link a Meta (Facebook + Instagram) ad account to pull campaigns, spend, impressions, clicks, CTR and leads.
+                Click below to start the OAuth flow; on success you'll be redirected back here and the dashboard will populate.
+              </p>
+              <div className="flex items-center gap-2 pt-2">
+                {ads?.oauthStartUrl ? (
+                  <Button
+                    size="sm"
+                    onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
+                  >
+                    <Facebook className="h-3.5 w-3.5 mr-1.5" />
+                    Connect Meta
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" disabled>
+                    <Facebook className="h-3.5 w-3.5 mr-1.5" />
+                    Meta not configured (admin must set META_APP_ID + META_APP_SECRET)
+                  </Button>
+                )}
+                <Link
+                  to={`/company/settings/integrations/ads`}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Manage all ad integrations
+                </Link>
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <>
+          <Card className="p-4">
+            <div className="flex items-start justify-between flex-wrap gap-3">
+              <div>
+                <h3 className="text-sm font-medium">Linked ad accounts</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {ads!.accounts.length} account{ads!.accounts.length === 1 ? "" : "s"} connected to {client.name}
+                </p>
+              </div>
+              {ads?.oauthStartUrl && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
+                >
+                  <Link2 className="h-3.5 w-3.5 mr-1.5" />
+                  Connect another
+                </Button>
+              )}
+            </div>
+            <div className="mt-3 space-y-2">
+              {ads!.accounts.map((a) => (
+                <div
+                  key={a.mappingId}
+                  className="flex items-center justify-between text-xs border-b last:border-0 py-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`rounded-md p-1 ${a.platform === "meta" ? "bg-blue-500/10" : "bg-slate-500/10"}`}>
+                      {a.platform === "meta" ? (
+                        <Facebook className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                      ) : (
+                        <Megaphone className="h-3 w-3 text-slate-500" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium">
+                        {a.mappingLabel || a.connectionLabel || `Ad account ${a.adAccountId}`}
+                      </p>
+                      <p className="text-muted-foreground text-[10px]">
+                        {a.platform} · {a.adAccountId}
+                        {a.pageId ? ` · page ${a.pageId}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    className={
+                      a.connectionStatus === "active"
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    }
+                  >
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    {a.connectionStatus}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {!hasData ? (
+            <Card className="p-6 text-center">
+              <RefreshCcw className="h-5 w-5 mx-auto text-muted-foreground" />
+              <h3 className="text-sm font-medium mt-2">No insights yet</h3>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto leading-relaxed">
+                The connection is live but the scheduled Meta sync hasn't pulled insights yet. The 30-day
+                spend / impressions / clicks rollup will appear here after the first successful sync run.
+              </p>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiCard
+                title="Spend (30d)"
+                value={fmtSpend(ads!.insights.totals.spend)}
+                sub={`${Object.keys(ads!.insights.byPlatform).join(" + ")}`}
+                icon={DollarSign}
+                status="ok"
+              />
+              <KpiCard
+                title="Impressions"
+                value={fmtInt(ads!.insights.totals.impressions)}
+                sub={fmtInt(ads!.insights.totals.clicks) + " clicks"}
+                icon={Eye}
+                status="ok"
+              />
+              <KpiCard
+                title="CTR"
+                value={fmtPct(ads!.insights.totals.ctr)}
+                sub={fmtSpend(ads!.insights.totals.cpc) + " CPC"}
+                icon={MousePointerClick}
+                status="ok"
+              />
+              <KpiCard
+                title="Leads"
+                value={fmtInt(ads!.insights.totals.leads + ads!.insights.totals.conversions)}
+                sub={`${ads!.insights.totals.days} days of data`}
+                icon={Target}
+                status="ok"
+              />
+            </div>
+          )}
+
+          {hasData && Object.keys(ads!.insights.byPlatform).length > 1 && (
+            <Card className="p-4">
+              <h3 className="text-sm font-medium">By platform</h3>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {Object.values(ads!.insights.byPlatform).map((p) => (
+                  <div key={p.platform} className="rounded-md border p-3 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium capitalize">{p.platform}</p>
+                      <span className="text-muted-foreground">{p.days}d</span>
+                    </div>
+                    <p className="text-lg font-semibold tabular-nums">{fmtSpend(p.spend)}</p>
+                    <p className="text-muted-foreground">
+                      {fmtInt(p.impressions)} imp · {fmtInt(p.clicks)} clicks · {fmtPct(p.ctr)} CTR · {fmtInt(p.leads + p.conversions)} leads
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {(ads?.campaigns?.total ?? 0) > 0 && (
+            <Card className="p-4">
+              <h3 className="text-sm font-medium">Campaigns</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {ads!.campaigns.total} campaign{ads!.campaigns.total === 1 ? "" : "s"} synced
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(ads!.campaigns.byStatus).map(([k, n]) => (
+                  <Badge key={k} variant="secondary" className="text-[10px]">
+                    {k}: {n}
+                  </Badge>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
     </div>
   );
 }

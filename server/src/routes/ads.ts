@@ -26,8 +26,8 @@
 
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsConnections, clients } from "@paperclipai/db";
-import { and, eq } from "drizzle-orm";
+import { adsAccountMappings, adsCampaigns, adsConnections, adsInsights, clients } from "@paperclipai/db";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -409,9 +409,145 @@ export function adsRoutes(db: Db): Router {
   });
 
   router.get("/clients/:id", async (req, res) => {
-    const [row] = await db.select().from(clients).where(eq(clients.id, req.params.id));
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(row);
+  });
+
+  // ---- Client-scoped ads summary (for the ClientDashboard "Paid Media" tab + Overview KPIs) ----
+  // Returns the Meta + Google connection state, linked ad accounts, campaign counts and the
+  // last-30-day rollup of spend, impressions, clicks, leads. If the client has no ad
+  // accounts linked, returns an empty `accounts` list — the UI then renders the
+  // "Connect Meta" CTA.
+  router.get("/clients/:idOrSlug/ads-summary", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
+      .from(clients).where(clientCondition);
+    if (!client) return res.status(404).json({ error: "client not found" });
+
+    // Linked ad accounts (the "what is this client connected to?" map)
+    const mappings = await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
+
+    // Distinct (connection, adAccount) pairs the client touches
+    const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter(Boolean)));
+    const connections = connectionIds.length
+      ? await db.select().from(adsConnections).where(sql`${adsConnections.id} = ANY(${connectionIds})`)
+      : [];
+    const connectionById = new Map(connections.map((c) => [c.id, c]));
+
+    const accounts = mappings.map((m) => {
+      const conn = connectionById.get(m.connectionId);
+      return {
+        mappingId: m.id,
+        connectionId: m.connectionId,
+        platform: conn?.platform ?? m.platform,
+        adAccountId: m.adAccountId,
+        mappingLabel: m.label ?? null,
+        pageId: m.pageId ?? null,
+        connectionLabel: conn?.label ?? null,
+        connectionStatus: conn?.status ?? "unknown",
+        businessId: conn?.businessId ?? null,
+      };
+    });
+
+    // Campaign counts per (platform, status)
+    const campaignRows = await db
+      .select({
+        platform: adsCampaigns.platform,
+        status: adsCampaigns.status,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(adsCampaigns)
+      .where(eq(adsCampaigns.clientId, client.id))
+      .groupBy(adsCampaigns.platform, adsCampaigns.status);
+    const campaigns = {
+      total: campaignRows.reduce((a, r) => a + (r.n ?? 0), 0),
+      byStatus: campaignRows.reduce<Record<string, number>>((acc, r) => {
+        const key = `${r.platform}:${r.status ?? "unknown"}`;
+        acc[key] = (acc[key] ?? 0) + (r.n ?? 0);
+        return acc;
+      }, {}),
+      byPlatform: campaignRows.reduce<Record<string, number>>((acc, r) => {
+        acc[r.platform] = (acc[r.platform] ?? 0) + (r.n ?? 0);
+        return acc;
+      }, {}),
+    };
+
+    // Last-30-day rollup of insights
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - 30);
+    const sinceDate = since.toISOString().slice(0, 10);
+    const insightRows = await db
+      .select({
+        platform: adsInsights.platform,
+        impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+        clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+        spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
+        leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
+        days: sql<number>`count(distinct ${adsInsights.date})::int`,
+      })
+      .from(adsInsights)
+      .where(and(eq(adsInsights.clientId, client.id), gte(adsInsights.date, sinceDate)))
+      .groupBy(adsInsights.platform);
+
+    const insights = {
+      since: sinceDate,
+      byPlatform: insightRows.reduce<Record<string, {
+        platform: string; impressions: number; clicks: number; spend: number; leads: number; conversions: number; days: number; ctr: number; cpc: number;
+      }>>((acc, r) => {
+        const impressions = Number(r.impressions ?? 0);
+        const clicks = Number(r.clicks ?? 0);
+        const spend = Number(r.spend ?? 0);
+        acc[r.platform] = {
+          platform: r.platform,
+          impressions,
+          clicks,
+          spend,
+          leads: Number(r.leads ?? 0),
+          conversions: Number(r.conversions ?? 0),
+          days: Number(r.days ?? 0),
+          ctr: impressions > 0 ? clicks / impressions : 0,
+          cpc: clicks > 0 ? spend / clicks : 0,
+        };
+        return acc;
+      }, {}),
+      totals: insightRows.reduce(
+        (acc, r) => {
+          acc.impressions += Number(r.impressions ?? 0);
+          acc.clicks += Number(r.clicks ?? 0);
+          acc.spend += Number(r.spend ?? 0);
+          acc.leads += Number(r.leads ?? 0);
+          acc.conversions += Number(r.conversions ?? 0);
+          return acc;
+        },
+        { impressions: 0, clicks: 0, spend: 0, leads: 0, conversions: 0, ctr: 0, cpc: 0 },
+      ),
+    };
+
+    insights.totals.ctr = insights.totals.impressions > 0 ? insights.totals.clicks / insights.totals.impressions : 0;
+    insights.totals.cpc = insights.totals.clicks > 0 ? insights.totals.spend / insights.totals.clicks : 0;
+
+    const metaConfigured = Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+    const companyId = connections[0]?.companyId ?? mappings[0]?.companyId ?? null;
+
+    res.json({
+      client: { id: client.id, slug: client.slug, name: client.name },
+      accounts,
+      campaigns,
+      insights,
+      oauthReady: {
+        meta: metaConfigured,
+      },
+      oauthStartUrl: metaConfigured && companyId
+        ? `/api/ads/oauth/start?platform=meta&companyId=${companyId}&label=${encodeURIComponent(client.name)}`
+        : null,
+    });
   });
 
   // ---- Sync trigger (lightweight; the real sync job lives in services/ads/aggregator.ts) ----
