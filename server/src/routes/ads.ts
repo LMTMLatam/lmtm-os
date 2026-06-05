@@ -557,7 +557,7 @@ export function adsRoutes(db: Db): Router {
         meta: metaConfigured,
       },
       oauthStartUrl: metaConfigured && companyId
-        ? `/api/ads/oauth/start?platform=meta&companyId=${companyId}&label=${encodeURIComponent(client.name)}`
+        ? `/api/meta/oauth/start?companyId=${companyId}&label=${encodeURIComponent(client.name)}`
         : null,
       debug: debugInfo,
     });
