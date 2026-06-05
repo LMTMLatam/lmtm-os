@@ -559,8 +559,16 @@ export function adsRoutes(db: Db): Router {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const stack = e instanceof Error ? e.stack : "";
+      const cause = e instanceof Error && (e as any).cause ? (e as any).cause : null;
+      const causeMsg = cause ? (cause instanceof Error ? cause.message : String(cause)) : null;
       console.error("[ads-summary] failed for", idOrSlug, msg, stack);
-      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+      if (cause) console.error("[ads-summary] cause:", causeMsg);
+      res.status(500).json({
+        error: "Internal server error",
+        detail: msg.slice(0, 500),
+        cause: causeMsg ? causeMsg.slice(0, 500) : null,
+        debug: debugInfo,
+      });
     }
   });
 
