@@ -539,7 +539,14 @@ export function adsRoutes(db: Db): Router {
     insights.totals.cpc = insights.totals.clicks > 0 ? insights.totals.spend / insights.totals.clicks : 0;
 
     const metaConfigured = Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
-    const companyId = connections[0]?.companyId ?? mappings[0]?.companyId ?? null;
+    const companyId =
+      connections[0]?.companyId ??
+      mappings[0]?.companyId ??
+      (req.actor.type === "board"
+        ? req.actor.source === "local_implicit" || req.actor.isInstanceAdmin
+          ? "00000000-0000-4000-8000-000000000001"
+          : (req.actor.companyIds ?? [])[0] ?? null
+        : null);
 
     res.json({
       client: { id: client.id, slug: client.slug, name: client.name },
