@@ -311,8 +311,8 @@ export function metaRoutes(db: Db) {
 
     const panel = panelBase();
     const target = panel
-      ? `${panel}/company/settings/integrations/ads?connection=${connectionId}&meta_ok=1`
-      : `/company/settings/integrations/ads?connection=${connectionId}&meta_ok=1`;
+      ? `${panel}/connect-ads?connectionId=${connectionId}`
+      : `/connect-ads?connectionId=${connectionId}`;
     res.redirect(target);
   });
 

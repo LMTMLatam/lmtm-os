@@ -8,6 +8,7 @@ import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
 import { Clients } from "./pages/Clients";
 import { ClientDashboard } from "./pages/ClientDashboard";
+import { ConnectAds } from "./pages/ConnectAds";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -72,6 +73,7 @@ function boardRoutes() {
       <Route path="clients" element={<Clients />} />
       <Route path="c/:slug" element={<ClientDashboard />} />
       <Route path="c/:slug/:tab" element={<ClientDashboard />} />
+      <Route path="connect-ads" element={<ConnectAds />} />
       <Route path="company/settings" element={<CompanySettings />} />
       <Route path="company/settings/environments" element={<CompanyEnvironments />} />
       <Route path="company/settings/access" element={<CompanyAccess />} />

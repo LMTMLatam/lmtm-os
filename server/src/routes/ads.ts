@@ -363,8 +363,8 @@ export function adsRoutes(db: Db): Router {
       });
 
       const base = panelUrl();
-      const params = new URLSearchParams({ connected: platform, connectionId: row?.id ?? "" });
-      res.redirect(base ? `${base}/integrations/${platform}?${params}` : `/integrations/${platform}?${params}`);
+      const params = new URLSearchParams({ connectionId: row?.id ?? "" });
+      res.redirect(base ? `${base}/connect-ads?${params}` : `/connect-ads?${params}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return oauthFailRedirect(res, platform, msg.slice(0, 240));

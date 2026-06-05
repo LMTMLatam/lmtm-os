@@ -342,13 +342,13 @@ function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary 
             <h3 className="text-sm font-medium">Connect Meta to see paid media for {client.name}</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Link a Meta (Facebook + Instagram) ad account to pull campaigns, spend, impressions, clicks, CTR and leads.
-              Click below to start the OAuth flow; on success you'll be redirected back here and the dashboard will populate.
+              Click below to start the OAuth flow; on success you'll be asked to pick the ad account, page and LMTM client, and the dashboard will populate after the first sync.
             </p>
             <div className="flex items-center gap-2 pt-2">
               {ads?.oauthStartUrl ? (
                 <Button
                   size="sm"
-                  onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
+                  onClick={() => { window.location.href = ads.oauthStartUrl!; }}
                 >
                   <Facebook className="h-3.5 w-3.5 mr-1.5" />
                   Connect Meta
@@ -525,7 +525,7 @@ function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSum
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
+              onClick={() => { window.location.href = ads.oauthStartUrl!; }}
             >
               <Link2 className="h-3.5 w-3.5 mr-1.5" />
               Conectar otra
