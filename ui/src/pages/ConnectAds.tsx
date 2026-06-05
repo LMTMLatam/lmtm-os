@@ -51,7 +51,7 @@ export function ConnectAds() {
   const adAccountsQuery = useQuery({
     queryKey: connectionId ? ["ads", "connection", connectionId, "ad-accounts"] : ["ads", "none"],
     queryFn: () => adsApi.listAdAccounts(connectionId!),
-    enabled: !!connectionId && step !== "loading" && step !== "done",
+    enabled: !!connectionId && !connectionQuery.isError,
     retry: false,
   });
 
@@ -59,7 +59,7 @@ export function ConnectAds() {
   const pagesQuery = useQuery({
     queryKey: connectionId ? ["ads", "connection", connectionId, "pages"] : ["ads", "none"],
     queryFn: () => adsApi.listPages(connectionId!),
-    enabled: !!connectionId && step !== "loading" && step !== "done",
+    enabled: !!connectionId && !connectionQuery.isError,
     retry: false,
   });
 
