@@ -424,21 +424,25 @@ export function adsRoutes(db: Db): Router {
   // "Connect Meta" CTA.
   router.get("/clients/:idOrSlug/ads-summary", async (req, res) => {
     const { idOrSlug } = req.params;
+    const debugInfo: Record<string, unknown> = {};
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
       const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
       const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
         .from(clients).where(clientCondition);
       if (!client) return res.status(404).json({ error: "client not found" });
+      debugInfo.step1_client = { id: client.id, name: client.name };
 
       // Linked ad accounts (the "what is this client connected to?" map)
       const mappings = await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
+      debugInfo.step2_mappings = { count: mappings.length };
 
       // Distinct (connection, adAccount) pairs the client touches
       const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter(Boolean)));
       const connections = connectionIds.length
         ? await db.select().from(adsConnections).where(inArray(adsConnections.id, connectionIds))
         : [];
+      debugInfo.step3_connections = { count: connections.length };
       const connectionById = new Map(connections.map((c) => [c.id, c]));
 
     const accounts = mappings.map((m) => {
@@ -466,6 +470,7 @@ export function adsRoutes(db: Db): Router {
       .from(adsCampaigns)
       .where(eq(adsCampaigns.clientId, client.id))
       .groupBy(adsCampaigns.platform, adsCampaigns.status);
+    debugInfo.step4_campaigns = { count: campaignRows.length };
     const campaigns = {
       total: campaignRows.reduce((a, r) => a + (r.n ?? 0), 0),
       byStatus: campaignRows.reduce<Record<string, number>>((acc, r) => {
@@ -496,6 +501,7 @@ export function adsRoutes(db: Db): Router {
       .from(adsInsights)
       .where(and(eq(adsInsights.clientId, client.id), gte(adsInsights.date, sinceDate)))
       .groupBy(adsInsights.platform);
+    debugInfo.step5_insights = { count: insightRows.length };
 
     const insights = {
       since: sinceDate,
@@ -548,6 +554,7 @@ export function adsRoutes(db: Db): Router {
       oauthStartUrl: metaConfigured && companyId
         ? `/api/ads/oauth/start?platform=meta&companyId=${companyId}&label=${encodeURIComponent(client.name)}`
         : null,
+      debug: debugInfo,
     });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
