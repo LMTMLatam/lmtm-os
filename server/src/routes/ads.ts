@@ -493,7 +493,7 @@ export function adsRoutes(db: Db): Router {
         platform: adsInsights.platform,
         impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
         clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
-        spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)::numeric`,
+        spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
         leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
         conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
         days: sql<number>`count(distinct ${adsInsights.date})::int`,
