@@ -293,6 +293,28 @@ export function App() {
             <Route path="adapters" element={<AdapterManager />} />
           </Route>
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
+          <Route path="clients" element={<UnprefixedBoardRedirect />} />
+          <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
+          <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/settings/*" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/export" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/export/*" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/import" element={<UnprefixedBoardRedirect />} />
+          <Route path="org" element={<UnprefixedBoardRedirect />} />
+          <Route path="search" element={<UnprefixedBoardRedirect />} />
+          <Route path="goals" element={<UnprefixedBoardRedirect />} />
+          <Route path="goals/:goalId" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals/pending" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals/all" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals/:approvalId" element={<UnprefixedBoardRedirect />} />
+          <Route path="costs" element={<UnprefixedBoardRedirect />} />
+          <Route path="activity" element={<UnprefixedBoardRedirect />} />
+          <Route path="inbox" element={<UnprefixedBoardRedirect />} />
+          <Route path="inbox/:tab" element={<UnprefixedBoardRedirect />} />
+          <Route path="design-guide" element={<UnprefixedBoardRedirect />} />
+          <Route path="plugins/:pluginId" element={<UnprefixedBoardRedirect />} />
           <Route path="issues" element={<UnprefixedBoardRedirect />} />
           <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
           <Route path="routines" element={<UnprefixedBoardRedirect />} />
@@ -302,6 +324,10 @@ export function App() {
           <Route path="settings" element={<LegacySettingsRedirect />} />
           <Route path="settings/*" element={<LegacySettingsRedirect />} />
           <Route path="agents" element={<UnprefixedBoardRedirect />} />
+          <Route path="agents/all" element={<UnprefixedBoardRedirect />} />
+          <Route path="agents/active" element={<UnprefixedBoardRedirect />} />
+          <Route path="agents/paused" element={<UnprefixedBoardRedirect />} />
+          <Route path="agents/error" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/new" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/:agentId" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/:agentId/:tab" element={<UnprefixedBoardRedirect />} />
