@@ -334,3 +334,4 @@ node C:\Users\Administrator\AppData\Local\Temp\restore-env.cjs --deploy    # PUT
 ```
 
 See the script header for details.
+### Force rebuild for META env vars
