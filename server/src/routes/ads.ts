@@ -773,5 +773,82 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // ---- CSV export for the campaigns table ----
+  // GET /api/clients/:idOrSlug/campaigns.csv?since=...&until=...
+  router.get("/clients/:idOrSlug/campaigns.csv", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const sinceParam = (req.query.since as string) || (() => {
+      const d = new Date(); d.setUTCDate(d.getUTCDate() - 30); return d.toISOString().slice(0, 10);
+    })();
+    const untilParam = (req.query.until as string) || new Date().toISOString().slice(0, 10);
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+      const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
+        .from(clients).where(clientCondition);
+      if (!client) return res.status(404).json({ error: "client not found" });
+
+      const campaignRows = await db
+        .select({
+          id: adsCampaigns.id, name: adsCampaigns.name, status: adsCampaigns.status,
+          objective: adsCampaigns.objective, platform: adsCampaigns.platform,
+          adAccountId: adsCampaigns.adAccountId, dailyBudget: adsCampaigns.dailyBudget,
+        })
+        .from(adsCampaigns)
+        .where(eq(adsCampaigns.clientId, client.id));
+
+      const insightRows = await db
+        .select({
+          campaignId: adsInsights.campaignId,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, sinceParam),
+          lte(adsInsights.date, untilParam),
+        ))
+        .groupBy(adsInsights.campaignId);
+
+      const byCampaign = new Map(insightRows.map((r) => [r.campaignId ?? "", r]));
+      const merged = campaignRows.map((c) => {
+        const m: any = byCampaign.get(c.id) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0 };
+        const impr = Number(m.impressions ?? 0);
+        const clicks = Number(m.clicks ?? 0);
+        const spend = Number(m.spend ?? 0);
+        const leads = Number(m.leads ?? 0);
+        return {
+          id: c.id, name: c.name, status: c.status, objective: c.objective,
+          platform: c.platform, adAccountId: c.adAccountId, dailyBudget: c.dailyBudget,
+          impressions: impr, clicks, spend, leads,
+          ctr: impr > 0 ? (clicks / impr) : 0,
+          cpc: clicks > 0 ? (spend / clicks) : 0,
+          cpm: impr > 0 ? (spend / impr * 1000) : 0,
+          cpl: leads > 0 ? (spend / leads) : 0,
+        };
+      });
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="campaigns-${client.slug}-${sinceParam}-to-${untilParam}.csv"`);
+      const header = "id,name,status,objective,platform,ad_account_id,daily_budget,impressions,clicks,spend,ctr,cpc,cpm,leads,cpl";
+      const lines = merged.map((r) => [
+        r.id, JSON.stringify(r.name), r.status, r.objective ?? "", r.platform, r.adAccountId,
+        r.dailyBudget ?? "",
+        r.impressions, r.clicks, r.spend.toFixed(2),
+        (r.ctr * 100).toFixed(4) + "%",
+        r.cpc.toFixed(2), r.cpm.toFixed(2),
+        r.leads, r.cpl > 0 ? r.cpl.toFixed(2) : "",
+      ].join(","));
+      res.send([header, ...lines].join("\n"));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client campaigns.csv] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
   return router;
 }

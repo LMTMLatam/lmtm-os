@@ -1,13 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "@/lib/router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
-import { clientsApi, type Client, type ClientAdsSummary } from "../api/clients";
+import {
+  clientsApi,
+  type Client,
+  type ClientAdsSummary,
+  type ClientCampaignsResponse,
+} from "../api/clients";
 import { queryKeys } from "../lib/queryKeys";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Building2,
   ExternalLink,
@@ -31,6 +37,10 @@ import {
   Eye,
   MousePointerClick,
   Megaphone,
+  Download,
+  Play,
+  Loader2,
+  ArrowDown,
 } from "lucide-react";
 
 type Tab = "overview" | "paid-media" | "organic" | "crm" | "initiatives" | "team";
@@ -306,190 +316,450 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
 
 function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }) {
   const hasAccounts = (ads?.accounts?.length ?? 0) > 0;
-  const hasData = (ads?.insights?.totals?.spend ?? 0) > 0 || hasAccounts;
   const fmtSpend = (n: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: client.currency, maximumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: client.currency,
+      maximumFractionDigits: 0,
+    }).format(n);
+  const fmtSpend2 = (n: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: client.currency,
+      maximumFractionDigits: 2,
+    }).format(n);
   const fmtPct = (n: number) => `${(n * 100).toFixed(2)}%`;
   const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
 
-  return (
-    <div className="space-y-4">
-      {!hasAccounts ? (
-        <Card className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="rounded-md bg-blue-500/10 p-2.5 shrink-0">
-              <Facebook className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div className="flex-1 space-y-2">
-              <h3 className="text-sm font-medium">Connect Meta to see paid media for {client.name}</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Link a Meta (Facebook + Instagram) ad account to pull campaigns, spend, impressions, clicks, CTR and leads.
-                Click below to start the OAuth flow; on success you'll be redirected back here and the dashboard will populate.
-              </p>
-              <div className="flex items-center gap-2 pt-2">
-                {ads?.oauthStartUrl ? (
-                  <Button
-                    size="sm"
-                    onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
-                  >
-                    <Facebook className="h-3.5 w-3.5 mr-1.5" />
-                    Connect Meta
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" disabled>
-                    <Facebook className="h-3.5 w-3.5 mr-1.5" />
-                    Meta not configured (admin must set META_APP_ID + META_APP_SECRET)
-                  </Button>
-                )}
-                <Link
-                  to={`/company/settings/integrations/ads`}
-                  className="text-xs text-muted-foreground hover:text-foreground underline"
-                >
-                  Manage all ad integrations
-                </Link>
-              </div>
-            </div>
+  if (!hasAccounts) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-start gap-4">
+          <div className="rounded-md bg-blue-500/10 p-2.5 shrink-0">
+            <Facebook className="h-5 w-5 text-blue-600 dark:text-blue-400" />
           </div>
-        </Card>
-      ) : (
-        <>
-          <Card className="p-4">
-            <div className="flex items-start justify-between flex-wrap gap-3">
-              <div>
-                <h3 className="text-sm font-medium">Linked ad accounts</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {ads!.accounts.length} account{ads!.accounts.length === 1 ? "" : "s"} connected to {client.name}
-                </p>
-              </div>
-              {ads?.oauthStartUrl && (
+          <div className="flex-1 space-y-2">
+            <h3 className="text-sm font-medium">Connect Meta to see paid media for {client.name}</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Link a Meta (Facebook + Instagram) ad account to pull campaigns, spend, impressions, clicks, CTR and leads.
+              Click below to start the OAuth flow; on success you'll be redirected back here and the dashboard will populate.
+            </p>
+            <div className="flex items-center gap-2 pt-2">
+              {ads?.oauthStartUrl ? (
                 <Button
                   size="sm"
-                  variant="outline"
                   onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
                 >
-                  <Link2 className="h-3.5 w-3.5 mr-1.5" />
-                  Connect another
+                  <Facebook className="h-3.5 w-3.5 mr-1.5" />
+                  Connect Meta
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" disabled>
+                  <Facebook className="h-3.5 w-3.5 mr-1.5" />
+                  Meta not configured (admin must set META_APP_ID + META_APP_SECRET)
                 </Button>
               )}
+              <Link
+                to={`/company/settings/integrations/ads`}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Manage all ad integrations
+              </Link>
             </div>
-            <div className="mt-3 space-y-2">
-              {ads!.accounts.map((a) => (
-                <div
-                  key={a.mappingId}
-                  className="flex items-center justify-between text-xs border-b last:border-0 py-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`rounded-md p-1 ${a.platform === "meta" ? "bg-blue-500/10" : "bg-slate-500/10"}`}>
-                      {a.platform === "meta" ? (
-                        <Facebook className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                      ) : (
-                        <Megaphone className="h-3 w-3 text-slate-500" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="font-medium">
-                        {a.mappingLabel || a.connectionLabel || `Ad account ${a.adAccountId}`}
-                      </p>
-                      <p className="text-muted-foreground text-[10px]">
-                        {a.platform} · {a.adAccountId}
-                        {a.pageId ? ` · page ${a.pageId}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge
-                    className={
-                      a.connectionStatus === "active"
-                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                    }
-                  >
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                    {a.connectionStatus}
-                  </Badge>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return <CampaignsDashboard client={client} ads={ads!} />;
+}
+
+function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSummary }) {
+  const qc = useQueryClient();
+
+  // ---- Date range (default: últimos 365 días) ----
+  const today = useMemo(() => new Date(), []);
+  const defaultSince = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 365);
+    return d.toISOString().slice(0, 10);
+  }, [today]);
+  const defaultUntil = useMemo(() => today.toISOString().slice(0, 10), [today]);
+
+  const [since, setSince] = useState<string>(defaultSince);
+  const [until, setUntil] = useState<string>(defaultUntil);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<keyof SortableCampaignField>("spend");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const campaignsQuery = useQuery({
+    queryKey: queryKeys.clients.campaigns(client.slug, since, until),
+    queryFn: () => clientsApi.campaigns(client.slug, { since, until }),
+    enabled: !!client.slug,
+    retry: false,
+  });
+
+  const data = campaignsQuery.data;
+  const totals = data?.totals;
+
+  const fmtSpend = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: client.currency, maximumFractionDigits: 0 }).format(n);
+  const fmtSpend2 = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: client.currency, maximumFractionDigits: 2 }).format(n);
+  const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
+  const fmtPct = (n: number) => `${(n * 100).toFixed(2)}%`;
+
+  // ---- Sync mutation ----
+  const firstAccount = ads.accounts[0];
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const resp = await clientsApi.syncAds(
+        firstAccount.connectionId,
+        firstAccount.mappingId,
+        "all",
+        since,
+        until,
+      );
+      return resp;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.clients.campaigns(client.slug, since, until) });
+      qc.invalidateQueries({ queryKey: queryKeys.clients.adsSummary(client.slug) });
+    },
+  });
+
+  // ---- Search + sort ----
+  const filteredCampaigns = useMemo(() => {
+    if (!data?.campaigns) return [];
+    const q = search.trim().toLowerCase();
+    let rows = data.campaigns;
+    if (q) {
+      rows = rows.filter((c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.objective?.toLowerCase().includes(q) ||
+        c.status.toLowerCase().includes(q),
+      );
+    }
+    rows = [...rows].sort((a, b) => {
+      const av = a[sortBy] ?? 0;
+      const bv = b[sortBy] ?? 0;
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      const as = String(av).toLowerCase();
+      const bs = String(bv).toLowerCase();
+      return sortDir === "asc" ? as.localeCompare(bs) : bs.localeCompare(as);
+    });
+    return rows;
+  }, [data?.campaigns, search, sortBy, sortDir]);
+
+  const handleSort = (col: keyof SortableCampaignField) => {
+    if (col === sortBy) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(col);
+      setSortDir("desc");
+    }
+  };
+
+  const csvHref = clientsApi.campaignsCsvUrl(client.slug, { since, until });
+
+  return (
+    <div className="space-y-4">
+      {/* Header row: date range + actions */}
+      <Card className="p-4">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-sm font-medium">Campañas</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {ads.accounts.length} ad account{ads.accounts.length === 1 ? "" : "s"} linked · {Object.keys(ads.insights.byPlatform).join(" + ") || "Meta"}
+            </p>
+          </div>
+          <div className="flex items-end gap-2 flex-wrap">
+            <DateInput label="Desde" value={since} onChange={setSince} max={until} />
+            <DateInput label="Hasta" value={until} onChange={setUntil} min={since} max={defaultUntil} />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Sincronizar
+              </Button>
+              <a href={csvHref} target="_blank" rel="noreferrer noopener">
+                <Button size="sm" variant="outline">
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  Exportar CSV
+                </Button>
+              </a>
+            </div>
+          </div>
+        </div>
+        {syncMutation.isSuccess && (
+          <div className="mt-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Sincronización completa: {syncMutation.data.totalRecords} registros actualizados
+            (campaigns: {syncMutation.data.results.find((r) => r.job === "campaigns")?.recordsSynced ?? 0},
+            insights: {syncMutation.data.results.find((r) => r.job === "insights")?.recordsSynced ?? 0})
+          </div>
+        )}
+        {syncMutation.isError && (
+          <div className="mt-3 text-xs text-destructive flex items-center gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Error al sincronizar: {(syncMutation.error as Error).message}
+          </div>
+        )}
+      </Card>
+
+      {/* Linked accounts (compact) */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Linked ad accounts</h4>
+          {ads?.oauthStartUrl && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => window.open(ads.oauthStartUrl!, "_blank", "noopener,noreferrer")}
+            >
+              <Link2 className="h-3.5 w-3.5 mr-1.5" />
+              Conectar otra
+            </Button>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          {ads.accounts.map((a) => (
+            <div key={a.mappingId} className="flex items-center justify-between text-xs py-1">
+              <div className="flex items-center gap-2">
+                <div className={`rounded-md p-1 ${a.platform === "meta" ? "bg-blue-500/10" : "bg-slate-500/10"}`}>
+                  {a.platform === "meta" ? (
+                    <Facebook className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                  ) : (
+                    <Megaphone className="h-3 w-3 text-slate-500" />
+                  )}
                 </div>
-              ))}
-            </div>
-          </Card>
-
-          {!hasData ? (
-            <Card className="p-6 text-center">
-              <RefreshCcw className="h-5 w-5 mx-auto text-muted-foreground" />
-              <h3 className="text-sm font-medium mt-2">No insights yet</h3>
-              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto leading-relaxed">
-                The connection is live but the scheduled Meta sync hasn't pulled insights yet. The 30-day
-                spend / impressions / clicks rollup will appear here after the first successful sync run.
-              </p>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard
-                title="Spend (30d)"
-                value={fmtSpend(ads!.insights.totals.spend)}
-                sub={`${Object.keys(ads!.insights.byPlatform).join(" + ")}`}
-                icon={DollarSign}
-                status="ok"
-              />
-              <KpiCard
-                title="Impressions"
-                value={fmtInt(ads!.insights.totals.impressions)}
-                sub={fmtInt(ads!.insights.totals.clicks) + " clicks"}
-                icon={Eye}
-                status="ok"
-              />
-              <KpiCard
-                title="CTR"
-                value={fmtPct(ads!.insights.totals.ctr)}
-                sub={fmtSpend(ads!.insights.totals.cpc) + " CPC"}
-                icon={MousePointerClick}
-                status="ok"
-              />
-              <KpiCard
-                title="Leads"
-                value={fmtInt(ads!.insights.totals.leads)}
-                sub={`${ads!.insights.totals.days} days of data`}
-                icon={Target}
-                status="ok"
-              />
-            </div>
-          )}
-
-          {hasData && Object.keys(ads!.insights.byPlatform).length > 1 && (
-            <Card className="p-4">
-              <h3 className="text-sm font-medium">By platform</h3>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {Object.values(ads!.insights.byPlatform).map((p) => (
-                  <div key={p.platform} className="rounded-md border p-3 text-xs space-y-1">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium capitalize">{p.platform}</p>
-                      <span className="text-muted-foreground">{p.days}d</span>
-                    </div>
-                    <p className="text-lg font-semibold tabular-nums">{fmtSpend(p.spend)}</p>
-                    <p className="text-muted-foreground">
-                      {fmtInt(p.impressions)} imp · {fmtInt(p.clicks)} clicks · {fmtPct(p.ctr)} CTR · {fmtInt(p.leads)} leads
-                    </p>
-                  </div>
-                ))}
+                <span className="font-medium">{a.mappingLabel || a.connectionLabel || a.adAccountId}</span>
+                <span className="text-muted-foreground text-[10px]">· {a.platform} · {a.adAccountId}</span>
               </div>
-            </Card>
-          )}
+              <Badge
+                className={
+                  a.connectionStatus === "active"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                }
+              >
+                {a.connectionStatus}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      </Card>
 
-          {(ads?.campaigns?.total ?? 0) > 0 && (
-            <Card className="p-4">
-              <h3 className="text-sm font-medium">Campaigns</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {ads!.campaigns.total} campaign{ads!.campaigns.total === 1 ? "" : "s"} synced
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Object.entries(ads!.campaigns.byStatus).map(([k, n]) => (
-                  <Badge key={k} variant="secondary" className="text-[10px]">
-                    {k}: {n}
-                  </Badge>
+      {/* KPI cards */}
+      {campaignsQuery.isLoading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
+      ) : totals ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KpiCard
+            title="Total Inversión"
+            value={fmtSpend(totals.spend)}
+            sub={`${filteredCampaigns.length} campañas en el período`}
+            icon={DollarSign}
+            status="ok"
+          />
+          <KpiCard
+            title="Total Impresiones"
+            value={fmtInt(totals.impressions)}
+            sub={`${fmtInt(totals.clicks)} clicks · ${fmtPct(totals.ctr)} CTR`}
+            icon={Eye}
+            status="ok"
+          />
+          <KpiCard
+            title="Total Clics"
+            value={fmtInt(totals.clicks)}
+            sub={`CPC ${fmtSpend2(totals.cpc)} · CPM ${fmtSpend2(totals.cpm)}`}
+            icon={MousePointerClick}
+            status="ok"
+          />
+          <KpiCard
+            title="Total Leads"
+            value={fmtInt(totals.leads)}
+            sub={totals.leads > 0 ? `CPL ${fmtSpend2(totals.spend / totals.leads)}` : "Sin leads en el período"}
+            icon={Target}
+            status="ok"
+          />
+        </div>
+      ) : null}
+
+      {/* Search + table */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <div className="relative flex-1 max-w-sm">
+            <SearchIcon className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar campaña…"
+              className="pl-8 h-9"
+            />
+          </div>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {filteredCampaigns.length} de {data?.campaigns.length ?? 0} campañas
+          </span>
+        </div>
+
+        {campaignsQuery.isError ? (
+          <div className="text-xs text-destructive py-4 text-center">
+            Error al cargar campañas: {(campaignsQuery.error as Error).message}
+          </div>
+        ) : campaignsQuery.isLoading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : (data?.campaigns.length ?? 0) === 0 ? (
+          <div className="py-8 text-center">
+            <Megaphone className="h-5 w-5 mx-auto text-muted-foreground" />
+            <p className="text-sm font-medium mt-2">No hay campañas sincronizadas</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+              Haz clic en <b>Sincronizar</b> para traer las campañas de los ad accounts conectados.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto -mx-4">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b text-muted-foreground uppercase tracking-wide text-[10px]">
+                  <SortHeader label="Campaña" onClick={() => handleSort("name")} active={sortBy === "name"} dir={sortDir} />
+                  <SortHeader label="Estado" onClick={() => handleSort("status")} active={sortBy === "status"} dir={sortDir} />
+                  <th className="text-left font-medium px-3 py-2">Objetivo</th>
+                  <SortHeader label="Inversión" onClick={() => handleSort("spend")} active={sortBy === "spend"} dir={sortDir} align="right" />
+                  <SortHeader label="Impr." onClick={() => handleSort("impressions")} active={sortBy === "impressions"} dir={sortDir} align="right" />
+                  <SortHeader label="Clics" onClick={() => handleSort("clicks")} active={sortBy === "clicks"} dir={sortDir} align="right" />
+                  <SortHeader label="CTR" onClick={() => handleSort("ctr")} active={sortBy === "ctr"} dir={sortDir} align="right" />
+                  <SortHeader label="CPM" onClick={() => handleSort("cpm")} active={sortBy === "cpm"} dir={sortDir} align="right" />
+                  <SortHeader label="Leads" onClick={() => handleSort("leads")} active={sortBy === "leads"} dir={sortDir} align="right" />
+                  <SortHeader label="CPL" onClick={() => handleSort("cpl")} active={sortBy === "cpl"} dir={sortDir} align="right" />
+                  <th className="text-right font-medium px-3 py-2">Presupuesto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCampaigns.map((c) => (
+                  <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-3 py-2 font-medium max-w-[240px] truncate" title={c.name}>
+                      {c.name}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge
+                        className={
+                          c.status === "active"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                            : c.status === "paused"
+                            ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                            : "bg-slate-500/10 text-slate-700 dark:text-slate-300"
+                        }
+                      >
+                        {c.status}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{c.objective ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtSpend2(c.spend)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtInt(c.impressions)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtInt(c.clicks)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtPct(c.ctr)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtSpend2(c.cpm)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtInt(c.leads)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.cpl > 0 ? fmtSpend2(c.cpl) : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                      {c.dailyBudget ? `${fmtSpend2(c.dailyBudget)}/d` : c.lifetimeBudget ? `${fmtSpend2(c.lifetimeBudget)} tot` : "—"}
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            </Card>
-          )}
-        </>
-      )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+type SortableCampaignField = {
+  name: string;
+  status: string;
+  objective: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  leads: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  cpl: number;
+};
+
+function SortHeader({
+  label,
+  onClick,
+  active,
+  dir,
+  align = "left",
+}: {
+  label: string;
+  onClick: () => void;
+  active: boolean;
+  dir: "asc" | "desc";
+  align?: "left" | "right";
+}) {
+  return (
+    <th
+      className={`font-medium px-3 py-2 cursor-pointer select-none hover:text-foreground transition-colors ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+      onClick={onClick}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <ArrowDown
+          className={`h-3 w-3 transition-opacity ${active ? "opacity-100" : "opacity-0"} ${
+            dir === "asc" ? "rotate-180" : ""
+          }`}
+        />
+      </span>
+    </th>
+  );
+}
+
+function DateInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  min?: string;
+  max?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</label>
+      <Input
+        type="date"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 w-[150px] text-xs"
+      />
     </div>
   );
 }

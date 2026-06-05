@@ -43,7 +43,74 @@ export const clientsApi = {
     api.post<Client>("/clients", body),
   adsSummary: (idOrSlug: string) =>
     api.get<ClientAdsSummary>(`/clients/${idOrSlug}/ads-summary`),
+  campaigns: (idOrSlug: string, params?: { since?: string; until?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.since) sp.set("since", params.since);
+    if (params?.until) sp.set("until", params.until);
+    const qs = sp.toString() ? `?${sp.toString()}` : "";
+    return api.get<ClientCampaignsResponse>(`/clients/${idOrSlug}/campaigns${qs}`);
+  },
+  campaignsCsvUrl: (idOrSlug: string, params?: { since?: string; until?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.since) sp.set("since", params.since);
+    if (params?.until) sp.set("until", params.until);
+    const qs = sp.toString() ? `?${sp.toString()}` : "";
+    return `/api/clients/${idOrSlug}/campaigns.csv${qs}`;
+  },
+  syncAds: (connectionId: string, mappingId: string, job: "campaigns" | "insights" | "all" = "all", since?: string, until?: string) =>
+    api.post<SyncAdsResponse>(`/ads/sync/${job}`, { connectionId, mappingId, since, until }),
 };
+
+export interface ClientCampaign {
+  id: string;
+  name: string;
+  status: string;
+  objective: string | null;
+  platform: string;
+  adAccountId: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  leads: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  cpl: number;
+}
+
+export interface ClientCampaignsResponse {
+  client: { id: string; slug: string; name: string; currency: string };
+  since: string;
+  until: string;
+  totals: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    leads: number;
+    ctr: number;
+    cpc: number;
+    cpm: number;
+  };
+  campaigns: ClientCampaign[];
+}
+
+export interface SyncAdsResponse {
+  ok: boolean;
+  job: string;
+  connectionId: string;
+  mappingId: string;
+  since: string;
+  until: string;
+  totalRecords: number;
+  results: Array<{
+    job: string;
+    status: "completed" | "failed" | "partial";
+    recordsSynced: number;
+    error?: string;
+  }>;
+}
 
 export interface ClientAdsAccount {
   mappingId: string;

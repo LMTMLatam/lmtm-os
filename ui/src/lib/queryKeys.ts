@@ -139,6 +139,8 @@ export const queryKeys = {
     list: (status?: string) => ["clients", "list", status ?? "all"] as const,
     detail: (idOrSlug: string) => ["clients", "detail", idOrSlug] as const,
     adsSummary: (idOrSlug: string) => ["clients", "ads-summary", idOrSlug] as const,
+    campaigns: (idOrSlug: string, since?: string, until?: string) =>
+      ["clients", "campaigns", idOrSlug, since ?? "default", until ?? "default"] as const,
   },
   secrets: {
     list: (companyId: string) => ["secrets", companyId] as const,
