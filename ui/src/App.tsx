@@ -73,7 +73,6 @@ function boardRoutes() {
       <Route path="clients" element={<Clients />} />
       <Route path="c/:slug" element={<ClientDashboard />} />
       <Route path="c/:slug/:tab" element={<ClientDashboard />} />
-      <Route path="connect-ads" element={<ConnectAds />} />
       <Route path="company/settings" element={<CompanySettings />} />
       <Route path="company/settings/environments" element={<CompanyEnvironments />} />
       <Route path="company/settings/access" element={<CompanyAccess />} />
@@ -278,6 +277,7 @@ export function App() {
         <Route path="cli-auth/:id" element={<CliAuthPage />} />
         <Route path="invite/:token" element={<InviteLandingPage />} />
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
+        <Route path="connect-ads" element={<ConnectAds />} />
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />
@@ -300,7 +300,6 @@ export function App() {
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
-          <Route path="connect-ads" element={<UnprefixedBoardRedirect />} />
           <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
           <Route path="company/settings/*" element={<UnprefixedBoardRedirect />} />
           <Route path="company/export" element={<UnprefixedBoardRedirect />} />
