@@ -715,6 +715,13 @@
       "when": 1779970000000,
       "tag": "0101_lmtm_n8n_plugin",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1779980000000,
+      "tag": "0102_ads_mapping_included_adsets",
+      "breakpoints": true
     }
   ]
 }
