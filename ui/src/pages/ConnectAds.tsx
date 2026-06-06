@@ -105,14 +105,21 @@ export function ConnectAds() {
         for (const p of pagesData) {
           if (next[p.page.id]) continue; // don't overwrite user edits
           const existing = p.existingMapping;
-          // Pick the first ad account with adsets, or the first ad account
-          const firstAdAcc = p.adAccounts[0];
+          // Pick the ad account with the most adsets (most useful default), falling back to first
+          const firstAdAcc = [...p.adAccounts].sort((a, b) => {
+            const ac = (p.adSets[a.id] ?? []).length;
+            const bc = (p.adSets[b.id] ?? []).length;
+            return bc - ac;
+          })[0] ?? p.adAccounts[0];
           const adsetsForFirstAcc = firstAdAcc ? (p.adSets[firstAdAcc.id] ?? []) : [];
           const initialAdsetIds = new Set<string>();
           if (existing?.includedAdsets && existing.includedAdsets.length > 0) {
             for (const id of existing.includedAdsets) initialAdsetIds.add(id);
           } else if (existing) {
             // existing mapping with no subset = all
+            for (const a of adsetsForFirstAcc) initialAdsetIds.add(a.id);
+          } else {
+            // NEW mapping: pre-select ALL adsets of the default account for fastest bulk path
             for (const a of adsetsForFirstAcc) initialAdsetIds.add(a.id);
           }
           next[p.page.id] = {
