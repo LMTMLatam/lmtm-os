@@ -8,6 +8,7 @@ import {
   type ClientAdsSummary,
   type ClientCampaignsResponse,
 } from "../api/clients";
+import { PaidMediaDashboard } from "./PaidMediaDashboard";
 import { queryKeys } from "../lib/queryKeys";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -372,7 +373,7 @@ function PaidMediaTab({ client, ads }: { client: Client; ads?: ClientAdsSummary 
     );
   }
 
-  return <CampaignsDashboard client={client} ads={ads!} />;
+  return <PaidMediaDashboard client={client} ads={ads!} />;
 }
 
 function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSummary }) {

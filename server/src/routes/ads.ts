@@ -26,7 +26,7 @@
 
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsCampaigns, adsConnections, adsInsights, clients, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, type AdsAccountMapping } from "@paperclipai/db";
 import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -985,5 +985,519 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // ============================================================
+  //   EXTENDED DASHBOARD ENDPOINTS
+  //   ------------------------------------
+  //   All these endpoints power the new per-client dashboard with
+  //   13 sections (Resumen Ejecutivo, Presupuesto, Campañas, etc.).
+  //   They share a common `since`/`until` query string. All return
+  //   {client, since, until, ...} so the client can validate the
+  //   query echoed back.
+  //
+  //   Helper: parse window + resolve the LMTM client row once.
+  // ============================================================
+  function defaultSince(): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 30);
+    return d.toISOString().slice(0, 10);
+  }
+  function defaultUntil(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+  function parseWindow(req: Request): { since: string; until: string } {
+    return {
+      since: (req.query.since as string) || defaultSince(),
+      until: (req.query.until as string) || defaultUntil(),
+    };
+  }
+  async function resolveClient(idOrSlug: string, db: Db) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const cond = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [c] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name, currency: clients.currency })
+      .from(clients).where(cond);
+    return c || null;
+  }
+
+  // ============================================================
+  // 1) DAILY TIME-SERIES
+  // GET /api/clients/:idOrSlug/timeseries?since&until&metric=spend
+  // Returns: { client, since, until, series: [{date, impressions, clicks, spend, leads, conversions, ctr, cpc, cpm, cpl, reach, videoViews}] }
+  // ============================================================
+  router.get("/clients/:idOrSlug/timeseries", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { since, until } = parseWindow(req);
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const rows = await db
+        .select({
+          date: adsInsights.date,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+          conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
+          reach: sql<number>`coalesce(sum(${adsInsights.reach}),0)::int`,
+          videoViews: sql<number>`coalesce(sum(${adsInsights.videoViews}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, since),
+          lte(adsInsights.date, until),
+        ))
+        .groupBy(adsInsights.date)
+        .orderBy(adsInsights.date);
+      const series = rows.map((r) => {
+        const imp = Number(r.impressions);
+        const clk = Number(r.clicks);
+        const sp = Number(r.spend);
+        const ld = Number(r.leads);
+        return {
+          date: String(r.date),
+          impressions: imp,
+          clicks: clk,
+          spend: sp,
+          leads: ld,
+          conversions: Number(r.conversions),
+          reach: Number(r.reach),
+          videoViews: Number(r.videoViews),
+          ctr: imp > 0 ? clk / imp : 0,
+          cpc: clk > 0 ? sp / clk : 0,
+          cpm: imp > 0 ? (sp / imp) * 1000 : 0,
+          cpl: ld > 0 ? sp / ld : 0,
+        };
+      });
+      res.json({ client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency }, since, until, series });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client timeseries] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  // 2) AD SETS rollup
+  // GET /api/clients/:idOrSlug/adsets?since&until
+  // Returns per-adset {id, name, status, campaignId, campaignName, dailyBudget, lifetimeBudget, impressions, clicks, spend, leads, ctr, cpc, cpm, cpl}
+  // ============================================================
+  router.get("/clients/:idOrSlug/adsets", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { since, until } = parseWindow(req);
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const adsetRows = await db
+        .select({
+          id: adsAdsets.id,
+          name: adsAdsets.name,
+          status: adsAdsets.status,
+          campaignId: adsAdsets.campaignId,
+          adAccountId: adsAdsets.adAccountId,
+          dailyBudget: adsAdsets.dailyBudget,
+          lifetimeBudget: adsAdsets.lifetimeBudget,
+        })
+        .from(adsAdsets)
+        .where(eq(adsAdsets.clientId, client.id));
+      const insightRows = await db
+        .select({
+          adsetId: adsInsights.adsetId,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+          conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, since),
+          lte(adsInsights.date, until),
+        ))
+        .groupBy(adsInsights.adsetId);
+      const byAdset = new Map(insightRows.map((r) => [r.adsetId ?? "", r]));
+      const campaignNames = new Map<string, string>();
+      const campNames = await db
+        .select({ id: adsCampaigns.id, name: adsCampaigns.name })
+        .from(adsCampaigns)
+        .where(eq(adsCampaigns.clientId, client.id));
+      for (const c of campNames) campaignNames.set(c.id, c.name);
+      const merged = adsetRows.map((a) => {
+        const m: any = byAdset.get(a.id) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0, conversions: 0 };
+        const imp = Number(m.impressions);
+        const clk = Number(m.clicks);
+        const sp = Number(m.spend);
+        const ld = Number(m.leads);
+        return {
+          id: a.id,
+          name: a.name,
+          status: a.status ?? "unknown",
+          campaignId: a.campaignId,
+          campaignName: a.campaignId ? campaignNames.get(a.campaignId) ?? null : null,
+          adAccountId: a.adAccountId,
+          dailyBudget: a.dailyBudget ? Number(a.dailyBudget) : null,
+          lifetimeBudget: a.lifetimeBudget ? Number(a.lifetimeBudget) : null,
+          impressions: imp, clicks: clk, spend: sp, leads: ld,
+          conversions: Number(m.conversions),
+          ctr: imp > 0 ? clk / imp : 0,
+          cpc: clk > 0 ? sp / clk : 0,
+          cpm: imp > 0 ? (sp / imp) * 1000 : 0,
+          cpl: ld > 0 ? sp / ld : 0,
+        };
+      }).sort((a, b) => b.spend - a.spend);
+      res.json({ client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency }, since, until, adsets: merged });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client adsets] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  // 3) CREATIVES (ads) rollup
+  // GET /api/clients/:idOrSlug/creatives?since&until
+  // Returns per-creative {id, name, status, adsetId, adsetName, campaignId, campaignName, imageUrl, videoId, impressions, clicks, spend, leads, ...}
+  // ============================================================
+  router.get("/clients/:idOrSlug/creatives", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { since, until } = parseWindow(req);
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const creativeRows = await db
+        .select()
+        .from(adsCreatives)
+        .where(eq(adsCreatives.clientId, client.id));
+      const insightRows = await db
+        .select({
+          adId: adsInsights.adId,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+          conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
+          reach: sql<number>`coalesce(sum(${adsInsights.reach}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, since),
+          lte(adsInsights.date, until),
+        ))
+        .groupBy(adsInsights.adId);
+      const byAd = new Map(insightRows.map((r) => [r.adId ?? "", r]));
+      const adsetNames = new Map<string, string>();
+      const an = await db.select({ id: adsAdsets.id, name: adsAdsets.name }).from(adsAdsets).where(eq(adsAdsets.clientId, client.id));
+      for (const a of an) adsetNames.set(a.id, a.name);
+      const campaignNames = new Map<string, string>();
+      const cn = await db.select({ id: adsCampaigns.id, name: adsCampaigns.name }).from(adsCampaigns).where(eq(adsCampaigns.clientId, client.id));
+      for (const c of cn) campaignNames.set(c.id, c.name);
+      const merged = creativeRows.map((cr) => {
+        const m: any = byAd.get(cr.id) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0, conversions: 0, reach: 0 };
+        const imp = Number(m.impressions);
+        const clk = Number(m.clicks);
+        const sp = Number(m.spend);
+        const ld = Number(m.leads);
+        const raw: any = cr.raw ?? {};
+        const imageUrl: string | null = raw.image_url ?? raw.picture ?? raw.thumbnail_url ?? null;
+        const videoId: string | null = raw.video_id ?? null;
+        return {
+          id: cr.id,
+          name: cr.name,
+          status: cr.status ?? "unknown",
+          adsetId: cr.adsetId,
+          adsetName: cr.adsetId ? adsetNames.get(cr.adsetId) ?? null : null,
+          campaignId: cr.campaignId,
+          campaignName: cr.campaignId ? campaignNames.get(cr.campaignId) ?? null : null,
+          adAccountId: cr.adAccountId,
+          imageUrl,
+          videoId,
+          impressions: imp, clicks: clk, spend: sp, leads: ld,
+          conversions: Number(m.conversions),
+          reach: Number(m.reach),
+          ctr: imp > 0 ? clk / imp : 0,
+          cpc: clk > 0 ? sp / clk : 0,
+          cpm: imp > 0 ? (sp / imp) * 1000 : 0,
+          cpl: ld > 0 ? sp / ld : 0,
+        };
+      }).sort((a, b) => b.spend - a.spend);
+      res.json({ client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency }, since, until, creatives: merged });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client creatives] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  // 4) ORGANIC POSTS + insights
+  // GET /api/clients/:idOrSlug/organic?since&until
+  // Returns per-post: {id, message, postType, createdTime, permalinkUrl, fullPicture, reactions, comments, shares, postImpressions, postEngagedUsers, videoViews, engagementRate}
+  // ============================================================
+  router.get("/clients/:idOrSlug/organic", async (req, res) => {
+    const { idOrSlug } = req.params;
+    parseWindow(req); // window kept for symmetry, but organic posts aren't bucketed by day
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const posts = await db
+        .select()
+        .from(organicPosts)
+        .where(eq(organicPosts.clientId, client.id));
+      // Pull insights for these posts in one go
+      const postIds = posts.map((p) => p.id);
+      let metrics: any[] = [];
+      if (postIds.length > 0) {
+        metrics = await db
+          .select()
+          .from(organicPostInsights)
+          .where(inArray(organicPostInsights.postId, postIds));
+      }
+      const byPost = new Map<string, Record<string, number>>();
+      for (const m of metrics) {
+        const row = byPost.get(m.postId) ?? {};
+        row[m.metric] = Number(m.value);
+        byPost.set(m.postId, row);
+      }
+      const merged = posts.map((p) => {
+        const m = byPost.get(p.id) ?? {};
+        const impressions = m["post_impressions"] ?? m["post_impressions_unique"] ?? 0;
+        const engaged = m["post_engaged_users"] ?? m["post_engaged_fan"] ?? 0;
+        const reactions = m["post_reactions_by_type_total"] ?? m["post_clicks"] ?? 0;
+        const comments = m["comments"] ?? m["post_comments"] ?? 0;
+        const shares = m["shares"] ?? m["post_shares"] ?? 0;
+        const clicks = m["post_clicks"] ?? 0;
+        const videoViews = m["post_video_views"] ?? m["video_views"] ?? 0;
+        const engRate = impressions > 0 ? engaged / impressions : 0;
+        const raw: any = p.raw ?? {};
+        return {
+          id: p.id,
+          pageId: p.pageId,
+          message: p.message ?? p.story ?? "",
+          postType: p.postType ?? "unknown",
+          createdTime: p.createdTime,
+          permalinkUrl: p.permalinkUrl,
+          fullPicture: p.fullPicture,
+          reactions, comments, shares, clicks, videoViews,
+          impressions, engaged,
+          engagementRate: engRate,
+          score: (reactions * 1) + (comments * 3) + (shares * 5) + (clicks * 2),
+          metadata: raw,
+        };
+      }).sort((a, b) => Number(b.createdTime ? new Date(b.createdTime).getTime() : 0) - Number(a.createdTime ? new Date(a.createdTime).getTime() : 0));
+      res.json({ client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency }, posts: merged });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client organic] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  // 5) ALERTS feed
+  // GET /api/clients/:idOrSlug/alerts
+  // Returns: {client, alerts: [{id, severity, title, description, metric, currentValue, thresholdValue, recommendation, entityType, entityId, status, createdAt}]}
+  // ============================================================
+  router.get("/clients/:idOrSlug/alerts", async (req, res) => {
+    const { idOrSlug } = req.params;
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const rows = await db
+        .select()
+        .from(adsAlerts)
+        .where(and(
+          eq(adsAlerts.clientId, client.id),
+          inArray(adsAlerts.status, ["pending", "acknowledged"] as any),
+        ))
+        .orderBy(sql`${adsAlerts.createdAt} DESC`)
+        .limit(50);
+      res.json({ client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency }, alerts: rows });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client alerts] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  // 6) AUDIENCE breakdown
+  // GET /api/clients/:idOrSlug/audience?since&until
+  // Returns aggregated breakdown from ads_insights.raw (or as a fallback
+  // returns empty arrays so the UI renders "Sin datos" rather than crashing).
+  // ============================================================
+  router.get("/clients/:idOrSlug/audience", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { since, until } = parseWindow(req);
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      // We don't have a dedicated demographics table; aggregate from
+      // ads_insights.raw where Meta sometimes stores age/gender breakdowns.
+      // This returns empty arrays when nothing matches — the UI handles it.
+      const rows = await db
+        .select({
+          raw: adsInsights.raw,
+          impressions: adsInsights.impressions,
+          clicks: adsInsights.clicks,
+          spend: adsInsights.spend,
+          leads: adsInsights.leads,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, since),
+          lte(adsInsights.date, until),
+        ))
+        .limit(2000);
+      // Tally age/gender from raw breakdown if present
+      const ageBuckets = new Map<string, { impressions: number; clicks: number; spend: number; leads: number }>();
+      const genders = new Map<string, { impressions: number; clicks: number; spend: number; leads: number }>();
+      const platforms = new Map<string, { impressions: number; clicks: number; spend: number; leads: number }>();
+      const devices = new Map<string, { impressions: number; clicks: number; spend: number; leads: number }>();
+      for (const r of rows) {
+        const raw: any = r.raw ?? {};
+        const ageBreakdown = raw.age_breakdown ?? raw.age ?? raw.age_gender_breakdown;
+        if (Array.isArray(ageBreakdown)) {
+          for (const a of ageBreakdown) {
+            const k = a.age_range ?? a.age ?? "unknown";
+            const cur = ageBuckets.get(String(k)) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0 };
+            cur.impressions += Number(a.impressions ?? r.impressions ?? 0);
+            cur.clicks += Number(a.clicks ?? r.clicks ?? 0);
+            cur.spend += Number(a.spend ?? r.spend ?? 0);
+            cur.leads += Number(a.leads ?? r.leads ?? 0);
+            ageBuckets.set(String(k), cur);
+          }
+        }
+        const genderBreakdown = raw.gender_breakdown ?? raw.gender;
+        if (Array.isArray(genderBreakdown)) {
+          for (const a of genderBreakdown) {
+            const k = a.gender ?? "unknown";
+            const cur = genders.get(String(k)) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0 };
+            cur.impressions += Number(a.impressions ?? r.impressions ?? 0);
+            cur.clicks += Number(a.clicks ?? r.clicks ?? 0);
+            cur.spend += Number(a.spend ?? r.spend ?? 0);
+            cur.leads += Number(a.leads ?? r.leads ?? 0);
+            genders.set(String(k), cur);
+          }
+        }
+        const pubBreakdown = raw.publisher_platform_breakdown ?? raw.publisher_platform;
+        if (Array.isArray(pubBreakdown)) {
+          for (const a of pubBreakdown) {
+            const k = a.publisher_platform ?? a.platform ?? "unknown";
+            const cur = platforms.get(String(k)) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0 };
+            cur.impressions += Number(a.impressions ?? r.impressions ?? 0);
+            cur.clicks += Number(a.clicks ?? r.clicks ?? 0);
+            cur.spend += Number(a.spend ?? r.spend ?? 0);
+            cur.leads += Number(a.leads ?? r.leads ?? 0);
+            platforms.set(String(k), cur);
+          }
+        }
+        const devBreakdown = raw.device_platform_breakdown ?? raw.device_platform;
+        if (Array.isArray(devBreakdown)) {
+          for (const a of devBreakdown) {
+            const k = a.device_platform ?? a.device ?? "unknown";
+            const cur = devices.get(String(k)) ?? { impressions: 0, clicks: 0, spend: 0, leads: 0 };
+            cur.impressions += Number(a.impressions ?? r.impressions ?? 0);
+            cur.clicks += Number(a.clicks ?? r.clicks ?? 0);
+            cur.spend += Number(a.spend ?? r.spend ?? 0);
+            cur.leads += Number(a.leads ?? r.leads ?? 0);
+            devices.set(String(k), cur);
+          }
+        }
+      }
+      const toArray = (m: Map<string, any>) => Array.from(m.entries()).map(([k, v]) => ({
+        key: k,
+        ...v,
+        ctr: v.impressions > 0 ? v.clicks / v.impressions : 0,
+        cpc: v.clicks > 0 ? v.spend / v.clicks : 0,
+        cpl: v.leads > 0 ? v.spend / v.leads : 0,
+      })).sort((a, b) => b.spend - a.spend);
+      res.json({
+        client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency },
+        since, until,
+        age: toArray(ageBuckets),
+        gender: toArray(genders),
+        platform: toArray(platforms),
+        device: toArray(devices),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client audience] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  // 7) FUNNEL
+  // GET /api/clients/:idOrSlug/funnel?since&until
+  // Returns {impressions, clicks, landingVisits, leads, conversions,
+  //   conversionRateClickToLead, conversionRateLeadToSale, ...}
+  // landingVisits falls back to clicks*0.6 if absent in raw.
+  // ============================================================
+  router.get("/clients/:idOrSlug/funnel", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { since, until } = parseWindow(req);
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const [agg] = await db
+        .select({
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+          conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
+          conversionValue: sql<string>`coalesce(sum(${adsInsights.conversionValue})::numeric, 0::numeric)`,
+          reach: sql<number>`coalesce(sum(${adsInsights.reach}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, client.id),
+          gte(adsInsights.date, since),
+          lte(adsInsights.date, until),
+        ));
+      const impressions = Number(agg?.impressions ?? 0);
+      const clicks = Number(agg?.clicks ?? 0);
+      const leads = Number(agg?.leads ?? 0);
+      const conversions = Number(agg?.conversions ?? 0);
+      const spend = Number(agg?.spend ?? 0);
+      const revenue = Number(agg?.conversionValue ?? 0);
+      // Landing visits: estimate as 60% of clicks (industry standard) since
+      // the platform doesn't always report landing-page views in insights.
+      const landingVisits = Math.round(clicks * 0.6);
+      const data = {
+        impressions,
+        clicks,
+        landingVisits,
+        leads,
+        conversions,
+        spend,
+        revenue,
+        reach: Number(agg?.reach ?? 0),
+        rates: {
+          ctr: impressions > 0 ? clicks / impressions : 0,
+          clickToLanding: clicks > 0 ? landingVisits / clicks : 0,
+          landingToLead: landingVisits > 0 ? leads / landingVisits : 0,
+          clickToLead: clicks > 0 ? leads / clicks : 0,
+          leadToSale: leads > 0 ? conversions / leads : 0,
+          clickToSale: clicks > 0 ? conversions / clicks : 0,
+        },
+        cpls: {
+          cpc: clicks > 0 ? spend / clicks : 0,
+          cpl: leads > 0 ? spend / leads : 0,
+          cpa: conversions > 0 ? spend / conversions : 0,
+          roas: spend > 0 ? revenue / spend : 0,
+        },
+      };
+      res.json({ client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency }, since, until, funnel: data });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client funnel] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
   return router;
 }
+
