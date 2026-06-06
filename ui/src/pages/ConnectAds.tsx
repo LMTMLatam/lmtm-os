@@ -261,57 +261,63 @@ export function ConnectAds() {
 
   if (step === "loading" || connectionQuery.isLoading || pagesQuery.isLoading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        <Header step="loading" total={0} mapped={0} adsetCount={0} />
-        <Card className="mt-4 p-6">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Cargando inventario de Meta…
-          </div>
-          <div className="mt-4 space-y-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full" />
-            ))}
-          </div>
-        </Card>
+      <div className="h-dvh overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+          <Header step="loading" total={0} mapped={0} adsetCount={0} />
+          <Card className="mt-4 p-6">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Cargando inventario de Meta…
+            </div>
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
 
   if (step === "error") {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        <Header step="error" total={0} mapped={0} adsetCount={0} />
-        <Card className="mt-4 p-6">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="mt-0.5 size-5 text-red-500" />
-            <div className="flex-1">
-              <div className="font-medium text-red-600">Algo falló</div>
-              <div className="mt-1 text-sm text-muted-foreground">{error}</div>
+      <div className="h-dvh overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+          <Header step="error" total={0} mapped={0} adsetCount={0} />
+          <Card className="mt-4 p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 size-5 text-red-500" />
+              <div className="flex-1">
+                <div className="font-medium text-red-600">Algo falló</div>
+                <div className="mt-1 text-sm text-muted-foreground">{error}</div>
+              </div>
             </div>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <Button size="sm" onClick={() => { pagesQuery.refetch(); connectionQuery.refetch(); setStep("loading"); }}>Reintentar</Button>
-            <Button size="sm" variant="ghost" asChild>
-              <Link to="/lmtm/dashboard">Volver</Link>
-            </Button>
-          </div>
-        </Card>
+            <div className="mt-4 flex gap-2">
+              <Button size="sm" onClick={() => { pagesQuery.refetch(); connectionQuery.refetch(); setStep("loading"); }}>Reintentar</Button>
+              <Button size="sm" variant="ghost" asChild>
+                <Link to="/lmtm/dashboard">Volver</Link>
+              </Button>
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
 
   if (step === "syncing") {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        <Header step="syncing" total={pagesData.length} mapped={stats.mapped} adsetCount={stats.adsetCount} />
-        <Card className="mt-4 p-6">
-          <div className="flex items-center gap-2 text-sm">
-            <Loader2 className="size-4 animate-spin" /> Sincronizando adsets, campañas e insights desde Meta…
-          </div>
-          <div className="mt-3 text-xs text-muted-foreground">
-            Esto puede tardar hasta 1 minuto por ad account.
-          </div>
-        </Card>
+      <div className="h-dvh overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+          <Header step="syncing" total={pagesData.length} mapped={stats.mapped} adsetCount={stats.adsetCount} />
+          <Card className="mt-4 p-6">
+            <div className="flex items-center gap-2 text-sm">
+              <Loader2 className="size-4 animate-spin" /> Sincronizando adsets, campañas e insights desde Meta…
+            </div>
+            <div className="mt-3 text-xs text-muted-foreground">
+              Esto puede tardar hasta 1 minuto por ad account.
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -322,36 +328,39 @@ export function ConnectAds() {
       else navigate("/lmtm/dashboard");
     };
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        <Header step="done" total={pagesData.length} mapped={stats.mapped} adsetCount={stats.adsetCount} />
-        <Card className="mt-4 p-6">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 size-5 text-green-500" />
-            <div className="flex-1">
-              <div className="font-medium">¡Listo!</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Sincronizamos {syncResult?.total ?? 0} filas (campañas + adsets + insights) en los últimos 365 días.
+      <div className="h-dvh overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+          <Header step="done" total={pagesData.length} mapped={stats.mapped} adsetCount={stats.adsetCount} />
+          <Card className="mt-4 p-6">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 size-5 text-green-500" />
+              <div className="flex-1">
+                <div className="font-medium">¡Listo!</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Sincronizamos {syncResult?.total ?? 0} filas (campañas + adsets + insights) en los últimos 365 días.
+                </div>
+                {syncResult && Object.keys(syncResult.perJob).length > 0 && (
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {Object.entries(syncResult.perJob).map(([job, n]) => (
+                      <li key={job}>· {job}: {n} filas</li>
+                    ))}
+                  </ul>
+                )}
               </div>
-              {syncResult && Object.keys(syncResult.perJob).length > 0 && (
-                <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                  {Object.entries(syncResult.perJob).map(([job, n]) => (
-                    <li key={job}>· {job}: {n} filas</li>
-                  ))}
-                </ul>
-              )}
             </div>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <Button size="sm" onClick={goBack}>Ir al dashboard</Button>
-          </div>
-        </Card>
+            <div className="mt-4 flex gap-2">
+              <Button size="sm" onClick={goBack}>Ir al dashboard</Button>
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
 
   // step === "browse" - the main Make.com-style inventory
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <div className="h-dvh overflow-y-auto">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <Breadcrumb />
       <Header
         step="browse"
@@ -430,6 +439,7 @@ export function ConnectAds() {
             )}
           </Button>
         </div>
+      </div>
       </div>
     </div>
   );
