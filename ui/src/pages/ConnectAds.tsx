@@ -106,6 +106,8 @@ export function ConnectAds() {
           if (next[p.page.id]) continue; // don't overwrite user edits
           const existing = p.existingMapping;
           // Pick the ad account with the most adsets (most useful default), falling back to first
+          const accCounts = p.adAccounts.map((a) => ({ id: a.id, name: a.name, count: (p.adSets[a.id] ?? []).length }));
+          console.log("[picker init]", p.page.id, p.page.name, "adAccs=" + p.adAccounts.length, "adSetKeys=" + Object.keys(p.adSets).length, "counts=" + JSON.stringify(accCounts.filter(c => c.count > 0)));
           const firstAdAcc = [...p.adAccounts].sort((a, b) => {
             const ac = (p.adSets[a.id] ?? []).length;
             const bc = (p.adSets[b.id] ?? []).length;
