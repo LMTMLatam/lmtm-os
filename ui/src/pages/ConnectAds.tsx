@@ -105,10 +105,10 @@ export function ConnectAds() {
         for (const p of pagesData) {
           if (next[p.page.id]) continue; // don't overwrite user edits
           const existing = p.existingMapping;
-          // Pick the best ad account: status=1 (active) first, then most adsets, then alphabetical
+          // Pick the best ad account: status="active" first, then most adsets, then alphabetical
           const firstAdAcc = [...p.adAccounts].sort((a, b) => {
-            const aActive = a.status === 1 ? 0 : 1;
-            const bActive = b.status === 1 ? 0 : 1;
+            const aActive = a.status === "active" ? 0 : 1;
+            const bActive = b.status === "active" ? 0 : 1;
             if (aActive !== bActive) return aActive - bActive;
             const ac = (p.adSets[a.id] ?? []).length;
             const bc = (p.adSets[b.id] ?? []).length;

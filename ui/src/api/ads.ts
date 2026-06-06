@@ -32,7 +32,7 @@ export interface AdsAdAccount {
   name: string;
   currency: string;
   timezone: string;
-  status: number;
+  status: string;        // "active" | "disabled" | etc
   businessId?: string;
   businessName?: string;
 }
