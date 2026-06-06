@@ -107,6 +107,16 @@ export interface PageSummary {
   raw: Record<string, unknown>;
 }
 
+export interface AdSetSummary {
+  id: string;
+  name: string;
+  status: string;
+  campaignId?: string;
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+  raw: Record<string, unknown>;
+}
+
 export interface AdsProvider {
   readonly platform: AdsPlatform;
 
@@ -134,6 +144,20 @@ export interface AdsProvider {
    * can act on. Google Ads and TikTok return [].
    */
   listPages(token: string): Promise<PageSummary[]>;
+
+  /**
+   * Probe (Meta only): list the ad sets under an ad account. Used by the
+   * post-OAuth picker to show the user which adsets they can opt-in to.
+   * Google Ads / TikTok return [].
+   */
+  listAdSets?(adAccountId: string, token: string): Promise<AdSetSummary[]>;
+
+  /**
+   * Probe (Meta only): list the ad accounts a page is linked to as
+   * "primary" / "owned". Used to associate a page with its ad account
+   * in the picker. Other platforms return [].
+   */
+  listAdAccountsForPage?(pageId: string, token: string): Promise<AdAccountSummary[]>;
 
   /**
    * Core: fetch all campaigns in an ad account. Caller persists the result

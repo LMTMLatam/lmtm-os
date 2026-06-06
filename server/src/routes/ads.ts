@@ -26,8 +26,8 @@
 
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsCampaigns, adsConnections, adsInsights, clients } from "@paperclipai/db";
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { adsAccountMappings, adsCampaigns, adsConnections, adsInsights, clients, type AdsAccountMapping } from "@paperclipai/db";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -36,6 +36,7 @@ import { logActivity } from "../services/activity-log.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
+import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -200,6 +201,65 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // ---- Make.com-style: pages + linked ad accounts + ad sets ----
+  // Returns one record per page with the ad accounts linked to that page
+  // and the ad sets under each ad account. The UI uses this to let the
+  // user pick a subset of ad sets per (page, ad_account, client) mapping.
+  router.get("/ads/connections/:id/pages-with-adsets", async (req, res) => {
+    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!conn) return res.status(404).json({ error: "connection not found" });
+    if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
+    const provider = getAdsProvider(conn.platform);
+    try {
+      const pages = await provider.listPages(conn.accessToken);
+      const result: Array<{
+        page: { id: string; name: string };
+        adAccounts: AdAccountSummary[];
+        adSets: Record<string, AdSetSummary[]>;
+        existingMapping: AdsAccountMapping | null;
+      }> = [];
+      for (const p of pages) {
+        // Linked ad accounts
+        const linkedAccounts = provider.listAdAccountsForPage
+          ? await provider.listAdAccountsForPage(p.id, conn.accessToken)
+          : [];
+        // If no ad accounts linked to the page, fall back to ALL ad accounts
+        // (the agency might own both). The UI lets the user pick.
+        const accountsToScan = linkedAccounts.length
+          ? linkedAccounts
+          : await provider.listAdAccounts(conn.accessToken);
+        const adSets: Record<string, AdSetSummary[]> = {};
+        if (provider.listAdSets) {
+          for (const acc of accountsToScan) {
+            try {
+              adSets[acc.id] = await provider.listAdSets(acc.id, conn.accessToken);
+            } catch {
+              adSets[acc.id] = [];
+            }
+          }
+        }
+        // Check for an existing mapping for this (page, ad_account)
+        // We return the first existing mapping; UI handles the rest.
+        const [existing] = await db.select().from(adsAccountMappings).where(
+          and(
+            eq(adsAccountMappings.companyId, conn.companyId),
+            eq(adsAccountMappings.connectionId, conn.id),
+            eq(adsAccountMappings.pageId, p.id),
+          ),
+        );
+        result.push({
+          page: { id: p.id, name: p.name },
+          adAccounts: accountsToScan,
+          adSets,
+          existingMapping: existing ?? null,
+        });
+      }
+      res.json({ pages: result });
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // ---- Mappings ----
 
   router.get("/ads/mappings", async (req, res) => {
@@ -217,16 +277,92 @@ export function adsRoutes(db: Db): Router {
     if (!body.companyId || !body.connectionId || !body.adAccountId) {
       return res.status(400).json({ error: "missing required fields: companyId, connectionId, adAccountId" });
     }
+    const includedAdsets = Array.isArray(body.includedAdsets) ? body.includedAdsets.filter((x: unknown) => typeof x === "string") : [];
+    const adAccountId = body.adAccountId.startsWith("act_") ? body.adAccountId : `act_${body.adAccountId}`;
+    // Skip if (company, adAccount, page) mapping already exists
+    const conditions = [
+      eq(adsAccountMappings.companyId, body.companyId),
+      eq(adsAccountMappings.adAccountId, adAccountId),
+    ];
+    if (body.pageId) {
+      conditions.push(eq(adsAccountMappings.pageId, body.pageId));
+    } else {
+      conditions.push(isNull(adsAccountMappings.pageId));
+    }
+    const [existing] = await db.select().from(adsAccountMappings).where(and(...conditions));
+    if (existing) {
+      // Update the included adsets + clientId in-place
+      const [row] = await db.update(adsAccountMappings).set({
+        clientId: body.clientId ?? null,
+        includedAdsets: includedAdsets as unknown as string[],
+        label: body.label ?? null,
+        updatedAt: new Date(),
+      }).where(eq(adsAccountMappings.id, existing.id)).returning();
+      return res.status(200).json({ mapping: row, skipped: false, updated: true });
+    }
     const [row] = await db.insert(adsAccountMappings).values({
       companyId: body.companyId,
       connectionId: body.connectionId,
       clientId: body.clientId ?? null,
       platform: body.platform ?? "meta",
-      adAccountId: body.adAccountId.startsWith("act_") ? body.adAccountId : `act_${body.adAccountId}`,
+      adAccountId,
       pageId: body.pageId ?? null,
       label: body.label ?? null,
+      includedAdsets: includedAdsets as unknown as string[],
     }).returning();
-    res.status(201).json(row);
+    res.status(201).json({ mapping: row, skipped: false, updated: false });
+  });
+
+  // ---- Bulk create mappings (Make.com-style) ----
+  // Body: { companyId, connectionId, mappings: [{ adAccountId, pageId, clientId, includedAdsets: string[] }, ...] }
+  // Skip any (companyId, adAccountId, pageId) that already exists.
+  router.post("/ads/mappings/bulk", async (req, res) => {
+    const body = req.body ?? {};
+    if (!body.companyId || !body.connectionId || !Array.isArray(body.mappings)) {
+      return res.status(400).json({ error: "missing required fields: companyId, connectionId, mappings[]" });
+    }
+    const results: { created: AdsAccountMapping[]; updated: AdsAccountMapping[]; skipped: number } = {
+      created: [],
+      updated: [],
+      skipped: 0,
+    };
+    for (const m of body.mappings) {
+      if (!m.adAccountId) { results.skipped += 1; continue; }
+      const adAccountId = m.adAccountId.startsWith("act_") ? m.adAccountId : `act_${m.adAccountId}`;
+      const includedAdsets = Array.isArray(m.includedAdsets) ? m.includedAdsets.filter((x: unknown) => typeof x === "string") : [];
+      const conditions = [
+        eq(adsAccountMappings.companyId, body.companyId),
+        eq(adsAccountMappings.adAccountId, adAccountId),
+      ];
+      if (m.pageId) {
+        conditions.push(eq(adsAccountMappings.pageId, m.pageId));
+      } else {
+        conditions.push(isNull(adsAccountMappings.pageId));
+      }
+      const [existing] = await db.select().from(adsAccountMappings).where(and(...conditions));
+      if (existing) {
+        const [row] = await db.update(adsAccountMappings).set({
+          clientId: m.clientId ?? existing.clientId,
+          includedAdsets: includedAdsets as unknown as string[],
+          label: m.label ?? existing.label,
+          updatedAt: new Date(),
+        }).where(eq(adsAccountMappings.id, existing.id)).returning();
+        results.updated.push(row);
+        continue;
+      }
+      const [row] = await db.insert(adsAccountMappings).values({
+        companyId: body.companyId,
+        connectionId: body.connectionId,
+        clientId: m.clientId ?? null,
+        platform: m.platform ?? "meta",
+        adAccountId,
+        pageId: m.pageId ?? null,
+        label: m.label ?? null,
+        includedAdsets: includedAdsets as unknown as string[],
+      }).returning();
+      results.created.push(row);
+    }
+    res.status(201).json(results);
   });
 
   router.patch("/ads/mappings/:id", async (req, res) => {

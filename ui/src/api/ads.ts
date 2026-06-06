@@ -46,8 +46,25 @@ export interface AdsPage {
   tasks?: string[];
 }
 
+export interface AdsAdSet {
+  id: string;
+  name: string;
+  status: string;
+  campaignId?: string;
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+}
+
 export interface AdsAdAccountsResponse { accounts: AdsAdAccount[]; }
 export interface AdsPagesResponse { pages: AdsPage[]; }
+
+export interface AdsPageWithAdSets {
+  page: { id: string; name: string };
+  adAccounts: AdsAdAccount[];
+  adSets: Record<string, AdsAdSet[]>;
+  existingMapping: AdsMapping | null;
+}
+export interface AdsPagesWithAdSetsResponse { pages: AdsPageWithAdSets[]; }
 
 export interface AdsMapping {
   id: string;
@@ -58,6 +75,7 @@ export interface AdsMapping {
   adAccountId: string;
   pageId: string | null;
   label: string | null;
+  includedAdsets?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +94,9 @@ export const adsApi = {
     api.get<AdsAdAccountsResponse>(`/ads/connections/${connectionId}/ad-accounts`),
   listPages: (connectionId: string) =>
     api.get<AdsPagesResponse>(`/ads/connections/${connectionId}/pages`),
+  // Make.com-style: pages + their linked ad accounts + ad sets.
+  listPagesWithAdSets: (connectionId: string) =>
+    api.get<AdsPagesWithAdSetsResponse>(`/ads/connections/${connectionId}/pages-with-adsets`),
   listMappings: (params?: { companyId?: string; clientId?: string }) => {
     const sp = new URLSearchParams();
     if (params?.companyId) sp.set("companyId", params.companyId);
@@ -91,7 +112,20 @@ export const adsApi = {
     pageId?: string;
     platform?: AdsPlatform;
     label?: string;
-  }) => api.post<AdsMapping>("/ads/mappings", body),
+    includedAdsets?: string[];
+  }) => api.post<{ mapping: AdsMapping; skipped: boolean; updated: boolean }>("/ads/mappings", body),
+  createBulkMappings: (body: {
+    companyId: string;
+    connectionId: string;
+    mappings: Array<{
+      adAccountId: string;
+      pageId?: string;
+      clientId?: string;
+      platform?: AdsPlatform;
+      label?: string;
+      includedAdsets?: string[];
+    }>;
+  }) => api.post<{ created: AdsMapping[]; updated: AdsMapping[]; skipped: number }>("/ads/mappings/bulk", body),
   deleteConnection: (id: string) => api.delete<{ ok: true }>(`/ads/connections/${id}`),
   /**
    * Returns the absolute URL the user must visit to start the Meta OAuth flow.

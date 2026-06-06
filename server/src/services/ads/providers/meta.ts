@@ -9,6 +9,7 @@ import type {
   OAuthTokenSet,
   AdAccountSummary,
   PageSummary,
+  AdSetSummary,
   NormalizedCampaign,
   NormalizedAdSet,
   NormalizedAdCreative,
@@ -167,6 +168,64 @@ export const metaProvider: AdsProvider = {
       for (const p of batch) {
         result.push({ id: p.id, name: p.name ?? p.id, raw: p as Record<string, unknown> });
       }
+    }
+    return result;
+  },
+
+  async listAdSets(adAccountId: string, token: string): Promise<AdSetSummary[]> {
+    const accountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+    const result: AdSetSummary[] = [];
+    for await (const batch of paginate<{
+      id: string; name?: string; status?: string; effective_status?: string;
+      campaign_id?: string; daily_budget?: string; lifetime_budget?: string;
+    }>(
+      `/${accountId}/adsets`,
+      { fields: "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget" },
+      token,
+    )) {
+      for (const a of batch) {
+        result.push({
+          id: a.id,
+          name: a.name ?? a.id,
+          status: a.effective_status ?? a.status ?? "unknown",
+          campaignId: a.campaign_id,
+          dailyBudget: num(a.daily_budget),
+          lifetimeBudget: num(a.lifetime_budget),
+          raw: a as Record<string, unknown>,
+        });
+      }
+    }
+    return result;
+  },
+
+  async listAdAccountsForPage(pageId: string, token: string): Promise<AdAccountSummary[]> {
+    // A page's "primary" ad accounts can be discovered via:
+    //   /<page_id>/adaccounts?fields=id,name,currency,timezone_name,account_status
+    //   /<page_id>/promote_pages?fields=ad_platform,ad_account_id
+    // We use the simpler `adaccounts` edge.
+    const result: AdAccountSummary[] = [];
+    try {
+      for await (const batch of paginate<{
+        id: string; name?: string; currency?: string; timezone_name?: string;
+        account_status?: number;
+      }>(
+        `/${pageId}/adaccounts`,
+        { fields: "id,name,currency,timezone_name,account_status" },
+        token,
+      )) {
+        for (const a of batch) {
+          result.push({
+            id: a.id,
+            name: a.name ?? a.id,
+            currency: a.currency ?? "USD",
+            timezone: a.timezone_name ?? "UTC",
+            status: a.account_status === 1 ? "active" : "disabled",
+            raw: a as Record<string, unknown>,
+          });
+        }
+      }
+    } catch {
+      // Some pages (or tokens) don't expose /adaccounts. Return [].
     }
     return result;
   },

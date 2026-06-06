@@ -19,7 +19,7 @@ import {
   organicPosts,
   syncLogs,
 } from "@paperclipai/db";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "./registry.js";
 import type { AdsPlatform } from "./types.js";
 
@@ -103,10 +103,30 @@ async function syncCampaigns(db: Db, opts: SyncOptions): Promise<number> {
 async function syncAdsets(db: Db, opts: SyncOptions): Promise<number> {
   const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
-  const adsets = await provider.syncAdSets(connection, mapping, opts.since, opts.until);
+  const allAdsets = await provider.syncAdSets(connection, mapping, opts.since, opts.until);
+  if (allAdsets.length === 0) return 0;
+  // Apply the Make.com-style "included adsets" filter from the mapping.
+  // Empty array = include all (default for backward compat).
+  const includeSet = Array.isArray(mapping.includedAdsets) && mapping.includedAdsets.length > 0
+    ? new Set(mapping.includedAdsets)
+    : null;
+  const adsets = includeSet
+    ? allAdsets.filter((a) => includeSet.has(a.id))
+    : allAdsets;
   if (adsets.length === 0) return 0;
-  await db.delete(adsAdsets)
-    .where(and(eq(adsAdsets.connectionId, connection.id), eq(adsAdsets.adAccountId, mapping.adAccountId)));
+  // If a filter is set, only delete the rows for the included adset IDs to
+  // avoid wiping data the user is excluding on purpose.
+  if (includeSet) {
+    await db.delete(adsAdsets)
+      .where(and(
+        eq(adsAdsets.connectionId, connection.id),
+        eq(adsAdsets.adAccountId, mapping.adAccountId),
+        inArray(adsAdsets.id, Array.from(includeSet)),
+      ));
+  } else {
+    await db.delete(adsAdsets)
+      .where(and(eq(adsAdsets.connectionId, connection.id), eq(adsAdsets.adAccountId, mapping.adAccountId)));
+  }
   await db.insert(adsAdsets).values(adsets.map((a) => ({
     id: a.id,
     companyId: connection.companyId,
@@ -153,7 +173,16 @@ async function syncCreatives(db: Db, opts: SyncOptions): Promise<number> {
 async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
   const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
-  const insights = await provider.syncInsights(connection, mapping, opts.since, opts.until);
+  const allInsights = await provider.syncInsights(connection, mapping, opts.since, opts.until);
+  if (allInsights.length === 0) return 0;
+  // Apply the Make.com-style "included adsets" filter from the mapping.
+  // Empty array = include all (default for backward compat).
+  const includeSet = Array.isArray(mapping.includedAdsets) && mapping.includedAdsets.length > 0
+    ? new Set(mapping.includedAdsets)
+    : null;
+  const insights = includeSet
+    ? allInsights.filter((i) => i.adsetId != null && includeSet.has(i.adsetId))
+    : allInsights;
   if (insights.length === 0) return 0;
   // Idempotent: delete the existing rows for this (connection, adAccount, date range)
   // then insert fresh. The unique index on ads_insights_uniq would reject duplicates
