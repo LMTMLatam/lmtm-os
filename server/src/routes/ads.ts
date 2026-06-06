@@ -211,35 +211,33 @@ export function adsRoutes(db: Db): Router {
     if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
     const provider = getAdsProvider(conn.platform);
     try {
-      const pages = await provider.listPages(conn.accessToken);
-      const result: Array<{
-        page: { id: string; name: string };
-        adAccounts: AdAccountSummary[];
-        adSets: Record<string, AdSetSummary[]>;
-        existingMapping: AdsAccountMapping | null;
-      }> = [];
-      for (const p of pages) {
-        // Linked ad accounts
-        const linkedAccounts = provider.listAdAccountsForPage
-          ? await provider.listAdAccountsForPage(p.id, conn.accessToken)
-          : [];
-        // If no ad accounts linked to the page, fall back to ALL ad accounts
-        // (the agency might own both). The UI lets the user pick.
-        const accountsToScan = linkedAccounts.length
-          ? linkedAccounts
-          : await provider.listAdAccounts(conn.accessToken);
-        const adSets: Record<string, AdSetSummary[]> = {};
-        if (provider.listAdSets) {
-          for (const acc of accountsToScan) {
-            try {
-              adSets[acc.id] = await provider.listAdSets(acc.id, conn.accessToken);
-            } catch {
-              adSets[acc.id] = [];
-            }
-          }
+      // ---- Step 1: fetch pages + ad accounts in parallel (independent calls) ----
+      const [pages, allAccounts] = await Promise.all([
+        provider.listPages(conn.accessToken),
+        provider.listAdAccounts(conn.accessToken),
+      ]);
+
+      // ---- Step 2: fetch ad sets for ALL ad accounts in parallel ----
+      const adSetsByAcc: Record<string, AdSetSummary[]> = {};
+      if (provider.listAdSets) {
+        const settled = await Promise.allSettled(
+          allAccounts.map((acc) => provider.listAdSets!(acc.id, conn.accessToken)),
+        );
+        for (let i = 0; i < allAccounts.length; i += 1) {
+          const r = settled[i];
+          adSetsByAcc[allAccounts[i].id] = r.status === "fulfilled" ? r.value : [];
         }
-        // Check for an existing mapping for this (page, ad_account)
-        // We return the first existing mapping; UI handles the rest.
+      }
+
+      // ---- Step 3: build per-page rows in parallel (DB lookup + linked accounts) ----
+      const perPage = await Promise.all(pages.map(async (p) => {
+        let accountsToScan = allAccounts;
+        if (provider.listAdAccountsForPage) {
+          try {
+            const linked = await provider.listAdAccountsForPage(p.id, conn.accessToken);
+            if (linked.length) accountsToScan = linked;
+          } catch { /* keep fallback */ }
+        }
         const [existing] = await db.select().from(adsAccountMappings).where(
           and(
             eq(adsAccountMappings.companyId, conn.companyId),
@@ -247,14 +245,15 @@ export function adsRoutes(db: Db): Router {
             eq(adsAccountMappings.pageId, p.id),
           ),
         );
-        result.push({
+        return {
           page: { id: p.id, name: p.name },
           adAccounts: accountsToScan,
-          adSets,
+          adSets: adSetsByAcc,
           existingMapping: existing ?? null,
-        });
-      }
-      res.json({ pages: result });
+        };
+      }));
+
+      res.json({ pages: perPage });
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
