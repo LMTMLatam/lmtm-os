@@ -675,15 +675,32 @@ export function adsRoutes(db: Db): Router {
     insights.totals.ctr = insights.totals.impressions > 0 ? insights.totals.clicks / insights.totals.impressions : 0;
     insights.totals.cpc = insights.totals.clicks > 0 ? insights.totals.spend / insights.totals.clicks : 0;
 
+    // "Meta is connected" means EITHER the env vars are set (so a fresh
+    // OAuth flow could be initiated) OR there's already an active Meta
+    // ads_connection row for this company. The second branch matters
+    // because a user may have connected Meta previously and then revoked
+    // the env vars on a different deploy — the connection itself is still
+    // valid for the picker flow.
+    const metaConnectionRows = await db
+      .select({ id: adsConnections.id, status: adsConnections.status, companyId: adsConnections.companyId })
+      .from(adsConnections)
+      .where(eq(adsConnections.platform, "meta"));
     const metaConfigured = Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
-    const companyId =
-      connections[0]?.companyId ??
-      mappings[0]?.companyId ??
-      (req.actor.type === "board"
-        ? req.actor.source === "local_implicit" || req.actor.isInstanceAdmin
-          ? "00000000-0000-4000-8000-000000000001"
-          : (req.actor.companyIds ?? [])[0] ?? null
-        : null);
+    const metaCompanyId = mappings[0]?.companyId ?? connections[0]?.companyId ?? metaConnectionRows[0]?.companyId;
+    const metaHasActiveConnection = metaConnectionRows.some(
+      (c) => c.status === "active" && (!metaCompanyId || c.companyId === metaCompanyId),
+    );
+    const metaReady = metaConfigured || metaHasActiveConnection;
+    debugInfo.step5_metaReady = {
+      envVars: metaConfigured,
+      hasActiveConnection: metaHasActiveConnection,
+      totalMetaConnections: metaConnectionRows.length,
+    };
+    const companyId = metaCompanyId ?? (req.actor.type === "board"
+      ? req.actor.source === "local_implicit" || req.actor.isInstanceAdmin
+        ? "00000000-0000-4000-8000-000000000001"
+        : (req.actor.companyIds ?? [])[0] ?? null
+      : null);
 
     res.json({
       client: { id: client.id, slug: client.slug, name: client.name },
@@ -691,9 +708,9 @@ export function adsRoutes(db: Db): Router {
       campaigns,
       insights,
       oauthReady: {
-        meta: metaConfigured,
+        meta: metaReady,
       },
-      oauthStartUrl: metaConfigured && companyId
+      oauthStartUrl: metaReady && companyId
         ? `/api/meta/oauth/start?companyId=${companyId}&label=${encodeURIComponent(client.name)}`
         : null,
       debug: debugInfo,
