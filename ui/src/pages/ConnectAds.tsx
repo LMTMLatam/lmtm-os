@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { adsApi, type AdsPageWithAdSets, type AdsMapping } from "../api/ads";
 import { clientsApi, type Client } from "../api/clients";
 import { queryKeys } from "../lib/queryKeys";
+import { useCompany } from "../context/CompanyContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,8 +47,9 @@ export function ConnectAds() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { selectedCompanyId } = useCompany();
 
-  const connectionId = params.get("connectionId");
+  const connectionIdParam = params.get("connectionId");
   const returnTo = params.get("returnTo") ?? "";
 
   const [step, setStep] = useState<Step>("loading");
@@ -56,6 +58,20 @@ export function ConnectAds() {
   const [searchTerm, setSearchTerm] = useState("");
   // pageId -> state
   const [pageRows, setPageRows] = useState<Record<string, PageRowState>>({});
+
+  // ---- Discover active Meta connection if no connectionId was passed ----
+  const connectionsQuery = useQuery({
+    queryKey: selectedCompanyId ? ["ads", "connections", selectedCompanyId, "meta"] : ["ads", "connections", "none"],
+    queryFn: () => adsApi.listConnections(selectedCompanyId!, "meta"),
+    enabled: !connectionIdParam && !!selectedCompanyId,
+    retry: false,
+  });
+  const discoveredConnection = useMemo(() => {
+    if (connectionIdParam) return null;
+    const list = connectionsQuery.data?.connections ?? [];
+    return list.find((c) => c.status === "active") ?? list[0] ?? null;
+  }, [connectionIdParam, connectionsQuery.data]);
+  const connectionId = connectionIdParam ?? discoveredConnection?.id ?? null;
 
   // ---- Load connection ----
   const connectionQuery = useQuery({
@@ -92,6 +108,18 @@ export function ConnectAds() {
       return;
     }
     if (connectionQuery.isLoading) return;
+    if (connectionIdParam) {
+      // We were given an explicit connectionId — proceed
+    } else if (!selectedCompanyId) {
+      // No company selected yet, keep loading until we know
+      return;
+    } else if (connectionsQuery.isLoading) {
+      return;
+    } else if (!discoveredConnection) {
+      setError("No hay conexión de Meta activa para esta agencia. Conectá Meta primero desde Configuración → Integraciones.");
+      setStep("error");
+      return;
+    }
     if (pagesQuery.isError) {
       setError(`No se pudo cargar el inventario: ${(pagesQuery.error as Error).message}`);
       setStep("error");
@@ -292,10 +320,18 @@ export function ConnectAds() {
                 <div className="mt-1 text-sm text-muted-foreground">{error}</div>
               </div>
             </div>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex gap-2 flex-wrap">
               <Button size="sm" onClick={() => { pagesQuery.refetch(); connectionQuery.refetch(); setStep("loading"); }}>Reintentar</Button>
+              {error?.includes("No hay conexión de Meta") && (
+                <Button size="sm" asChild>
+                  <Link to="/company/settings/integrations/ads">
+                    <Facebook className="h-3.5 w-3.5 mr-1.5" />
+                    Conectar Meta
+                  </Link>
+                </Button>
+              )}
               <Button size="sm" variant="ghost" asChild>
-                <Link to="/lmtm/dashboard">Volver</Link>
+                <Link to="/lmtm/dashboard">Volver al dashboard</Link>
               </Button>
             </div>
           </Card>
