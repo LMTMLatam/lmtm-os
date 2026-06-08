@@ -43,8 +43,11 @@ async function* paginate<T = Record<string, unknown>>(
   let url: string | null = `${GRAPH}${path}?limit=${PAGE_LIMIT}&access_token=${encodeURIComponent(token)}`;
   for (const [k, v] of Object.entries(params)) url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
   while (url) {
-    const r: { data: T[]; paging?: { next?: string; cursors?: { after?: string } } } = await fetch(url).then((res) => {
-      if (!res.ok) throw new Error(`Graph pagination ${path} → ${res.status}`);
+    const r: { data: T[]; paging?: { next?: string; cursors?: { after?: string } } } = await fetch(url).then(async (res) => {
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Graph pagination ${path} → ${res.status} (token starts ${token.slice(0, 12)}): ${text.slice(0, 300)}`);
+      }
       return res.json();
     });
     if (r.data?.length) yield r.data;
@@ -393,6 +396,7 @@ export const metaProvider: AdsProvider = {
     // PAGE-level access token, not the user-level one. Get the page
     // token from /me/accounts.
     const pageToken = await getPageAccessToken(connection.accessToken, pageId);
+    console.log(`[meta-organic] pageId=${pageId} userToken starts=${connection.accessToken.slice(0, 16)} pageToken starts=${pageToken.slice(0, 16)} sameAsUser=${pageToken === connection.accessToken}`);
     const out: NormalizedOrganicPost[] = [];
     for await (const batch of paginate<{
       id: string; message?: string; story?: string; full_picture?: string;
