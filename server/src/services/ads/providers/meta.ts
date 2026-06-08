@@ -46,7 +46,7 @@ async function* paginate<T = Record<string, unknown>>(
     const r: { data: T[]; paging?: { next?: string; cursors?: { after?: string } } } = await fetch(url).then(async (res) => {
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`Graph pagination ${path} → ${res.status} (token starts ${token.slice(0, 12)}): ${text.slice(0, 300)}`);
+        throw new Error(`Graph pagination ${path} → ${res.status}: ${text.slice(0, 300)}`);
       }
       return res.json();
     });
@@ -83,6 +83,17 @@ function unixToDate(unix: string | number | undefined): Date | undefined {
   const n = typeof unix === "string" ? parseInt(unix, 10) : unix;
   if (!Number.isFinite(n)) return undefined;
   return new Date(n * 1000);
+}
+
+function inferPostType(permalinkUrl: string | undefined, fullPicture: string | undefined): string {
+  const u = (permalinkUrl ?? "").toLowerCase();
+  if (u.includes("/videos/")) return "video";
+  if (u.includes("/photos/")) return "photo";
+  if (u.includes("/posts/")) return "status";
+  if (u.includes("/reel/") || u.includes("/reels/")) return "reel";
+  // Fallback heuristic: if there is a picture but no clear link shape
+  if (fullPicture) return "photo";
+  return "post";
 }
 
 function num(v: unknown): number | undefined {
@@ -396,7 +407,6 @@ export const metaProvider: AdsProvider = {
     // PAGE-level access token, not the user-level one. Get the page
     // token from /me/accounts.
     const pageToken = await getPageAccessToken(connection.accessToken, pageId);
-    console.log(`[meta-organic] pageId=${pageId} userToken starts=${connection.accessToken.slice(0, 16)} pageToken starts=${pageToken.slice(0, 16)} sameAsUser=${pageToken === connection.accessToken}`);
     const out: NormalizedOrganicPost[] = [];
     for await (const batch of paginate<{
       id: string; message?: string; story?: string; full_picture?: string;
@@ -404,7 +414,11 @@ export const metaProvider: AdsProvider = {
     }>(
       `/${pageId}/posts`,
       {
-        fields: "id,message,story,full_picture,permalink_url,created_time,type",
+        // `type` is deprecated in Graph API v3.3+ — omit it to avoid a 400.
+        // The DB still records `postType` as the message contains the post
+        // kind in `permalink_url` (photo/video/status), or we can infer it
+        // from the message text on the client side if needed.
+        fields: "id,message,story,full_picture,permalink_url,created_time",
         since: Math.floor(since.getTime() / 1000).toString(),
         until: Math.floor(until.getTime() / 1000).toString(),
       },
@@ -419,7 +433,11 @@ export const metaProvider: AdsProvider = {
           fullPicture: p.full_picture,
           permalinkUrl: p.permalink_url,
           createdTime: unixToDate(p.created_time),
-          postType: p.type,
+          // `type` was deprecated in Graph API v3.3+, so we infer it
+          // from the permalink URL. Example:
+          //   https://facebook.com/PktGlobal/photos/123 → "photo"
+          //   https://facebook.com/PktGlobal/videos/123 → "video"
+          postType: inferPostType(p.permalink_url, p.full_picture),
           raw: p as Record<string, unknown>,
         });
       }
