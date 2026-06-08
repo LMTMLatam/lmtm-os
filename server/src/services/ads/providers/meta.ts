@@ -42,16 +42,27 @@ async function* paginate<T = Record<string, unknown>>(
 ): AsyncGenerator<T[]> {
   let url: string | null = `${GRAPH}${path}?limit=${PAGE_LIMIT}&access_token=${encodeURIComponent(token)}`;
   for (const [k, v] of Object.entries(params)) url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+  let retryCount = 0;
   while (url) {
     const r: { data: T[]; paging?: { next?: string; cursors?: { after?: string } } } = await fetch(url).then(async (res) => {
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Graph pagination ${path} → ${res.status}: ${text.slice(0, 300)}`);
+      if (res.ok) return res.json();
+      // Rate-limit (code 4) and transient 5xx: exponential backoff, up to 5 tries.
+      const text = await res.text().catch(() => "");
+      const isRateLimit = res.status === 429 || (res.status === 403 && /limit reached|too many/i.test(text));
+      const isTransient = res.status >= 500;
+      if ((isRateLimit || isTransient) && retryCount < 5) {
+        retryCount++;
+        const delayMs = Math.min(60_000, 1000 * Math.pow(2, retryCount));
+        console.warn(`[meta-paginate] ${path} → ${res.status}, retry ${retryCount}/5 in ${delayMs}ms`);
+        await new Promise((r) => setTimeout(r, delayMs));
+        return null; // signal "retry without throwing"
       }
-      return res.json();
+      throw new Error(`Graph pagination ${path} → ${res.status}: ${text.slice(0, 300)}`);
     });
+    if (r == null) continue; // retry path; loop will refetch same URL
     if (r.data?.length) yield r.data;
     url = r.paging?.next ?? null;
+    retryCount = 0; // reset on a successful page
   }
 }
 
