@@ -52,6 +52,29 @@ async function* paginate<T = Record<string, unknown>>(
   }
 }
 
+// Caches user-token → page-token (per pageId) for the life of the process.
+const pageTokenCache = new Map<string, string>();
+
+async function getPageAccessToken(userToken: string, pageId: string): Promise<string> {
+  const cacheKey = `${userToken.slice(0, 16)}:${pageId}`;
+  const cached = pageTokenCache.get(cacheKey);
+  if (cached) return cached;
+  const r = await gGet<{ data?: Array<{ id: string; access_token?: string }> }>(
+    "/me/accounts",
+    { fields: "id,access_token" },
+    userToken,
+  );
+  const acct = (r.data ?? []).find((a) => a.id === pageId);
+  if (!acct?.access_token) {
+    throw new Error(
+      `Meta: no se encontró access_token para la página ${pageId} en /me/accounts. ` +
+      `Reconectá Meta pidiendo el scope pages_show_list + manage_pages.`,
+    );
+  }
+  pageTokenCache.set(cacheKey, acct.access_token);
+  return acct.access_token;
+}
+
 function unixToDate(unix: string | number | undefined): Date | undefined {
   if (unix == null) return undefined;
   const n = typeof unix === "string" ? parseInt(unix, 10) : unix;
@@ -366,9 +389,10 @@ export const metaProvider: AdsProvider = {
         "Meta: el mapping no tiene pageId. Reconectá Meta con la página del cliente (auth_type=rerequest) y volvé a sincronizar.",
       );
     }
-    // To get a page-token we'd need to call /me/accounts and pick the
-    // page-specific access_token. For the common case, the user-token
-    // is enough for organic reads.
+    // In the new Pages experience, reading a Page's posts requires a
+    // PAGE-level access token, not the user-level one. Get the page
+    // token from /me/accounts.
+    const pageToken = await getPageAccessToken(connection.accessToken, pageId);
     const out: NormalizedOrganicPost[] = [];
     for await (const batch of paginate<{
       id: string; message?: string; story?: string; full_picture?: string;
@@ -380,7 +404,7 @@ export const metaProvider: AdsProvider = {
         since: Math.floor(since.getTime() / 1000).toString(),
         until: Math.floor(until.getTime() / 1000).toString(),
       },
-      connection.accessToken,
+      pageToken,
     )) {
       for (const p of batch) {
         out.push({
@@ -407,10 +431,12 @@ export const metaProvider: AdsProvider = {
       "post_clicks",
       "post_reactions_by_type_total",
     ];
+    // Post-level insights also need the page-level access token.
+    const pageToken = await getPageAccessToken(connection.accessToken, post.pageId);
     const r = await gGet<{ data?: Array<{ name: string; values?: Array<{ value: number }> }> }>(
       `/${post.id}/insights`,
       { metric: metrics.join(",") },
-      connection.accessToken,
+      pageToken,
     );
     const result: NormalizedPostMetric[] = [];
     for (const m of r.data ?? []) {
