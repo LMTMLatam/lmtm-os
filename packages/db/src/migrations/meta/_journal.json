@@ -722,6 +722,13 @@
       "when": 1779980000000,
       "tag": "0102_ads_mapping_included_adsets",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1780000000000,
+      "tag": "0103_ads_insights_extra_columns",
+      "breakpoints": true
     }
   ]
 }
