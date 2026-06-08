@@ -27,7 +27,7 @@
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, type AdsAccountMapping } from "@paperclipai/db";
-import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -776,7 +776,7 @@ export function adsRoutes(db: Db): Router {
     };
 
     const jobsToRun = job === "all"
-      ? ["campaigns", "adsets", "ads", "insights"]
+      ? ["campaigns", "adsets", "ads", "insights", "organic"]
       : [job];
     const results = await Promise.all(jobsToRun.map(runJob));
     const total = results.reduce((acc, r) => acc + (r.recordsSynced ?? 0), 0);
@@ -1257,10 +1257,27 @@ export function adsRoutes(db: Db): Router {
     try {
       const client = await resolveClient(idOrSlug, db);
       if (!client) return res.status(404).json({ error: "client not found" });
-      const posts = await db
+      // First, posts directly tagged with this client.
+      let posts = await db
         .select()
         .from(organicPosts)
         .where(eq(organicPosts.clientId, client.id));
+      // Fallback: include any organic posts whose pageId is mapped to this
+      // client (catches the case where posts were synced before the
+      // mapping got a clientId, or for orphan mappings).
+      if (posts.length === 0) {
+        const mappedPages = await db
+          .select({ pageId: adsAccountMappings.pageId })
+          .from(adsAccountMappings)
+          .where(eq(adsAccountMappings.clientId, client.id));
+        const pageIds = Array.from(new Set(mappedPages.map((m) => m.pageId).filter(Boolean) as string[]));
+        if (pageIds.length > 0) {
+          const orCond = or(...pageIds.map((p) => eq(organicPosts.pageId, p)));
+          if (orCond) {
+            posts = await db.select().from(organicPosts).where(orCond);
+          }
+        }
+      }
       // Pull insights for these posts in one go
       const postIds = posts.map((p) => p.id);
       let metrics: any[] = [];
