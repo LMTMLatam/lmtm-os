@@ -240,12 +240,18 @@ async function syncOrganic(db: Db, opts: SyncOptions): Promise<number> {
       message: p.message ?? null,
       story: p.story ?? null,
       fullPicture: p.fullPicture ?? null,
+      // ON CONFLICT DO NOTHING: the same page can be mapped to multiple
+      // LMTM clients, and the post id (pageid_postid) is the natural
+      // primary key — the first sync wins, subsequent syncs are no-ops.
+      // The endpoint falls back to page-id based lookup anyway, so
+      // missing-clientId rows are still discoverable.
       permalinkUrl: p.permalinkUrl ?? null,
       createdTime: p.createdTime ?? null,
       postType: p.postType ?? null,
       syncedAt: new Date(),
       raw: p.raw,
-    })));
+    })))
+    .onConflictDoNothing({ target: organicPosts.id });
   // Fetch per-post metrics for the most recent posts.
   const recent = posts.slice(-20);
   for (const post of recent) {
