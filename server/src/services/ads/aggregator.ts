@@ -222,17 +222,16 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
     })))
     .onConflictDoNothing()
     .catch((e) => {
-      // Surface the underlying DB error (constraint, type, etc.)
+      // Drizzle's PostgresError is at e.cause. Surface it loudly.
       const cause = e?.cause;
-      console.error("[syncInsights] insert failed", {
-        cause: cause?.message ?? cause,
-        code: cause?.code,
-        detail: cause?.detail,
-        hint: cause?.hint,
-        sample: insights[0],
-        rowCount: insights.length,
-      });
-      throw e;
+      const causeStr = cause
+        ? `${cause.code ?? "?"} ${cause.severity ?? "?"} ${cause.message ?? cause}`
+        : String(e);
+      console.error("[syncInsights] insert failed (full cause):", causeStr);
+      console.error("[syncInsights] first row:", JSON.stringify(insights[0] ?? {}).slice(0, 1000));
+      // Build a new error with the cause message as the main message.
+      const e2 = new Error(`DB: ${causeStr.slice(0, 1200)} | sample: ${JSON.stringify(insights[0] ?? {}).slice(0, 500)}`);
+      throw e2;
     });
   return insights.length;
 }
