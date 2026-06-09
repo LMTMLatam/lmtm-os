@@ -73,7 +73,18 @@ import {
   Clock,
   Flame,
   X,
+  Share2,
+  Copy,
+  Trash2,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 // ============================================================
 //   Sidebar config (14 items from the reference design)
@@ -431,6 +442,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
                 CSV
               </Button>
             </a>
+            <ShareDialog client={client} />
           </div>
           {syncMutation.isSuccess && (
             <div className="mt-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
@@ -1433,5 +1445,139 @@ function ConfiguracionSection({ ads }: { ads: ClientAdsSummary }) {
         <p className="text-xs text-muted-foreground">La sincronización corre en background. La primera vez tarda 2-5 minutos; las siguientes son incrementales.</p>
       </Card>
     </div>
+  );
+}
+
+// ============================================================
+//   SHARE DIALOG
+//   Generates a public read-only link the agency can hand to the
+//   client. No expiration by design (revoke via the same dialog).
+// ============================================================
+function ShareDialog({ client }: { client: Client }) {
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const linkQuery = useQuery({
+    queryKey: ["public-dashboard", client.slug],
+    queryFn: async () => {
+      const r = await fetch(`/api/clients/${client.slug}/public-dashboard`, { credentials: "include" });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<{ id: string; slug: string; url: string; enabled: boolean; label: string | null; createdAt: string; lastViewedAt: string | null }>;
+    },
+    enabled: open,
+  });
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`/api/clients/${client.slug}/public-dashboard`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: client.name }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["public-dashboard", client.slug] }),
+  });
+  const toggleMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const r = await fetch(`/api/clients/${client.slug}/public-dashboard`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["public-dashboard", client.slug] }),
+  });
+  const revokeMutation = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`/api/clients/${client.slug}/public-dashboard`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["public-dashboard", client.slug] }),
+  });
+
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const url = linkQuery.data?.url;
+    if (!url) return;
+    await navigator.clipboard.writeText(url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Share2 className="h-3.5 w-3.5 mr-1.5" />
+          Compartir
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Compartir dashboard con {client.name}</DialogTitle>
+          <DialogDescription>
+            Genera un link público de solo-lectura. Tu cliente puede abrirlo sin login.
+            No expira. Para revocar, desactivalo o borralo abajo.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 mt-2">
+          {linkQuery.isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : linkQuery.data ? (
+            <>
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Link público</label>
+                <div className="flex items-center gap-2">
+                  <Input value={linkQuery.data.url} readOnly className="h-9 text-xs font-mono" />
+                  <Button size="sm" variant="outline" onClick={copy}>
+                    {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground pt-1">
+                  <Badge variant="outline" className="text-[10px]">
+                    {linkQuery.data.enabled ? "Activo" : "Desactivado"}
+                  </Badge>
+                  {linkQuery.data.lastViewedAt && (
+                    <span>Última visita: {new Date(linkQuery.data.lastViewedAt).toLocaleString("es-AR")}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <Button size="sm" variant="outline" onClick={() => toggleMutation.mutate(!linkQuery.data!.enabled)}>
+                  {linkQuery.data.enabled ? "Desactivar" : "Activar"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { if (confirm("¿Borrar el link? Tu cliente perderá el acceso.")) revokeMutation.mutate(); }}>
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Borrar
+                </Button>
+                <a href={linkQuery.data.url} target="_blank" rel="noreferrer noopener">
+                  <Button size="sm" variant="outline">
+                    <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir
+                  </Button>
+                </a>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Todavía no generaste un link público. Hacé click abajo para crear uno.
+              </p>
+              <Button size="sm" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
+                {createMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5 mr-1.5" />}
+                Generar link público
+              </Button>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

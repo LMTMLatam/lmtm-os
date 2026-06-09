@@ -9,6 +9,7 @@ import { Companies } from "./pages/Companies";
 import { Clients } from "./pages/Clients";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
+import { PublicDashboard } from "./pages/PublicDashboard";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -278,6 +279,7 @@ export function App() {
         <Route path="invite/:token" element={<InviteLandingPage />} />
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
         <Route path="connect-ads" element={<ConnectAds />} />
+        <Route path="public/dashboards/:slug" element={<PublicDashboard />} />
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />

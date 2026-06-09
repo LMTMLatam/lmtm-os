@@ -26,7 +26,7 @@
 
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards, type AdsAccountMapping } from "@paperclipai/db";
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -1528,6 +1528,148 @@ export function adsRoutes(db: Db): Router {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[client funnel] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  //   PUBLIC DASHBOARD MANAGEMENT (admin-only)
+  //   ------------------------------------
+  //   The agency creates a public link for a client. The link is a
+  //   /public/dashboards/:slug URL the client can open without a login.
+  //   No expiration by design — revoke by deleting the row or toggling
+  //   `enabled` to false.
+  // ============================================================
+
+  function randomSlug(bytes = 16): string {
+    // URL-safe random string. Uses Node's built-in crypto.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    return randomBytes(bytes).toString("base64url");
+  }
+
+  // POST /api/clients/:idOrSlug/public-dashboard
+  // body: { label?: string }
+  // returns: { id, slug, url, enabled, createdAt }
+  router.post("/clients/:idOrSlug/public-dashboard", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { label } = (req.body ?? {}) as { label?: string };
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      // One active public dashboard per client. If one already exists,
+      // return it instead of creating a duplicate.
+      const [existing] = await db
+        .select()
+        .from(publicDashboards)
+        .where(eq(publicDashboards.clientId, client.id));
+      if (existing) {
+        return res.json({
+          id: existing.id,
+          slug: existing.slug,
+          url: `${panelUrl()}/public/dashboards/${existing.slug}`,
+          enabled: existing.enabled,
+          label: existing.label,
+          createdAt: existing.createdAt,
+        });
+      }
+      // Resolve the companyId via the first mapping for this client.
+      // Fall back to the LMTM OS company if the client has no mapping yet.
+      const [mappingRow] = await db
+        .select({ companyId: adsAccountMappings.companyId })
+        .from(adsAccountMappings)
+        .where(eq(adsAccountMappings.clientId, client.id))
+        .limit(1);
+      const companyId = mappingRow?.companyId ?? "00000000-0000-4000-8000-000000000001";
+      const [created] = await db
+        .insert(publicDashboards)
+        .values({
+          clientId: client.id,
+          companyId,
+          slug: randomSlug(),
+          label: label ?? client.name,
+          enabled: true,
+          createdByUserId: req.actor && "userId" in req.actor ? req.actor.userId : null,
+        })
+        .returning();
+      res.status(201).json({
+        id: created.id,
+        slug: created.slug,
+        url: `${panelUrl()}/public/dashboards/${created.slug}`,
+        enabled: created.enabled,
+        label: created.label,
+        createdAt: created.createdAt,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[public-dashboard create] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // GET /api/clients/:idOrSlug/public-dashboard
+  // returns: { id, slug, url, enabled, label, createdAt, lastViewedAt } | null
+  router.get("/clients/:idOrSlug/public-dashboard", async (req, res) => {
+    const { idOrSlug } = req.params;
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const [row] = await db.select().from(publicDashboards).where(eq(publicDashboards.clientId, client.id));
+      if (!row) return res.json(null);
+      res.json({
+        id: row.id,
+        slug: row.slug,
+        url: `${panelUrl()}/public/dashboards/${row.slug}`,
+        enabled: row.enabled,
+        label: row.label,
+        createdAt: row.createdAt,
+        lastViewedAt: row.lastViewedAt,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[public-dashboard get] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // PATCH /api/clients/:idOrSlug/public-dashboard
+  // body: { enabled?: boolean, label?: string }
+  router.patch("/clients/:idOrSlug/public-dashboard", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const { enabled, label } = (req.body ?? {}) as { enabled?: boolean; label?: string };
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const updates: Record<string, unknown> = {};
+      if (typeof enabled === "boolean") updates.enabled = enabled;
+      if (typeof label === "string") updates.label = label;
+      if (Object.keys(updates).length === 0) return res.json({ ok: true, noop: true });
+      const [updated] = await db
+        .update(publicDashboards)
+        .set(updates)
+        .where(eq(publicDashboards.clientId, client.id))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "no public dashboard for this client" });
+      res.json({ ok: true, slug: updated.slug, enabled: updated.enabled, label: updated.label });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[public-dashboard patch] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // DELETE /api/clients/:idOrSlug/public-dashboard
+  // Revokes the link.
+  router.delete("/clients/:idOrSlug/public-dashboard", async (req, res) => {
+    const { idOrSlug } = req.params;
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const result = await db.delete(publicDashboards).where(eq(publicDashboards.clientId, client.id));
+      res.json({ ok: true, deleted: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[public-dashboard delete] failed", idOrSlug, msg);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
     }
   });

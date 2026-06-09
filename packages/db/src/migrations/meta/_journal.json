@@ -729,6 +729,13 @@
       "when": 1780000000000,
       "tag": "0103_ads_insights_extra_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1780001000000,
+      "tag": "0104_public_dashboards",
+      "breakpoints": true
     }
   ]
 }
