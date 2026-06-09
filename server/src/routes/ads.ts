@@ -771,7 +771,10 @@ export function adsRoutes(db: Db): Router {
         return { job: name, status: "completed" as const, recordsSynced: n, startedAt, completedAt: new Date() };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        return { job: name, status: "failed" as const, error: msg.slice(0, 1500), startedAt, completedAt: new Date() };
+        const cause = e instanceof Error ? (e as any).cause : null;
+        const causeMsg = cause ? (cause instanceof Error ? cause.message : String(cause)) : null;
+        const full = causeMsg ? `${msg} | cause: ${causeMsg}` : msg;
+        return { job: name, status: "failed" as const, error: full.slice(0, 1500), startedAt, completedAt: new Date() };
       }
     };
 

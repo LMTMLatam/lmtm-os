@@ -220,9 +220,18 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
       videoViews: i.videoViews ?? 0,
       raw: i.raw,
     })))
+    .onConflictDoNothing()
     .catch((e) => {
       // Surface the underlying DB error (constraint, type, etc.)
-      console.error("[syncInsights] insert failed", { cause: e?.cause?.message ?? e?.message, sample: insights[0] });
+      const cause = e?.cause;
+      console.error("[syncInsights] insert failed", {
+        cause: cause?.message ?? cause,
+        code: cause?.code,
+        detail: cause?.detail,
+        hint: cause?.hint,
+        sample: insights[0],
+        rowCount: insights.length,
+      });
       throw e;
     });
   return insights.length;
