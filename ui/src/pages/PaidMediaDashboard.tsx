@@ -271,7 +271,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const today = useMemo(() => new Date(), []);
   const defaultSince = useMemo(() => {
     const d = new Date(today);
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() - 365);
     return d.toISOString().slice(0, 10);
   }, [today]);
   const defaultUntil = useMemo(() => today.toISOString().slice(0, 10), [today]);
