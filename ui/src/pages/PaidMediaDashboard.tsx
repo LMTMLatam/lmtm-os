@@ -18,7 +18,7 @@
 //     /clients/:slug/funnel
 // - Date range is shared across all sections via the parent component.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clientsApi,
@@ -324,10 +324,28 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   });
 
   // ---- Sync mutation ----
-  const firstAccount = ads.accounts[0];
+  // Calls the new bulk endpoint that iterates EVERY ad_account_mapping
+  // linked to this client (not just the first one) and runs all 5
+  // sync jobs sequentially. Default range is last 365 days.
   const syncMutation = useMutation({
     mutationFn: async () => {
-      return clientsApi.syncAds(firstAccount.connectionId, firstAccount.mappingId, "all", range.since, range.until);
+      const r = await fetch(`/api/clients/${client.slug}/sync`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "Origin": "https://lmtm.onrender.com" },
+        body: JSON.stringify({ since: range.since, until: range.until }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      return r.json() as Promise<{
+        mappings: number;
+        since: string;
+        until: string;
+        jobs: string[];
+        ok: boolean;
+        totalRecords: number;
+        failedCount: number;
+        results: Array<{ mappingId: string; label: string; adAccountId: string; job: string; status: string; recordsSynced: number; error?: string }>;
+      }>;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dashboard", "campaigns", client.slug] });
@@ -340,6 +358,46 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
       qc.invalidateQueries({ queryKey: ["dashboard", "alerts", client.slug] });
     },
   });
+
+  // Track when the last sync completed (for the auto-sync indicator).
+  const lastSyncedAtRef = useRef<number | undefined>(undefined);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (syncMutation.isSuccess) {
+      const t = Date.now();
+      lastSyncedAtRef.current = t;
+      setLastSyncedAt(t);
+    }
+  }, [syncMutation.isSuccess, syncMutation.data]);
+
+  // ---- Auto-sync ----
+  // Triggers the bulk sync automatically on:
+  //   1. First mount (so users land on a populated dashboard)
+  //   2. Whenever the user changes the date range
+  //   3. Every 5 minutes while the page is open (so the data is always fresh)
+  // No button, no confirmation, no waiting.
+  const initialMount = useRef(true);
+  useEffect(() => {
+    if (initialMount.current) {
+      initialMount.current = false;
+      // First load: fire and forget
+      syncMutation.mutate();
+      return;
+    }
+    // Subsequent range changes: debounce 800ms then sync
+    const t = setTimeout(() => syncMutation.mutate(), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.slug, range.since, range.until]);
+
+  // Periodic auto-sync every 5 min (only if no sync is in flight)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!syncMutation.isPending) syncMutation.mutate();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Totals (from funnel) ----
   const funnel = funnelQuery.data?.funnel;
@@ -420,22 +478,13 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
           </div>
           <div className="flex items-end gap-2 flex-wrap">
             <DateRangePicker since={range.since} until={range.until} defaultUntil={defaultUntil} onChange={setRange} />
-            <Button
-              size="sm"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              {syncMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-              ) : (
-                <Play className="h-3.5 w-3.5 mr-1.5" />
-              )}
-              Sincronizar
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => { tsQuery.refetch(); adsetsQuery.refetch(); creativesQuery.refetch(); alertsQuery.refetch(); audienceQuery.refetch(); funnelQuery.refetch(); campaignsQuery.refetch(); }}>
-              <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />
-              Refrescar
-            </Button>
+            <SyncStatusIndicator
+              isPending={syncMutation.isPending}
+              isError={syncMutation.isError}
+              lastSyncedAt={lastSyncedAt}
+              records={syncMutation.data?.totalRecords}
+              mappings={syncMutation.data?.mappings}
+            />
             <a href={clientsApi.campaignsCsvUrl(client.slug, range)} target="_blank" rel="noreferrer noopener">
               <Button size="sm" variant="outline">
                 <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -444,18 +493,6 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
             </a>
             <ShareDialog client={client} />
           </div>
-          {syncMutation.isSuccess && (
-            <div className="mt-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Sincronización completa: {syncMutation.data.totalRecords} registros actualizados
-            </div>
-          )}
-          {syncMutation.isError && (
-            <div className="mt-3 text-xs text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Error: {(syncMutation.error as Error).message}
-            </div>
-          )}
         </div>
       </Card>
 
@@ -1581,3 +1618,72 @@ function ShareDialog({ client }: { client: Client }) {
     </Dialog>
   );
 }
+
+// ============================================================
+//   SYNC STATUS INDICATOR
+//   Small badge that shows whether the dashboard is syncing,
+//   when it last synced, and a one-click "refrescar ahora".
+//   The user has to manually click refresh if they want to
+//   re-sync immediately — the dashboard auto-refreshes every 5
+//   minutes on its own.
+// ============================================================
+function SyncStatusIndicator({
+  isPending,
+  isError,
+  lastSyncedAt,
+  records,
+  mappings,
+}: {
+  isPending: boolean;
+  isError: boolean;
+  lastSyncedAt: number | undefined;
+  records: number | undefined;
+  mappings: number | undefined;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (isPending) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>Sincronizando…</span>
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-rose-600 dark:text-rose-400">
+        <AlertTriangle className="h-3 w-3" />
+        <span>Error de sync (reintenta solo en 5 min)</span>
+      </div>
+    );
+  }
+  if (!lastSyncedAt) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>Cargando…</span>
+      </div>
+    );
+  }
+  const elapsed = Math.floor((now - lastSyncedAt) / 1000);
+  let label = "ahora";
+  if (elapsed >= 60 && elapsed < 3600) label = `hace ${Math.floor(elapsed / 60)} min`;
+  else if (elapsed >= 3600) label = `hace ${Math.floor(elapsed / 3600)} h`;
+
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground" title={`Última sincronización: ${label}${records != null ? ` · ${records} registros` : ""}`}>
+      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+      <span>
+        Auto-sync · {label}
+        {mappings != null ? ` · ${mappings} cuenta${mappings === 1 ? "" : "s"}` : ""}
+      </span>
+    </div>
+  );
+}
+
+

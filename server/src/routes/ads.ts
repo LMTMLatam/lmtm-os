@@ -1669,10 +1669,103 @@ export function adsRoutes(db: Db): Router {
       const client = await resolveClient(idOrSlug, db);
       if (!client) return res.status(404).json({ error: "client not found" });
       const result = await db.delete(publicDashboards).where(eq(publicDashboards.clientId, client.id));
-      res.json({ ok: true, deleted: true });
+      res.json({ ok: true, deleted: true       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[public-dashboard delete] failed", idOrSlug, msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ============================================================
+  //   BULK SYNC — sync ALL mappings for a client
+  //   ------------------------------------
+  //   POST /api/clients/:idOrSlug/sync
+  //   body: { jobs?: Array<"campaigns"|"adsets"|"ads"|"insights"|"organic">, since?, until? }
+  //   returns: { client, results: [{ mappingId, label, adAccountId, status, ... }] }
+  //
+  //   This is the endpoint the ClientDashboard "Sincronizar" button
+  //   should call. It iterates every ad_account_mapping for the client
+  //   and runs the requested jobs sequentially with a 1s sleep between
+  //   ad accounts to stay under Meta's per-app rate limit.
+  // ============================================================
+  router.post("/clients/:idOrSlug/sync", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const body = (req.body ?? {}) as {
+      jobs?: Array<"campaigns" | "adsets" | "ads" | "insights" | "organic">;
+      since?: string;
+      until?: string;
+    };
+    const jobs = body.jobs && body.jobs.length > 0 ? body.jobs : ["campaigns", "adsets", "ads", "insights", "organic"];
+    try {
+      const client = await resolveClient(idOrSlug, db);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      const mappings = await db
+        .select({
+          id: adsAccountMappings.id,
+          adAccountId: adsAccountMappings.adAccountId,
+          pageId: adsAccountMappings.pageId,
+          label: adsAccountMappings.label,
+          connectionId: adsAccountMappings.connectionId,
+        })
+        .from(adsAccountMappings)
+        .where(eq(adsAccountMappings.clientId, client.id));
+      if (mappings.length === 0) {
+        return res.json({
+          client: { id: client.id, slug: client.slug, name: client.name },
+          mappings: 0,
+          results: [],
+          note: "No mappings for this client. Use the picker at /connect-ads.",
+        });
+      }
+      const sinceDate = body.since ? new Date(body.since) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+      const untilDate = body.until ? new Date(body.until) : new Date();
+      const since = sinceDate.toISOString().slice(0, 10);
+      const until = untilDate.toISOString().slice(0, 10);
+      const results: any[] = [];
+      // For each mapping, run jobs sequentially. Between mappings, sleep 2s.
+      for (const m of mappings) {
+        for (const job of jobs) {
+          const startedAt = new Date();
+          try {
+            const opts = { jobName: job, connectionId: m.connectionId, mappingId: m.id, since: sinceDate, until: untilDate };
+            let n = 0;
+            if (job === "campaigns") n = await adsAggregator.syncCampaigns(db, opts);
+            else if (job === "adsets") n = await adsAggregator.syncAdsets(db, opts);
+            else if (job === "ads") n = await adsAggregator.syncCreatives(db, opts);
+            else if (job === "insights") n = await adsAggregator.syncInsights(db, opts);
+            else if (job === "organic") n = await adsAggregator.syncOrganic(db, opts);
+            results.push({ mappingId: m.id, label: m.label, adAccountId: m.adAccountId, job, status: "completed", recordsSynced: n, startedAt, completedAt: new Date() });
+            console.log(`[bulk-sync] ${client.slug} ${m.label} ${job} -> ${n}`);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            const cause = e instanceof Error ? (e as any).cause : null;
+            const causeMsg = cause ? (cause instanceof Error ? cause.message : String(cause)) : null;
+            const full = causeMsg ? `${msg} | cause: ${causeMsg}` : msg;
+            results.push({ mappingId: m.id, label: m.label, adAccountId: m.adAccountId, job, status: "failed", error: full.slice(0, 500), startedAt, completedAt: new Date() });
+            console.log(`[bulk-sync] ${client.slug} ${m.label} ${job} FAILED: ${full.slice(0, 200)}`);
+          }
+          // Brief pause between jobs within the same account
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        // 2s pause between ad accounts
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      const total = results.reduce((acc, r) => acc + (r.recordsSynced ?? 0), 0);
+      const failed = results.filter((r) => r.status === "failed").length;
+      res.json({
+        client: { id: client.id, slug: client.slug, name: client.name },
+        mappings: mappings.length,
+        since, until,
+        jobs,
+        ok: failed === 0,
+        totalRecords: total,
+        failedCount: failed,
+        results,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[client bulk-sync] failed", idOrSlug, msg);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
     }
   });
