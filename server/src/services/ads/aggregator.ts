@@ -219,7 +219,12 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
       conversionValue: i.conversionValue?.toString() ?? null,
       videoViews: i.videoViews ?? 0,
       raw: i.raw,
-    })));
+    })))
+    .catch((e) => {
+      // Surface the underlying DB error (constraint, type, etc.)
+      console.error("[syncInsights] insert failed", { cause: e?.cause?.message ?? e?.message, sample: insights[0] });
+      throw e;
+    });
   return insights.length;
 }
 
