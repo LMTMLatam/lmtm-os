@@ -25,6 +25,7 @@
 //   GET    /api/clients/:id/dashboard
 
 import { Router, type Request, type Response } from "express";
+import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards, type AdsAccountMapping } from "@paperclipai/db";
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
@@ -1546,8 +1547,7 @@ export function adsRoutes(db: Db): Router {
 
   function randomSlug(bytes = 16): string {
     // URL-safe random string. Uses Node's built-in crypto.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { randomBytes } = require("crypto") as typeof import("crypto");
+    // Imported at top of file; no require() because the runtime is ESM.
     return randomBytes(bytes).toString("base64url");
   }
 
