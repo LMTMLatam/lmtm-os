@@ -18,7 +18,7 @@ set -e
 # to 8080 in render.yaml) instead of $PORT — Render injects $PORT=10000 for
 # the LMTM-OS server, but openwa should listen on 8080.
 OPENWA_PORT="${WA_AUTOMATE_PORT:-8080}"
-ARGS="--port ${OPENWA_PORT} --config /app/openwa.config.json"
+ARGS="--port ${OPENWA_PORT} --config /app/openwa.config.json --session-id ${WA_AUTOMATE_SESSION_ID:-lmtm}"
 
 # Use the same API key the LMTM-OS server uses.
 API_KEY="${WA_AUTOMATE_API_KEY:-${OPENWA_API_KEY:-}}"
@@ -33,11 +33,11 @@ if [ -n "$PAPERCLIP_AUTH_PUBLIC_BASE_URL" ]; then
   echo "[openwa] webhook set to $WA_WEBHOOK"
 fi
 
-# We bind the local 8080 to all interfaces so the diagnostics endpoint
-# and other tools can introspect it.
-echo "[openwa] using google-chrome at /usr/bin/google-chrome ($(google-chrome --version 2>/dev/null || echo 'NOT FOUND'))"
+# Debug: print what we're about to do
+echo "[openwa] chrome: $(google-chrome --version 2>/dev/null || echo 'NOT FOUND')"
+echo "[openwa] config file: $(ls -la /app/openwa.config.json 2>&1)"
+echo "[openwa] ARGS: $ARGS"
 echo "[openwa] listening on 0.0.0.0:${OPENWA_PORT} (api key: $([ -n "$API_KEY" ] && echo 'set' || echo 'MISSING'))"
-echo "[openwa] config: /app/openwa.config.json (useChrome: true, qrTimeout: 300s)"
 
 echo "[openwa] starting: npx @open-wa/wa-automate@${WA_AUTOMATE_VERSION:-4.76.0} $ARGS"
 exec npx @open-wa/wa-automate@${WA_AUTOMATE_VERSION:-4.76.0} $ARGS
