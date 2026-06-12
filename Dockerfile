@@ -181,11 +181,12 @@ EXPOSE 3100 8080
 # We install it globally so the start.sh wrapper can spawn it with npx.
 ARG WA_AUTOMATE_VERSION=4.76.0
 ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
-ARG CHROME_VERSION=131.0.6778.204-1
 # Install Chrome headless dependencies (Puppeteer needs libglib, libnss, etc.)
 # Plus ignore-check globally FIRST so the wa-automate postinstall works.
 # Plus `procps` (provides `ps`) and `net-tools` (provides `netstat`/`ifconfig`)
 # which wa-automate and the diagnostics endpoint use for introspection.
+# Plus Google Chrome stable + its signing key so wa-automate can launch
+# it via --use-chrome (the bundled Chromium is rejected by web.whatsapp.com).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -193,17 +194,7 @@ RUN apt-get update \
     dumb-init \
     procps \
     net-tools \
-    # Google Chrome stable (we use --executablePath=/usr/bin/google-chrome)
     gnupg \
-  && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends \
-    google-chrome-stable \
-  && rm -rf /var/lib/apt/lists/* \
-  && # Chrome / Puppeteer runtime deps
-    apt-get update \
-  && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -226,6 +217,10 @@ RUN apt-get update \
     libasound2 \
     fonts-liberation \
     libgconf-2-4 \
+  && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends google-chrome-stable \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g ignore-check@latest --no-audit --no-fund --ignore-scripts \
   && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund \
