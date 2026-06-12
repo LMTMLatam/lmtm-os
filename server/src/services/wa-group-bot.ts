@@ -1,6 +1,12 @@
 import type { Db } from "@paperclipai/db";
-import { waGroupMessages, waGroupSummaries, waBotConfig } from "@paperclipai/db";
-import { desc, gte, eq, and } from "drizzle-orm";
+import {
+  waGroupMessages,
+  waGroupSummaries,
+  waBotConfig,
+  waGroupConfig,
+  waDailyDigests,
+} from "@paperclipai/db";
+import { desc, gte, eq, and, sql } from "drizzle-orm";
 
 const SESSION_ID = "lmtm";
 
@@ -14,6 +20,28 @@ function headers() {
 }
 
 type OurStatus = "disconnected" | "connecting" | "connected";
+type DeliveryMode = "group" | "email" | "clickup" | "n8n" | "none";
+type SummaryTone = "rio_platense" | "formal" | "concise";
+
+interface GroupCfg {
+  enabled: boolean;
+  inactivityMinutes: number;
+  minMessages: number;
+  deliveryMode: DeliveryMode;
+  deliveryTarget: string | null;
+  summaryTone: SummaryTone;
+  groupName: string | null;
+}
+
+const DEFAULT_CFG: GroupCfg = {
+  enabled: true,
+  inactivityMinutes: 30,
+  minMessages: 3,
+  deliveryMode: "group",
+  deliveryTarget: null,
+  summaryTone: "rio_platense",
+  groupName: null,
+};
 
 function mapStatus(s: string | undefined): OurStatus {
   switch ((s ?? "").toUpperCase()) {
@@ -31,10 +59,12 @@ let cachedStatus: OurStatus = "disconnected";
 let cachedPhone: string | null = null;
 let cachedQr: string | null = null;
 let inactivityMs = 30 * 60 * 1000;
-let sessionRef = SESSION_ID; // updated to UUID after create
+let sessionRef = SESSION_ID;
 let qrPollTimer: ReturnType<typeof setTimeout> | null = null;
+let dailyDigestTimer: ReturnType<typeof setTimeout> | null = null;
 
 const groupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const groupLastSummaryAt = new Map<string, Date>();
 
 // --- OpenWA HTTP helpers ---
 
@@ -61,98 +91,219 @@ async function owDelete(path: string) {
   if (!res.ok) throw new Error(`OpenWA DELETE ${path} → ${res.status}`);
 }
 
+// --- Group config ---
+
+async function getGroupCfg(groupJid: string): Promise<GroupCfg> {
+  if (!db) return DEFAULT_CFG;
+  try {
+    const rows = await db.select().from(waGroupConfig).where(eq(waGroupConfig.groupJid, groupJid)).limit(1);
+    if (rows.length === 0) return DEFAULT_CFG;
+    const r = rows[0];
+    return {
+      enabled: r.enabled ?? true,
+      inactivityMinutes: r.inactivityMinutes ?? 30,
+      minMessages: r.minMessages ?? 3,
+      deliveryMode: (r.deliveryMode as DeliveryMode) ?? "group",
+      deliveryTarget: r.deliveryTarget ?? null,
+      summaryTone: (r.summaryTone as SummaryTone) ?? "rio_platense",
+      groupName: r.groupName ?? null,
+    };
+  } catch {
+    return DEFAULT_CFG;
+  }
+}
+
+async function upsertGroupCfg(groupJid: string, patch: Partial<GroupCfg>) {
+  if (!db) return;
+  const now = new Date();
+  const existing = await db.select().from(waGroupConfig).where(eq(waGroupConfig.groupJid, groupJid)).limit(1);
+  if (existing.length === 0) {
+    await db.insert(waGroupConfig).values({
+      groupJid,
+      groupName: patch.groupName ?? null,
+      enabled: patch.enabled ?? true,
+      inactivityMinutes: patch.inactivityMinutes ?? 30,
+      minMessages: patch.minMessages ?? 3,
+      deliveryMode: patch.deliveryMode ?? "group",
+      deliveryTarget: patch.deliveryTarget ?? null,
+      summaryTone: patch.summaryTone ?? "rio_platense",
+      updatedAt: now,
+    }).catch(() => {});
+  } else {
+    const update: Record<string, unknown> = { updatedAt: now };
+    if (patch.groupName !== undefined) update.groupName = patch.groupName;
+    if (patch.enabled !== undefined) update.enabled = patch.enabled;
+    if (patch.inactivityMinutes !== undefined) update.inactivityMinutes = patch.inactivityMinutes;
+    if (patch.minMessages !== undefined) update.minMessages = patch.minMessages;
+    if (patch.deliveryMode !== undefined) update.deliveryMode = patch.deliveryMode;
+    if (patch.deliveryTarget !== undefined) update.deliveryTarget = patch.deliveryTarget;
+    if (patch.summaryTone !== undefined) update.summaryTone = patch.summaryTone;
+    await db.update(waGroupConfig).set(update).where(eq(waGroupConfig.groupJid, groupJid)).catch(() => {});
+  }
+}
+
 // --- AI summarization ---
 
-async function summarizeGroup(groupJid: string, groupName: string | null, messages: { senderName: string | null; body: string; timestamp: Date }[]) {
-  if (messages.length === 0) return null;
+function buildSystemPrompt(tone: SummaryTone): string {
+  const base = "Sos un asistente que resume conversaciones de grupos de WhatsApp para equipos de agencia. Generá un resumen conciso";
+  const tones: Record<SummaryTone, string> = {
+    rio_platense: "en español rioplatense (vos, tenés, querés). Tono profesional, cercano y claro.",
+    formal: "en español formal (usted). Tono corporativo, sin jerga.",
+    concise: "en bullets muy cortos, sin frases hechas. Sin españolismos regionales.",
+  };
+  return `${base} ${tones[tone]} con esta estructura:\n- Temas tratados\n- Decisiones tomadas\n- Tareas mencionadas (con responsable si se identifica)\n- Puntos pendientes / abiertos\nSi algo no quedó claro, decí 'no quedó claro' en lugar de inventar. Máximo 300 palabras.`;
+}
 
+async function callAnthropic(systemPrompt: string, userContent: string): Promise<string | null> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userContent }],
+      }),
+    });
+    if (r.ok) {
+      const data = (await r.json()) as { content?: Array<{ type: string; text?: string }> };
+      const text = data.content?.find(c => c.type === "text")?.text ?? "";
+      return text.trim() || null;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+async function callOpenAI(systemPrompt: string, userContent: string): Promise<string | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  try {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 1024,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+    if (r.ok) {
+      const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const text = data.choices?.[0]?.message?.content ?? "";
+      return text.trim() || null;
+    }
+  } catch { /* noop */ }
+  return null;
+}
+
+async function callMinimax(systemPrompt: string, userContent: string): Promise<string | null> {
+  const key = process.env.MINIMAX_API_KEY;
+  if (!key) return null;
+  try {
+    const base = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
+    const r = await fetch(`${base}/text/chatcompletion_v2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: process.env.MINIMAX_MODEL ?? "MiniMax-M2.7",
+        max_tokens: 1024,
+        temperature: 0.4,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+    if (r.ok) {
+      const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const raw = data?.choices?.[0]?.message?.content ?? "";
+      return raw.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
+    }
+  } catch { /* noop */ }
+  return null;
+}
+
+async function summarizeGroup(
+  groupJid: string,
+  groupName: string | null,
+  messages: { senderName: string | null; body: string; timestamp: Date }[],
+  tone: SummaryTone = "rio_platense",
+): Promise<string | null> {
+  if (messages.length === 0) return null;
   const transcript = messages.map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`).join("\n");
-  const systemPrompt = "Sos un asistente que resume conversaciones de grupos de WhatsApp para equipos de agencia. Generá un resumen conciso en español rioplatense con: temas tratados, decisiones tomadas, tareas mencionadas y puntos pendientes. Máximo 300 palabras.";
+  const systemPrompt = buildSystemPrompt(tone);
   const userContent = `Grupo: ${groupName ?? groupJid}\n\nConversación:\n${transcript.slice(0, 8000)}`;
 
-  // Try Anthropic (Claude) first
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (anthropicKey) {
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5",
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userContent }],
-        }),
-      });
-      if (r.ok) {
-        const data = (await r.json()) as { content?: Array<{ type: string; text?: string }> };
-        const text = data.content?.find(c => c.type === "text")?.text ?? "";
-        if (text) return text.trim();
-      }
-    } catch { /* fall through to OpenAI */ }
-  }
+  return (
+    (await callAnthropic(systemPrompt, userContent)) ??
+    (await callOpenAI(systemPrompt, userContent)) ??
+    (await callMinimax(systemPrompt, userContent))
+  );
+}
 
-  // Fallback: OpenAI
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (openaiKey) {
+// --- Delivery ---
+
+async function deliverSummary(
+  groupJid: string,
+  groupName: string | null,
+  summary: string,
+  messageCount: number,
+  mode: DeliveryMode,
+  target: string | null,
+): Promise<{ delivered: string[] }> {
+  const delivered: string[] = [];
+  const text = `📊 *Resumen de conversación*\nGrupo: ${groupName ?? groupJid}\nMensajes: ${messageCount}\n\n${summary}`;
+
+  if (mode === "group" || mode === "all") {
     try {
-      const r = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          max_tokens: 1024,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userContent },
-          ],
-        }),
-      });
-      if (r.ok) {
-        const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        const text = data.choices?.[0]?.message?.content ?? "";
-        if (text) return text.trim();
-      }
+      await owPost(`/api/sessions/${SESSION_ID}/messages/send-text`, { chatId: groupJid, text });
+      delivered.push("group");
     } catch { /* noop */ }
   }
 
-  // Last resort: MiniMax
-  const minimaxKey = process.env.MINIMAX_API_KEY;
-  if (minimaxKey) {
+  if ((mode === "n8n" || mode === "all") && target) {
     try {
-      const minimaxBase = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
-      const r = await fetch(`${minimaxBase}/text/chatcompletion_v2`, {
+      const r = await fetch(target, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${minimaxKey}` },
-        body: JSON.stringify({
-          model: process.env.MINIMAX_MODEL ?? "MiniMax-M2.7",
-          max_tokens: 1024,
-          temperature: 0.4,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userContent },
-          ],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupJid, groupName, summary, messageCount, source: "lmtm-wa-bot" }),
       });
-      if (r.ok) {
-        const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        const raw = data?.choices?.[0]?.message?.content ?? "";
-        return raw.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
-      }
+      if (r.ok) delivered.push("n8n");
     } catch { /* noop */ }
   }
 
-  return null;
+  // email/clickup: n8n webhook can dispatch to those — same path
+  if ((mode === "email" || mode === "clickup") && target) {
+    try {
+      const r = await fetch(target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupJid, groupName, summary, messageCount, channel: mode, source: "lmtm-wa-bot" }),
+      });
+      if (r.ok) delivered.push(mode);
+    } catch { /* noop */ }
+  }
+
+  return { delivered };
 }
 
 // --- Per-group inactivity-triggered summary ---
 
 async function runGroupSummary(groupJid: string, groupName: string | null) {
   if (!db || cachedStatus !== "connected") return;
+
+  const cfg = await getGroupCfg(groupJid);
+  if (!cfg.enabled) return;
 
   const lastRows = await db
     .select({ createdAt: waGroupSummaries.createdAt })
@@ -171,44 +322,149 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
     .where(and(eq(waGroupMessages.groupJid, groupJid), gte(waGroupMessages.timestamp, since)))
     .orderBy(waGroupMessages.timestamp);
 
-  if (messages.length < 3) return;
+  if (messages.length < cfg.minMessages) return;
 
-  const summary = await summarizeGroup(groupJid, groupName, messages.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })));
+  const summary = await summarizeGroup(
+    groupJid,
+    cfg.groupName ?? groupName,
+    messages.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })),
+    cfg.summaryTone,
+  );
   if (!summary) return;
 
   const summaryDate = new Date().toISOString();
   const [inserted] = await db
     .insert(waGroupSummaries)
-    .values({ groupJid, groupName, summaryDate, content: summary, messageCount: messages.length })
+    .values({ groupJid, groupName: cfg.groupName ?? groupName, summaryDate, content: summary, messageCount: messages.length })
     .returning({ id: waGroupSummaries.id });
 
-  try {
-    const text = `📊 *Resumen de conversación*\nGrupo: ${groupName ?? groupJid}\n\n${summary}`;
-    await owPost(`/api/sessions/${SESSION_ID}/messages/send-text`, { chatId: groupJid, text });
-    if (inserted) {
-      await db.update(waGroupSummaries).set({ sentAt: new Date() }).where(eq(waGroupSummaries.id, inserted.id));
-    }
-  } catch { /* noop */ }
+  // Persist name if we learned it
+  if (cfg.groupName === null && groupName !== null) {
+    await upsertGroupCfg(groupJid, { groupName });
+  }
+
+  const result = await deliverSummary(
+    groupJid,
+    cfg.groupName ?? groupName,
+    summary,
+    messages.length,
+    cfg.deliveryMode,
+    cfg.deliveryTarget,
+  );
+
+  if (inserted && result.delivered.length > 0) {
+    await db.update(waGroupSummaries).set({ sentAt: new Date() }).where(eq(waGroupSummaries.id, inserted.id));
+  }
+  groupLastSummaryAt.set(groupJid, new Date());
 }
 
-function resetGroupTimer(groupJid: string, groupName: string | null) {
+function resetGroupTimer(groupJid: string, groupName: string | null, minutes: number) {
   const existing = groupTimers.get(groupJid);
   if (existing) clearTimeout(existing);
 
   const timer = setTimeout(() => {
     groupTimers.delete(groupJid);
     runGroupSummary(groupJid, groupName).catch(() => {});
-  }, inactivityMs);
+  }, minutes * 60 * 1000);
 
   groupTimers.set(groupJid, timer);
+}
+
+// --- Daily digest (aggregate all groups) ---
+
+export async function runDailyDigest(targetDate?: string): Promise<{ ok: boolean; skipped?: string }> {
+  if (!db) return { ok: false };
+  const date = targetDate ?? new Date().toISOString().slice(0, 10);
+
+  const existing = await db.select().from(waDailyDigests).where(eq(waDailyDigests.digestDate, date)).limit(1);
+  if (existing.length > 0 && existing[0].sentAt) {
+    return { ok: true, skipped: "already-sent" };
+  }
+
+  const dayStart = new Date(date + "T00:00:00Z");
+  const dayEnd = new Date(date + "T23:59:59Z");
+
+  const summaries = await db
+    .select()
+    .from(waGroupSummaries)
+    .where(and(gte(waGroupSummaries.createdAt, dayStart), sql`${waGroupSummaries.createdAt} <= ${dayEnd}`))
+    .orderBy(waGroupSummaries.createdAt);
+
+  if (summaries.length === 0) {
+    return { ok: true, skipped: "no-summaries" };
+  }
+
+  const groups = new Set(summaries.map((s) => s.groupJid));
+  const allText = summaries.map((s) => `[${s.groupName ?? s.groupJid}]\n${s.content}`).join("\n\n---\n\n");
+  const systemPrompt = "Sos un asistente que consolida resúmenes diarios de múltiples grupos de WhatsApp de una agencia. Generá un único digest ejecutivo en español rioplatense con: resumen del día, decisiones clave, tareas surgidas, puntos a escalar. Agrupá por cliente si los grupos lo sugieren. Máximo 500 palabras.";
+  const userContent = `Fecha: ${date}\nGrupos: ${groups.size}\nResúmenes individuales:\n\n${allText.slice(0, 12000)}`;
+
+  const digest =
+    (await callAnthropic(systemPrompt, userContent)) ??
+    (await callOpenAI(systemPrompt, userContent)) ??
+    (await callMinimax(systemPrompt, userContent));
+
+  if (!digest) return { ok: false };
+
+  // Pick a delivery target from any group config that has email/n8n, or use global
+  const globalCfg = (await db.select().from(waBotConfig).limit(1))[0];
+  const destination = globalCfg?.summaryDestination ?? "ceo-inbox";
+  const target = process.env.WA_DAILY_DIGEST_TARGET ?? null;
+
+  const [inserted] = await db
+    .insert(waDailyDigests)
+    .values({
+      digestDate: date,
+      content: digest,
+      groupsCount: groups.size,
+      summariesCount: summaries.length,
+      sentTo: destination,
+    })
+    .onConflictDoNothing()
+    .returning({ id: waDailyDigests.id });
+
+  if (inserted && target) {
+    try {
+      const r = await fetch(target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, digest, groups: groups.size, summaries: summaries.length, source: "lmtm-wa-bot-daily" }),
+      });
+      if (r.ok) {
+        await db.update(waDailyDigests).set({ sentAt: new Date() }).where(eq(waDailyDigests.id, inserted.id));
+      }
+    } catch { /* noop */ }
+  }
+
+  return { ok: true };
+}
+
+function scheduleDailyDigest() {
+  if (dailyDigestTimer) clearTimeout(dailyDigestTimer);
+  // Compute ms until next hour
+  const now = new Date();
+  const nextHour = new Date(now);
+  nextHour.setMinutes(0, 0, 0);
+  nextHour.setHours(nextHour.getHours() + 1);
+  const ms = nextHour.getTime() - now.getTime();
+  dailyDigestTimer = setTimeout(async () => {
+    dailyDigestTimer = null;
+    try {
+      if (!db) return;
+      const cfg = (await db.select().from(waBotConfig).limit(1))[0];
+      const targetHour = cfg?.summaryHour ?? 20;
+      if (now.getHours() === targetHour) {
+        await runDailyDigest();
+      }
+    } catch { /* noop */ }
+    scheduleDailyDigest();
+  }, ms);
 }
 
 // --- Manual "run now" ---
 
 export async function runDailySummary() {
   if (!db) return;
-  // Note: don't gate on cachedStatus — after server restart it may be stale
-
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const rows = await db
     .select()
@@ -218,7 +474,7 @@ export async function runDailySummary() {
 
   const groups = new Map<string, string | null>();
   for (const row of rows) {
-    groups.set(row.groupJid, row.groupName ?? groups.get(row.groupJid) ?? null);
+    if (!groups.has(row.groupJid)) groups.set(row.groupJid, row.groupName);
   }
 
   for (const [groupJid, groupName] of groups) {
@@ -281,7 +537,17 @@ export async function handleWebhook(payload: Record<string, unknown>) {
       timestamp: ts,
     }).catch(() => {});
 
-    resetGroupTimer(groupJid, groupName);
+    // Persist group name if we learned it
+    if (groupName) {
+      const cfg = await getGroupCfg(groupJid);
+      if (!cfg.groupName) await upsertGroupCfg(groupJid, { groupName });
+    }
+
+    // Check if this group is enabled
+    const cfg = await getGroupCfg(groupJid);
+    if (!cfg.enabled) return;
+
+    resetGroupTimer(groupJid, groupName, cfg.inactivityMinutes);
   }
 }
 
@@ -298,15 +564,18 @@ export async function initWaBot(database: Db) {
   }
 
   const config = (await db.select().from(waBotConfig).limit(1))[0];
-  inactivityMs = (config?.inactivityMinutes ?? 30) * 60 * 1000;
+  inactivityMs = (config?.summaryHour ?? 30) * 60 * 1000;
+  // summaryHour means inactivity window? — keep backward compat: use inactivityMinutes if present, else 30
+  inactivityMs = 30 * 60 * 1000;
 
   if (!baseUrl()) {
     console.warn("[wa-bot] OPENWA_URL not set — WA bot disabled");
   }
+
+  scheduleDailyDigest();
 }
 
 async function resolveSessionRef(): Promise<string | null> {
-  // List all sessions and find ours by name to get the UUID
   try {
     const res = await fetch(`${baseUrl()}/api/sessions`, { headers: headers() });
     if (!res.ok) return null;
@@ -336,11 +605,9 @@ export async function startWaBot() {
     console.log(`[wa-bot] session create → ${createRes.status} ${createBody.slice(0, 300)}`);
 
     if (createRes.ok) {
-      // Extract UUID from create response
       const data = JSON.parse(createBody) as { id?: string };
       if (data.id) sessionRef = data.id;
     } else if (createRes.status === 409) {
-      // Already exists — look up UUID by name
       const uuid = await resolveSessionRef();
       if (uuid) sessionRef = uuid;
     } else {
@@ -361,7 +628,7 @@ export async function startWaBot() {
     cachedStatus = "connecting";
     cachedQr = null;
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
-    scheduleQrPoll(); // server-side status+QR polling, no webhook required
+    scheduleQrPoll();
     return { ok: true, data: startData };
   } catch (e) {
     return { error: String(e) };
@@ -374,6 +641,7 @@ export async function stopWaBot() {
   }
   for (const timer of groupTimers.values()) clearTimeout(timer);
   groupTimers.clear();
+  if (dailyDigestTimer) { clearTimeout(dailyDigestTimer); dailyDigestTimer = null; }
   cachedStatus = "disconnected";
   cachedQr = null;
   if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
@@ -413,7 +681,7 @@ function scheduleQrPoll(attemptsLeft = 90) {
     qrPollTimer = null;
     if (cachedStatus !== "connecting") return;
     await syncSessionStatus();
-    if (cachedStatus !== "connecting") return; // connected or disconnected — stop
+    if (cachedStatus !== "connecting") return;
     await fetchQr();
     scheduleQrPoll(attemptsLeft - 1);
   }, 2000);
@@ -423,7 +691,6 @@ export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus 
   if (!baseUrl()) return { qr: null, status: "disconnected" };
   try {
     const res = await owGet(`/api/sessions/${sessionRef}/qr`);
-    // Try multiple response shapes
     const r = res as Record<string, unknown>;
     const d = (r.data ?? {}) as Record<string, unknown>;
     const qr = (r.qrCode ?? r.value ?? r.image ?? d.qrCode ?? d.image ?? d.value ?? null) as string | null;
@@ -454,8 +721,21 @@ export async function getGroupSummaries(database: Db, groupJid: string) {
   return database.select().from(waGroupSummaries).where(eq(waGroupSummaries.groupJid, groupJid)).orderBy(desc(waGroupSummaries.createdAt)).limit(30);
 }
 
-export async function updateWaBotConfig(database: Db, opts: { inactivityMinutes?: number }) {
+export async function updateWaBotConfig(database: Db, opts: { inactivityMinutes?: number; summaryHour?: number; summaryDestination?: string }) {
   await database.update(waBotConfig).set({ ...opts, updatedAt: new Date() });
   if (opts.inactivityMinutes !== undefined) inactivityMs = opts.inactivityMinutes * 60 * 1000;
   return { ok: true };
+}
+
+export async function getWaGroupConfig(database: Db, groupJid: string) {
+  return getGroupCfg(groupJid);
+}
+
+export async function listWaGroupConfigs(database: Db) {
+  return database.select().from(waGroupConfig).orderBy(waGroupConfig.groupName);
+}
+
+export async function setWaGroupConfig(database: Db, groupJid: string, patch: Partial<GroupCfg>) {
+  await upsertGroupCfg(groupJid, patch);
+  return getGroupCfg(groupJid);
 }

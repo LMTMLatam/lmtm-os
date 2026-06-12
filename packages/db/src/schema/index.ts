@@ -81,6 +81,7 @@ export { pluginJobs, pluginJobRuns } from "./plugin_jobs.js";
 export { pluginWebhookDeliveries } from "./plugin_webhooks.js";
 export { pluginLogs } from "./plugin_logs.js";
 export { waBotConfig, waGroupMessages, waGroupSummaries } from "./wa_bot.js";
+export { waGroupConfig, waDailyDigests } from "./wa_bot_extras.js";
 export { agentChatSessions } from "./agent_chat_sessions.js";
 
 // LMTM-OS new tables (canonical, post-0094).

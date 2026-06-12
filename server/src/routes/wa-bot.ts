@@ -11,6 +11,10 @@ import {
   getGroupSummaries,
   updateWaBotConfig,
   runDailySummary,
+  runDailyDigest,
+  getWaGroupConfig,
+  listWaGroupConfigs,
+  setWaGroupConfig,
 } from "../services/wa-group-bot.js";
 
 export function waBotRoutes(db: Db) {
@@ -18,7 +22,6 @@ export function waBotRoutes(db: Db) {
 
   router.get("/status", async (_req, res) => {
     const status = getWaBotStatus();
-    // Proactively fetch QR from OpenWA while connecting so panel can display it
     if (status.status === "connecting" && !status.qr) {
       const { qr } = await fetchQr();
       return res.json({ ...status, qr });
@@ -52,6 +55,24 @@ export function waBotRoutes(db: Db) {
     res.json(groups);
   });
 
+  router.get("/groups/configs", async (_req, res) => {
+    const configs = await listWaGroupConfigs(db);
+    res.json(configs);
+  });
+
+  router.get("/groups/:jid/config", async (req, res) => {
+    const jid = decodeURIComponent(req.params.jid);
+    const cfg = await getWaGroupConfig(db, jid);
+    res.json({ groupJid: jid, ...cfg });
+  });
+
+  router.put("/groups/:jid/config", async (req, res) => {
+    const jid = decodeURIComponent(req.params.jid);
+    const body = req.body as Record<string, unknown>;
+    const cfg = await setWaGroupConfig(db, jid, body);
+    res.json({ groupJid: jid, ...cfg });
+  });
+
   router.get("/groups/:jid/messages", async (req, res) => {
     const jid = decodeURIComponent(req.params.jid);
     const since = req.query.since ? new Date(String(req.query.since)) : undefined;
@@ -74,9 +95,23 @@ export function waBotRoutes(db: Db) {
     }
   });
 
+  router.post("/digest/run", async (req, res) => {
+    try {
+      const date = req.body?.date as string | undefined;
+      const result = await runDailyDigest(date);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   router.patch("/config", async (req, res) => {
-    const { inactivityMinutes } = req.body as { inactivityMinutes?: number };
-    const result = await updateWaBotConfig(db, { inactivityMinutes });
+    const { inactivityMinutes, summaryHour, summaryDestination } = req.body as {
+      inactivityMinutes?: number;
+      summaryHour?: number;
+      summaryDestination?: string;
+    };
+    const result = await updateWaBotConfig(db, { inactivityMinutes, summaryHour, summaryDestination });
     res.json(result);
   });
 
