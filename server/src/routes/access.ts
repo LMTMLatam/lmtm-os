@@ -138,19 +138,15 @@ function buildCliAuthApprovalPath(challengeId: string, token: string) {
 
 function readSkillMarkdown(skillName: string): string | null {
   const normalized = skillName.trim().toLowerCase();
-  if (
-    normalized !== "paperclip" &&
-    normalized !== "paperclip-create-agent" &&
-    normalized !== "paperclip-create-plugin" &&
-    normalized !== "paperclip-converting-plans-to-tasks" &&
-    normalized !== "para-memory-files"
-  )
-    return null;
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(normalized)) return null;
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.resolve(moduleDir, "../../skills", normalized, "SKILL.md"), // published: dist/routes/ -> <pkg>/skills/
     path.resolve(process.cwd(), "skills", normalized, "SKILL.md"), // cwd (e.g. monorepo root)
-    path.resolve(moduleDir, "../../../skills", normalized, "SKILL.md") // dev: src/routes/ -> repo root/skills/
+    path.resolve(moduleDir, "../../../skills", normalized, "SKILL.md"), // dev: src/routes/ -> repo root/skills/
+    ...(process.env.HOME || process.env.USERPROFILE
+      ? [path.resolve(process.env.HOME || process.env.USERPROFILE || "", ".claude", "skills", normalized, "SKILL.md")]
+      : []),
   ];
   for (const skillPath of candidates) {
     try {
@@ -2859,23 +2855,25 @@ export function accessRoutes(
 
   router.get("/skills/index", (req, res) => {
     assertAuthenticated(req);
-    res.json({
-      skills: [
-        { name: "paperclip", path: "/api/skills/paperclip" },
-        {
-          name: "para-memory-files",
-          path: "/api/skills/para-memory-files"
-        },
-        {
-          name: "paperclip-create-agent",
-          path: "/api/skills/paperclip-create-agent"
-        },
-        {
-          name: "paperclip-converting-plans-to-tasks",
-          path: "/api/skills/paperclip-converting-plans-to-tasks"
+    const skillsDir = resolvePaperclipSkillsDir();
+    const discovered: Array<{ name: string; path: string }> = [];
+    if (skillsDir) {
+      try {
+        for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const skillMdPath = path.join(skillsDir, entry.name, "SKILL.md");
+          if (!fs.existsSync(skillMdPath)) continue;
+          discovered.push({
+            name: entry.name,
+            path: `/api/skills/${entry.name}`,
+          });
         }
-      ]
-    });
+      } catch {
+        // ignore
+      }
+    }
+    discovered.sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ skills: discovered });
   });
 
   router.get("/skills/:skillName", (req, res) => {
