@@ -1,19 +1,17 @@
-name: LMTM Keepalive
+name: keepalive
 
-# Keep both LMTM-OS and its OpenWA dependency alive.
-# - pings /api/health on LMTM-OS every 5 minutes
-# - pings /api/wa-bot/public-health on LMTM-OS every 5 minutes
-# - if either is down, triggers /api/wa-bot/keepalive to force a reconnect
-# - on hard failure, exits non-zero so the run is marked failed and pings
-#   the configured Slack/Discord channel via the workflow notification email.
+# Keep LMTM-OS and its OpenWA dependency alive.
+# - pings /api/health on LMTM-OS every 10 minutes
+# - pings /api/wa-bot/public-health on LMTM-OS every 10 minutes
+# - if WA bot reports unhealthy, triggers /api/wa-bot/keepalive to force reconnect
+# - on hard LMTM-OS failure, exits non-zero so the run is marked failed
+#
+# Service URLs are hard-coded for LMTM-OS; OpenWA is at openwa-zpya.onrender.com.
 
 on:
   schedule:
-    # Every 5 minutes (Render free tier spins down after 15 min of idle;
-    # this prevents that by keeping the service warm).
-    - cron: "*/5 * * * *"
-    # Daily health summary at 8am UTC.
-    - cron: "0 8 * * *"
+    # Every 10 minutes
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       force_reconnect:
@@ -25,13 +23,12 @@ permissions:
   contents: read
 
 jobs:
-  lmtm-os-keepalive:
+  ping:
     name: LMTM-OS keepalive
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Ping LMTM-OS /api/health
-        id: lmtm_health
         run: |
           set -e
           echo "Pinging https://lmtm.onrender.com/api/health"
@@ -47,40 +44,46 @@ jobs:
 
       - name: Ping LMTM-OS /api/wa-bot/public-health
         id: wa_health
+        continue-on-error: true
         run: |
-          set -e
           echo "Pinging https://lmtm.onrender.com/api/wa-bot/public-health"
           HTTP_CODE=$(curl -sS -o /tmp/wa-health.json -w "%{http_code}" \
             --max-time 30 \
             "https://lmtm.onrender.com/api/wa-bot/public-health" || echo "000")
           echo "HTTP $HTTP_CODE"
-          cat /tmp/wa-health.json | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health.json
-          WA_OK=$(cat /tmp/wa-health.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if (d.get('openwa',{}).get('configured') and d.get('openwa',{}).get('reachable')) or not d.get('openwa',{}).get('configured') else 'no')" 2>/dev/null || echo "unknown")
-          echo "wa_ok=$WA_OK"
-          if [ "$HTTP_CODE" = "503" ] || [ "$WA_OK" = "no" ]; then
-            echo "::warning::WA bot reports unhealthy — triggering keepalive"
+          cat /tmp/wa-health.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health.json || true
+
+          if [ "$HTTP_CODE" = "503" ]; then
+            echo "::warning::WA bot reports unhealthy (503) — will trigger keepalive"
             echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
+          elif [ "$HTTP_CODE" = "200" ]; then
+            # Check if bot is reporting openwa issues
+            if grep -q '"reachable":\s*false' /tmp/wa-health.json 2>/dev/null; then
+              echo "::warning::OpenWA unreachable from LMTM-OS — will trigger keepalive"
+              echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ "$HTTP_CODE" = "404" ]; then
+            # Old deployment without public-health endpoint yet; warn but don't fail
+            echo "::warning::public-health endpoint not available yet (newer deploy pending)"
+            echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
           else
             echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
           fi
-          # Don't fail the workflow on transient WA health (bot may be legitimately down)
 
       - name: Trigger keepalive if needed
         if: steps.wa_health.outputs.needs_reconnect == 'true' || github.event.inputs.force_reconnect == 'true'
+        continue-on-error: true
         run: |
           echo "POSTing https://lmtm.onrender.com/api/wa-bot/keepalive"
           HTTP_CODE=$(curl -sS -o /tmp/keepalive.json -w "%{http_code}" \
             -X POST --max-time 30 \
             "https://lmtm.onrender.com/api/wa-bot/keepalive" || echo "000")
           echo "HTTP $HTTP_CODE"
-          cat /tmp/keepalive.json | python3 -m json.tool 2>/dev/null || cat /tmp/keepalive.json
+          cat /tmp/keepalive.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/keepalive.json || true
 
-      - name: Re-verify after keepalive
-        if: steps.wa_health.outputs.needs_reconnect == 'true' || github.event.inputs.force_reconnect == 'true'
-        run: |
           sleep 5
-          HTTP_CODE=$(curl -sS -o /tmp/wa-health-2.json -w "%{http_code}" \
-            --max-time 30 \
-            "https://lmtm.onrender.com/api/wa-bot/public-health" || echo "000")
-          echo "HTTP $HTTP_CODE after reconnect attempt"
-          cat /tmp/wa-health-2.json | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health-2.json
+          echo "---"
+          echo "Re-checking /api/wa-bot/public-health"
+          curl -sS "https://lmtm.onrender.com/api/wa-bot/public-health" --max-time 30 | python3 -m json.tool 2>/dev/null || true
