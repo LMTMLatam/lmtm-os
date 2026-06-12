@@ -183,11 +183,15 @@ ARG WA_AUTOMATE_VERSION=4.76.0
 ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
 # Install Chrome headless dependencies (Puppeteer needs libglib, libnss, etc.)
 # Plus ignore-check globally FIRST so the wa-automate postinstall works.
+# Plus `procps` (provides `ps`) and `net-tools` (provides `netstat`/`ifconfig`)
+# which wa-automate and the diagnostics endpoint use for introspection.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     dumb-init \
+    procps \
+    net-tools \
     # Chrome / Puppeteer runtime deps
     libglib2.0-0 \
     libnss3 \
