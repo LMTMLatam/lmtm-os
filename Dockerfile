@@ -184,6 +184,9 @@ ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl dumb-init \
   && rm -rf /var/lib/apt/lists/* \
+  # Install ignore-check globally FIRST so the wa-automate postinstall
+  # (which runs `npx ignore-check@latest`) can find it.
+  && npm install -g ignore-check@latest --no-audit --no-fund --ignore-scripts \
   && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund
 COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
 RUN chmod +x /app/start-openwa.sh
