@@ -226,6 +226,7 @@ RUN apt-get update \
   && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund \
   && google-chrome --version
 COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
+COPY docker/openwa/config/cli.config.json /app/openwa.config.json
 RUN chmod +x /app/start-openwa.sh
 
 # Production node: use --conditions=production so packages with the

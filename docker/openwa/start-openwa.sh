@@ -1,49 +1,43 @@
 #!/bin/sh
 # start-openwa.sh - boot wa-automate Easy API with the right flags.
 #
-# Flags we always set:
-#   --port       $PORT
-#   --api-key    $WA_AUTOMATE_API_KEY (or $OPENWA_API_KEY as fallback)
-#   --session-id $WA_AUTOMATE_SESSION_ID
-#   --webhook    $WA_AUTOMATE_WEBHOOK_URL (if set; pushes events to LMTM-OS)
+# We pass --config to load a JSON file that controls the runtime. This is
+# the official way to set useChrome, executablePath, qrTimeout, authTimeout
+# and chromiumArgs. The CLI flag --use-chrome does NOT exist in 4.76.0's
+# official CLI surface — only the config object accepts useChrome.
 #
-# We exec npx so signals (SIGTERM) reach the node process and
-# graceful shutdown works under docker stop.
+# Important env vars (set in render.yaml):
+#   WA_AUTOMATE_PORT       port to bind (default 8080, NOT $PORT)
+#   WA_AUTOMATE_API_KEY    api key for the HTTP server
+#   WA_AUTOMATE_SESSION_ID session name
+#   PAPERCLIP_AUTH_PUBLIC_BASE_URL   used to derive the webhook URL
 
 set -e
 
-ARGS="--port ${PORT} --session-id ${WA_AUTOMATE_SESSION_ID}"
+# wa-automate binds to --port. Use WA_AUTOMATE_PORT (we explicitly set this
+# to 8080 in render.yaml) instead of $PORT — Render injects $PORT=10000 for
+# the LMTM-OS server, but openwa should listen on 8080.
+OPENWA_PORT="${WA_AUTOMATE_PORT:-8080}"
+ARGS="--port ${OPENWA_PORT} --config /app/openwa.config.json"
 
-# Use the same API key the LMTM-OS server uses. Either env var name works.
-# OPENWA_API_KEY is what the wa-bot service reads.
-# WA_AUTOMATE_API_KEY is what we historically called the openwa runtime key.
+# Use the same API key the LMTM-OS server uses.
 API_KEY="${WA_AUTOMATE_API_KEY:-${OPENWA_API_KEY:-}}"
 if [ -n "$API_KEY" ]; then
   ARGS="$ARGS --api-key $API_KEY"
 fi
 
 # Webhook from LMTM-OS to OpenWA (events go back).
-# PAPERCLIP_AUTH_PUBLIC_BASE_URL is set in render.yaml.
 if [ -n "$PAPERCLIP_AUTH_PUBLIC_BASE_URL" ]; then
   WA_WEBHOOK="${PAPERCLIP_AUTH_PUBLIC_BASE_URL%/}/api/wa-bot/webhook"
   ARGS="$ARGS --webhook $WA_WEBHOOK"
   echo "[openwa] webhook set to $WA_WEBHOOK"
 fi
 
-# Use Google Chrome stable instead of the bundled Chromium. Chrome stable
-# is more compatible with web.whatsapp.com (which has anti-bot checks that
-# break bundled Chromium), and it's the browser wa-automate recommends
-# via the "useChrome: true / --use-chrome" flag.
-CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || echo /usr/bin/google-chrome)"
-echo "[openwa] using chrome at $CHROME_PATH ($(google-chrome --version 2>/dev/null || true))"
-
-ARGS="$ARGS --use-chrome"
-
-# wa-automate's --use-chrome flag uses a default path. If google-chrome is
-# not in one of those paths, set CHROME_PATH via --executable-path-style.
-# (wa-automate 4.76 reads the CHROME_PATH env var for the executable.)
-
-export CHROME_PATH
+# We bind the local 8080 to all interfaces so the diagnostics endpoint
+# and other tools can introspect it.
+echo "[openwa] using google-chrome at /usr/bin/google-chrome ($(google-chrome --version 2>/dev/null || echo 'NOT FOUND'))"
+echo "[openwa] listening on 0.0.0.0:${OPENWA_PORT} (api key: $([ -n "$API_KEY" ] && echo 'set' || echo 'MISSING'))"
+echo "[openwa] config: /app/openwa.config.json (useChrome: true, qrTimeout: 300s)"
 
 echo "[openwa] starting: npx @open-wa/wa-automate@${WA_AUTOMATE_VERSION:-4.76.0} $ARGS"
 exec npx @open-wa/wa-automate@${WA_AUTOMATE_VERSION:-4.76.0} $ARGS
