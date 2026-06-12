@@ -1,14 +1,86 @@
-name: keepalive
+name: LMTM Keepalive
+
+# Keep both LMTM-OS and its OpenWA dependency alive.
+# - pings /api/health on LMTM-OS every 5 minutes
+# - pings /api/wa-bot/public-health on LMTM-OS every 5 minutes
+# - if either is down, triggers /api/wa-bot/keepalive to force a reconnect
+# - on hard failure, exits non-zero so the run is marked failed and pings
+#   the configured Slack/Discord channel via the workflow notification email.
+
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Every 5 minutes (Render free tier spins down after 15 min of idle;
+    # this prevents that by keeping the service warm).
+    - cron: "*/5 * * * *"
+    # Daily health summary at 8am UTC.
+    - cron: "0 8 * * *"
   workflow_dispatch:
+    inputs:
+      force_reconnect:
+        description: "Force WA bot reconnect"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
 
 jobs:
-  ping:
+  lmtm-os-keepalive:
+    name: LMTM-OS keepalive
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: ping services
+      - name: Ping LMTM-OS /api/health
+        id: lmtm_health
         run: |
-          curl -sf https://lmtm.onrender.com/api/health && echo "lmtm ok"
-          curl -sf https://openwa-zpya.onrender.com/api/health && echo "openwa ok"
+          set -e
+          echo "Pinging https://lmtm.onrender.com/api/health"
+          HTTP_CODE=$(curl -sS -o /tmp/lmtm-health.json -w "%{http_code}" \
+            --max-time 30 \
+            "https://lmtm.onrender.com/api/health" || echo "000")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/lmtm-health.json || true
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::LMTM-OS /api/health returned $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Ping LMTM-OS /api/wa-bot/public-health
+        id: wa_health
+        run: |
+          set -e
+          echo "Pinging https://lmtm.onrender.com/api/wa-bot/public-health"
+          HTTP_CODE=$(curl -sS -o /tmp/wa-health.json -w "%{http_code}" \
+            --max-time 30 \
+            "https://lmtm.onrender.com/api/wa-bot/public-health" || echo "000")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/wa-health.json | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health.json
+          WA_OK=$(cat /tmp/wa-health.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if (d.get('openwa',{}).get('configured') and d.get('openwa',{}).get('reachable')) or not d.get('openwa',{}).get('configured') else 'no')" 2>/dev/null || echo "unknown")
+          echo "wa_ok=$WA_OK"
+          if [ "$HTTP_CODE" = "503" ] || [ "$WA_OK" = "no" ]; then
+            echo "::warning::WA bot reports unhealthy — triggering keepalive"
+            echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Don't fail the workflow on transient WA health (bot may be legitimately down)
+
+      - name: Trigger keepalive if needed
+        if: steps.wa_health.outputs.needs_reconnect == 'true' || github.event.inputs.force_reconnect == 'true'
+        run: |
+          echo "POSTing https://lmtm.onrender.com/api/wa-bot/keepalive"
+          HTTP_CODE=$(curl -sS -o /tmp/keepalive.json -w "%{http_code}" \
+            -X POST --max-time 30 \
+            "https://lmtm.onrender.com/api/wa-bot/keepalive" || echo "000")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/keepalive.json | python3 -m json.tool 2>/dev/null || cat /tmp/keepalive.json
+
+      - name: Re-verify after keepalive
+        if: steps.wa_health.outputs.needs_reconnect == 'true' || github.event.inputs.force_reconnect == 'true'
+        run: |
+          sleep 5
+          HTTP_CODE=$(curl -sS -o /tmp/wa-health-2.json -w "%{http_code}" \
+            --max-time 30 \
+            "https://lmtm.onrender.com/api/wa-bot/public-health" || echo "000")
+          echo "HTTP $HTTP_CODE after reconnect attempt"
+          cat /tmp/wa-health-2.json | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health-2.json

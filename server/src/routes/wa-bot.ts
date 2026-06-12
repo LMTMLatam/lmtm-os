@@ -15,10 +15,26 @@ import {
   getWaGroupConfig,
   listWaGroupConfigs,
   setWaGroupConfig,
+  getWaPublicHealth,
+  tickWaBotKeepalive,
 } from "../services/wa-group-bot.js";
 
 export function waBotRoutes(db: Db) {
   const router = Router({ mergeParams: true });
+
+  // Public health endpoint — no auth. Used by GitHub Actions and external monitors.
+  router.get("/public-health", async (_req, res) => {
+    const h = await getWaPublicHealth();
+    const healthy = h.openwa.configured ? h.openwa.reachable : true;
+    res.status(healthy ? 200 : 503).json(h);
+  });
+
+  // Public keepalive trigger — no auth, idempotent. GHA cron can hit this.
+  router.post("/keepalive", async (_req, res) => {
+    await tickWaBotKeepalive();
+    const h = await getWaPublicHealth();
+    res.json(h);
+  });
 
   router.get("/status", async (_req, res) => {
     const status = getWaBotStatus();

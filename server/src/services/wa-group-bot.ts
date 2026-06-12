@@ -553,6 +553,55 @@ export async function handleWebhook(payload: Record<string, unknown>) {
 
 // --- Public API ---
 
+let lastAutoStartAt: Date | null = null;
+let lastAutoStartError: string | null = null;
+let autoStartAttempts = 0;
+
+async function ensureSessionRunning(): Promise<{ ok: boolean; error?: string }> {
+  if (!baseUrl()) return { ok: false, error: "OPENWA_URL not set" };
+  if (cachedStatus === "connected") return { ok: true };
+  if (lastAutoStartAt) {
+    const since = Date.now() - lastAutoStartAt.getTime();
+    if (since < 30_000) return { ok: false, error: `cooldown (${Math.round(since / 1000)}s since last attempt)` };
+  }
+  lastAutoStartAt = new Date();
+  autoStartAttempts++;
+  console.log(`[wa-bot] ensureSessionRunning → attempt #${autoStartAttempts}`);
+  const result = await startWaBot();
+  if (result.error) {
+    lastAutoStartError = result.error;
+    return { ok: false, error: result.error };
+  }
+  lastAutoStartError = null;
+  return { ok: true };
+}
+
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleReconnect() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  // 60s base, exponential up to 5 min
+  const delay = Math.min(60_000 * Math.pow(2, Math.min(autoStartAttempts, 5)), 5 * 60_000);
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    const r = await ensureSessionRunning();
+    if (!r.ok) {
+      console.log(`[wa-bot] reconnect failed: ${r.error} — retrying in ${delay}ms`);
+      scheduleReconnect();
+    } else {
+      autoStartAttempts = 0;
+    }
+  }, delay);
+}
+
+export async function tickWaBotKeepalive() {
+  if (!baseUrl()) return;
+  // If disconnected, try to reconnect
+  if (cachedStatus !== "connected") {
+    const r = await ensureSessionRunning();
+    if (!r.ok && !reconnectTimer) scheduleReconnect();
+  }
+}
+
 export async function initWaBot(database: Db) {
   db = database;
 
@@ -565,14 +614,56 @@ export async function initWaBot(database: Db) {
 
   const config = (await db.select().from(waBotConfig).limit(1))[0];
   inactivityMs = (config?.summaryHour ?? 30) * 60 * 1000;
-  // summaryHour means inactivity window? — keep backward compat: use inactivityMinutes if present, else 30
   inactivityMs = 30 * 60 * 1000;
 
   if (!baseUrl()) {
     console.warn("[wa-bot] OPENWA_URL not set — WA bot disabled");
+  } else {
+    // Auto-start the session 2s after boot so the server can finish wiring up
+    setTimeout(() => {
+      ensureSessionRunning()
+        .then((r) => {
+          if (!r.ok) scheduleReconnect();
+          else autoStartAttempts = 0;
+        })
+        .catch(() => scheduleReconnect());
+    }, 2000);
   }
 
   scheduleDailyDigest();
+}
+
+export async function getWaPublicHealth() {
+  let openwaReachable = false;
+  let openwaError: string | null = null;
+  if (baseUrl()) {
+    try {
+      const r = await owGet("/api/sessions");
+      openwaReachable = Array.isArray(r) || typeof r === "object";
+    } catch (e) {
+      openwaReachable = false;
+      openwaError = e instanceof Error ? e.message : String(e);
+    }
+  } else {
+    openwaError = "OPENWA_URL not configured on LMTM-OS";
+  }
+
+  return {
+    lmtmOs: { ok: true, ts: new Date().toISOString() },
+    openwa: {
+      configured: !!baseUrl(),
+      url: baseUrl() ? baseUrl().replace(/\/+$/, "") : null,
+      reachable: openwaReachable,
+      error: openwaError,
+    },
+    bot: {
+      status: cachedStatus,
+      connectedPhone: cachedPhone,
+      autoStartAttempts,
+      lastAutoStartAt: lastAutoStartAt?.toISOString() ?? null,
+      lastAutoStartError,
+    },
+  };
 }
 
 async function resolveSessionRef(): Promise<string | null> {
