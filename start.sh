@@ -52,10 +52,13 @@ echo "--- openwa.log contents (last 50) ---"
 tail -50 /tmp/openwa.log
 echo "--- end of openwa.log ---"
 
-# If node died, also kill openwa so docker restarts the whole container
+# If node died, do NOT kill openwa — let openwa keep running so
+# the next container restart (or LMTM-OS auto-reconnect) can use it.
+# Render's health check will restart the whole container if everything
+# is dead. Keeping openwa alive here lets us survive brief LMTM-OS
+# hiccups.
 if [ -n "$OPENWA_PID" ] && kill -0 $OPENWA_PID 2>/dev/null; then
-  echo "--- killing openwa (pid $OPENWA_PID) ---"
-  kill $OPENWA_PID 2>/dev/null
+  echo "--- LMTM-OS exited; leaving openwa (pid $OPENWA_PID) running ---"
 fi
 
 # Keep container alive for log capture
