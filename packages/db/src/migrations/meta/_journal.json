@@ -736,6 +736,13 @@
       "when": 1780001000000,
       "tag": "0104_public_dashboards",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1780100000000,
+      "tag": "0105_wa_group_config",
+      "breakpoints": true
     }
   ]
 }
