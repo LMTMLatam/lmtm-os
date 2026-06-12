@@ -1,12 +1,14 @@
 name: keepalive
 
-# Keep LMTM-OS and its OpenWA dependency alive.
+# Keep LMTM-OS and its self-hosted OpenWA (sidecar on port 8080) alive.
 # - pings /api/health on LMTM-OS every 10 minutes
 # - pings /api/wa-bot/public-health on LMTM-OS every 10 minutes
 # - if WA bot reports unhealthy, triggers /api/wa-bot/keepalive to force reconnect
 # - on hard LMTM-OS failure, exits non-zero so the run is marked failed
 #
-# Service URLs are hard-coded for LMTM-OS; OpenWA is at openwa-zpya.onrender.com.
+# OpenWA is now a sidecar inside the LMTM-OS container (port 8080),
+# so the /api/wa-bot/public-health endpoint is the single source of
+# truth for both services' health.
 
 on:
   schedule:
@@ -54,12 +56,12 @@ jobs:
           cat /tmp/wa-health.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health.json || true
 
           if [ "$HTTP_CODE" = "503" ]; then
-            echo "::warning::WA bot reports unhealthy (503) — will trigger keepalive"
+            echo "::warning::WA bot reports unhealthy (503) - will trigger keepalive"
             echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
           elif [ "$HTTP_CODE" = "200" ]; then
             # Check if bot is reporting openwa issues
             if grep -q '"reachable":\s*false' /tmp/wa-health.json 2>/dev/null; then
-              echo "::warning::OpenWA unreachable from LMTM-OS — will trigger keepalive"
+              echo "::warning::OpenWA unreachable from LMTM-OS - will trigger keepalive"
               echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
             else
               echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"

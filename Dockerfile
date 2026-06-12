@@ -173,7 +173,20 @@ RUN mkdir -p /app/.paperclip/plugins && \
     echo "  /app/node_modules/@paperclipai/plugin-sdk: $(test -L /app/node_modules/@paperclipai/plugin-sdk && readlink /app/node_modules/@paperclipai/plugin-sdk || echo MISSING)"
 
 VOLUME ["/paperclip"]
-EXPOSE 3100
+EXPOSE 3100 8080
+
+# ── OpenWA self-hosted (sidecar) ──
+# wa-automate Easy API runs on port 8080 inside the same container.
+# LMTM-OS connects to it via OPENWA_URL=http://localhost:8080.
+# We install it globally so the start.sh wrapper can spawn it with npx.
+ARG WA_AUTOMATE_VERSION=4.76.0
+ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl dumb-init \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund
+COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
+RUN chmod +x /app/start-openwa.sh
 
 # Production node: use --conditions=production so packages with the
 # production conditional load dist/ (compiled JS) instead of src/ (.ts).

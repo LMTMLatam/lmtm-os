@@ -1,22 +1,63 @@
 #!/bin/sh
-# LMTM-OS startup wrapper - logs node output and keeps container alive on crash
-# NO set -e: we want to see node's exit and keep container alive for log capture
-echo "=== LMTM-OS start wrapper $(date -u) ==="
+# LMTM-OS + OpenWA self-hosted startup wrapper.
+# - Starts OpenWA (wa-automate) on port 8080 in the background
+# - Waits for it to be ready (max 60s)
+# - Starts LMTM-OS server on port 3100 in the foreground
+# - If either crashes, the container exits so Render restarts it.
+#
+# Logs are written to /tmp/*.log and echoed to stdout (Render's log stream).
+
+set +e
+
+echo "=== LMTM-OS + OpenWA start wrapper $(date -u) ==="
 echo "PORT=${PORT} HOST=${HOST} NODE_ENV=${NODE_ENV}"
+echo "WA_AUTOMATE_PORT=${WA_AUTOMATE_PORT:-8080} WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION:-4.76.0}"
+echo "OPENWA_URL=${OPENWA_URL}"
 echo "DATABASE_URL set: $([ -n "$DATABASE_URL" ] && echo yes || echo NO)"
-echo "DATABASE_URL value: ${DATABASE_URL}"
-echo "DATABASE_URL length: $(echo -n "$DATABASE_URL" | wc -c)"
-echo "USER=$(id -u) PWD=$(pwd)"
+
+# ── 1. Start OpenWA ──
+if [ -z "$OPENWA_SELF_HOSTED_DISABLED" ]; then
+  echo "--- starting OpenWA (wa-automate) on port ${WA_AUTOMATE_PORT:-8080} ---"
+  /app/start-openwa.sh > /tmp/openwa.log 2>&1 &
+  OPENWA_PID=$!
+  echo "openwa pid: $OPENWA_PID"
+
+  # Wait for the healthcheck to come up
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+    sleep 2
+    if curl -sf "http://localhost:${WA_AUTOMATE_PORT:-8080}/api/health" > /dev/null 2>&1; then
+      echo "openwa ready after ${i}x2s"
+      break
+    fi
+    if [ $i -eq 30 ]; then
+      echo "::warning::openwa did not become ready in 60s; continuing anyway. last log:"
+      tail -30 /tmp/openwa.log
+    fi
+  done
+else
+  echo "OPENWA_SELF_HOSTED_DISABLED set - skipping openwa startup"
+fi
+
+# ── 2. Start LMTM-OS server ──
+echo "--- starting LMTM-OS server on port ${PORT:-3100} ---"
 ls -la /app/server/dist/index.js 2>&1
-echo "--- ui-dist exists? ---"
-ls -la /app/ui-dist 2>&1 | head -10
 ls -la /app/ui-dist/index.html 2>&1 | head -3
-echo "--- starting node ---"
 node --conditions=production server/dist/index.js > /tmp/server.log 2>&1
-NODE_EXIT=$?
-echo "--- node exited with code $NODE_EXIT ---"
+SERVER_EXIT=$?
+echo "--- node exited with code $SERVER_EXIT ---"
 echo "--- server.log contents ---"
 cat /tmp/server.log
 echo "--- end of server.log ---"
+echo "--- openwa.log contents (last 50) ---"
+tail -50 /tmp/openwa.log
+echo "--- end of openwa.log ---"
+
+# If node died, also kill openwa so docker restarts the whole container
+if [ -n "$OPENWA_PID" ] && kill -0 $OPENWA_PID 2>/dev/null; then
+  echo "--- killing openwa (pid $OPENWA_PID) ---"
+  kill $OPENWA_PID 2>/dev/null
+fi
+
+# Keep container alive for log capture
 echo "--- sleeping 600s to keep container alive ---"
 sleep 600

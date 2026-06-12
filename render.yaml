@@ -1,4 +1,15 @@
 # render.yaml - Render service definition for LMTM OS
+#
+# This single web service runs both:
+#   - LMTM-OS server on port 3100
+#   - OpenWA (wa-automate self-hosted) on port 8080
+# They share the same container, so OPENWA_URL=http://localhost:8080.
+#
+# The old external openwa-zpya.onrender.com is no longer used. The
+# `OPENWA_URL` env var is set automatically to localhost; you can override
+# it (e.g. `https://external.openwa.example`) if you ever want to point
+# at a remote OpenWA again.
+
 services:
   - type: web
     name: lmtm
@@ -29,3 +40,16 @@ services:
         value: "true"
       - key: PAPERCLIP_MIGRATION_AUTO_APPLY
         value: "true"
+      # OpenWA self-hosted: same container, port 8080
+      - key: OPENWA_URL
+        value: http://localhost:8080
+      - key: OPENWA_API_KEY
+        generateValue: true
+      - key: WA_AUTOMATE_PORT
+        value: "8080"
+      - key: WA_AUTOMATE_SESSION_ID
+        value: lmtm
+      # Auto-applied via PAPERCLIP_AUTH_PUBLIC_BASE_URL at runtime
+      # (start.sh constructs the webhook URL from this + /api/wa-bot/webhook)
+      - key: PAPERCLIP_AUTH_PUBLIC_BASE_URL
+        sync: false
