@@ -181,11 +181,37 @@ EXPOSE 3100 8080
 # We install it globally so the start.sh wrapper can spawn it with npx.
 ARG WA_AUTOMATE_VERSION=4.76.0
 ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
+# Install Chrome headless dependencies (Puppeteer needs libglib, libnss, etc.)
+# Plus ignore-check globally FIRST so the wa-automate postinstall works.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl dumb-init \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    dumb-init \
+    # Chrome / Puppeteer runtime deps
+    libglib2.0-0 \
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libatspi2.0-0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    fonts-liberation \
+    libgconf-2-4 \
   && rm -rf /var/lib/apt/lists/* \
-  # Install ignore-check globally FIRST so the wa-automate postinstall
-  # (which runs `npx ignore-check@latest`) can find it.
   && npm install -g ignore-check@latest --no-audit --no-fund --ignore-scripts \
   && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund
 COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
