@@ -20,7 +20,7 @@ function headers() {
 }
 
 type OurStatus = "disconnected" | "connecting" | "connected";
-type DeliveryMode = "group" | "email" | "clickup" | "n8n" | "none";
+type DeliveryMode = "group" | "email" | "clickup" | "n8n" | "none" | "all";
 type SummaryTone = "rio_platense" | "formal" | "concise";
 
 interface GroupCfg {
