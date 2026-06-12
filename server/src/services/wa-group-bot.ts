@@ -264,14 +264,14 @@ async function deliverSummary(
   const delivered: string[] = [];
   const text = `📊 *Resumen de conversación*\nGrupo: ${groupName ?? groupJid}\nMensajes: ${messageCount}\n\n${summary}`;
 
-  if (mode === "group" || mode === "all") {
+  if (mode === "all" || mode === "group") {
     try {
       await owPost(`/api/sessions/${SESSION_ID}/messages/send-text`, { chatId: groupJid, text });
       delivered.push("group");
     } catch { /* noop */ }
   }
 
-  if ((mode === "n8n" || mode === "all") && target) {
+  if ((mode === "all" || mode === "n8n") && target) {
     try {
       const r = await fetch(target, {
         method: "POST",
@@ -283,7 +283,7 @@ async function deliverSummary(
   }
 
   // email/clickup: n8n webhook can dispatch to those — same path
-  if ((mode === "email" || mode === "clickup") && target) {
+  if ((mode === "all" || mode === "email" || mode === "clickup") && target) {
     try {
       const r = await fetch(target, {
         method: "POST",
