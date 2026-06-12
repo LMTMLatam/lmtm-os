@@ -18,6 +18,7 @@ import {
   getWaPublicHealth,
   tickWaBotKeepalive,
 } from "../services/wa-group-bot.js";
+// FORCE_REBUILD_TRIGGER: 2026-06-12T02:56:46.1830470-03:00
 
 export function waBotRoutes(db: Db) {
   const router = Router({ mergeParams: true });
@@ -133,3 +134,4 @@ export function waBotRoutes(db: Db) {
 
   return router;
 }
+
