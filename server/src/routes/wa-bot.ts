@@ -18,7 +18,7 @@ import {
   getWaPublicHealth,
   tickWaBotKeepalive,
 } from "../services/wa-group-bot.js";
-// FORCE_REBUILD_TRIGGER: 2026-06-12T02:56:46.1830470-03:00
+import { execFileSync } from "node:child_process";
 
 export function waBotRoutes(db: Db) {
   const router = Router({ mergeParams: true });
@@ -35,6 +35,44 @@ export function waBotRoutes(db: Db) {
     await tickWaBotKeepalive();
     const h = await getWaPublicHealth();
     res.json(h);
+  });
+
+  // Diagnostics: surface runtime info (processes, ports, openwa log tail)
+  // so we can debug OpenWA from outside the container (no SSH in Render
+  // starter plan).
+  router.get("/diagnostics", async (_req, res) => {
+    const out: Record<string, unknown> = {
+      ts: new Date().toISOString(),
+      env: {
+        OPENWA_URL: process.env.OPENWA_URL ?? null,
+        WA_AUTOMATE_PORT: process.env.WA_AUTOMATE_PORT ?? null,
+        WA_AUTOMATE_VERSION: process.env.WA_AUTOMATE_VERSION ?? null,
+        WA_AUTOMATE_SESSION_ID: process.env.WA_AUTOMATE_SESSION_ID ?? null,
+        OPENWA_API_KEY_set: Boolean(process.env.OPENWA_API_KEY),
+        PAPERCLIP_AUTH_PUBLIC_BASE_URL: process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? null,
+      },
+      processes: null,
+      openwa_log_tail: null,
+      listening_ports: null,
+      errors: [],
+    };
+    try {
+      out.processes = execFileSync("ps", ["-eo", "pid,ppid,etime,comm,args", "--sort=-etime"], {
+        timeout: 5000, encoding: "utf8",
+      }).toString().split("\n").slice(0, 40);
+    } catch (e) { (out.errors as string[]).push("ps: " + String(e)); }
+    try {
+      out.openwa_log_tail = execFileSync("tail", ["-n", "60", "/tmp/openwa.log"], {
+        timeout: 5000, encoding: "utf8",
+      }).toString();
+    } catch (e) { (out.errors as string[]).push("openwa.log: " + String(e)); }
+    try {
+      out.listening_ports = execFileSync(
+        "sh", ["-c", "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'no ss/netstat'"],
+        { timeout: 5000, encoding: "utf8" },
+      ).toString();
+    } catch (e) { (out.errors as string[]).push("ports: " + String(e)); }
+    res.json(out);
   });
 
   router.get("/status", async (_req, res) => {
