@@ -30,5 +30,20 @@ if [ -n "$PAPERCLIP_AUTH_PUBLIC_BASE_URL" ]; then
   echo "[openwa] webhook set to $WA_WEBHOOK"
 fi
 
+# Use Google Chrome stable instead of the bundled Chromium. Chrome stable
+# is more compatible with web.whatsapp.com (which has anti-bot checks that
+# break bundled Chromium), and it's the browser wa-automate recommends
+# via the "useChrome: true / --use-chrome" flag.
+CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || echo /usr/bin/google-chrome)"
+echo "[openwa] using chrome at $CHROME_PATH ($(google-chrome --version 2>/dev/null || true))"
+
+ARGS="$ARGS --use-chrome"
+
+# wa-automate's --use-chrome flag uses a default path. If google-chrome is
+# not in one of those paths, set CHROME_PATH via --executable-path-style.
+# (wa-automate 4.76 reads the CHROME_PATH env var for the executable.)
+
+export CHROME_PATH
+
 echo "[openwa] starting: npx @open-wa/wa-automate@${WA_AUTOMATE_VERSION:-4.76.0} $ARGS"
 exec npx @open-wa/wa-automate@${WA_AUTOMATE_VERSION:-4.76.0} $ARGS

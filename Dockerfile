@@ -181,6 +181,7 @@ EXPOSE 3100 8080
 # We install it globally so the start.sh wrapper can spawn it with npx.
 ARG WA_AUTOMATE_VERSION=4.76.0
 ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
+ARG CHROME_VERSION=131.0.6778.204-1
 # Install Chrome headless dependencies (Puppeteer needs libglib, libnss, etc.)
 # Plus ignore-check globally FIRST so the wa-automate postinstall works.
 # Plus `procps` (provides `ps`) and `net-tools` (provides `netstat`/`ifconfig`)
@@ -192,7 +193,17 @@ RUN apt-get update \
     dumb-init \
     procps \
     net-tools \
-    # Chrome / Puppeteer runtime deps
+    # Google Chrome stable (we use --executablePath=/usr/bin/google-chrome)
+    gnupg \
+  && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    google-chrome-stable \
+  && rm -rf /var/lib/apt/lists/* \
+  && # Chrome / Puppeteer runtime deps
+    apt-get update \
+  && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -217,7 +228,8 @@ RUN apt-get update \
     libgconf-2-4 \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g ignore-check@latest --no-audit --no-fund --ignore-scripts \
-  && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund
+  && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund \
+  && google-chrome --version
 COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
 RUN chmod +x /app/start-openwa.sh
 
