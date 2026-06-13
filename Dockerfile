@@ -79,33 +79,6 @@ RUN pnpm --filter @paperclipai/lmtm-google-ads build
 # runtime stage
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── OpenWA self-hosted (sidecar) with Baileys engine ──
-# OpenWA is a NestJS HTTP API gateway. We build it with the Baileys
-# engine plugin baked in (no browser, pure WebSocket — bypasses
-# web.whatsapp.com's anti-bot detection from datacenter IPs).
-#
-#   - OpenWA API listens on port 2785 inside the container.
-#   - LMTM-OS connects via OPENWA_URL=http://localhost:2785.
-#   - Sessions are created/managed via REST, webhooks come back to
-#     LMTM-OS at /api/wa-bot/webhook.
-# ─────────────────────────────────────────────────────────────────────────────
-# openwa-builder stage — only installs runtime deps needed for building
-# OpenWA at container start. The actual build is deferred to runtime
-# so that build failures are observable via /api/wa-bot/diagnostics.
-# ─────────────────────────────────────────────────────────────────────────────
-FROM node:22-slim AS openwa-builder
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-
-# Copy the plugin source + build script. start.sh invokes build.sh at runtime.
-COPY docker/openwa-baileys-plugin/src/ /build/plugin/
-COPY docker/openwa-baileys-plugin/build.sh /build/plugin/build.sh
-
-# ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
 
 RUN apt-get update \
@@ -201,44 +174,8 @@ RUN mkdir -p /app/.paperclip/plugins && \
     echo "  /app/node_modules/@paperclipai/plugin-sdk: $(test -L /app/node_modules/@paperclipai/plugin-sdk && readlink /app/node_modules/@paperclipai/plugin-sdk || echo MISSING)"
 
 VOLUME ["/paperclip"]
-EXPOSE 3100 2785
+EXPOSE 3100
 
-# ── runtime additions for OpenWA ──
-# (No COPY of build artifacts here — OpenWA is built at runtime via start.sh)
-COPY --from=openwa-builder /build/plugin /build/plugin
-
-# OpenWA needs sqlite3 (default DB) + standard libs + git (for runtime build)
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    dumb-init \
-    procps \
-    net-tools \
-    sqlite3 \
-    git \
-    python3 \
-    make \
-    g++ \
-  && rm -rf /var/lib/apt/lists/*
-
-# OpenWA config (defaults to Baileys engine)
-ENV OPENWA_PORT=2785
-ENV ENGINE_TYPE=baileys
-ENV DATABASE_TYPE=sqlite
-ENV DATABASE_NAME=/app/data/openwa.sqlite
-ENV SESSION_DATA_PATH=/app/data/sessions
-ENV PUPPETEER_HEADLESS=true
-ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu
-ENV STORAGE_TYPE=local
-ENV STORAGE_LOCAL_PATH=/app/data/media
-ENV LOG_LEVEL=info
-ENV NODE_ENV=production
-
-RUN mkdir -p /app/data/sessions /app/data/media
-
-# Production node: use --conditions=production so packages with the
-# production conditional load dist/ (compiled JS) instead of src/ (.ts).
-# The /app/start.sh wrapper logs everything to Render's log stream.
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 CMD ["/app/start.sh"]
