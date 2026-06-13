@@ -59,11 +59,6 @@ type CuTask = {
 
 function token(): string {
   const t = (process.env.CLICKUP_API_TOKEN ?? "").trim();
-  if (!t) {
-    throw new Error(
-      "CLICKUP_API_TOKEN not set. Add it to your Render env vars (or `cp .env.example .env` locally).",
-    );
-  }
   return t;
 }
 
@@ -71,6 +66,8 @@ async function cu<T = unknown>(
   path: string,
   init: { method?: "GET" | "POST" | "PUT" | "DELETE"; query?: Record<string, string | number | boolean>; body?: unknown } = {},
 ): Promise<T> {
+  const t = token();
+  if (!t) throw new Error("CLICKUP_API_TOKEN no configurado. Andá a Render → Environment y agregalo.");
   const url = new URL(`${CU_API}${path}`);
   if (init.query) {
     for (const [k, v] of Object.entries(init.query)) {
@@ -78,7 +75,7 @@ async function cu<T = unknown>(
     }
   }
   const fetchInit: RequestInit = { method: init.method ?? "GET" };
-  const headers: Record<string, string> = { Authorization: token() };
+  const headers: Record<string, string> = { Authorization: t };
   if (init.body !== undefined) {
     headers["Content-Type"] = "application/json";
     fetchInit.body = JSON.stringify(init.body);
