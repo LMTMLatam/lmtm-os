@@ -123,6 +123,19 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { qr: lastQr, ts: new Date().toISOString() });
   }
 
+  // wa-automate legacy path: /api/sessions/:sessionId/qr
+  const qrMatch = path.match(/^\/api\/sessions\/([^/]+)\/qr$/);
+  if (qrMatch) {
+    // wa-automate Easy API response format
+    return sendJson(res, 200, {
+      qrCode: lastQr || null,
+      image: lastQr || null,
+      value: lastQr || null,
+      status: openwaState,
+      sessionId: SESSION_ID
+    });
+  }
+
   // All other endpoints require API key
   if (!authCheck(req)) {
     return sendJson(res, 401, { error: 'unauthorized' });
