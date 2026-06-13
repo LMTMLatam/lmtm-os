@@ -32,4 +32,8 @@ echo "[openwa] config file (legacy, now ignored by custom server): $(ls -la /app
 echo "[openwa] listening on 0.0.0.0:${OPENWA_PORT} (api key: $([ -n "${WA_AUTOMATE_API_KEY:-${OPENWA_API_KEY:-}}" ] && echo 'set' || echo 'MISSING'))"
 echo "[openwa] starting: node /app/custom-openwa.cjs"
 
+# Set NODE_PATH so the custom wrapper can require globally-installed
+# @open-wa/wa-automate (which is installed at build time via
+# `npm install -g @open-wa/wa-automate` in the Dockerfile).
+export NODE_PATH="/usr/local/lib/node_modules"
 exec node /app/custom-openwa.cjs
