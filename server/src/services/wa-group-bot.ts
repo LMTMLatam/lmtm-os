@@ -45,7 +45,8 @@ const DEFAULT_CFG: GroupCfg = {
 
 function mapStatus(s: string | undefined): OurStatus {
   switch ((s ?? "").toUpperCase()) {
-    case "CONNECTED": return "connected";
+    case "CONNECTED":
+    case "READY": return "connected";
     case "INITIALIZING":
     case "SCAN_QR":
     case "CONNECTING":
@@ -493,7 +494,8 @@ export async function handleWebhook(payload: Record<string, unknown>) {
     cachedStatus = newStatus;
     if (newStatus !== "connecting") cachedQr = null;
     if (newStatus === "connected") {
-      cachedPhone = (data.phone as string | null) ?? null;
+      // OpenWA sends phoneNumber in session.status payload
+      cachedPhone = (data.phoneNumber as string | null) ?? (data.phone as string | null) ?? null;
       if (db) await db.update(waBotConfig).set({ status: "connected", connectedPhone: cachedPhone, lastQr: null, updatedAt: new Date() }).catch(() => {});
     } else {
       if (db) await db.update(waBotConfig).set({ status: newStatus, updatedAt: new Date() }).catch(() => {});
@@ -684,20 +686,24 @@ export async function startWaBot() {
     const publicUrl = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
     const webhookUrl = publicUrl ? `${publicUrl}/api/wa-bot/webhook` : undefined;
 
+    // OpenWA API: POST /api/sessions
+    // Body: { name, webhook: { url, events } }
+    // Session starts automatically on create; no separate /start call.
     const createRes = await fetch(`${baseUrl()}/api/sessions`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
         name: SESSION_ID,
-        ...(webhookUrl ? { config: { webhooks: [{ url: webhookUrl, events: ["*"] }] } } : {}),
+        ...(webhookUrl ? { webhook: { url: webhookUrl, events: ["message.received", "message.ack", "session.status"] } } : {}),
       }),
     });
     const createBody = await createRes.text().catch(() => "");
     console.log(`[wa-bot] session create → ${createRes.status} ${createBody.slice(0, 300)}`);
 
+    let data: { data?: { id?: string } } = {};
     if (createRes.ok) {
-      const data = JSON.parse(createBody) as { id?: string };
-      if (data.id) sessionRef = data.id;
+      try { data = JSON.parse(createBody); } catch {}
+      if (data.data?.id) sessionRef = data.data.id;
     } else if (createRes.status === 409) {
       const uuid = await resolveSessionRef();
       if (uuid) sessionRef = uuid;
@@ -705,22 +711,12 @@ export async function startWaBot() {
       return { error: `Session create failed (${createRes.status}): ${createBody.slice(0, 300)}` };
     }
 
-    console.log(`[wa-bot] starting session ref: ${sessionRef}`);
-    let startData: Record<string, unknown> = {};
-    try {
-      startData = await owPost(`/api/sessions/${sessionRef}/start`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!msg.includes("400") || !msg.toLowerCase().includes("already started")) {
-        return { error: msg };
-      }
-      console.log(`[wa-bot] session already started — treating as connecting`);
-    }
+    console.log(`[wa-bot] session ref: ${sessionRef} (auto-started by OpenWA on create)`);
     cachedStatus = "connecting";
     cachedQr = null;
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
     scheduleQrPoll();
-    return { ok: true, data: startData };
+    return { ok: true, data: data.data ?? {} };
   } catch (e) {
     return { error: String(e) };
   }
@@ -754,7 +750,8 @@ async function syncSessionStatus() {
     if (newStatus === "connected" && cachedStatus !== "connected") {
       cachedStatus = "connected";
       cachedQr = null;
-      cachedPhone = (d.phone ?? d.me ?? null) as string | null;
+      // OpenWA returns phoneNumber; older code paths used phone/me
+      cachedPhone = (d.phoneNumber ?? d.phone ?? d.me ?? null) as string | null;
       if (db) await db.update(waBotConfig).set({ status: "connected", connectedPhone: cachedPhone, lastQr: null, updatedAt: new Date() }).catch(() => {});
     } else if (newStatus === "disconnected" && cachedStatus === "connecting") {
       cachedStatus = "disconnected";

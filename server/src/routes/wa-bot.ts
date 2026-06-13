@@ -45,9 +45,8 @@ export function waBotRoutes(db: Db) {
       ts: new Date().toISOString(),
       env: {
         OPENWA_URL: process.env.OPENWA_URL ?? null,
-        WA_AUTOMATE_PORT: process.env.WA_AUTOMATE_PORT ?? null,
-        WA_AUTOMATE_VERSION: process.env.WA_AUTOMATE_VERSION ?? null,
-        WA_AUTOMATE_SESSION_ID: process.env.WA_AUTOMATE_SESSION_ID ?? null,
+        OPENWA_PORT: process.env.OPENWA_PORT ?? null,
+        ENGINE_TYPE: process.env.ENGINE_TYPE ?? null,
         OPENWA_API_KEY_set: Boolean(process.env.OPENWA_API_KEY),
         PAPERCLIP_AUTH_PUBLIC_BASE_URL: process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? null,
       },

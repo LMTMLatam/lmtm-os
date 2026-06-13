@@ -2,13 +2,13 @@
 #
 # This single web service runs both:
 #   - LMTM-OS server on port 3100
-#   - OpenWA (wa-automate self-hosted) on port 8080
-# They share the same container, so OPENWA_URL=http://localhost:8080.
+#   - OpenWA (Baileys engine) on port 2785 — pure WebSocket, no browser
+# They share the same container, so OPENWA_URL=http://localhost:2785.
 #
-# The old external openwa-zpya.onrender.com is no longer used. The
-# `OPENWA_URL` env var is set automatically to localhost; you can override
-# it (e.g. `https://external.openwa.example`) if you ever want to point
-# at a remote OpenWA again.
+# We use OpenWA (rmyndharis/OpenWA) with the @whiskeysockets/baileys
+# engine plugin baked in. Unlike browser-based libs (wa-automate,
+# whatsapp-web.js), Baileys connects directly via WebSocket to WhatsApp
+# servers — no anti-bot detection from datacenter IPs.
 
 services:
   - type: web
@@ -40,15 +40,19 @@ services:
         value: "true"
       - key: PAPERCLIP_MIGRATION_AUTO_APPLY
         value: "true"
-      # OpenWA self-hosted: same container, port 8080
+      # OpenWA self-hosted: same container, port 2785
       - key: OPENWA_URL
-        value: http://localhost:8080
+        value: http://localhost:2785
       - key: OPENWA_API_KEY
         generateValue: true
-      - key: WA_AUTOMATE_PORT
-        value: "8080"
-      - key: WA_AUTOMATE_SESSION_ID
-        value: lmtm
+      - key: OPENWA_PORT
+        value: "2785"
+      - key: ENGINE_TYPE
+        value: baileys
+      - key: DATABASE_TYPE
+        value: sqlite
+      - key: LOG_LEVEL
+        value: info
       # Auto-applied via PAPERCLIP_AUTH_PUBLIC_BASE_URL at runtime
       # (start.sh constructs the webhook URL from this + /api/wa-bot/webhook)
       - key: PAPERCLIP_AUTH_PUBLIC_BASE_URL

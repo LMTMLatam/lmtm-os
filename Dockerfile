@@ -173,62 +173,68 @@ RUN mkdir -p /app/.paperclip/plugins && \
     echo "  /app/node_modules/@paperclipai/plugin-sdk: $(test -L /app/node_modules/@paperclipai/plugin-sdk && readlink /app/node_modules/@paperclipai/plugin-sdk || echo MISSING)"
 
 VOLUME ["/paperclip"]
-EXPOSE 3100 8080
+EXPOSE 3100 2785
 
-# ── OpenWA self-hosted (sidecar) ──
-# wa-automate Easy API runs on port 8080 inside the same container.
-# LMTM-OS connects to it via OPENWA_URL=http://localhost:8080.
-# We install it globally so the start.sh wrapper can spawn it with npx.
-ARG WA_AUTOMATE_VERSION=4.76.0
-ENV WA_AUTOMATE_VERSION=${WA_AUTOMATE_VERSION}
-# Install Chrome headless dependencies (Puppeteer needs libglib, libnss, etc.)
-# Plus ignore-check globally FIRST so the wa-automate postinstall works.
-# Plus `procps` (provides `ps`) and `net-tools` (provides `netstat`/`ifconfig`)
-# which wa-automate and the diagnostics endpoint use for introspection.
-# Plus Google Chrome stable + its signing key so wa-automate can launch
-# it via --use-chrome (the bundled Chromium is rejected by web.whatsapp.com).
+# ── OpenWA self-hosted (sidecar) with Baileys engine ──
+# OpenWA is a NestJS HTTP API gateway. We build it with the Baileys
+# engine plugin baked in (no browser, pure WebSocket — bypasses
+# web.whatsapp.com's anti-bot detection from datacenter IPs).
+#
+#   - OpenWA API listens on port 2785 inside the container.
+#   - LMTM-OS connects via OPENWA_URL=http://localhost:2785.
+#   - Sessions are created/managed via REST, webhooks come back to
+#     LMTM-OS at /api/wa-bot/webhook.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# openwa-builder stage — clones OpenWA, applies Baileys plugin, builds
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-slim AS openwa-builder
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy the plugin source first (so any change invalidates the build cache)
+COPY docker/openwa-baileys-plugin/src/ /build/plugin/
+COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
+
+ENV OPENWA_VERSION=main
+RUN bash /build/build.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
+# runtime additions for OpenWA
+# ─────────────────────────────────────────────────────────────────────────────
+COPY --from=openwa-builder /app/openwa-dist /app/openwa
+
+# OpenWA needs sqlite3 (default DB) + standard libs
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl \
     dumb-init \
     procps \
     net-tools \
-    gnupg \
-    libglib2.0-0 \
-    libnss3 \
-    libnspr4 \
-    libdbus-1-3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libatspi2.0-0 \
-    libx11-6 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
-    fonts-liberation \
-    libgconf-2-4 \
-  && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends google-chrome-stable \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install -g ignore-check@latest --no-audit --no-fund --ignore-scripts \
-  && npm install -g @open-wa/wa-automate@${WA_AUTOMATE_VERSION} --no-audit --no-fund \
-  && google-chrome --version
-COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
-COPY docker/openwa/config/cli.config.json /app/openwa.config.json
-COPY docker/openwa/custom-openwa.cjs /app/custom-openwa.cjs
-RUN chmod +x /app/start-openwa.sh
+    sqlite3 \
+    python3 \
+    make \
+    g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+# OpenWA config (defaults to Baileys engine)
+ENV OPENWA_PORT=2785
+ENV ENGINE_TYPE=baileys
+ENV DATABASE_TYPE=sqlite
+ENV DATABASE_NAME=/app/data/openwa.sqlite
+ENV SESSION_DATA_PATH=/app/data/sessions
+ENV PUPPETEER_HEADLESS=true
+ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu
+ENV STORAGE_TYPE=local
+ENV STORAGE_LOCAL_PATH=/app/data/media
+ENV LOG_LEVEL=info
+ENV NODE_ENV=production
+
+RUN mkdir -p /app/data/sessions /app/data/media
 
 # Production node: use --conditions=production so packages with the
 # production conditional load dist/ (compiled JS) instead of src/ (.ts).
