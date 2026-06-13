@@ -75,6 +75,11 @@ RUN pnpm --filter @paperclipai/lmtm-meta-ads build
 # Auth: per-company OAuth + developer_token via ctx.ads.resolveToken("google", companyId).
 RUN pnpm --filter @paperclipai/lmtm-google-ads build
 
+# Archive node_modules to preserve symlinks across multi-stage COPY.
+# Docker COPY --from (BuildKit) does not reliably preserve pnpm's
+# symlinks for hoisted dependencies or workspace packages. tar does.
+RUN tar cf /tmp/node_modules.tar -C /app node_modules
+
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
 # ─────────────────────────────────────────────────────────────────────────────
@@ -112,24 +117,24 @@ COPY --from=builder /app/server/ server/
 COPY --from=builder /app/packages/ packages/
 COPY --from=builder /app/cli/ cli/
 COPY --from=builder /app/ui/dist/ server/ui-dist/
-COPY --from=builder /app/node_modules/ node_modules/
+COPY --from=builder /tmp/node_modules.tar /tmp/node_modules.tar
 
-# Recreate workspace package symlinks. Docker COPY --from may not
-# preserve pnpm's symlinks for workspace packages (the @paperclipai/*
-# directory under node_modules points to ../../packages/* via relative
-# symlinks). If COPY doesn't preserve them — or dereferences them
-# incorrectly — server startup fails with "Cannot find package
-# @paperclipai/db". We fix this by creating the expected symlinks
-# explicitly.
+# Extract node_modules with symlinks preserved. Docker COPY --from
+# does not reliably preserve pnpm's symlinks for workspace packages
+# or for hoisted dependencies (express, drizzle-orm, etc.) in newer
+# BuildKit versions. Using tar ensures every symlink is intact.
+RUN tar xf /tmp/node_modules.tar -C /app && rm /tmp/node_modules.tar
+
+# Recreate workspace package symlinks in case tar wasn't used (fallback)
 RUN mkdir -p /app/node_modules/@paperclipai && \
     for pkg in db shared adapter-utils plugin-sdk mcp-server create-paperclip-plugin; do \
-      if [ -d /app/packages/$pkg ]; then \
+      if [ -d /app/packages/$pkg ] && [ ! -L /app/node_modules/@paperclipai/$pkg ]; then \
         ln -sfn /app/packages/$pkg /app/node_modules/@paperclipai/$pkg && \
         echo "linked @paperclipai/$pkg"; \
       fi; \
     done && \
     for pkg in lmtm-clickup lmtm-n8n lmtm-meta-ads lmtm-google-ads plugin-fake-sandbox; do \
-      if [ -d /app/packages/plugins/$pkg ]; then \
+      if [ -d /app/packages/plugins/$pkg ] && [ ! -L /app/node_modules/@paperclipai/$pkg ]; then \
         ln -sfn /app/packages/plugins/$pkg /app/node_modules/@paperclipai/$pkg && \
         echo "linked @paperclipai/$pkg"; \
       fi; \
