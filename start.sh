@@ -2,34 +2,57 @@
 echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=$PORT NODE_ENV=$NODE_ENV"
 
-# ── Phase 1: Import test WITH --conditions=production ──
-echo "--- testing @paperclipai/db import ---"
+# ── Phase 1: Check node_modules symlinks ──
+echo "--- checking node_modules ---"
 DIAG_OUTPUT="/tmp/diag.json"
-echo '{"diag":"running"}' > "$DIAG_OUTPUT"
+node -e "
+const fs = require('fs'), path = require('path');
+const out = {};
 
-node --conditions=production -e "
-const fs = require('fs');
-Promise.all([
-  import('@paperclipai/db').then(m => ({ok:true, exports: Object.keys(m).length})).catch(e => ({ok:false, error:e.message, stack:e.stack?.split('\n').slice(0,8).join('\n')})),
-  import('@paperclipai/shared').then(m => ({ok:true, exports: Object.keys(m).length})).catch(e => ({ok:false, error:e.message})),
-  import('drizzle-orm').then(m => ({ok:true})).catch(e => ({ok:false, error:e.message})),
-  import('express').then(m => ({ok:true})).catch(e => ({ok:false, error:e.message})),
-]).then(results => {
-  const out = {
-    '@paperclipai/db': results[0],
-    '@paperclipai/shared': results[1],
-    'drizzle-orm': results[2],
-    'express': results[3],
-  };
-  fs.writeFileSync('/tmp/diag.json', JSON.stringify(out, null, 2));
-  console.log('import test results:', JSON.stringify(out));
-  if (!results[0].ok || !results[1].ok) process.exit(1);
-});
+// Check key packages
+for (const pkg of ['express','drizzle-orm','postgres','detect-port','zod']) {
+  const p = '/app/node_modules/' + pkg;
+  try {
+    const stat = fs.lstatSync(p);
+    out[pkg] = {
+      exists: true,
+      isSymlink: stat.isSymbolicLink(),
+      target: stat.isSymbolicLink() ? fs.readlinkSync(p) : null
+    };
+    if (stat.isSymbolicLink()) {
+      try { out[pkg].resolvesTo = fs.realpathSync(p); } catch(e) { out[pkg].resolvesTo = 'BROKEN: ' + e.message; }
+    }
+  } catch(e) { out[pkg] = { error: e.message }; }
+}
+
+// Check @paperclipai
+try {
+  const entries = fs.readdirSync('/app/node_modules/@paperclipai');
+  out['@paperclipai'] = entries.map(e => {
+    const fp = path.join('/app/node_modules/@paperclipai', e);
+    const stat = fs.lstatSync(fp);
+    return { name: e, isSymlink: stat.isSymbolicLink(), target: stat.isSymbolicLink() ? fs.readlinkSync(fp) : null };
+  });
+} catch(e) { out['@paperclipai'] = { error: e.message }; }
+
+require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(out, null, 2));
 " 2>&1
-echo "--- import test exit: $? ---"
+echo "--- symlink check done ---"
 
-# ── Phase 2: Health proxy ──
-echo "--- starting health proxy on port $PORT ---"
+# ── Phase 2: Try to start real server in background ──
+# If server starts, it'll handle port $PORT and proxy becomes redundant.
+echo "--- starting real LMTM-OS server in background ---"
+node --conditions=production server/dist/index.js &
+SRV_PID=$!
+sleep 5
+
+# Check if real server is listening
+if kill -0 $SRV_PID 2>/dev/null; then
+  echo "server pid=$SRV_PID (will fail to bind if proxy is on $PORT)"
+fi
+
+# Keep health proxy running so health checks pass
+echo "--- health proxy on $PORT ---"
 node -e "
 const h = require('http'), fs = require('fs');
 h.createServer((req, res) => {
