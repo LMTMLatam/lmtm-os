@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 # build-openwa.sh - build OpenWA with our Baileys plugin baked in.
 #
 # Why this exists:
@@ -41,7 +41,7 @@ cd "$BUILD_DIR"
 echo "[openwa-build] removing dashboard..."
 rm -rf dashboard
 
-# Remove traefik and the multi-service compose — we run OpenWA as a single process
+# Remove traefik and the multi-service compose â€” we run OpenWA as a single process
 rm -f docker-compose.yml docker-compose.dev.yml
 
 # Copy our plugin files. The Dockerfile COPYs the contents of
@@ -83,7 +83,7 @@ npm run build 2>&1 | tail -10
 
 # Sanity check
 if [ ! -d "dist" ] || [ ! -f "dist/main.js" ]; then
-  echo "[openwa-build] ❌ build did not produce dist/main.js" >&2
+  echo "[openwa-build] âŒ build did not produce dist/main.js" >&2
   exit 1
 fi
 
@@ -93,5 +93,7 @@ cp -r dist/* /app/openwa-dist/
 cp -r node_modules /app/openwa-dist/
 cp package.json /app/openwa-dist/
 
-echo "[openwa-build] ✅ done — dist at /app/openwa-dist"
+echo "[openwa-build] âœ… done â€” dist at /app/openwa-dist"
 ls -la /app/openwa-dist | head -20
+
+# touched: 2026-06-13T04:16:25.7925337-03:00
