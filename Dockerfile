@@ -104,12 +104,11 @@ COPY docker/openwa-baileys-plugin/src/ /build/plugin/
 COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
 
 ENV OPENWA_VERSION=main
-# Run build and capture the full log. We deliberately don't use
-# `set -e` here so the layer succeeds even if the build fails —
+# Run build and capture the full log. We deliberately swallow the
+# exit code (|| true) so the layer succeeds even if the build fails —
 # we want the image to be pushed so we can read /tmp/openwa-build.log
-# via /api/wa-bot/diagnostics. The build script's own `set -e` will
-# make it fail-fast; the exit code is captured in the log.
-RUN bash -c 'bash /build/build.sh 2>&1 | tee /tmp/openwa-build.log; exit 0'
+# via /api/wa-bot/diagnostics.
+RUN set +e; bash /build/build.sh > /tmp/openwa-build.log 2>&1; echo "build exit: $?"; exit 0
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
