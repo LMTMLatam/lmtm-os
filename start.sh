@@ -3,22 +3,43 @@ echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=$PORT NODE_ENV=$NODE_ENV"
 
 # ── Phase 1: Diagnostic load ──
-echo "--- diagnostic: loading @paperclipai/db directly ---"
+echo "--- diagnostic: checking filesystem ---"
 DIAG_OUTPUT="/tmp/diag.json"
 echo '{"diag":"running"}' > "$DIAG_OUTPUT"
-node --conditions=production -e "
-import('@paperclipai/db')
-  .then(m => {
-    const r = {ok:true, pkg:'@paperclipai/db', exports: Object.keys(m)};
-    require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
-    console.log('DB PKG LOADED OK exports:', Object.keys(m));
-  })
-  .catch(e => {
-    const r = {ok:false, pkg:'@paperclipai/db', error: e.message, stack: e.stack?.split('\n').slice(0,20).join('\n')};
-    require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
-    console.error('DB PKG REJECTED:', e.message);
-    process.exit(1);
-  });
+node -e "
+const fs = require('fs'), path = require('path');
+const out = {};
+
+// Check node_modules/@paperclipai structure
+const pkgDir = '/app/node_modules/@paperclipai';
+try {
+  const entries = fs.readdirSync(pkgDir);
+  out['@paperclipai'] = { entries };
+  out['@paperclipai'].symlinks = {};
+  for (const e of entries) {
+    const full = path.join(pkgDir, e);
+    try {
+      const stat = fs.lstatSync(full);
+      out['@paperclipai'].symlinks[e] = {
+        isSymlink: stat.isSymbolicLink(),
+        target: stat.isSymbolicLink() ? fs.readlinkSync(full) : null,
+        isDir: stat.isDirectory()
+      };
+    } catch (err) { out['@paperclipai'].symlinks[e] = { error: err.message }; }
+  }
+} catch (err) { out['@paperclipai'] = { error: err.message }; }
+
+// Check if packages/db exists and has package.json
+try {
+  const dbPkg = '/app/packages/db';
+  const dbStat = fs.lstatSync(dbPkg);
+  out['packages/db'] = { exists: true, isSymlink: dbStat.isSymbolicLink() };
+  const pj = JSON.parse(fs.readFileSync(dbPkg + '/package.json', 'utf8'));
+  out['packages/db'].name = pj.name;
+  out['packages/db'].exports = JSON.stringify(pj.exports, null, 2);
+} catch (err) { out['packages/db'] = { error: err.message }; }
+
+require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(out, null, 2));
 " 2>&1
 DIAG_EXIT=$?
 echo "--- diagnostic exit $DIAG_EXIT ---"
