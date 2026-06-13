@@ -16,7 +16,9 @@
 # In the Dockerfile, the plugin files are COPYed to /build/plugin/ before
 # this script runs, so PLUGIN_DIR defaults to that path.
 
-set -e
+# -e: exit on first error
+# -x: print every command (for debugging build failures)
+set -ex
 
 OPENWA_VERSION="${OPENWA_VERSION:-main}"
 BUILD_DIR="${BUILD_DIR:-/tmp/openwa-build}"
