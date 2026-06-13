@@ -44,12 +44,16 @@ rm -rf dashboard
 # Remove traefik and the multi-service compose — we run OpenWA as a single process
 rm -f docker-compose.yml docker-compose.dev.yml
 
-# Copy our plugin files
-echo "[openwa-build] copying Baileys plugin files..."
+# Copy our plugin files. The Dockerfile COPYs the contents of
+# docker/openwa-baileys-plugin/src/ into /build/plugin/ (so the
+# adapter lives at $PLUGIN_DIR/engine/adapters/..., not $PLUGIN_DIR/src/...).
+echo "[openwa-build] copying Baileys plugin files (from $PLUGIN_DIR)..."
+ls -la "$PLUGIN_DIR" 2>&1 | head
+ls -la "$PLUGIN_DIR/engine" 2>&1 | head
 mkdir -p src/plugins/engines/baileys
-cp "$PLUGIN_DIR/src/engine/adapters/baileys.adapter.ts" src/engine/adapters/
-cp "$PLUGIN_DIR/src/plugins/engines/baileys/index.ts" src/plugins/engines/baileys/index.ts
-cp "$PLUGIN_DIR/src/engine/engine.factory.ts" src/engine/engine.factory.ts
+cp "$PLUGIN_DIR/engine/adapters/baileys.adapter.ts" src/engine/adapters/
+cp "$PLUGIN_DIR/plugins/engines/baileys/index.ts" src/plugins/engines/baileys/index.ts
+cp "$PLUGIN_DIR/engine/engine.factory.ts" src/engine/engine.factory.ts
 
 # Add baileys + hapi boom dependencies (hapi/boom is what Baileys uses for errors)
 echo "[openwa-build] patching package.json..."
