@@ -140,6 +140,18 @@ RUN mkdir -p /app/node_modules/@paperclipai && \
       fi; \
     done
 
+# Install production-only deps on top of the tar restore. pnpm does not
+# hoist all transitive deps to the root node_modules/ by default (only
+# packages used by 2+ workspace packages are hoisted). Single-use deps
+# like express (used only by @paperclipai/server) live in .pnpm/ and
+# are linked only from the consuming package's own module graph. But
+# Node's ESM resolver walks up from the importing file and looks for
+# node_modules/ in each parent directory — it does NOT search .pnpm/.
+# Running pnpm install --prod here ensures every missing symlink gets
+# created, because pnpm's linker sees the full dependency graph and
+# creates root-level symlinks for all production deps.
+RUN pnpm install --prod --no-frozen-lockfile --reporter=append-only 2>&1 | tail -20
+
 # Install the LMTM-bundled plugins into the runtime plugin dir.
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
 # will discover lmtm-clickup and lmtm-n8n.
