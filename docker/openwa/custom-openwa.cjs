@@ -223,6 +223,49 @@ async function startWaAutomate() {
     }
 
     const owa = require(`@open-wa/wa-automate`);
+
+    // Subscribe to the QR event BEFORE create() so we capture it.
+    // wa-automate has a global event emitter `owa.ev` that fires
+    // 'qr' as soon as the page renders a QR code (BEFORE the
+    // create() promise resolves).
+    try {
+      if (owa.ev && typeof owa.ev.on === 'function') {
+        owa.ev.on('qr.**', (qrData, sessionId) => {
+          // qrData may be:
+          //  - data URL 'data:image/png;base64,...'
+          //  - raw base64 string
+          //  - object { qr: '...' }
+          let qr = null;
+          if (typeof qrData === 'string') {
+            qr = qrData.startsWith('data:') ? qrData : `data:image/png;base64,${qrData}`;
+          } else if (qrData && typeof qrData === 'object') {
+            const inner = qrData.qr || qrData.data || qrData;
+            qr = typeof inner === 'string'
+              ? (inner.startsWith('data:') ? inner : `data:image/png;base64,${inner}`)
+              : null;
+          }
+          if (qr) {
+            lastQr = qr;
+            console.log(`[custom-openwa] QR captured (${qr.length} chars) for session=${sessionId}`);
+            forwardEvent('qr', { qr, sessionId });
+          }
+        });
+        owa.ev.on('authenticated.**', (sessionId) => {
+          console.log(`[custom-openwa] authenticated event for session=${sessionId}`);
+          forwardEvent('authenticated', { sessionId });
+        });
+        owa.ev.on('auth_failure.**', (msg, sessionId) => {
+          lastError = `auth_failure: ${msg}`;
+          console.error(`[custom-openwa] auth_failure for session=${sessionId}: ${msg}`);
+          forwardEvent('auth_failure', { msg, sessionId });
+        });
+        console.log('[custom-openwa] subscribed to owa.ev events');
+      } else {
+        console.log('[custom-openwa] ⚠️  owa.ev not available, will only see events on client');
+      }
+    } catch (evErr) {
+      console.error('[custom-openwa] failed to subscribe to owa.ev:', evErr.message);
+    }
     const config = {
       sessionId: SESSION_ID,
       useChrome: true,
