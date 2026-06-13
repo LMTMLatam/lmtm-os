@@ -30,6 +30,6 @@ fi
 echo "[openwa] chrome: $(google-chrome --version 2>/dev/null || echo 'NOT FOUND')"
 echo "[openwa] config file (legacy, now ignored by custom server): $(ls -la /app/openwa.config.json 2>&1)"
 echo "[openwa] listening on 0.0.0.0:${OPENWA_PORT} (api key: $([ -n "${WA_AUTOMATE_API_KEY:-${OPENWA_API_KEY:-}}" ] && echo 'set' || echo 'MISSING'))"
-echo "[openwa] starting: node /app/custom-openwa.js"
+echo "[openwa] starting: node /app/custom-openwa.cjs"
 
-exec node /app/custom-openwa.js
+exec node /app/custom-openwa.cjs

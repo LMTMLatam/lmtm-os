@@ -227,7 +227,7 @@ RUN apt-get update \
   && google-chrome --version
 COPY docker/openwa/start-openwa.sh /app/start-openwa.sh
 COPY docker/openwa/config/cli.config.json /app/openwa.config.json
-COPY docker/openwa/custom-openwa.js /app/custom-openwa.js
+COPY docker/openwa/custom-openwa.cjs /app/custom-openwa.cjs
 RUN chmod +x /app/start-openwa.sh
 
 # Production node: use --conditions=production so packages with the
