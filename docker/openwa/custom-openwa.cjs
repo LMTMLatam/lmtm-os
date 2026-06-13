@@ -195,6 +195,33 @@ async function startWaAutomate() {
   try {
     openwaState = 'launching-browser';
     console.log(`[custom-openwa] requiring @open-wa/wa-automate@${WA_VERSION}...`);
+
+    // ── Patch initializer.js BEFORE requiring wa-automate ──
+    // The 30s waitForFunction on `window.Debug.VERSION` is hardcoded
+    // with no timeout option in initializer.js:208. For fresh sessions,
+    // the QR page doesn't expose Debug until scanned, which takes
+    // minutes — not 30s. We patch the file in place to add
+    // { timeout: 0 } (wait forever).
+    try {
+      const Module = require('module');
+      const entryPath = require.resolve('@open-wa/wa-automate', { paths: Module.globalPaths.concat(['/usr/local/lib/node_modules']) });
+      const initializerPath = require('path').join(require('path').dirname(entryPath), 'controllers', 'initializer.js');
+      let src = fs.readFileSync(initializerPath, 'utf8');
+      const buggyLine = `yield waPage.waitForFunction('window.Debug!=undefined && window.Debug.VERSION!=undefined && require');`;
+      const patchedLine = `yield waPage.waitForFunction('window.Debug!=undefined && window.Debug.VERSION!=undefined && require', { timeout: 0 });`;
+      if (src.includes(buggyLine)) {
+        src = src.replace(buggyLine, patchedLine);
+        fs.writeFileSync(initializerPath, src);
+        console.log('[custom-openwa] ✅ patched initializer.js: waitForFunction now waits forever');
+      } else if (src.includes(patchedLine)) {
+        console.log('[custom-openwa] ✅ initializer.js already patched');
+      } else {
+        console.log('[custom-openwa] ⚠️  could not find buggy line in initializer.js — assuming already patched');
+      }
+    } catch (patchErr) {
+      console.error('[custom-openwa] ⚠️  patch step failed:', patchErr.message);
+    }
+
     const owa = require(`@open-wa/wa-automate`);
     const config = {
       sessionId: SESSION_ID,
