@@ -53,6 +53,8 @@ services:
         value: sqlite
       - key: LOG_LEVEL
         value: info
+      - key: OPENWA_SELF_HOSTED_DISABLED
+        value: "true"
       # Auto-applied via PAPERCLIP_AUTH_PUBLIC_BASE_URL at runtime
       # (start.sh constructs the webhook URL from this + /api/wa-bot/webhook)
       - key: PAPERCLIP_AUTH_PUBLIC_BASE_URL
