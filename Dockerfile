@@ -109,17 +109,24 @@ ENV OPENWA_VERSION=main
 # the image to be pushed so we can read /tmp/openwa-build.log via
 # /api/wa-bot/diagnostics. We always create /app/openwa-dist (with at
 # least a placeholder) so the downstream runtime COPY doesn't break.
+# Also COPY the build log itself so /api/wa-bot/diagnostics can show
+# it after deploy.
 RUN set +e; \
     bash /build/build.sh > /tmp/openwa-build.log 2>&1; \
     BUILD_EXIT=$?; \
-    echo "openwa build exit: $BUILD_EXIT" >> /tmp/openwa-build.log; \
+    printf "\n=== openwa build exit: %s ===\n" "$BUILD_EXIT" >> /tmp/openwa-build.log; \
     mkdir -p /app/openwa-dist; \
     if [ ! -f /app/openwa-dist/main.js ]; then \
       echo '{"name":"openwa-build-failed","version":"0.0.0","main":"main.js"}' > /app/openwa-dist/package.json; \
       echo "console.error('OpenWA build failed — see /tmp/openwa-build.log'); process.exit(1);" > /app/openwa-dist/main.js; \
       echo "BUILD FAILED placeholder created" >> /tmp/openwa-build.log; \
+    else \
+      echo "BUILD OK" >> /tmp/openwa-build.log; \
     fi; \
     exit 0
+
+# Save the build log into the runtime image so diagnostics can show it
+RUN cp /tmp/openwa-build.log /build.log 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
@@ -221,7 +228,7 @@ EXPOSE 3100 2785
 
 # ── runtime additions for OpenWA ──
 COPY --from=openwa-builder /app/openwa-dist /app/openwa
-COPY --from=openwa-builder /tmp/openwa-build.log /tmp/openwa-build.log
+COPY --from=openwa-builder /build.log /tmp/openwa-build.log
 
 # OpenWA needs sqlite3 (default DB) + standard libs
 RUN apt-get update \

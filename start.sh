@@ -21,7 +21,15 @@ if [ -z "$OPENWA_SELF_HOSTED_DISABLED" ]; then
 
   # Run the built OpenWA from /app/openwa
   cd /app/openwa
-  PORT="${OPENWA_PORT:-2785}" node dist/main.js > /tmp/openwa.log 2>&1 &
+  # The build.sh outputs to /app/openwa-dist/ which COPY puts at
+  # /app/openwa/. So the entrypoint is /app/openwa/main.js (or
+  # /app/openwa/dist/main.js if the build created a dist/ subdir).
+  if [ -f /app/openwa/dist/main.js ]; then
+    OPENWA_ENTRY="dist/main.js"
+  else
+    OPENWA_ENTRY="main.js"
+  fi
+  PORT="${OPENWA_PORT:-2785}" node "$OPENWA_ENTRY" > /tmp/openwa.log 2>&1 &
   OPENWA_PID=$!
   echo "openwa pid: $OPENWA_PID"
 
