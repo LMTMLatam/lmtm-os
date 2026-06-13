@@ -301,8 +301,12 @@ async function startWaAutomate() {
       logDebugInfoAsObject: true,
       skipUpdateCheck: true,
       cacheEnabled: false,
-      customUserAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      // Auto-refresh QR every 60s (wa web does this anyway, but explicit)
+      // NOTE: do NOT set customUserAgent. WA Web's page check
+      //   'navigator.userAgent.indexOf("Chrome/") >= 85' fails when we
+      //   lie about the Chrome version, and the page shows the
+      //   "WhatsApp works with Google Chrome 85+" message instead of
+      //   the QR code. With the real Chrome 149 UA, the page shows
+      //   the QR correctly.
       autoRefresh: true,
     };
     console.log('[custom-openwa] config:', JSON.stringify(config, null, 2));
