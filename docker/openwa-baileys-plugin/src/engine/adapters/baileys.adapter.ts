@@ -38,8 +38,8 @@ import {
   Contact,
   Group,
   GroupInfo,
-} from '../../interfaces/whatsapp-engine.interface';
-import { createLogger } from '../../../common/services/logger.service';
+} from '../interfaces/whatsapp-engine.interface';
+import { createLogger } from '../../common/services/logger.service';
 
 export interface BaileysConfig {
   sessionId: string;
@@ -112,12 +112,13 @@ export class BaileysAdapter extends EventEmitter implements IWhatsAppEngine {
     });
   }
 
-  private async handleConnectionUpdate(update: {
-    connection?: string;
-    lastDisconnect?: { error?: Boom; date?: Date };
-    qr?: string;
-  }): Promise<void> {
-    const { connection, lastDisconnect, qr } = update;
+  // Baileys emits a connection.update event with a loose-typed payload.
+  // We use `any` here to match the lib's actual type (which is a union
+  // of Error | Boom for the error field, but TS narrows it incorrectly).
+  private async handleConnectionUpdate(update: any): Promise<void> {
+    const connection: string | undefined = update?.connection;
+    const lastDisconnect: { error?: Boom } | undefined = update?.lastDisconnect;
+    const qr: string | undefined = update?.qr;
 
     if (qr) {
       this.currentQR = qr;
@@ -143,8 +144,8 @@ export class BaileysAdapter extends EventEmitter implements IWhatsAppEngine {
     }
 
     if (connection === 'close') {
-      const reason = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode
-        ?? DisconnectReason.connectionClosed;
+      const boomErr = lastDisconnect?.error as Boom | undefined;
+      const reason = boomErr?.output?.statusCode ?? DisconnectReason.connectionClosed;
       this.logger.warn(`Connection closed, reason=${reason}`);
       this.status = EngineStatus.DISCONNECTED;
       this.callbacks.onDisconnected?.(`code:${reason}`);
@@ -386,7 +387,8 @@ export class BaileysAdapter extends EventEmitter implements IWhatsAppEngine {
 
   async checkNumberExists(number: string): Promise<boolean> {
     if (!this.sock) throw new Error('not connected');
-    const [result] = await this.sock.onWhatsApp(number);
+    const results = (await this.sock.onWhatsApp(number)) ?? [];
+    const [result] = results;
     return !!result?.exists;
   }
 
@@ -422,8 +424,8 @@ export class BaileysAdapter extends EventEmitter implements IWhatsAppEngine {
         isAdmin: p.admin === 'admin' || p.admin === 'superadmin',
         isSuperAdmin: p.admin === 'superadmin',
       })),
-      isReadOnly: meta.announce === 1,
-      isAnnounce: meta.announce === 1,
+      isReadOnly: !!meta.announce,
+      isAnnounce: !!meta.announce,
     };
   }
 
@@ -471,7 +473,7 @@ export class BaileysAdapter extends EventEmitter implements IWhatsAppEngine {
   async getGroupInviteCode(groupId: string): Promise<string> {
     if (!this.sock) throw new Error('not connected');
     const code = await this.sock.groupInviteCode(groupId);
-    return code;
+    return code ?? '';
   }
 
   async revokeGroupInviteCode(groupId: string): Promise<string> {
@@ -493,4 +495,41 @@ export class BaileysAdapter extends EventEmitter implements IWhatsAppEngine {
       return null;
     }
   }
+
+  // ============================================================================
+  // Labels (WhatsApp Business) — not implemented
+  // ============================================================================
+  async getLabels(): Promise<never[]> { return this.notImplemented('getLabels') as never; }
+  async getLabelById(): Promise<never> { return this.notImplemented('getLabelById') as never; }
+  async getChatLabels(): Promise<never[]> { return this.notImplemented('getChatLabels') as never; }
+  async addLabelToChat(): Promise<void> { return this.notImplemented('addLabelToChat') as never; }
+  async removeLabelFromChat(): Promise<void> { return this.notImplemented('removeLabelFromChat') as never; }
+
+  // ============================================================================
+  // Channels / Newsletter — not implemented (Baileys has limited support)
+  // ============================================================================
+  async getSubscribedChannels(): Promise<never[]> { return this.notImplemented('getSubscribedChannels') as never; }
+  async getChannelById(): Promise<never> { return this.notImplemented('getChannelById') as never; }
+  async subscribeToChannel(): Promise<never> { return this.notImplemented('subscribeToChannel') as never; }
+  async unsubscribeFromChannel(): Promise<void> { return this.notImplemented('unsubscribeFromChannel') as never; }
+  async getChannelMessages(): Promise<never[]> { return this.notImplemented('getChannelMessages') as never; }
+
+  // ============================================================================
+  // Status / Stories — not implemented
+  // ============================================================================
+  async getContactStatuses(): Promise<never[]> { return this.notImplemented('getContactStatuses') as never; }
+  async getContactStatus(): Promise<never[]> { return this.notImplemented('getContactStatus') as never; }
+  async postTextStatus(): Promise<never> { return this.notImplemented('postTextStatus') as never; }
+  async postImageStatus(): Promise<never> { return this.notImplemented('postImageStatus') as never; }
+  async postVideoStatus(): Promise<never> { return this.notImplemented('postVideoStatus') as never; }
+  async deleteStatus(): Promise<void> { return this.notImplemented('deleteStatus') as never; }
+
+  // ============================================================================
+  // Catalog (WhatsApp Business) — not implemented
+  // ============================================================================
+  async getCatalog(): Promise<never> { return this.notImplemented('getCatalog') as never; }
+  async getProducts(): Promise<never> { return this.notImplemented('getProducts') as never; }
+  async getProduct(): Promise<never> { return this.notImplemented('getProduct') as never; }
+  async sendProduct(): Promise<MessageResult> { return this.notImplemented('sendProduct'); }
+  async sendCatalog(): Promise<MessageResult> { return this.notImplemented('sendCatalog'); }
 }

@@ -13,14 +13,16 @@
 #   4. Runs npm install + build
 #   5. Outputs dist/ ready to be COPYed into the LMTM-OS runtime stage
 #
-# Output:
-#   /tmp/openwa-build/dist/  → copied to /app/openwa-dist/ in the parent Dockerfile
+# In the Dockerfile, the plugin files are COPYed to /build/plugin/ before
+# this script runs, so PLUGIN_DIR defaults to that path.
 
 set -e
 
 OPENWA_VERSION="${OPENWA_VERSION:-main}"
 BUILD_DIR="${BUILD_DIR:-/tmp/openwa-build}"
-PLUGIN_DIR="${PLUGIN_DIR:-/app/docker/openwa-baileys-plugin}"
+# In Docker: /build/plugin (set by the Dockerfile COPY).
+# For local testing: pass PLUGIN_DIR=/path/to/openwa-baileys-plugin
+PLUGIN_DIR="${PLUGIN_DIR:-/build/plugin}"
 
 echo "[openwa-build] version: $OPENWA_VERSION"
 echo "[openwa-build] build dir: $BUILD_DIR"
@@ -42,9 +44,10 @@ rm -f docker-compose.yml docker-compose.dev.yml
 
 # Copy our plugin files
 echo "[openwa-build] copying Baileys plugin files..."
+mkdir -p src/plugins/engines/baileys
 cp "$PLUGIN_DIR/src/engine/adapters/baileys.adapter.ts" src/engine/adapters/
-cp "$PLUGIN_DIR/src/plugins/engines/baileys/index.ts" src/plugins/engines/baileys/
-cp "$PLUGIN_DIR/src/engine/engine.factory.ts" src/engine/
+cp "$PLUGIN_DIR/src/plugins/engines/baileys/index.ts" src/plugins/engines/baileys/index.ts
+cp "$PLUGIN_DIR/src/engine/engine.factory.ts" src/engine/engine.factory.ts
 
 # Add baileys + hapi boom dependencies (hapi/boom is what Baileys uses for errors)
 echo "[openwa-build] patching package.json..."
