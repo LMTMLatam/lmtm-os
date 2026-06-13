@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/lib/router";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -170,6 +170,24 @@ export function Clients() {
 }
 
 function ClientCard({ client }: { client: Client }) {
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const handleSync = useCallback(async () => {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const r = await clientsApi.clickupSync(client.slug);
+      if (r.warnings?.length) {
+        setSyncMsg({ ok: true, text: r.warnings.join("; ") });
+      } else {
+        setSyncMsg({ ok: true, text: `Lists: ${r.redes ? "RS" : ""}${r.video ? " PV" : ""}${r.enfoqueTecnico ? " ET" : ""}` });
+      }
+    } catch (e) {
+      setSyncMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setSyncing(false);
+    }
+  }, [client.slug]);
   return (
     <Card className="p-4 hover:border-foreground/30 transition-colors group">
       <div className="flex items-start justify-between gap-2">
@@ -225,16 +243,43 @@ function ClientCard({ client }: { client: Client }) {
         </span>
         <div className="flex items-center gap-2">
           {client.planillaSource === "clickup" && (
-            <a
-              href={`https://app.clickup.com/${client.planillaExternalId?.startsWith("901") ? client.planillaExternalId : ""}`}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-              title="Open ClickUp folder"
-            >
-              ClickUp
-              <ExternalLink className="h-2.5 w-2.5" />
-            </a>
+            <div className="flex items-center gap-1">
+              <a
+                href={(() => {
+                  const folder = client.clickupFolderId || client.planillaExternalId;
+                  return folder ? `https://app.clickup.com/${folder}` : "#";
+                })()}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                title="Open ClickUp folder"
+              >
+                ClickUp
+                <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+              {client.clickupListRedesId && (
+                <a href={`https://app.clickup.com/v/l/${client.clickupListRedesId}`} target="_blank" rel="noreferrer noopener" className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="📲 Redes Sociales">RS</a>
+              )}
+              {client.clickupListVideoId && (
+                <a href={`https://app.clickup.com/v/l/${client.clickupListVideoId}`} target="_blank" rel="noreferrer noopener" className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Produção de video">PV</a>
+              )}
+              {client.clickupListEnfoqueTecnicoId && (
+                <a href={`https://app.clickup.com/v/l/${client.clickupListEnfoqueTecnicoId}`} target="_blank" rel="noreferrer noopener" className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Enfoque Técnico">ET</a>
+              )}
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className={`ml-1 text-[10px] px-1 rounded ${syncing ? "text-muted-foreground/40 animate-spin" : "text-muted-foreground/60 hover:text-foreground"}`}
+                title="Sync ClickUp lists"
+              >
+                {syncing ? "↻" : "↻"}
+              </button>
+              {syncMsg && (
+                <span className={`ml-1 text-[9px] ${syncMsg.ok ? "text-emerald-500/70" : "text-rose-500/70"} truncate max-w-[120px]`}>
+                  {syncMsg.text}
+                </span>
+              )}
+            </div>
           )}
           <Link
             to={`/c/${client.slug}`}

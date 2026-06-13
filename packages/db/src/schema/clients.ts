@@ -29,6 +29,13 @@ export const clients = pgTable(
     planillaSource: text("planilla_source"),
     planillaExternalId: text("planilla_external_id"),
     planillaSyncedAt: timestamp("planilla_synced_at", { withTimezone: true }),
+    // ClickUp folder + 3 standard lists per client.
+    // Populated by the clickup-sync service.
+    clickupFolderId: text("clickup_folder_id"),
+    clickupListRedesId: text("clickup_list_redes_id"),
+    clickupListVideoId: text("clickup_list_video_id"),
+    clickupListEnfoqueTecnicoId: text("clickup_list_enfoque_tecnico_id"),
+    clickupListsSyncedAt: timestamp("clickup_lists_synced_at", { withTimezone: true }),
     onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
     offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),

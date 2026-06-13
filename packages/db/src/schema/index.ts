@@ -87,6 +87,8 @@ export { agentChatSessions } from "./agent_chat_sessions.js";
 // LMTM-OS new tables (canonical, post-0094).
 export { clients } from "./clients.js";
 export type { Client, NewClient } from "./clients.js";
+export { clientContextCache } from "./client_context_cache.js";
+export type { ClientContextCache, NewClientContextCache } from "./client_context_cache.js";
 export { publicDashboards } from "./public_dashboards.js";
 export type { PublicDashboard, NewPublicDashboard } from "./public_dashboards.js";
 export { adsConnections } from "./ads_connections.js";

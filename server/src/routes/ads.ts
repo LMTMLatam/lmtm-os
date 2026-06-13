@@ -38,6 +38,7 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
+import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext } from "../services/clickup-sync.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -1851,6 +1852,64 @@ export function adsRoutes(db: Db): Router {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[client bulk-sync] failed", idOrSlug, msg);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // ── ClickUp sync ────────────────────────────────────────────────
+  // POST /api/clients/:id/clickup/sync — detect the 3 standard lists
+  // (Redes Sociales, Produção de video, Enfoque Técnico) and persist
+  // their IDs on the client row. Also sets the folder ID for the
+  // dashboard button.
+  router.post("/clients/:id/clickup/sync", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    try {
+      const result = await detectClientClickUpLists(db, row.id);
+      res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[clickup-sync]", row.id, msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // POST /api/clients/:id/clickup/enfoque-tecnico/refresh — fetch
+  // the Enfoque Técnico list contents and cache them.
+  router.post("/clients/:id/clickup/enfoque-tecnico/refresh", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    try {
+      const result = await refreshEnfoqueTecnicoContext(db, row.id);
+      res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[clickup-enfoque-refresh]", row.id, msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // GET /api/clients/:id/clickup/enfoque-tecnico — get cached
+  // Enfoque Técnico context (auto-refreshes if stale).
+  router.get("/clients/:id/clickup/enfoque-tecnico", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    try {
+      const opts = { forceRefresh: req.query.forceRefresh === "true", maxAgeMs: req.query.maxAgeMs ? Number(req.query.maxAgeMs) : undefined };
+      const result = await getEnfoqueTecnicoContext(db, row.id, opts);
+      res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[clickup-enfoque-get]", row.id, msg);
+      res.status(500).json({ error: msg });
     }
   });
 

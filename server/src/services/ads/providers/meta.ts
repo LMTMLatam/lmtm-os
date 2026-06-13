@@ -386,7 +386,7 @@ export const metaProvider: AdsProvider = {
     }>(
       `/${mapping.adAccountId}/insights`,
       {
-        level: "ad",
+        level: "adset",
         time_range: timeRange,
         time_increment: "1",
         fields: "campaign_id,campaign_name,adset_id,ad_id,date_start,impressions,clicks,spend,reach,ctr,cpc,cpm,actions",

@@ -2,9 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { metaConnections, metaAdAccountMappings, agentChatSessions } from "@paperclipai/db";
+import { clients, metaConnections, metaAdAccountMappings, agentChatSessions } from "@paperclipai/db";
 import { badRequest, unauthorized } from "../errors.js";
 import { assertCompanyAccess } from "./authz.js";
+import { getEnfoqueTecnicoContext } from "../services/clickup-sync.js";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const MAX_LOOP_ITERATIONS = 10;
@@ -30,6 +31,7 @@ const chatBodySchema = z.object({
   companyId: z.string().uuid(),
   messages: z.array(chatMessageSchema).min(1).max(50),
   client: z.string().trim().max(200).optional(),
+  clientSlug: z.string().trim().max(100).optional(), // auto-loads Enfoque Técnico context
   sessionId: z.string().uuid().optional(), // for persistent memory
 });
 
@@ -818,7 +820,26 @@ export function agentChatRoutes(db: Db) {
     const agentKey = body.agent.toLowerCase();
     const tools = getToolsForAgent(agentKey);
     const systemPrompt = SYSTEM_PROMPTS[agentKey] ?? SYSTEM_PROMPTS.default;
-    const clientContext = body.client?.trim() ? `\n\nContexto del cliente: ${body.client.trim()}` : "";
+
+    // Auto-load Enfoque Técnico context if clientSlug provided but no explicit client text
+    let clientContextStr = body.client?.trim() ?? "";
+    if (!clientContextStr && body.clientSlug) {
+      try {
+        const [clientRow] = await db.select().from(clients).where(eq(clients.slug, body.clientSlug));
+        if (clientRow) {
+          const ctx = await getEnfoqueTecnicoContext(db, clientRow.id, { maxAgeMs: 30 * 60 * 1000 });
+          if (ctx.tasks.length > 0) {
+            const tasksText = ctx.tasks.map(t => `- ${t.name}${t.description ? `: ${t.description.slice(0, 200)}` : ""}`).join("\n");
+            clientContextStr = `Cliente: ${clientRow.name}\n\nEnfoque Técnico (tareas activas de ClickUp):\n${tasksText}`;
+          } else {
+            clientContextStr = `Cliente: ${clientRow.name}`;
+          }
+        }
+      } catch (e) {
+        console.warn("[agent-chat] failed to load Enfoque Técnico context for", body.clientSlug, e);
+      }
+    }
+    const clientContext = clientContextStr ? `\n\nContexto del cliente: ${clientContextStr}` : "";
 
     // Load session history if sessionId provided
     let sessionHistory: ChatMessage[] = [];
@@ -890,7 +911,7 @@ export function agentChatRoutes(db: Db) {
       // Persist session — save history excluding system message
       const historyToSave = conversation.slice(1); // drop system
       if (resolvedSessionId) {
-        await saveSession(db, resolvedSessionId, body.companyId, agentKey, [...historyToSave, { role: "assistant", content: cleaned }], body.client?.trim()).catch(() => {});
+        await saveSession(db, resolvedSessionId, body.companyId, agentKey, [...historyToSave, { role: "assistant", content: cleaned }], clientContextStr || body.client?.trim()).catch(() => {});
       } else if (body.sessionId === undefined && body.messages.length > 0) {
         // Auto-create session for continuity
         const newId = await createSession(db, body.companyId, agentKey).catch(() => null);

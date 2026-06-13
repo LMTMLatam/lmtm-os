@@ -743,6 +743,13 @@
       "when": 1780100000000,
       "tag": "0105_wa_group_config",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1780200000000,
+      "tag": "0106_clickup_standard_lists",
+      "breakpoints": true
     }
   ]
 }

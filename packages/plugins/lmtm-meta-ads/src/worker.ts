@@ -373,7 +373,7 @@ const plugin = definePlugin({
             statusFilter?: "ACTIVE" | "PAUSED" | "ARCHIVED" | "all";
             limit?: number;
           };
-          const filtering: Array<{ field: string; operator: string; value: string }> = [];
+          const filtering: Array<{ field: string; operator: string; value: string | string[] }> = [];
           if (p.statusFilter && p.statusFilter !== "all") {
             filtering.push({ field: "status", operator: "EQUAL", value: p.statusFilter });
           }
@@ -560,7 +560,7 @@ const plugin = definePlugin({
             statusFilter?: "ACTIVE" | "PAUSED" | "ARCHIVED" | "all";
             limit?: number;
           };
-          const filtering: Array<{ field: string; operator: string; value: string }> = [];
+          const filtering: Array<{ field: string; operator: string; value: string | string[] }> = [];
           // Filter by `effective_status` (runtime state) rather than
           // `status` (config state) — otherwise scheduled PAUSE/UNPAUSE
           // show up under the wrong bucket. Default ("ACTIVE" / null)
@@ -627,7 +627,7 @@ const plugin = definePlugin({
             statusFilter?: "ACTIVE" | "PAUSED" | "ARCHIVED" | "all";
             limit?: number;
           };
-          const filtering: Array<{ field: string; operator: string; value: string }> = [];
+          const filtering: Array<{ field: string; operator: string; value: string | string[] }> = [];
           if (p.statusFilter && p.statusFilter !== "all") {
             filtering.push({ field: "status", operator: "EQUAL", value: p.statusFilter });
           }
