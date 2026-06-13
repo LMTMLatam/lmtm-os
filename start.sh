@@ -6,7 +6,7 @@ echo "PORT=$PORT NODE_ENV=$NODE_ENV"
 echo "--- diagnostic: loading server module ---"
 DIAG_OUTPUT="/tmp/diag.json"
 echo '{"diag":"running"}' > "$DIAG_OUTPUT"
-node -e "
+node --conditions=production -e "
 import('./server/dist/index.js')
   .then(m => {
     const r = {ok:true, exports: Object.keys(m)};
@@ -14,7 +14,7 @@ import('./server/dist/index.js')
     console.log('SERVER MODULE LOADED OK exports:', Object.keys(m));
   })
   .catch(e => {
-    const r = {ok:false, error: e.message, stack: e.stack?.split('\n').slice(0,15).join('\n')};
+    const r = {ok:false, error: e.message, stack: e.stack?.split('\n').slice(0,30).join('\n')};
     require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
     console.error('SERVER MODULE REJECTED:', e.message);
     process.exit(1);
