@@ -210,24 +210,30 @@ async function startWaAutomate() {
     console.log(`[custom-openwa] requiring @open-wa/wa-automate@${WA_VERSION}...`);
 
     // ── Patch initializer.js BEFORE requiring wa-automate ──
-    // The 30s waitForFunction on `window.Debug.VERSION` is hardcoded
-    // with no timeout option in initializer.js:208. For fresh sessions,
-    // the QR page doesn't expose Debug until scanned, which takes
-    // minutes — not 30s. We patch the file in place to add
-    // { timeout: 0 } (wait forever).
+    // We do two patches:
+    //   1. Make the hardcoded 30s waitForFunction on `window.Debug.VERSION`
+    //      wait forever. For fresh sessions the QR page doesn't expose
+    //      Debug until scanned, which takes minutes — not 30s.
+    //   2. Insert a QR-extraction step BEFORE the waitForFunction, so we
+    //      can grab the QR from the page DOM (the canvas's parent
+    //      data-ref) and emit it via owa.ev BEFORE the user scans.
+    //      Without this, the QR is only emitted AFTER the user scans
+    //      (which is too late — they need the QR to scan!).
     try {
       const Module = require('module');
       const entryPath = require.resolve('@open-wa/wa-automate', { paths: Module.globalPaths.concat(['/usr/local/lib/node_modules']) });
       const initializerPath = require('path').join(require('path').dirname(entryPath), 'controllers', 'initializer.js');
       let src = fs.readFileSync(initializerPath, 'utf8');
+
       const buggyLine = `yield waPage.waitForFunction('window.Debug!=undefined && window.Debug.VERSION!=undefined && require');`;
-      const patchedLine = `yield waPage.waitForFunction('window.Debug!=undefined && window.Debug.VERSION!=undefined && require', { timeout: 0 });`;
+      const patchedLine = `// PATCHED by custom-openwa: extract QR first, then wait forever for Debug.VERSION\n            yield (async () => { let __emitted=false; while(!__emitted){ try{ const __qr=await waPage.evaluate(\`(()=>{const c=document.querySelector('canvas[aria-label]');return c&&c.parentElement?c.parentElement.getAttribute('data-ref'):null;})()\`); if(__qr){ const __ev=require('./events').ev; __ev.emit('qrData.'+config.sessionId, __qr, config.sessionId, 'qrData'); try{ const __png=await waPage.evaluate('window.getQrPng && window.getQrPng()'); if(__png){ __ev.emit('qr.'+config.sessionId, __png, config.sessionId, 'qr'); } }catch(e){} __emitted=true; break; } }catch(e){} await new Promise(r=>setTimeout(r,500)); } })();\n            yield waPage.waitForFunction('window.Debug!=undefined && window.Debug.VERSION!=undefined && require', { timeout: 0 });`;
+
       if (src.includes(buggyLine)) {
         src = src.replace(buggyLine, patchedLine);
         fs.writeFileSync(initializerPath, src);
-        console.log('[custom-openwa] ✅ patched initializer.js: waitForFunction now waits forever');
-      } else if (src.includes(patchedLine)) {
-        console.log('[custom-openwa] ✅ initializer.js already patched');
+        console.log('[custom-openwa] ✅ patched initializer.js: extract QR + wait forever');
+      } else if (src.includes('PATCHED by custom-openwa: extract QR first')) {
+        console.log('[custom-openwa] ✅ initializer.js already patched (idempotent)');
       } else {
         console.log('[custom-openwa] ⚠️  could not find buggy line in initializer.js — assuming already patched');
       }
