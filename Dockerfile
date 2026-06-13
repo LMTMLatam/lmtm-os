@@ -104,7 +104,14 @@ COPY docker/openwa-baileys-plugin/src/ /build/plugin/
 COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
 
 ENV OPENWA_VERSION=main
-RUN bash /build/build.sh
+# Run build and capture the full log to /tmp/openwa-build.log so we
+# can inspect it via /api/wa-bot/diagnostics if the build fails inside
+# the Docker layer (where GH Actions only shows the exit code).
+RUN bash /build/build.sh 2>&1 | tee /tmp/openwa-build.log \
+ || (echo "❌ openwa build failed — see /tmp/openwa-build.log" \
+     && tail -200 /tmp/openwa-build.log \
+     && echo "❌ openwa build failed — see /tmp/openwa-build.log" \
+     && false)
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
@@ -206,6 +213,7 @@ EXPOSE 3100 2785
 
 # ── runtime additions for OpenWA ──
 COPY --from=openwa-builder /app/openwa-dist /app/openwa
+COPY --from=openwa-builder /tmp/openwa-build.log /tmp/openwa-build.log
 
 # OpenWA needs sqlite3 (default DB) + standard libs
 RUN apt-get update \
