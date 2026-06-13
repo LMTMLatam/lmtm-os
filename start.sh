@@ -3,20 +3,20 @@ echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=$PORT NODE_ENV=$NODE_ENV"
 
 # ── Phase 1: Diagnostic load ──
-echo "--- diagnostic: loading server module ---"
+echo "--- diagnostic: loading @paperclipai/db directly ---"
 DIAG_OUTPUT="/tmp/diag.json"
 echo '{"diag":"running"}' > "$DIAG_OUTPUT"
 node --conditions=production -e "
-import('./server/dist/index.js')
+import('@paperclipai/db')
   .then(m => {
-    const r = {ok:true, exports: Object.keys(m)};
+    const r = {ok:true, pkg:'@paperclipai/db', exports: Object.keys(m)};
     require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
-    console.log('SERVER MODULE LOADED OK exports:', Object.keys(m));
+    console.log('DB PKG LOADED OK exports:', Object.keys(m));
   })
   .catch(e => {
-    const r = {ok:false, error: e.message, stack: e.stack?.split('\n').slice(0,30).join('\n')};
+    const r = {ok:false, pkg:'@paperclipai/db', error: e.message, stack: e.stack?.split('\n').slice(0,20).join('\n')};
     require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
-    console.error('SERVER MODULE REJECTED:', e.message);
+    console.error('DB PKG REJECTED:', e.message);
     process.exit(1);
   });
 " 2>&1
