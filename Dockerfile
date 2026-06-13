@@ -114,6 +114,27 @@ COPY --from=builder /app/cli/ cli/
 COPY --from=builder /app/ui/dist/ server/ui-dist/
 COPY --from=builder /app/node_modules/ node_modules/
 
+# Recreate workspace package symlinks. Docker COPY --from may not
+# preserve pnpm's symlinks for workspace packages (the @paperclipai/*
+# directory under node_modules points to ../../packages/* via relative
+# symlinks). If COPY doesn't preserve them — or dereferences them
+# incorrectly — server startup fails with "Cannot find package
+# @paperclipai/db". We fix this by creating the expected symlinks
+# explicitly.
+RUN mkdir -p /app/node_modules/@paperclipai && \
+    for pkg in db shared adapter-utils plugin-sdk mcp-server create-paperclip-plugin; do \
+      if [ -d /app/packages/$pkg ]; then \
+        ln -sfn /app/packages/$pkg /app/node_modules/@paperclipai/$pkg && \
+        echo "linked @paperclipai/$pkg"; \
+      fi; \
+    done && \
+    for pkg in lmtm-clickup lmtm-n8n lmtm-meta-ads lmtm-google-ads plugin-fake-sandbox; do \
+      if [ -d /app/packages/plugins/$pkg ]; then \
+        ln -sfn /app/packages/plugins/$pkg /app/node_modules/@paperclipai/$pkg && \
+        echo "linked @paperclipai/$pkg"; \
+      fi; \
+    done
+
 # Install the LMTM-bundled plugins into the runtime plugin dir.
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and
 # will discover lmtm-clickup and lmtm-n8n.
