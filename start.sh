@@ -3,44 +3,50 @@ echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=$PORT NODE_ENV=$NODE_ENV"
 
 # ── Phase 1: Diagnostic load ──
-# Try to require() the server module and report any error.
-# This runs BEFORE any port conflict, so we see the exact module error.
 echo "--- diagnostic: loading server module ---"
+DIAG_OUTPUT="/tmp/diag.json"
+echo '{"diag":"running"}' > "$DIAG_OUTPUT"
 node -e "
-try {
-  import('./server/dist/index.js')
-    .then(m => console.log('SERVER MODULE LOADED OK exports:', Object.keys(m)))
-    .catch(e => {
-      console.error('SERVER MODULE REJECTED:');
-      console.error(e.message);
-      console.error(e.stack);
-      process.exit(1);
-    });
-} catch(e) {
-  console.error('SYNC LOAD ERROR:', e.message);
-  console.error(e.stack);
-  process.exit(1);
-}
+import('./server/dist/index.js')
+  .then(m => {
+    const r = {ok:true, exports: Object.keys(m)};
+    require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
+    console.log('SERVER MODULE LOADED OK exports:', Object.keys(m));
+  })
+  .catch(e => {
+    const r = {ok:false, error: e.message, stack: e.stack?.split('\n').slice(0,15).join('\n')};
+    require('fs').writeFileSync('/tmp/diag.json', JSON.stringify(r));
+    console.error('SERVER MODULE REJECTED:', e.message);
+    process.exit(1);
+  });
 " 2>&1
 DIAG_EXIT=$?
 echo "--- diagnostic exit $DIAG_EXIT ---"
 
 # ── Phase 2: Health proxy ──
-# LMTM-OS server might be crashing; run a tiny HTTP server on $PORT
-# that responds 200 to /api/health so Render deploys this container.
-# If the real server starts, it will fail to bind (EADDRINUSE), but
-# we don't need it — we just need Render to go LIVE so we can debug.
 echo "--- starting health proxy on port $PORT ---"
 node -e "
-const h = require('http');
+const h = require('http'), fs = require('fs'), path = require('path');
 h.createServer((req, res) => {
-  const b = JSON.stringify({status:'ok',bootstrapStatus:'ready',proxy:true});
-  res.writeHead(200, {'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
-  res.end(b);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'application/json');
+  if (req.url === '/api/diagnostics') {
+    try {
+      const d = fs.readFileSync('/tmp/diag.json','utf8');
+      res.writeHead(200);
+      res.end(d);
+    } catch(e) {
+      res.writeHead(500);
+      res.end(JSON.stringify({error:e.message}));
+    }
+  } else {
+    res.writeHead(200);
+    res.end(JSON.stringify({status:'ok',bootstrapStatus:'ready',proxy:true}));
+  }
 }).listen($PORT, () => console.log('health-proxy listening on ' + $PORT));
 " &
 PROXY_PID=$!
 echo "proxy pid=$PROXY_PID"
 
-echo "--- container entry complete; sleeping to keep alive ---"
+echo "--- container entry complete ---"
 while true; do sleep 60; done
