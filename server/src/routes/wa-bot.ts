@@ -66,10 +66,16 @@ export function waBotRoutes(db: Db) {
       }).toString();
     } catch (e) { (out.errors as string[]).push("openwa.log: " + String(e)); }
     try {
-      out.openwa_build_log_tail = execFileSync("tail", ["-n", "60", "/tmp/openwa-build.log"], {
+      out.openwa_build_log_tail = execFileSync("tail", ["-n", "120", "/tmp/openwa-build.log"], {
         timeout: 5000, encoding: "utf8",
       }).toString();
-    } catch (e) { /* build log may not exist if build succeeded */ }
+    } catch (e) { (out.errors as string[]).push("openwa-build.log: " + String(e)); }
+    try {
+      out.tmp_files = execFileSync("ls", ["-la", "/tmp/"], { timeout: 5000, encoding: "utf8" }).toString();
+    } catch { /* noop */ }
+    try {
+      out.openwa_dist_files = execFileSync("ls", ["-la", "/app/openwa/"], { timeout: 5000, encoding: "utf8" }).toString();
+    } catch { /* noop */ }
     try {
       out.listening_ports = execFileSync(
         "sh", ["-c", "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'no ss/netstat'"],
