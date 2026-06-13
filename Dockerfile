@@ -78,6 +78,35 @@ RUN pnpm --filter @paperclipai/lmtm-google-ads build
 # ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── OpenWA self-hosted (sidecar) with Baileys engine ──
+# OpenWA is a NestJS HTTP API gateway. We build it with the Baileys
+# engine plugin baked in (no browser, pure WebSocket — bypasses
+# web.whatsapp.com's anti-bot detection from datacenter IPs).
+#
+#   - OpenWA API listens on port 2785 inside the container.
+#   - LMTM-OS connects via OPENWA_URL=http://localhost:2785.
+#   - Sessions are created/managed via REST, webhooks come back to
+#     LMTM-OS at /api/wa-bot/webhook.
+# ─────────────────────────────────────────────────────────────────────────────
+# openwa-builder stage — clones OpenWA, applies Baileys plugin, builds
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-slim AS openwa-builder
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy the plugin source first (so any change invalidates the build cache)
+COPY docker/openwa-baileys-plugin/src/ /build/plugin/
+COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
+
+ENV OPENWA_VERSION=main
+RUN bash /build/build.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
 
 RUN apt-get update \
@@ -175,37 +204,7 @@ RUN mkdir -p /app/.paperclip/plugins && \
 VOLUME ["/paperclip"]
 EXPOSE 3100 2785
 
-# ── OpenWA self-hosted (sidecar) with Baileys engine ──
-# OpenWA is a NestJS HTTP API gateway. We build it with the Baileys
-# engine plugin baked in (no browser, pure WebSocket — bypasses
-# web.whatsapp.com's anti-bot detection from datacenter IPs).
-#
-#   - OpenWA API listens on port 2785 inside the container.
-#   - LMTM-OS connects via OPENWA_URL=http://localhost:2785.
-#   - Sessions are created/managed via REST, webhooks come back to
-#     LMTM-OS at /api/wa-bot/webhook.
-
-# ─────────────────────────────────────────────────────────────────────────────
-# openwa-builder stage — clones OpenWA, applies Baileys plugin, builds
-# ─────────────────────────────────────────────────────────────────────────────
-FROM node:22-slim AS openwa-builder
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-
-# Copy the plugin source first (so any change invalidates the build cache)
-COPY docker/openwa-baileys-plugin/src/ /build/plugin/
-COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
-
-ENV OPENWA_VERSION=main
-RUN bash /build/build.sh
-
-# ─────────────────────────────────────────────────────────────────────────────
-# runtime additions for OpenWA
-# ─────────────────────────────────────────────────────────────────────────────
+# ── runtime additions for OpenWA ──
 COPY --from=openwa-builder /app/openwa-dist /app/openwa
 
 # OpenWA needs sqlite3 (default DB) + standard libs
