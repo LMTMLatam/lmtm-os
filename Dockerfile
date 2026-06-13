@@ -105,10 +105,21 @@ COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
 
 ENV OPENWA_VERSION=main
 # Run build and capture the full log. We deliberately swallow the
-# exit code (|| true) so the layer succeeds even if the build fails —
-# we want the image to be pushed so we can read /tmp/openwa-build.log
-# via /api/wa-bot/diagnostics.
-RUN set +e; bash /build/build.sh > /tmp/openwa-build.log 2>&1; echo "build exit: $?"; exit 0
+# exit code so the layer succeeds even if the build fails — we want
+# the image to be pushed so we can read /tmp/openwa-build.log via
+# /api/wa-bot/diagnostics. We always create /app/openwa-dist (with at
+# least a placeholder) so the downstream runtime COPY doesn't break.
+RUN set +e; \
+    bash /build/build.sh > /tmp/openwa-build.log 2>&1; \
+    BUILD_EXIT=$?; \
+    echo "openwa build exit: $BUILD_EXIT" >> /tmp/openwa-build.log; \
+    mkdir -p /app/openwa-dist; \
+    if [ ! -f /app/openwa-dist/main.js ]; then \
+      echo '{"name":"openwa-build-failed","version":"0.0.0","main":"main.js"}' > /app/openwa-dist/package.json; \
+      echo "console.error('OpenWA build failed — see /tmp/openwa-build.log'); process.exit(1);" > /app/openwa-dist/main.js; \
+      echo "BUILD FAILED placeholder created" >> /tmp/openwa-build.log; \
+    fi; \
+    exit 0
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
