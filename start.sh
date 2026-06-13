@@ -1,16 +1,20 @@
 #!/bin/sh
 # start.sh - LMTM-OS + OpenWA self-hosted startup wrapper.
 #
-# OpenWA is built at IMAGE BUILD TIME by docker/openwa-baileys-plugin/build.sh
-# (called from Dockerfile). If the build fails there, a placeholder is
-# installed and the build log is saved to /tmp/openwa-build.log.
+# We build OpenWA AT RUNTIME (not at image build time) for two reasons:
+#   1. The build involves cloning a 100MB repo and running npm install,
+#      which we want to debug interactively. If the build fails, the
+#      log is at /tmp/openwa-build.log and visible via /api/wa-bot/diagnostics.
+#   2. We avoid storing the build artifacts in the Docker image,
+#      keeping the image lean.
 #
-# Here at runtime we:
-#   1. Check that /app/openwa has a real OpenWA install
-#   2. If yes, start it on port 2785 (waits up to 60s for /api/health)
-#   3. Start LMTM-OS on port 3100 in the foreground
+# Trade-off: ~30-60s added to first container start while OpenWA builds.
+# Subsequent restarts use the same /app/openwa (rebuilt only if missing).
 #
-# If OpenWA build failed, LMTM-OS still starts (without WA integration).
+# Layout after this script:
+#   /app/openwa/         — built OpenWA (main.js, dist/, node_modules/)
+#   /tmp/openwa-build.log — full build log
+#   /tmp/openwa.log       — runtime log of the openwa process
 
 set +e
 
@@ -20,17 +24,34 @@ echo "OPENWA_PORT=${OPENWA_PORT:-2785} ENGINE_TYPE=${ENGINE_TYPE:-baileys}"
 echo "OPENWA_URL=${OPENWA_URL}"
 echo "DATABASE_URL set: $([ -n "$DATABASE_URL" ] && echo yes || echo NO)"
 
-# Sanity: does /app/openwa look like a real OpenWA install?
-OPENWA_OK=0
-if [ -f /app/openwa/dist/main.js ] && [ -d /app/openwa/node_modules ]; then
-  OPENWA_OK=1
-elif [ -f /app/openwa/main.js ] && [ -d /app/openwa/node_modules ]; then
-  OPENWA_OK=1
+# ── 1. Build OpenWA if not already built ──
+if [ -z "$OPENWA_SELF_HOSTED_DISABLED" ] && [ ! -d /app/openwa/node_modules ]; then
+  echo "--- building OpenWA (first boot) ---"
+  if bash /build/plugin/build.sh 2>&1 | tee /tmp/openwa-build.log; then
+    echo "--- openwa build OK ---"
+    # Copy to /app/openwa
+    mkdir -p /app/openwa
+    cp -r /app/openwa-dist/. /app/openwa/
+    echo "--- copied to /app/openwa ---"
+  else
+    BUILD_EXIT=$?
+    echo "--- openwa build FAILED (exit $BUILD_EXIT) — see /tmp/openwa-build.log ---"
+  fi
 fi
 
-# ── 1. Start OpenWA ──
+# ── 2. Start OpenWA ──
+OPENWA_OK=0
+if [ -d /app/openwa/node_modules ] && [ -f /app/openwa/package.json ]; then
+  if [ -f /app/openwa/dist/main.js ]; then
+    OPENWA_OK=1
+  elif [ -f /app/openwa/main.js ]; then
+    OPENWA_OK=1
+  fi
+fi
+
+OPENWA_PID=""
 if [ -z "$OPENWA_SELF_HOSTED_DISABLED" ] && [ "$OPENWA_OK" = "1" ]; then
-  echo "--- starting OpenWA on port ${OPENWA_PORT:-2785} (engine: ${ENGINE_TYPE:-baileys}) ---"
+  echo "--- starting OpenWA on port ${OPENWA_PORT:-2785} ---"
   cd /app/openwa
   if [ -f /app/openwa/dist/main.js ]; then
     OPENWA_ENTRY="dist/main.js"
@@ -53,19 +74,14 @@ if [ -z "$OPENWA_SELF_HOSTED_DISABLED" ] && [ "$OPENWA_OK" = "1" ]; then
     fi
   done
 else
-  echo "--- openwa NOT starting: install missing or OPENWA_SELF_HOSTED_DISABLED set ---"
-  if [ -n "$OPENWA_SELF_HOSTED_DISABLED" ]; then
-    echo "  reason: OPENWA_SELF_HOSTED_DISABLED"
-  else
-    echo "  reason: /app/openwa has no main.js/dist or no node_modules (build likely failed)"
-  fi
+  echo "--- openwa NOT starting (install missing or OPENWA_SELF_HOSTED_DISABLED) ---"
   if [ -f /tmp/openwa-build.log ]; then
-    echo "  --- last 40 lines of build log ---"
-    tail -40 /tmp/openwa-build.log
+    echo "  build log tail:"
+    tail -20 /tmp/openwa-build.log | sed 's/^/    /'
   fi
 fi
 
-# ── 2. Start LMTM-OS server ──
+# ── 3. Start LMTM-OS server ──
 echo "--- starting LMTM-OS server on port ${PORT:-3100} ---"
 cd /app
 ls -la /app/server/dist/index.js 2>&1
@@ -83,5 +99,5 @@ echo "--- end openwa.log ---"
 if [ -n "$OPENWA_PID" ] && kill -0 $OPENWA_PID 2>/dev/null; then
   echo "--- LMTM-OS exited; leaving openwa (pid $OPENWA_PID) running ---"
 fi
-echo "--- sleeping 600s to keep container alive ---"
+echo "--- sleeping 600s ---"
 sleep 600

@@ -89,7 +89,9 @@ RUN pnpm --filter @paperclipai/lmtm-google-ads build
 #   - Sessions are created/managed via REST, webhooks come back to
 #     LMTM-OS at /api/wa-bot/webhook.
 # ─────────────────────────────────────────────────────────────────────────────
-# openwa-builder stage — clones OpenWA, applies Baileys plugin, builds
+# openwa-builder stage — only installs runtime deps needed for building
+# OpenWA at container start. The actual build is deferred to runtime
+# so that build failures are observable via /api/wa-bot/diagnostics.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:22-slim AS openwa-builder
 
@@ -99,34 +101,9 @@ RUN apt-get update \
 
 WORKDIR /build
 
-# Copy the plugin source first (so any change invalidates the build cache)
+# Copy the plugin source + build script. start.sh invokes build.sh at runtime.
 COPY docker/openwa-baileys-plugin/src/ /build/plugin/
-COPY docker/openwa-baileys-plugin/build.sh /build/build.sh
-
-ENV OPENWA_VERSION=main
-# Run build and capture the full log. We deliberately swallow the
-# exit code so the layer succeeds even if the build fails — we want
-# the image to be pushed so we can read /tmp/openwa-build.log via
-# /api/wa-bot/diagnostics. We always create /app/openwa-dist (with at
-# least a placeholder) so the downstream runtime COPY doesn't break.
-# Also COPY the build log itself so /api/wa-bot/diagnostics can show
-# it after deploy.
-RUN set +e; \
-    bash /build/build.sh > /tmp/openwa-build.log 2>&1; \
-    BUILD_EXIT=$?; \
-    printf "\n=== openwa build exit: %s ===\n" "$BUILD_EXIT" >> /tmp/openwa-build.log; \
-    mkdir -p /app/openwa-dist; \
-    if [ ! -f /app/openwa-dist/main.js ]; then \
-      echo '{"name":"openwa-build-failed","version":"0.0.0","main":"main.js"}' > /app/openwa-dist/package.json; \
-      echo "console.error('OpenWA build failed — see /tmp/openwa-build.log'); process.exit(1);" > /app/openwa-dist/main.js; \
-      echo "BUILD FAILED placeholder created" >> /tmp/openwa-build.log; \
-    else \
-      echo "BUILD OK" >> /tmp/openwa-build.log; \
-    fi; \
-    exit 0
-
-# Save the build log into the runtime image so diagnostics can show it
-RUN cp /tmp/openwa-build.log /build.log 2>/dev/null || true
+COPY docker/openwa-baileys-plugin/build.sh /build/plugin/build.sh
 
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
@@ -227,10 +204,10 @@ VOLUME ["/paperclip"]
 EXPOSE 3100 2785
 
 # ── runtime additions for OpenWA ──
-COPY --from=openwa-builder /app/openwa-dist /app/openwa
-COPY --from=openwa-builder /build.log /tmp/openwa-build.log
+# (No COPY of build artifacts here — OpenWA is built at runtime via start.sh)
+COPY --from=openwa-builder /build/plugin /build/plugin
 
-# OpenWA needs sqlite3 (default DB) + standard libs
+# OpenWA needs sqlite3 (default DB) + standard libs + git (for runtime build)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -238,6 +215,7 @@ RUN apt-get update \
     procps \
     net-tools \
     sqlite3 \
+    git \
     python3 \
     make \
     g++ \
