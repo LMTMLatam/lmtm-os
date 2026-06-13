@@ -561,8 +561,16 @@ const plugin = definePlugin({
             limit?: number;
           };
           const filtering: Array<{ field: string; operator: string; value: string }> = [];
+          // Filter by `effective_status` (runtime state) rather than
+          // `status` (config state) — otherwise scheduled PAUSE/UNPAUSE
+          // show up under the wrong bucket. Default ("ACTIVE" / null)
+          // excludes DELETED + ARCHIVED which are noise for dashboards.
           if (p.statusFilter && p.statusFilter !== "all") {
-            filtering.push({ field: "status", operator: "EQUAL", value: p.statusFilter });
+            filtering.push({ field: "effective_status", operator: "EQUAL", value: p.statusFilter });
+          } else if (!p.statusFilter) {
+            // No filter requested → exclude DELETED/ARCHIVED by default.
+            // Callers that want everything pass statusFilter="all".
+            filtering.push({ field: "effective_status", operator: "NOT_IN", value: ["DELETED", "ARCHIVED"] });
           }
           if (p.campaignId) {
             filtering.push({ field: "campaign_id", operator: "EQUAL", value: p.campaignId });
@@ -575,8 +583,8 @@ const plugin = definePlugin({
             {
               query: {
                 fields:
-                  "id,name,campaign_id,status,daily_budget,lifetime_budget,optimization_goal,billing_event,targeting",
-                limit: p.limit ?? 100,
+                  "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,billing_event,targeting",
+                limit: p.limit ?? 200,
                 filtering: filtering.length > 0 ? filtering : undefined,
               },
             },

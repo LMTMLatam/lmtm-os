@@ -219,6 +219,10 @@ export function adsRoutes(db: Db): Router {
       ]);
 
       // ---- Step 2: fetch ad sets for ALL ad accounts in parallel ----
+      // We pass a noop filter at the provider level and filter here
+      // (by effective_status, excluding DELETED/ARCHIVED by default).
+      // The provider's `listAdSets` signature doesn't yet accept a
+      // filter, so we filter post-hoc on the way out.
       const adSetsByAcc: Record<string, AdSetSummary[]> = {};
       if (provider.listAdSets) {
         const settled = await Promise.allSettled(
@@ -226,7 +230,16 @@ export function adsRoutes(db: Db): Router {
         );
         for (let i = 0; i < allAccounts.length; i += 1) {
           const r = settled[i];
-          adSetsByAcc[allAccounts[i].id] = r.status === "fulfilled" ? r.value : [];
+          const raw = r.status === "fulfilled" ? r.value : [];
+          // effective_status from the provider: prefer it over the
+          // raw `status` field. The provider already does this
+          // (see meta.ts listAdSets) but we double-filter here for
+          // safety, and to drop DELETED/ARCHIVED noise.
+          adSetsByAcc[allAccounts[i].id] = raw.filter((s) => {
+            const eff = (s.raw as { effective_status?: string }).effective_status
+              ?? s.status;
+            return eff !== "DELETED" && eff !== "ARCHIVED";
+          });
         }
       }
 
@@ -257,6 +270,77 @@ export function adsRoutes(db: Db): Router {
       res.json({ pages: perPage });
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // ---- Diagnostic endpoint: returns counts and per-ad-account errors
+  // so the user can see exactly which ad accounts failed and why.
+  // GET /api/ads/connections/:id/pages-with-adsets/diagnostics
+  router.get("/ads/connections/:id/pages-with-adsets/diagnostics", async (req, res) => {
+    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!conn) return res.status(404).json({ error: "connection not found" });
+    if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
+    const provider = getAdsProvider(conn.platform);
+    const out: {
+      pages: number;
+      adAccounts: number;
+      adSetsByAdAccount: Record<string, { total: number; active: number; paused: number; other: number; error?: string }>;
+      errors: string[];
+    } = {
+      pages: 0,
+      adAccounts: 0,
+      adSetsByAdAccount: {},
+      errors: [],
+    };
+    try {
+      // Pages
+      let pages: Awaited<ReturnType<typeof provider.listPages>> = [];
+      try {
+        pages = await provider.listPages(conn.accessToken);
+        out.pages = pages.length;
+      } catch (e) {
+        out.errors.push(`listPages: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      // Ad accounts
+      let allAccounts: Awaited<ReturnType<typeof provider.listAdAccounts>> = [];
+      try {
+        allAccounts = await provider.listAdAccounts(conn.accessToken);
+        out.adAccounts = allAccounts.length;
+      } catch (e) {
+        out.errors.push(`listAdAccounts: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      // Ad sets per ad account
+      if (provider.listAdSets) {
+        const settled = await Promise.allSettled(
+          allAccounts.map((acc) => provider.listAdSets!(acc.id, conn.accessToken)),
+        );
+        for (let i = 0; i < allAccounts.length; i += 1) {
+          const acc = allAccounts[i];
+          const r = settled[i];
+          if (r.status === "rejected") {
+            out.adSetsByAdAccount[acc.id] = {
+              total: 0, active: 0, paused: 0, other: 0,
+              error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+            };
+            out.errors.push(`listAdSets[${acc.id}]: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+            continue;
+          }
+          const raw = r.value;
+          let active = 0, paused = 0, other = 0;
+          for (const s of raw) {
+            const eff = (s.raw as { effective_status?: string }).effective_status ?? s.status;
+            if (eff === "ACTIVE") active++;
+            else if (eff === "PAUSED") paused++;
+            else other++;
+          }
+          out.adSetsByAdAccount[acc.id] = {
+            total: raw.length, active, paused, other,
+          };
+        }
+      }
+      res.json(out);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err), partial: out });
     }
   });
 

@@ -223,6 +223,13 @@ export const metaProvider: AdsProvider = {
   async listAdSets(adAccountId: string, token: string): Promise<AdSetSummary[]> {
     const accountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
     const result: AdSetSummary[] = [];
+    // Exclude DELETED/ARCHIVED by default — these are noise for the
+    // dashboard. Callers that want everything can pass statusFilter=all
+    // via the route layer; the provider returns the raw list including
+    // those, and the route decides what to keep.
+    // (We don't add a filtering param at this layer to keep the
+    // contract generic; we just include both status fields so the
+    // route can decide based on `effective_status`.)
     for await (const batch of paginate<{
       id: string; name?: string; status?: string; effective_status?: string;
       campaign_id?: string; daily_budget?: string; lifetime_budget?: string;
@@ -235,6 +242,8 @@ export const metaProvider: AdsProvider = {
         result.push({
           id: a.id,
           name: a.name ?? a.id,
+          // Prefer effective_status (the runtime state) and fall back
+          // to status. The route layer filters by this.
           status: a.effective_status ?? a.status ?? "unknown",
           campaignId: a.campaign_id,
           dailyBudget: num(a.daily_budget),

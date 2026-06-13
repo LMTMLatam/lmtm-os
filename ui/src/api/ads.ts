@@ -97,6 +97,14 @@ export const adsApi = {
   // Make.com-style: pages + their linked ad accounts + ad sets.
   listPagesWithAdSets: (connectionId: string) =>
     api.get<AdsPagesWithAdSetsResponse>(`/ads/connections/${connectionId}/pages-with-adsets`),
+  // Diagnostics: see per-ad-account adset counts + errors.
+  pagesWithAdSetsDiagnostics: (connectionId: string) =>
+    api.get<{
+      pages: number;
+      adAccounts: number;
+      adSetsByAdAccount: Record<string, { total: number; active: number; paused: number; other: number; error?: string }>;
+      errors: string[];
+    }>(`/ads/connections/${connectionId}/pages-with-adsets/diagnostics`),
   listMappings: (params?: { companyId?: string; clientId?: string }) => {
     const sp = new URLSearchParams();
     if (params?.companyId) sp.set("companyId", params.companyId);
