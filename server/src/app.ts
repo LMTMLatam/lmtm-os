@@ -19,6 +19,7 @@ import { publicDashboardRoutes } from "./routes/public-dashboards.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
 import { initWaBot } from "./services/wa-group-bot.js";
+import { initAgencyOps } from "./services/agency-ops.js";
 import { companyRoutes } from "./routes/companies.js";
 import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
@@ -245,6 +246,7 @@ export async function createApp(
   api.use(agentChatRoutes(db));
   api.use("/wa-bot", waBotRoutes(db));
   initWaBot(db).catch(() => {});
+  initAgencyOps(db);
   api.use(dashboardRoutes(db));
   api.use(userProfileRoutes(db));
   api.use(sidebarBadgeRoutes(db));

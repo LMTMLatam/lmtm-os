@@ -39,6 +39,7 @@ import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext } from "../services/clickup-sync.js";
+import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber } from "../services/agency-ops.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -1920,6 +1921,46 @@ export function adsRoutes(db: Db): Router {
       console.error("[clickup-enfoque-get]", row.id, msg);
       res.status(500).json({ error: msg });
     }
+  });
+
+  // ── WhatsApp alerts ──────────────────────────────────────────────
+  // PUT /api/clients/:id/notify — set the WhatsApp number that receives
+  // this client's automated alerts. Stored in clients.metadata.notifyWhatsapp.
+  router.put("/clients/:id/notify", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const raw = (req.body?.whatsapp ?? "").toString().trim();
+    const metadata = { ...(row.metadata ?? {}), notifyWhatsapp: raw || undefined };
+    if (!raw) delete (metadata as Record<string, unknown>).notifyWhatsapp;
+    await db.update(clients).set({ metadata, updatedAt: new Date() }).where(eq(clients.id, row.id));
+    res.json({ ok: true, notifyWhatsapp: raw || null });
+  });
+
+  // POST /api/clients/:id/alerts/run — compute + deliver this client's alerts now.
+  router.post("/clients/:id/alerts/run", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const alerts = await generateClientAlerts(db, row.id);
+    const number = (row.metadata as { notifyWhatsapp?: string } | null)?.notifyWhatsapp?.trim();
+    let delivery: { ok: boolean; error?: string } | null = null;
+    if (number && alerts.length > 0) {
+      const icon = (s: string) => (s === "critical" ? "🔴" : s === "warn" ? "🟠" : "🔵");
+      const body = [`*Alertas — ${row.name}*`, "", ...alerts.map((a) => `${icon(a.severity)} *${a.title}*\n${a.description}\n→ ${a.recommendation}`)].join("\n");
+      delivery = await sendWhatsAppToNumber(number, body);
+    }
+    res.json({ client: row.slug, alerts, delivered: delivery?.ok ?? false, deliveryError: delivery?.error ?? null });
+  });
+
+  // POST /api/clients/alerts/run-all — run the alert sweep across all clients.
+  router.post("/clients/alerts/run-all", async (_req, res) => {
+    const result = await runClientAlerts(db);
+    res.json(result);
   });
 
   return router;

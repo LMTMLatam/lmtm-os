@@ -33,7 +33,7 @@ export interface Client {
   offboardedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  metadata?: { clickupTeamId?: string; clickupSpaceId?: string } & Record<string, unknown>;
+  metadata?: { clickupTeamId?: string; clickupSpaceId?: string; notifyWhatsapp?: string } & Record<string, unknown>;
 }
 
 export interface ClientsListResponse {
@@ -109,6 +109,10 @@ export const clientsApi = {
     api.post<{ folderId: string | null; redes: string | null; video: string | null; enfoqueTecnico: string | null; teamId: string | null; warnings: string[] }>(`/clients/${idOrSlug}/clickup/sync`, null),
   clickupEnfoqueTecnicoRefresh: (idOrSlug: string) =>
     api.post<{ chars: number; pages: number }>(`/clients/${idOrSlug}/clickup/enfoque-tecnico/refresh`, null),
+  setNotifyWhatsapp: (idOrSlug: string, whatsapp: string) =>
+    api.put<{ ok: boolean; notifyWhatsapp: string | null }>(`/clients/${idOrSlug}/notify`, { whatsapp }),
+  runAlerts: (idOrSlug: string) =>
+    api.post<{ client: string; alerts: Array<{ severity: string; title: string; description: string; recommendation: string }>; delivered: boolean; deliveryError: string | null }>(`/clients/${idOrSlug}/alerts/run`, null),
 };
 
 export interface ClientCampaign {

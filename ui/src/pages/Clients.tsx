@@ -7,7 +7,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Search, ExternalLink, Globe, User, Building2 } from "lucide-react";
+import { Search, ExternalLink, Globe, User, Building2, Bell } from "lucide-react";
 
 const STATUS_OPTIONS: Array<{ value: ClientStatus | "all"; label: string }> = [
   { value: "all", label: "All" },
@@ -257,6 +257,59 @@ function ClickUpLinks({ client }: { client: Client }) {
   );
 }
 
+function ClientNotify({ client }: { client: Client }) {
+  const [num, setNum] = useState(client.metadata?.notifyWhatsapp ?? "");
+  const [saved, setSaved] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const save = async () => {
+    try {
+      await clientsApi.setNotifyWhatsapp(client.slug, num.trim());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
+  const runAlerts = async () => {
+    setRunning(true);
+    setMsg(null);
+    try {
+      const r = await clientsApi.runAlerts(client.slug);
+      if (r.alerts.length === 0) setMsg("Sin alertas ✓");
+      else setMsg(`${r.alerts.length} alerta(s)${r.delivered ? " · enviadas" : r.deliveryError ? ` · ${r.deliveryError.slice(0, 40)}` : " · sin número/WA"}`);
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t flex items-center gap-1.5">
+      <Bell className="h-3 w-3 text-muted-foreground shrink-0" />
+      <input
+        value={num}
+        onChange={(e) => setNum(e.target.value)}
+        onBlur={save}
+        placeholder="WhatsApp alertas (+54…)"
+        className="flex-1 min-w-0 h-7 px-2 text-xs rounded-md border border-border bg-background"
+      />
+      <button
+        onClick={runAlerts}
+        disabled={running}
+        className="text-[10px] px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50 shrink-0"
+        title="Calcular y enviar alertas ahora"
+      >
+        {running ? "…" : "Alertas"}
+      </button>
+      {saved && <span className="text-[9px] text-emerald-500 shrink-0">✓</span>}
+      {msg && <span className="text-[9px] text-muted-foreground truncate max-w-[120px]">{msg}</span>}
+    </div>
+  );
+}
+
 function ClientCard({ client }: { client: Client }) {
   return (
     <Card className="p-4 hover:border-foreground/30 transition-colors group">
@@ -322,6 +375,7 @@ function ClientCard({ client }: { client: Client }) {
           </Link>
         </div>
       </div>
+      <ClientNotify client={client} />
     </Card>
   );
 }
