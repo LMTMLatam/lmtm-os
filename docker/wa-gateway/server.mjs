@@ -44,8 +44,17 @@ const log = pino({ level: process.env.WA_GATEWAY_LOG_LEVEL || "info" });
 // Persists creds + signal keys in `wa_session_state` so the WhatsApp link
 // survives container redeploys (the ephemeral filesystem does not). Falls back
 // to the file-based store when DATABASE_URL is absent (local/dev).
-async function usePostgresAuthState(connStr, sessionName) {
-  const sql = postgres(connStr, { max: 1, onnotice: () => {} });
+//
+// The pg client is a process-wide singleton: startSocket() runs again on every
+// Baileys reconnect, so opening a fresh client per call would leak pooler
+// connections over time. We open once and reuse it.
+let sharedSql = null;
+function getSql() {
+  if (!sharedSql && DATABASE_URL) sharedSql = postgres(DATABASE_URL, { max: 1, onnotice: () => {} });
+  return sharedSql;
+}
+
+async function usePostgresAuthState(sql, sessionName) {
   await sql`
     CREATE TABLE IF NOT EXISTS wa_session_state (
       session text NOT NULL,
@@ -73,7 +82,6 @@ async function usePostgresAuthState(connStr, sessionName) {
   const creds = (await read("creds")) || initAuthCreds();
 
   return {
-    sql,
     clearAll: async () => { await sql`DELETE FROM wa_session_state WHERE session=${sessionName}`; },
     state: {
       creds,
@@ -106,7 +114,7 @@ async function usePostgresAuthState(connStr, sessionName) {
   };
 }
 
-let pgAuth = null; // holds { sql, clearAll } when using Postgres persistence
+let pgAuth = null; // holds { clearAll } when using Postgres persistence
 
 // ── Single-session state ──────────────────────────────────────────────────────
 const session = {
@@ -168,10 +176,11 @@ async function startSocket() {
   session.starting = true;
   try {
     let state, saveCreds;
-    if (DATABASE_URL) {
+    const sql = getSql();
+    if (sql) {
       try {
-        const pg = await usePostgresAuthState(DATABASE_URL, SESSION_NAME);
-        pgAuth = { sql: pg.sql, clearAll: pg.clearAll };
+        const pg = await usePostgresAuthState(sql, SESSION_NAME);
+        pgAuth = { clearAll: pg.clearAll };
         state = pg.state;
         saveCreds = pg.saveCreds;
         log.info("auth state: Postgres (persistent across redeploys)");
@@ -250,13 +259,14 @@ async function startSocket() {
           const ts = typeof m.messageTimestamp === "number"
             ? m.messageTimestamp
             : Number(m.messageTimestamp?.toString?.() ?? Date.now() / 1000);
+          const gName = await groupName(jid);
           emit("message.received", {
             isGroup: true,
             from: jid,
             body,
             contact: { pushName: m.pushName ?? null },
-            groupName: await groupName(jid),
-            chatName: await groupName(jid),
+            groupName: gName,
+            chatName: gName,
             timestamp: ts,
             id: m.key?.participant ?? jid,
           });
