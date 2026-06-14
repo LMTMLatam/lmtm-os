@@ -828,9 +828,10 @@ export function agentChatRoutes(db: Db) {
         const [clientRow] = await db.select().from(clients).where(eq(clients.slug, body.clientSlug));
         if (clientRow) {
           const ctx = await getEnfoqueTecnicoContext(db, clientRow.id, { maxAgeMs: 30 * 60 * 1000 });
-          if (ctx.tasks.length > 0) {
-            const tasksText = ctx.tasks.map(t => `- ${t.name}${t.description ? `: ${t.description.slice(0, 200)}` : ""}`).join("\n");
-            clientContextStr = `Cliente: ${clientRow.name}\n\nEnfoque Técnico (tareas activas de ClickUp):\n${tasksText}`;
+          if (ctx.markdown.trim().length > 0) {
+            // Cap the injected context so a long doc doesn't blow the prompt.
+            const doc = ctx.markdown.length > 6000 ? ctx.markdown.slice(0, 6000) + "\n…(truncado)" : ctx.markdown;
+            clientContextStr = `Cliente: ${clientRow.name}\n\nEnfoque Técnico (documento de contexto del cliente en ClickUp):\n${doc}`;
           } else {
             clientContextStr = `Cliente: ${clientRow.name}`;
           }

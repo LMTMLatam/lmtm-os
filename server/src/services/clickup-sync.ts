@@ -1,19 +1,34 @@
 // LMTM-OS: ClickUp sync service.
 //
-// For each LMTM client that has a ClickUp planilla, this service:
-//   1. Walks the workspace → space → folder hierarchy to find the
-//      three standard lists: 📲 Redes Sociales, Produção de video,
-//      and Enfoque Técnico.
-//   2. Persists the IDs in `clients.clickup_*` so the dashboard
-//      button deep-links to the right folder, and agents can pull
-//      the Enfoque Técnico list as context.
-//   3. Caches the Enfoque Técnico list contents in
-//      `client_context_cache` so we don't hit ClickUp on every
-//      agent invocation.
+// REAL ClickUp structure for LMTM (workspace "LMTM"):
+//   Workspace (team)
+//     └─ Space "Clientes"
+//          └─ Folder  ← ONE PER CLIENT (name == client.name), e.g. "CAMPO TIMBO"
+//               ├─ List "📲Redes Sociales"   (posts de redes)
+//               ├─ List "Produccion de video" (videos a producir)
+//               └─ Doc  "Enfoque Técnico"     (contexto del cliente)  ← a DOC, not a list
 //
-// Auth: uses process.env.CLICKUP_API_TOKEN. In production, this
-// should be the same personal API token used by the lmtm-clickup
-// MCP plugin (operators configure it once in Render env vars).
+// So a client maps to a FOLDER (not a Space, as a previous version wrongly
+// assumed). The "Enfoque Técnico" is a ClickUp **Doc** living under the
+// client folder, fetched via the v3 Docs API.
+//
+// This service:
+//   1. Finds the client's folder by name (preferring the "Clientes" space).
+//   2. Classifies the Redes Sociales / Produccion de video lists inside it.
+//   3. Finds the Enfoque Técnico doc (v3 docs filtered by parent folder).
+//   4. Persists everything on the `clients` row so the dashboard can deep-link
+//      and agents can pull the Enfoque Técnico content as context.
+//
+// Persistence (reusing the 0106 columns, no new migration):
+//   clients.clickupFolderId               → folder id (deep-link target)
+//   clients.clickupListRedesId            → 📲Redes Sociales list id
+//   clients.clickupListVideoId            → Produccion de video list id
+//   clients.clickupListEnfoqueTecnicoId   → Enfoque Técnico DOC id (repurposed)
+//   clients.metadata.clickupTeamId        → workspace id (for building URLs)
+//   clients.metadata.clickupSpaceId       → space id
+//
+// Auth: process.env.CLICKUP_API_TOKEN (same personal token as the
+// lmtm-clickup MCP plugin; configured once in Render env vars).
 //
 // Reference: https://clickup.com/api
 
@@ -22,138 +37,184 @@ import { clients, clientContextCache } from "@paperclipai/db";
 import { eq, and } from "drizzle-orm";
 
 const CU_API = "https://api.clickup.com/api/v2";
+const CU_API_V3 = "https://api.clickup.com/api/v3";
 
-// Normalized name matchers for the 3 standard lists.
-// We match loosely because LMTM operators use slightly different
-// capitalizations / unicode / punctuation when they create the
-// lists in ClickUp. The first match wins.
-const STANDARD_LISTS: {
-  redes: RegExp;
-  video: RegExp;
-  enfoqueTecnico: RegExp;
-} = {
-  // Matches: "Redes Sociales", "Redes", "RRSS", "📲 Redes Sociales"
-  redes: /(redes?\s*sociales?|rrss|sociales?)/i,
-  // Matches: "Produccion de video", "Producción de video", "Produção de Video", "Producao de Video", "Videos", "Video"
-  video: /(producci[oó]n?\s*de\s*v[ií]deo|produ[cç][aã]o\s*de\s*v[ií]deo|v[ií]deos?)/i,
-  // Matches: "Enfoque Tecnico", "Enfoque Técnico", "Enfoque T\xc3\xa9cnico"
-  enfoqueTecnico: /(enfoque\s*t[eé]cnic[oó])/i,
-};
+// Normalized name matchers for the standard lists. We match loosely because
+// LMTM operators use slightly different capitalizations / unicode / spacing.
+const STANDARD_LISTS = {
+  // "📲Redes Sociales", "Redes Sociales", "RRSS". We deliberately keep this
+  // tight enough to NOT grab "Super Redes Sociales" preferentially (we pick
+  // the shortest/most-exact match — see classifyLists).
+  redes: /redes?\s*sociales?|rrss/i,
+  // "Produccion de video", "Producción de vídeo", "Produção de Video".
+  // \S* after "produ" absorbs the double-c / ç / ã variants robustly.
+  video: /produ\S*\s+de\s+v[ií]deos?/i,
+} as const;
 
-type CuList = {
-  id: string;
-  name: string;
-};
+const ENFOQUE_TECNICO_RE = /enfoque\s*t[eé]cnic[oó]/i;
 
-type CuTask = {
-  id: string;
-  name: string;
-  description?: string;
-  status?: { status?: string; color?: string };
-  priority?: number | null;
-  due_date?: string | null;
-  url?: string;
-  assignees?: Array<{ id: number; username?: string }>;
-  list?: { id: string; name: string };
-};
+type CuList = { id: string; name: string };
+type CuFolder = { id: string; name: string; lists?: CuList[] };
+type CuSpace = { id: string; name: string };
+type CuTeam = { id: string; name: string };
+type CuDoc = { id: string; name: string; parent?: { id: string; type: number } };
 
 function token(): string {
-  const t = (process.env.CLICKUP_API_TOKEN ?? "").trim();
-  return t;
+  return (process.env.CLICKUP_API_TOKEN ?? "").trim();
 }
 
-async function cu<T = unknown>(
+async function cuFetch<T = unknown>(
+  base: string,
   path: string,
-  init: { method?: "GET" | "POST" | "PUT" | "DELETE"; query?: Record<string, string | number | boolean>; body?: unknown } = {},
+  init: { method?: string; query?: Record<string, string | number | boolean>; body?: unknown } = {},
 ): Promise<T> {
   const t = token();
   if (!t) throw new Error("CLICKUP_API_TOKEN no configurado. Andá a Render → Environment y agregalo.");
-  const url = new URL(`${CU_API}${path}`);
+  const url = new URL(`${base}${path}`);
   if (init.query) {
-    for (const [k, v] of Object.entries(init.query)) {
-      url.searchParams.set(k, String(v));
-    }
+    for (const [k, v] of Object.entries(init.query)) url.searchParams.set(k, String(v));
   }
-  const fetchInit: RequestInit = { method: init.method ?? "GET" };
   const headers: Record<string, string> = { Authorization: t };
+  const fetchInit: RequestInit = { method: init.method ?? "GET", headers };
   if (init.body !== undefined) {
     headers["Content-Type"] = "application/json";
     fetchInit.body = JSON.stringify(init.body);
   }
-  fetchInit.headers = headers;
   const r = await fetch(url.toString(), fetchInit);
   const text = await r.text();
   let parsed: unknown = null;
   try { parsed = text ? JSON.parse(text) : null; } catch { /* keep null */ }
   if (!r.ok) {
-    const err = parsed as { err?: string; error?: string } | null;
-    const msg = err?.err ?? err?.error ?? text.slice(0, 300) ?? `HTTP ${r.status}`;
+    const err = parsed as { err?: string; error?: string; ECODE?: string } | null;
+    const msg = err?.err ?? err?.error ?? (text ? text.slice(0, 300) : `HTTP ${r.status}`);
     throw new Error(`ClickUp ${path} → ${r.status}: ${msg}`);
   }
   return parsed as T;
 }
 
-function classifyList(name: string): "redes" | "video" | "enfoqueTecnico" | null {
-  if (STANDARD_LISTS.redes.test(name)) return "redes";
-  if (STANDARD_LISTS.video.test(name)) return "video";
-  if (STANDARD_LISTS.enfoqueTecnico.test(name)) return "enfoqueTecnico";
-  return null;
+const cu = <T = unknown>(path: string, init?: Parameters<typeof cuFetch>[2]) => cuFetch<T>(CU_API, path, init);
+const cuV3 = <T = unknown>(path: string, init?: Parameters<typeof cuFetch>[2]) => cuFetch<T>(CU_API_V3, path, init);
+
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Pick the workspace: prefer the one named "LMTM", else the first. */
+async function resolveWorkspace(): Promise<CuTeam> {
+  const r = await cu<{ teams: CuTeam[] }>("/team");
+  if (!r.teams?.length) throw new Error("No ClickUp workspaces visible to the API token.");
+  return r.teams.find((t) => norm(t.name) === "lmtm") ?? r.teams[0];
 }
 
-/**
- * Find the space for a given client by matching its name.
- * Heuristic: exact match > case-insensitive match > contains.
- */
-async function findSpaceForClient(workspaceId: string, clientName: string): Promise<{ id: string; name: string } | null> {
-  const r = await cu<{ spaces: Array<{ id: string; name: string }> }>(
-    `/team/${encodeURIComponent(workspaceId)}/space`,
-  );
-  const norm = (s: string) => s.trim().toLowerCase();
-  const target = norm(clientName);
-  // 1) exact
-  let hit = r.spaces.find((s) => norm(s.name) === target);
-  // 2) case-insensitive contains
-  if (!hit) hit = r.spaces.find((s) => norm(s.name).includes(target) || target.includes(norm(s.name)));
-  return hit ?? null;
+async function listSpaces(workspaceId: string): Promise<CuSpace[]> {
+  const r = await cu<{ spaces: CuSpace[] }>(`/team/${encodeURIComponent(workspaceId)}/space`, { query: { archived: false } });
+  return r.spaces ?? [];
 }
 
-async function listFoldersInSpace(spaceId: string): Promise<Array<{ id: string; name: string }>> {
-  const r = await cu<{ folders: Array<{ id: string; name: string }> }>(
-    `/space/${encodeURIComponent(spaceId)}/folder`,
-    { query: { archived: false } },
-  );
-  return r.folders;
+async function listFolders(spaceId: string): Promise<CuFolder[]> {
+  const r = await cu<{ folders: CuFolder[] }>(`/space/${encodeURIComponent(spaceId)}/folder`, { query: { archived: false } });
+  return r.folders ?? [];
 }
 
 async function listListsInFolder(folderId: string): Promise<CuList[]> {
-  const r = await cu<{ lists: CuList[] }>(
-    `/folder/${encodeURIComponent(folderId)}/list`,
-    { query: { archived: false } },
-  );
-  return r.lists;
-}
-
-/** Lists that live directly under a space (no folder). */
-async function listFolderlessLists(spaceId: string): Promise<CuList[]> {
-  const r = await cu<{ lists: CuList[] }>(
-    `/space/${encodeURIComponent(spaceId)}/list`,
-    { query: { archived: false } },
-  );
-  return r.lists;
-}
-
-async function listTasksInList(listId: string): Promise<CuTask[]> {
-  const r = await cu<{ tasks: CuTask[] }>(
-    `/list/${encodeURIComponent(listId)}/task`,
-    { query: { archived: false, page: 0 } },
-  );
-  return r.tasks;
+  const r = await cu<{ lists: CuList[] }>(`/folder/${encodeURIComponent(folderId)}/list`, { query: { archived: false } });
+  return r.lists ?? [];
 }
 
 /**
- * Detect the 3 standard lists for a given client. Walks workspace →
- * space (matched by client.name) → all folders + folderless lists,
- * then classifies each list by name. Saves the IDs to clients table.
+ * Find the client's folder by name. Walks every space (the "Clientes" space
+ * first, since that's where client folders live) and matches a folder whose
+ * name equals / contains the client name. Returns the folder + its space.
+ */
+async function findClientFolder(
+  workspaceId: string,
+  clientName: string,
+): Promise<{ folder: CuFolder; spaceId: string } | null> {
+  const target = norm(clientName);
+  const spaces = await listSpaces(workspaceId);
+  // Search "Clientes"-like spaces first, then the rest.
+  spaces.sort((a, b) => {
+    const ax = /cliente/i.test(a.name) ? 0 : 1;
+    const bx = /cliente/i.test(b.name) ? 0 : 1;
+    return ax - bx;
+  });
+
+  let contains: { folder: CuFolder; spaceId: string } | null = null;
+  for (const space of spaces) {
+    const folders = await listFolders(space.id);
+    for (const f of folders) {
+      const n = norm(f.name);
+      if (n === target) return { folder: f, spaceId: space.id }; // exact wins immediately
+      if (!contains && (n.includes(target) || target.includes(n))) {
+        contains = { folder: f, spaceId: space.id };
+      }
+    }
+  }
+  return contains;
+}
+
+/**
+ * Classify the standard lists inside a folder. For "redes" we prefer the
+ * shortest matching name so "📲Redes Sociales" wins over "Super Redes Sociales".
+ */
+function classifyLists(lists: CuList[]): { redes: string | null; video: string | null } {
+  let redes: { id: string; len: number } | null = null;
+  let video: { id: string; len: number } | null = null;
+  for (const l of lists) {
+    const name = l.name ?? "";
+    if (STANDARD_LISTS.redes.test(name)) {
+      const len = name.length;
+      if (!redes || len < redes.len) redes = { id: l.id, len };
+    }
+    if (STANDARD_LISTS.video.test(name)) {
+      const len = name.length;
+      if (!video || len < video.len) video = { id: l.id, len };
+    }
+  }
+  return { redes: redes?.id ?? null, video: video?.id ?? null };
+}
+
+/** Find the "Enfoque Técnico" doc that lives directly under the client folder. */
+async function findEnfoqueTecnicoDoc(workspaceId: string, folderId: string): Promise<string | null> {
+  try {
+    const r = await cuV3<{ docs: CuDoc[] }>(
+      `/workspaces/${encodeURIComponent(workspaceId)}/docs`,
+      { query: { parent_id: folderId, parent_type: 5, limit: 100 } },
+    );
+    const docs = r.docs ?? [];
+    const hit = docs.find((d) => ENFOQUE_TECNICO_RE.test(d.name ?? ""));
+    return hit?.id ?? null;
+  } catch {
+    // Docs API is best-effort: a failure here shouldn't fail the whole sync.
+    return null;
+  }
+}
+
+/** Fetch and concatenate the markdown content of every page in a doc. */
+async function fetchDocMarkdown(workspaceId: string, docId: string): Promise<{ markdown: string; pages: number }> {
+  // List pages, then fetch each page's content as markdown.
+  const listing = await cuV3<Array<{ id: string; name?: string }> | { pages?: Array<{ id: string; name?: string }> }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/docs/${encodeURIComponent(docId)}/pages`,
+  );
+  const pages = Array.isArray(listing) ? listing : listing.pages ?? [];
+  const parts: string[] = [];
+  for (const p of pages) {
+    try {
+      const page = await cuV3<{ name?: string; content?: string }>(
+        `/workspaces/${encodeURIComponent(workspaceId)}/docs/${encodeURIComponent(docId)}/pages/${encodeURIComponent(p.id)}`,
+        { query: { content_format: "text/md" } },
+      );
+      const content = (page.content ?? "").trim();
+      if (content) {
+        const heading = page.name && page.name !== "Enfoque Técnico" ? `## ${page.name}\n` : "";
+        parts.push(heading + content);
+      }
+    } catch { /* skip unreadable page */ }
+  }
+  return { markdown: parts.join("\n\n").trim(), pages: pages.length };
+}
+
+/**
+ * Detect the client's ClickUp folder + standard lists + Enfoque Técnico doc,
+ * and persist the IDs on the client row.
  */
 export async function detectClientClickUpLists(
   db: Db,
@@ -162,142 +223,96 @@ export async function detectClientClickUpLists(
   folderId: string | null;
   redes: string | null;
   video: string | null;
-  enfoqueTecnico: string | null;
+  enfoqueTecnico: string | null; // doc id
+  teamId: string | null;
   warnings: string[];
 }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) throw new Error(`Client ${clientId} not found`);
 
   const warnings: string[] = [];
-  const found: { folderId: string | null; redes: string | null; video: string | null; enfoqueTecnico: string | null } = {
-    folderId: null,
-    redes: null,
-    video: null,
-    enfoqueTecnico: null,
-  };
+  const workspace = await resolveWorkspace();
 
-  // 1. List workspaces
-  const ws = await cu<{ teams: Array<{ id: string; name: string }> }>("/team");
-  if (!ws.teams.length) {
-    warnings.push("No ClickUp workspaces visible to the API token.");
-    return { ...found, warnings };
-  }
-  // If we have a known workspace ID, prefer it; otherwise use the first.
-  const workspace = ws.teams[0];
-
-  // 2. Find the space for this client
-  const space = await findSpaceForClient(workspace.id, client.name);
-  if (!space) {
-    warnings.push(`No ClickUp space matches client name "${client.name}" in workspace ${workspace.name}.`);
-    return { ...found, warnings };
+  const match = await findClientFolder(workspace.id, client.name);
+  if (!match) {
+    warnings.push(`No ClickUp folder matches client "${client.name}" in workspace ${workspace.name}.`);
+    return { folderId: null, redes: null, video: null, enfoqueTecnico: null, teamId: workspace.id, warnings };
   }
 
-  // 3. Walk all folders + folderless lists
-  const folders = await listFoldersInSpace(space.id);
-  const folderless = await listFolderlessLists(space.id);
+  const { folder, spaceId } = match;
+  const lists = folder.lists?.length ? folder.lists : await listListsInFolder(folder.id);
+  const { redes, video } = classifyLists(lists);
+  const enfoqueDocId = await findEnfoqueTecnicoDoc(workspace.id, folder.id);
 
-  // Classify each list across all folders
-  let primaryFolder: string | null = null;
-  for (const folder of folders) {
-    const lists = await listListsInFolder(folder.id);
-    let folderHasStandard = false;
-    for (const list of lists) {
-      const kind = classifyList(list.name);
-      if (kind) {
-        found[kind] = list.id;
-        folderHasStandard = true;
-        if (!primaryFolder) primaryFolder = folder.id;
-      }
-    }
-    if (folderHasStandard) {
-      // Use this folder as the "primary" if it has any standard list
-      found.folderId = folder.id;
-    }
-  }
-  // Folderless fallback
-  for (const list of folderless) {
-    const kind = classifyList(list.name);
-    if (kind) found[kind] = list.id;
-  }
+  if (!redes) warnings.push(`Lista "📲Redes Sociales" no encontrada en folder "${folder.name}".`);
+  if (!video) warnings.push(`Lista "Produccion de video" no encontrada en folder "${folder.name}".`);
+  if (!enfoqueDocId) warnings.push(`Doc "Enfoque Técnico" no encontrado en folder "${folder.name}".`);
 
-  // Warn about missing lists
-  if (!found.redes) warnings.push(`📲 Redes Sociales list not found in space "${space.name}".`);
-  if (!found.video) warnings.push(`Produção de video list not found in space "${space.name}".`);
-  if (!found.enfoqueTecnico) warnings.push(`Enfoque Técnico list not found in space "${space.name}".`);
+  const metadata = { ...(client.metadata ?? {}), clickupTeamId: workspace.id, clickupSpaceId: spaceId };
 
-  // Save to DB
   await db.update(clients).set({
-    clickupFolderId: found.folderId,
-    clickupListRedesId: found.redes,
-    clickupListVideoId: found.video,
-    clickupListEnfoqueTecnicoId: found.enfoqueTecnico,
+    clickupFolderId: folder.id,
+    clickupListRedesId: redes,
+    clickupListVideoId: video,
+    clickupListEnfoqueTecnicoId: enfoqueDocId, // repurposed: holds the DOC id
     clickupListsSyncedAt: new Date(),
-    planillaExternalId: found.folderId ?? clients.planillaExternalId, // back-compat: dashboard button uses this
+    planillaExternalId: folder.id,
     planillaSource: "clickup",
+    metadata,
+    updatedAt: new Date(),
   }).where(eq(clients.id, clientId));
 
-  return { ...found, warnings };
+  return { folderId: folder.id, redes, video, enfoqueTecnico: enfoqueDocId, teamId: workspace.id, warnings };
 }
 
 /**
- * Fetch the Enfoque Técnico list contents and cache them so the
- * agent context loader can read them without hitting ClickUp.
+ * Fetch the Enfoque Técnico doc content (markdown) and cache it so the agent
+ * context loader can read it without hitting ClickUp on every invocation.
  */
 export async function refreshEnfoqueTecnicoContext(
   db: Db,
   clientId: string,
-): Promise<{ count: number; payload: unknown }> {
+): Promise<{ chars: number; pages: number }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) throw new Error(`Client ${clientId} not found`);
-  const listId = client.clickupListEnfoqueTecnicoId;
-  if (!listId) {
-    throw new Error(
-      `No Enfoque Técnico list ID for client ${client.name}. Run detectClientClickUpLists first.`,
-    );
+  const docId = client.clickupListEnfoqueTecnicoId; // repurposed column = doc id
+  if (!docId) {
+    throw new Error(`No Enfoque Técnico doc for client ${client.name}. Run detectClientClickUpLists first.`);
   }
-  const tasks = await listTasksInList(listId);
-  const payload = {
-    listId,
-    listName: "Enfoque Técnico",
-    tasks: tasks.map((t) => ({
-      id: t.id,
-      name: t.name,
-      description: t.description ?? null,
-      status: t.status?.status ?? null,
-      priority: t.priority ?? null,
-      dueDate: t.due_date ?? null,
-      url: t.url ?? null,
-    })),
-  };
-  // Upsert into cache
+  const teamId = (client.metadata as { clickupTeamId?: string } | null)?.clickupTeamId
+    ?? (await resolveWorkspace()).id;
+  const { markdown, pages } = await fetchDocMarkdown(teamId, docId);
+
+  const payload = { docId, source: "enfoque-tecnico", markdown, pages };
   const existing = await db
     .select()
     .from(clientContextCache)
     .where(and(eq(clientContextCache.clientId, clientId), eq(clientContextCache.source, "clickup-enfoque-tecnico")));
   if (existing.length) {
     await db.update(clientContextCache)
-      .set({ payload: payload as Record<string, unknown>, fetchedAt: new Date(), updatedAt: new Date(), externalId: listId })
+      .set({ payload: payload as Record<string, unknown>, fetchedAt: new Date(), updatedAt: new Date(), externalId: docId })
       .where(and(eq(clientContextCache.clientId, clientId), eq(clientContextCache.source, "clickup-enfoque-tecnico")));
   } else {
     await db.insert(clientContextCache).values({
       clientId,
       source: "clickup-enfoque-tecnico",
-      externalId: listId,
+      externalId: docId,
       payload: payload as Record<string, unknown>,
     });
   }
-  return { count: tasks.length, payload };
+  return { chars: markdown.length, pages };
 }
 
 /**
- * Get cached Enfoque Técnico context for a client. Falls back to
- * fetching from ClickUp if the cache is stale (>1h) or missing.
+ * Get cached Enfoque Técnico context (markdown) for a client. Falls back to
+ * fetching from ClickUp if the cache is stale or missing, auto-detecting the
+ * doc id first if needed.
  */
 export async function getEnfoqueTecnicoContext(
   db: Db,
   clientId: string,
   opts: { forceRefresh?: boolean; maxAgeMs?: number } = {},
-): Promise<{ tasks: Array<{ id: string; name: string; description: string | null; status: string | null }>; cached: boolean; stale: boolean }> {
+): Promise<{ markdown: string; cached: boolean; stale: boolean }> {
   const maxAgeMs = opts.maxAgeMs ?? 60 * 60 * 1000; // 1h default
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) throw new Error(`Client ${clientId} not found`);
@@ -311,20 +326,33 @@ export async function getEnfoqueTecnicoContext(
   const isStale = !cached.length || (now - new Date(cached[0].fetchedAt).getTime()) > maxAgeMs;
 
   if (cached.length && !isStale && !opts.forceRefresh) {
-    const p = cached[0].payload as { tasks: Array<{ id: string; name: string; description: string | null; status: string | null }> };
-    return { tasks: p.tasks ?? [], cached: true, stale: false };
+    const p = cached[0].payload as { markdown?: string };
+    return { markdown: p.markdown ?? "", cached: true, stale: false };
   }
 
-  // Stale or missing — refresh
+  // Stale or missing — make sure we know the doc id, then refresh.
   if (!client.clickupListEnfoqueTecnicoId) {
-    // No list known yet — try to detect
     await detectClientClickUpLists(db, clientId);
     const [reloaded] = await db.select().from(clients).where(eq(clients.id, clientId));
     if (!reloaded?.clickupListEnfoqueTecnicoId) {
-      return { tasks: [], cached: false, stale: true };
+      return { markdown: "", cached: false, stale: true };
     }
   }
-  const result = await refreshEnfoqueTecnicoContext(db, clientId);
-  const p = result.payload as { tasks: Array<{ id: string; name: string; description: string | null; status: string | null }> };
-  return { tasks: p.tasks ?? [], cached: false, stale: isStale };
+  try {
+    const result = await refreshEnfoqueTecnicoContext(db, clientId);
+    void result;
+    const [row] = await db
+      .select()
+      .from(clientContextCache)
+      .where(and(eq(clientContextCache.clientId, clientId), eq(clientContextCache.source, "clickup-enfoque-tecnico")));
+    const p = (row?.payload ?? {}) as { markdown?: string };
+    return { markdown: p.markdown ?? "", cached: false, stale: isStale };
+  } catch {
+    // If refresh fails, return whatever stale copy we have rather than erroring.
+    if (cached.length) {
+      const p = cached[0].payload as { markdown?: string };
+      return { markdown: p.markdown ?? "", cached: true, stale: true };
+    }
+    return { markdown: "", cached: false, stale: true };
+  }
 }

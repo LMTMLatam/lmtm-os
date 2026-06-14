@@ -169,9 +169,95 @@ export function Clients() {
   );
 }
 
-function ClientCard({ client }: { client: Client }) {
+// LMTM's ClickUp workspace ("LMTM"). Used as a fallback for building deep
+// links when a client row hasn't stored its teamId yet (pre-sync).
+const CLICKUP_TEAM_FALLBACK = "9013352440";
+
+function clickupUrl(teamId: string, kind: "f" | "li" | "dc", id: string): string {
+  // f = folder, li = list, dc = doc
+  return `https://app.clickup.com/${teamId}/v/${kind}/${id}`;
+}
+
+function ClickUpLinks({ client }: { client: Client }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const teamId = client.metadata?.clickupTeamId ?? CLICKUP_TEAM_FALLBACK;
+
+  const runSync = async (open: boolean) => {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const r = await clientsApi.clickupSync(client.slug);
+      const tId = r.teamId ?? teamId;
+      if (r.folderId && open) window.open(clickupUrl(tId, "f", r.folderId), "_blank");
+      if (r.warnings?.length && !r.folderId) {
+        setSyncMsg({ ok: false, text: r.warnings.join("; ") });
+      } else {
+        setSyncMsg({ ok: true, text: r.folderId ? "Sincronizado ✓" : "Sin carpeta" });
+      }
+    } catch (e) {
+      setSyncMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {client.clickupFolderId ? (
+        <a
+          href={clickupUrl(teamId, "f", client.clickupFolderId)}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          title="Abrir carpeta del cliente en ClickUp"
+        >
+          ClickUp
+          <ExternalLink className="h-2.5 w-2.5" />
+        </a>
+      ) : (
+        <button
+          onClick={() => runSync(true)}
+          disabled={syncing}
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 disabled:opacity-50"
+          title="Detectar carpeta del cliente en ClickUp y abrirla"
+        >
+          {syncing ? "↻ Sincronizando…" : "ClickUp"}
+          {!syncing && <ExternalLink className="h-2.5 w-2.5" />}
+        </button>
+      )}
+
+      {/* Pills for the 3 key resources */}
+      {client.clickupListRedesId && (
+        <a href={clickupUrl(teamId, "li", client.clickupListRedesId)} target="_blank" rel="noreferrer noopener"
+          className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="📲 Redes Sociales">RS</a>
+      )}
+      {client.clickupListVideoId && (
+        <a href={clickupUrl(teamId, "li", client.clickupListVideoId)} target="_blank" rel="noreferrer noopener"
+          className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Producción de video">PV</a>
+      )}
+      {client.clickupListEnfoqueTecnicoId && (
+        <a href={clickupUrl(teamId, "dc", client.clickupListEnfoqueTecnicoId)} target="_blank" rel="noreferrer noopener"
+          className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Enfoque Técnico (doc de contexto)">ET</a>
+      )}
+
+      {/* Re-sync affordance once a folder is known (refresh lists/doc ids) */}
+      {client.clickupFolderId && (
+        <button onClick={() => runSync(false)} disabled={syncing}
+          className="text-muted-foreground/40 hover:text-foreground text-[10px] disabled:opacity-50"
+          title="Re-sincronizar listas y doc">{syncing ? "↻" : "⟳"}</button>
+      )}
+
+      {syncMsg && (
+        <span className={`ml-1 text-[9px] ${syncMsg.ok ? "text-emerald-500/70" : "text-rose-500/70"} truncate max-w-[140px]`}>
+          {syncMsg.text}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ClientCard({ client }: { client: Client }) {
   return (
     <Card className="p-4 hover:border-foreground/30 transition-colors group">
       <div className="flex items-start justify-between gap-2">
@@ -226,70 +312,7 @@ function ClientCard({ client }: { client: Client }) {
           {formatRetainer(client.monthlyRetainerCents, client.currency)}/mo
         </span>
         <div className="flex items-center gap-2">
-          {client.planillaSource === "clickup" && (
-            <div className="flex items-center gap-1">
-              {client.clickupFolderId ? (
-                <a
-                  href={`https://app.clickup.com/${client.clickupFolderId}`}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                  title="Abrir carpeta en ClickUp"
-                >
-                  ClickUp
-                  <ExternalLink className="h-2.5 w-2.5" />
-                </a>
-              ) : (
-                <button
-                  onClick={async () => {
-                    setSyncing(true);
-                    setSyncMsg(null);
-                    try {
-                      const r = await clientsApi.clickupSync(client.slug);
-                      if (r.warnings?.length) {
-                        setSyncMsg({ ok: false, text: r.warnings.join("; ") });
-                      } else {
-                        const folder = r.folderId || client.planillaExternalId;
-                        if (folder) window.open(`https://app.clickup.com/${folder}`, "_blank");
-                        setSyncMsg({ ok: true, text: "Sincronizado" });
-                      }
-                    } catch (e) {
-                      setSyncMsg({ ok: false, text: (e as Error).message });
-                    } finally {
-                      setSyncing(false);
-                    }
-                  }}
-                  disabled={syncing}
-                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                  title="Sincronizar y abrir ClickUp"
-                >
-                  {syncing ? "↻" : "ClickUp"}
-                  {syncing ? (
-                    <span className="text-[9px]">Sincronizando…</span>
-                  ) : (
-                    <ExternalLink className="h-2.5 w-2.5" />
-                  )}
-                </button>
-              )}
-              {client.clickupFolderId && client.clickupListRedesId && (
-                <a href={`https://app.clickup.com/v/l/${client.clickupListRedesId}`} target="_blank" rel="noreferrer noopener" className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="📲 Redes Sociales">RS</a>
-              )}
-              {client.clickupFolderId && client.clickupListVideoId && (
-                <a href={`https://app.clickup.com/v/l/${client.clickupListVideoId}`} target="_blank" rel="noreferrer noopener" className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Produção de video">PV</a>
-              )}
-              {client.clickupFolderId && client.clickupListEnfoqueTecnicoId && (
-                <a href={`https://app.clickup.com/v/l/${client.clickupListEnfoqueTecnicoId}`} target="_blank" rel="noreferrer noopener" className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Enfoque Técnico">ET</a>
-              )}
-              {!client.clickupFolderId && syncing && (
-                <span className="ml-1 text-[9px] text-amber-500/70">↻ buscando carpeta…</span>
-              )}
-              {syncMsg && (
-                <span className={`ml-1 text-[9px] ${syncMsg.ok ? "text-emerald-500/70" : "text-rose-500/70"} truncate max-w-[140px]`}>
-                  {syncMsg.text}
-                </span>
-              )}
-            </div>
-          )}
+          <ClickUpLinks client={client} />
           <Link
             to={`/c/${client.slug}`}
             className="text-foreground hover:underline inline-flex items-center gap-1"

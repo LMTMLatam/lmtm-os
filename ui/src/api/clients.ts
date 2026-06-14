@@ -26,12 +26,14 @@ export interface Client {
   clickupFolderId: string | null;
   clickupListRedesId: string | null;
   clickupListVideoId: string | null;
+  /** Repurposed: holds the Enfoque Técnico DOC id (not a list). */
   clickupListEnfoqueTecnicoId: string | null;
   clickupListsSyncedAt: string | null;
   onboardedAt: string | null;
   offboardedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  metadata?: { clickupTeamId?: string; clickupSpaceId?: string } & Record<string, unknown>;
 }
 
 export interface ClientsListResponse {
@@ -104,9 +106,9 @@ export const clientsApi = {
   syncAds: (connectionId: string, mappingId: string, job: "campaigns" | "insights" | "all" = "all", since?: string, until?: string) =>
     api.post<SyncAdsResponse>(`/ads/sync/${job}`, { connectionId, mappingId, since, until }),
   clickupSync: (idOrSlug: string) =>
-    api.post<{ folderId: string | null; redes: string | null; video: string | null; enfoqueTecnico: string | null; warnings: string[] }>(`/clients/${idOrSlug}/clickup/sync`, null),
+    api.post<{ folderId: string | null; redes: string | null; video: string | null; enfoqueTecnico: string | null; teamId: string | null; warnings: string[] }>(`/clients/${idOrSlug}/clickup/sync`, null),
   clickupEnfoqueTecnicoRefresh: (idOrSlug: string) =>
-    api.post<{ count: number }>(`/clients/${idOrSlug}/clickup/enfoque-tecnico/refresh`, null),
+    api.post<{ chars: number; pages: number }>(`/clients/${idOrSlug}/clickup/enfoque-tecnico/refresh`, null),
 };
 
 export interface ClientCampaign {
