@@ -14,6 +14,7 @@ import {
   Settings,
   Users,
   Building2,
+  MessageCircle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
@@ -115,6 +116,7 @@ export function Sidebar() {
 
         <SidebarSection label="Company">
           <SidebarNavItem to="/clients" label="Clients" icon={Building2} />
+          <SidebarNavItem to="/whatsapp" label="WhatsApp" icon={MessageCircle} />
           <SidebarNavItem to="/org" label="Org" icon={Network} />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
           <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />

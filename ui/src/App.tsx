@@ -37,6 +37,7 @@ import { CompanyAccess } from "./pages/CompanyAccess";
 import { CompanyInvites } from "./pages/CompanyInvites";
 import { CompanySkills } from "./pages/CompanySkills";
 import { AdsIntegrations } from "./pages/AdsIntegrations";
+import { WhatsApp } from "./pages/WhatsApp";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
 import { CompanyImport } from "./pages/CompanyImport";
@@ -72,6 +73,7 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Clients />} />
+      <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="c/:slug" element={<ClientDashboard />} />
       <Route path="c/:slug/:tab" element={<ClientDashboard />} />
       <Route path="company/settings" element={<CompanySettings />} />

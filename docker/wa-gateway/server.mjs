@@ -23,8 +23,12 @@
 import express from "express";
 import pino from "pino";
 import QRCode from "qrcode";
+import postgres from "postgres";
 import makeWASocket, {
   useMultiFileAuthState,
+  initAuthCreds,
+  BufferJSON,
+  proto,
   DisconnectReason,
   fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys";
@@ -33,7 +37,76 @@ const PORT = parseInt(process.env.WA_GATEWAY_PORT || process.env.API_PORT || "80
 const API_KEY = process.env.OPENWA_API_KEY || "";
 const SESSION_NAME = process.env.WA_AUTOMATE_SESSION_ID || "lmtm";
 const SESSION_DIR = process.env.SESSION_DATA_PATH || "/app/data/wa-session";
+const DATABASE_URL = process.env.DATABASE_URL || "";
 const log = pino({ level: process.env.WA_GATEWAY_LOG_LEVEL || "info" });
+
+// ── Postgres-backed Baileys auth state ────────────────────────────────────────
+// Persists creds + signal keys in `wa_session_state` so the WhatsApp link
+// survives container redeploys (the ephemeral filesystem does not). Falls back
+// to the file-based store when DATABASE_URL is absent (local/dev).
+async function usePostgresAuthState(connStr, sessionName) {
+  const sql = postgres(connStr, { max: 1, onnotice: () => {} });
+  await sql`
+    CREATE TABLE IF NOT EXISTS wa_session_state (
+      session text NOT NULL,
+      key text NOT NULL,
+      value jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (session, key)
+    )`;
+
+  const read = async (key) => {
+    const rows = await sql`SELECT value FROM wa_session_state WHERE session=${sessionName} AND key=${key}`;
+    if (!rows.length) return null;
+    return JSON.parse(JSON.stringify(rows[0].value), BufferJSON.reviver);
+  };
+  const write = async (key, value) => {
+    const data = JSON.parse(JSON.stringify(value, BufferJSON.replacer));
+    await sql`
+      INSERT INTO wa_session_state (session, key, value) VALUES (${sessionName}, ${key}, ${data})
+      ON CONFLICT (session, key) DO UPDATE SET value = excluded.value, updated_at = now()`;
+  };
+  const del = async (key) => {
+    await sql`DELETE FROM wa_session_state WHERE session=${sessionName} AND key=${key}`;
+  };
+
+  const creds = (await read("creds")) || initAuthCreds();
+
+  return {
+    sql,
+    clearAll: async () => { await sql`DELETE FROM wa_session_state WHERE session=${sessionName}`; },
+    state: {
+      creds,
+      keys: {
+        get: async (type, ids) => {
+          const result = {};
+          await Promise.all(ids.map(async (id) => {
+            let value = await read(`${type}-${id}`);
+            if (type === "app-state-sync-key" && value) {
+              value = proto.Message.AppStateSyncKeyData.fromObject(value);
+            }
+            result[id] = value;
+          }));
+          return result;
+        },
+        set: async (data) => {
+          const ops = [];
+          for (const type in data) {
+            for (const id in data[type]) {
+              const value = data[type][id];
+              const key = `${type}-${id}`;
+              ops.push(value ? write(key, value) : del(key));
+            }
+          }
+          await Promise.all(ops);
+        },
+      },
+    },
+    saveCreds: () => write("creds", creds),
+  };
+}
+
+let pgAuth = null; // holds { sql, clearAll } when using Postgres persistence
 
 // ── Single-session state ──────────────────────────────────────────────────────
 const session = {
@@ -94,7 +167,24 @@ async function startSocket() {
   if (session.starting) return;
   session.starting = true;
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+    let state, saveCreds;
+    if (DATABASE_URL) {
+      try {
+        const pg = await usePostgresAuthState(DATABASE_URL, SESSION_NAME);
+        pgAuth = { sql: pg.sql, clearAll: pg.clearAll };
+        state = pg.state;
+        saveCreds = pg.saveCreds;
+        log.info("auth state: Postgres (persistent across redeploys)");
+      } catch (e) {
+        log.warn(`Postgres auth state failed (${e?.message || e}); falling back to file store`);
+      }
+    }
+    if (!state) {
+      const fileAuth = await useMultiFileAuthState(SESSION_DIR);
+      state = fileAuth.state;
+      saveCreds = fileAuth.saveCreds;
+      log.info("auth state: file store (ephemeral)");
+    }
     const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
     const sock = makeWASocket({
       version,
@@ -137,7 +227,10 @@ async function startSocket() {
         if (loggedOut) {
           session.phoneNumber = null;
           session.qrCode = null;
+          try { await pgAuth?.clearAll?.(); } catch { /* noop */ }
           setStatus("DISCONNECTED");
+          // Re-create a fresh session so a new QR is generated for re-linking.
+          if (session.exists) setTimeout(() => startSocket().catch((e) => log.error(e)), 2000);
         } else if (session.exists) {
           setStatus("CONNECTING");
           setTimeout(() => startSocket().catch((e) => log.error(e)), 3000);
@@ -185,6 +278,8 @@ async function stopSocket() {
   session.status = "DISCONNECTED";
   session.qrCode = null;
   session.phoneNumber = null;
+  // Wipe persisted creds so the next start shows a fresh QR.
+  try { await pgAuth?.clearAll?.(); } catch { /* noop */ }
 }
 
 // ── HTTP API ──────────────────────────────────────────────────────────────────
