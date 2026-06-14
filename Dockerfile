@@ -81,13 +81,28 @@ RUN pnpm --filter @paperclipai/lmtm-google-ads build
 RUN tar cf /tmp/node_modules.tar -C /app node_modules
 
 # ─────────────────────────────────────────────────────────────────────────────
+# wa-gateway-builder stage — installs deps for the lean Baileys WhatsApp
+# gateway (Express + @whiskeysockets/baileys, no NestJS/Redis). Build tools
+# are present here so any native dep compiles; the resulting node_modules are
+# copied into the runtime stage (same node:20 ABI).
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-slim AS wa-gateway-builder
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates python3 make g++ git \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /wa-gateway
+COPY docker/wa-gateway/package.json ./
+RUN npm install --omit=dev --no-audit --no-fund --loglevel=error
+COPY docker/wa-gateway/server.mjs ./
+
+# ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
 # ─────────────────────────────────────────────────────────────────────────────
 
 FROM node:20-slim AS runtime
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl procps \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g pnpm@9.15.4 --no-audit --no-fund
 
@@ -214,11 +229,15 @@ RUN mkdir -p /app/.paperclip/plugins && \
     echo "  /app/node_modules/@paperclipai/shared: $(test -L /app/node_modules/@paperclipai/shared && readlink /app/node_modules/@paperclipai/shared || echo MISSING)" && \
     echo "  /app/node_modules/@paperclipai/plugin-sdk: $(test -L /app/node_modules/@paperclipai/plugin-sdk && readlink /app/node_modules/@paperclipai/plugin-sdk || echo MISSING)"
 
-VOLUME ["/paperclip"]
-EXPOSE 3100
+# ── Lean Baileys WhatsApp gateway (replaces heavy OpenWA/NestJS+Redis) ──
+# Runs as a second process on port 8080; the server talks to it via
+# OPENWA_URL=http://localhost:8080. Session/creds persist under /app/data.
+COPY --from=wa-gateway-builder /wa-gateway /app/wa-gateway
+RUN mkdir -p /app/data/wa-session
 
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+VOLUME ["/paperclip"]
+EXPOSE 3100 8080
+
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 CMD ["/app/start.sh"]

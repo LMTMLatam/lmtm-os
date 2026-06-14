@@ -61,6 +61,11 @@ export function waBotRoutes(db: Db) {
       }).toString().split("\n").slice(0, 40);
     } catch (e) { (out.errors as string[]).push("ps: " + String(e)); }
     try {
+      out.wa_gateway_log_tail = execFileSync("tail", ["-n", "80", "/tmp/wa-gateway.log"], {
+        timeout: 5000, encoding: "utf8",
+      }).toString();
+    } catch (e) { (out.errors as string[]).push("wa-gateway.log: " + String(e)); }
+    try {
       out.openwa_log_tail = execFileSync("tail", ["-n", "60", "/tmp/openwa.log"], {
         timeout: 5000, encoding: "utf8",
       }).toString();

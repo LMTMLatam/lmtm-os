@@ -22,6 +22,23 @@ echo "PORT=${PORT:-3100} NODE_ENV=${NODE_ENV:-?}"
 # hour Docker/symlink rabbit hole when the real crash was a config error.
 # The /api/crash-log below is the source of truth: read the actual stack.
 
+# ── WhatsApp gateway (lean Baileys) on $OPENWA_URL port (default 8080) ────────
+# Independent of the main server: if it crashes we restart it without touching
+# the server. The server reaches it via OPENWA_URL=http://localhost:8080.
+if [ -f /app/wa-gateway/server.mjs ]; then
+  (
+    while true; do
+      echo "[wa-gateway] starting at $(date -u)"
+      node /app/wa-gateway/server.mjs >> /tmp/wa-gateway.log 2>&1
+      echo "[wa-gateway] exited rc=$? at $(date -u); restart in 10s" >> /tmp/wa-gateway.log
+      sleep 10
+    done
+  ) &
+  echo "[wrapper] wa-gateway supervisor started"
+else
+  echo "[wrapper] no wa-gateway present — skipping"
+fi
+
 # ── Fallback proxy: only started if the real server exits. ──
 start_proxy() {
   node -e "
