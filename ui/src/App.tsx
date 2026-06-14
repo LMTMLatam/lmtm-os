@@ -302,6 +302,7 @@ export function App() {
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
+          <Route path="whatsapp" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
           <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
