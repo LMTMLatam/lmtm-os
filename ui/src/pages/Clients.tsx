@@ -284,27 +284,16 @@ function PortfolioBriefButton() {
 }
 
 function ClientNotify({ client }: { client: Client }) {
-  const [num, setNum] = useState(client.metadata?.notifyWhatsapp ?? "");
-  const [saved, setSaved] = useState(false);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const save = async () => {
-    try {
-      await clientsApi.setNotifyWhatsapp(client.slug, num.trim());
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-    } catch (e) {
-      setMsg((e as Error).message);
-    }
-  };
   const runAlerts = async () => {
     setRunning(true);
     setMsg(null);
     try {
       const r = await clientsApi.runAlerts(client.slug);
       if (r.alerts.length === 0) setMsg("Sin alertas ✓");
-      else setMsg(`${r.alerts.length} alerta(s)${r.delivered ? " · enviadas" : r.deliveryError ? ` · ${r.deliveryError.slice(0, 40)}` : " · sin número/WA"}`);
+      else setMsg(`${r.alerts.length} alerta(s)${r.delivered ? " · enviadas al equipo" : r.teamConfigured === false ? " · falta número del equipo" : r.deliveryError ? ` · ${r.deliveryError.slice(0, 30)}` : ""}`);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
@@ -315,18 +304,12 @@ function ClientNotify({ client }: { client: Client }) {
   return (
     <div className="mt-2 pt-2 border-t flex items-center gap-1.5">
       <Bell className="h-3 w-3 text-muted-foreground shrink-0" />
-      <input
-        value={num}
-        onChange={(e) => setNum(e.target.value)}
-        onBlur={save}
-        placeholder="WhatsApp alertas (+54…)"
-        className="flex-1 min-w-0 h-7 px-2 text-xs rounded-md border border-border bg-background"
-      />
+      <span className="text-[10px] text-muted-foreground mr-auto">Monitoreo</span>
       <button
         onClick={runAlerts}
         disabled={running}
         className="text-[10px] px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50 shrink-0"
-        title="Calcular y enviar alertas ahora"
+        title="Calcular alertas y enviarlas al número del equipo"
       >
         {running ? "…" : "Alertas"}
       </button>
@@ -348,8 +331,7 @@ function ClientNotify({ client }: { client: Client }) {
       >
         Reporte
       </button>
-      {saved && <span className="text-[9px] text-emerald-500 shrink-0">✓</span>}
-      {msg && <span className="text-[9px] text-muted-foreground truncate max-w-[120px]">{msg}</span>}
+      {msg && <span className="text-[9px] text-muted-foreground truncate max-w-[130px]">{msg}</span>}
     </div>
   );
 }

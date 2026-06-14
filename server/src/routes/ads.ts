@@ -39,7 +39,7 @@ import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask } from "../services/clickup-sync.js";
-import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief } from "../services/agency-ops.js";
+import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -1947,14 +1947,14 @@ export function adsRoutes(db: Db): Router {
     const [row] = await db.select().from(clients).where(condition);
     if (!row) return res.status(404).json({ error: "client not found" });
     const alerts = await generateClientAlerts(db, row.id);
-    const number = (row.metadata as { notifyWhatsapp?: string } | null)?.notifyWhatsapp?.trim();
+    const team = alertsNumber();
     let delivery: { ok: boolean; error?: string } | null = null;
-    if (number && alerts.length > 0) {
+    if (team && alerts.length > 0) {
       const icon = (s: string) => (s === "critical" ? "🔴" : s === "warn" ? "🟠" : "🔵");
       const body = [`*Alertas — ${row.name}*`, "", ...alerts.map((a) => `${icon(a.severity)} *${a.title}*\n${a.description}\n→ ${a.recommendation}`)].join("\n");
-      delivery = await sendWhatsAppToNumber(number, body);
+      delivery = await sendWhatsAppToNumber(team, body);
     }
-    res.json({ client: row.slug, alerts, delivered: delivery?.ok ?? false, deliveryError: delivery?.error ?? null });
+    res.json({ client: row.slug, alerts, delivered: delivery?.ok ?? false, teamConfigured: !!team, deliveryError: delivery?.error ?? null });
   });
 
   // POST /api/clients/alerts/run-all — run the alert sweep across all clients.

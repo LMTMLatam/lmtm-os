@@ -10,7 +10,7 @@
 import type { Db } from "@paperclipai/db";
 import { adsInsights, adsAlerts, clients } from "@paperclipai/db";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
-import { createClientReportTask, getRedesPostStats } from "./clickup-sync.js";
+import { createClientReportTask, getRedesPostStats, getEnfoqueTecnicoContext } from "./clickup-sync.js";
 
 const SESSION = process.env.WA_AUTOMATE_SESSION_ID || "lmtm";
 
@@ -155,15 +155,18 @@ async function clientCompanyId(db: Db, clientId: string): Promise<string | null>
  * For every active client with a configured notify number: compute alerts,
  * store the new ones (deduped vs the last 24h), and WhatsApp a digest.
  */
-export async function runClientAlerts(db: Db): Promise<{ clients: number; alertsSent: number }> {
+/** The single internal number that receives ALL client alerts (the agency, not the clients). */
+export function alertsNumber(): string {
+  return (process.env.LMTM_ALERTS_WHATSAPP ?? process.env.LMTM_TEAM_WHATSAPP ?? "").trim();
+}
+
+export async function runClientAlerts(db: Db): Promise<{ clients: number; alertsSent: number; teamConfigured: boolean }> {
+  const team = alertsNumber();
   const rows = await db.select().from(clients).where(eq(clients.status, "active"));
   let alertsSent = 0;
   let clientsNotified = 0;
 
   for (const client of rows) {
-    const number = (client.metadata as { notifyWhatsapp?: string } | null)?.notifyWhatsapp?.trim();
-    if (!number) continue;
-
     const companyId = await clientCompanyId(db, client.id);
     if (!companyId) continue; // no ad data → nothing to alert on
 
@@ -196,20 +199,23 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
       status: "pending",
     })));
 
-    const icon = (s: string) => (s === "critical" ? "🔴" : s === "warn" ? "🟠" : "🔵");
-    const body = [
-      `*Alertas — ${client.name}*`,
-      "",
-      ...fresh.map((a) => `${icon(a.severity)} *${a.title}*\n${a.description}\n→ ${a.recommendation}`),
-      "",
-      "_LMTM-OS · monitoreo automático_",
-    ].join("\n");
-
-    const sent = await sendWhatsAppToNumber(number, body);
-    if (sent.ok) { alertsSent += fresh.length; clientsNotified += 1; }
+    // Deliver to the agency's internal number (all clients' alerts → same number).
+    // The message names the client so it's clear which account each alert is about.
+    if (team) {
+      const icon = (s: string) => (s === "critical" ? "🔴" : s === "warn" ? "🟠" : "🔵");
+      const body = [
+        `*Alertas — ${client.name}*`,
+        "",
+        ...fresh.map((a) => `${icon(a.severity)} *${a.title}*\n${a.description}\n→ ${a.recommendation}`),
+        "",
+        "_LMTM-OS · monitoreo automático_",
+      ].join("\n");
+      const sent = await sendWhatsAppToNumber(team, body);
+      if (sent.ok) { alertsSent += fresh.length; clientsNotified += 1; }
+    }
   }
 
-  return { clients: clientsNotified, alertsSent };
+  return { clients: clientsNotified, alertsSent, teamConfigured: !!team };
 }
 
 // ── AI narrative (MiniMax) ────────────────────────────────────────────────────
@@ -270,9 +276,26 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
   const spendDelta = pct(w.spend, prev.spend);
   const leadsDelta = pct(w.leads, prev.leads);
 
+  // Client context (Enfoque Técnico): which networks/strategy the client has,
+  // so the analysis can review the week's posts against the defined networks.
+  let enfoque = "";
+  try {
+    const ctx = await getEnfoqueTecnicoContext(db, clientId, { maxAgeMs: 60 * 60 * 1000 });
+    enfoque = (ctx.markdown ?? "").trim().slice(0, 1500);
+  } catch { /* no context */ }
+
+  const redesSummary = redes
+    ? (redes.hasDates && redes.plannedThisWeek > 0
+        ? `planeados ${redes.plannedThisWeek}, no realizados ${redes.missed}${redes.missed > 0 ? " (" + redes.missedNames.slice(0, 6).join(", ") + ")" : ""}`
+        : `${redes.total} posts en lista, publicados esta semana ${redes.publishedThisWeek}, por estado ${Object.entries(redes.byStatus).map(([s, n]) => s + ":" + n).join(", ")}`)
+    : "sin lista de redes";
+
   const narrative = await aiNarrative(
-    "Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 3-4 oraciones en español rioplatense, claras y accionables, resumiendo el desempeño y qué hacer la próxima semana. Sin saludos, sin títulos. Nunca inventes números: usá solo los provistos.",
-    `Cliente: ${client.name}\nInversión 7d: ${money(w.spend)} (semana previa ${money(prev.spend)})\nLeads 7d: ${w.leads} (previa ${prev.leads})\nImpresiones: ${w.impressions}\nCTR: ${ctr.toFixed(2)}%\nCPL: ${w.leads > 0 ? money(cpl) : "s/d"}`,
+    "Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 4-5 oraciones en español rioplatense, claras y accionables. Revisá el desempeño de publicidad Y la actividad en redes sociales (posteos de la semana) considerando las redes y la estrategia definidas en el Enfoque Técnico del cliente. Si faltaron posteos planeados, marcalo. Cerrá con qué hacer la próxima semana. Sin saludos, sin títulos. Nunca inventes números: usá solo los provistos.",
+    `Cliente: ${client.name}\n` +
+    (enfoque ? `Enfoque Técnico (contexto/redes del cliente):\n${enfoque}\n\n` : "Enfoque Técnico: no cargado.\n\n") +
+    `Publicidad 7d: inversión ${money(w.spend)} (previa ${money(prev.spend)}), leads ${w.leads} (previa ${prev.leads}), impresiones ${w.impressions}, CTR ${ctr.toFixed(2)}%, CPL ${w.leads > 0 ? money(cpl) : "s/d"}\n` +
+    `Redes esta semana: ${redesSummary}`,
   );
   const link = dashboardLink(client.slug);
 
