@@ -19,9 +19,21 @@ import {
   tickWaBotKeepalive,
 } from "../services/wa-group-bot.js";
 import { execFileSync } from "node:child_process";
+import { unauthorized } from "../errors.js";
 
 export function waBotRoutes(db: Db) {
   const router = Router({ mergeParams: true });
+
+  // Auth boundary: every operator/UI endpoint requires an authenticated actor.
+  // Exceptions (called by machines, not the dashboard):
+  //   /public-health, /keepalive → external monitors / GHA cron
+  //   /webhook                   → posted by the WhatsApp gateway itself
+  const PUBLIC_WA_PATHS = ["/public-health", "/keepalive", "/webhook"];
+  router.use((req, _res, next) => {
+    if (PUBLIC_WA_PATHS.some((p) => req.path.endsWith(p))) return next();
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    next();
+  });
 
   // Public health endpoint — no auth. Used by GitHub Actions and external monitors.
   router.get("/public-health", async (_req, res) => {

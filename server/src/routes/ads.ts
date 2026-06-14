@@ -35,7 +35,7 @@ import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
 import { linkedinAdsProviderScopes } from "../services/ads/providers/linkedin.js";
 import { logActivity } from "../services/activity-log.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
-import { badRequest, unprocessable } from "../errors.js";
+import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext } from "../services/clickup-sync.js";
@@ -105,6 +105,15 @@ function decodeState<T extends Record<string, unknown>>(raw: string): T | null {
 
 export function adsRoutes(db: Db): Router {
   const router = Router();
+
+  // Auth boundary for the client surface. Every /clients/* route (list,
+  // create, dashboards, ClickUp sync, CSV export) requires an authenticated
+  // actor. The /ads/oauth/* callbacks are deliberately NOT covered here —
+  // the OAuth provider redirects to them without a session.
+  router.use("/clients", (req, _res, next) => {
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    next();
+  });
 
   // ---- Connections ----
 
