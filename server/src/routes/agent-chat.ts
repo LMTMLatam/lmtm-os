@@ -47,6 +47,11 @@ Tenés acceso completo a Meta Ads para todos los clientes:
 - meta_insights: métricas de una cuenta específica
 - compare_meta_accounts: compara múltiples cuentas lado a lado
 - research_niche_competition: detecta el nicho del cliente y genera análisis de competencia, ideas virales y tendencias
+
+Además tenés acceso a internet:
+- web_search: busca en la web (DuckDuckGo) y devuelve resultados con título y URL
+- web_fetch: descarga una URL y devuelve su texto (para leer artículos, landings de competencia, etc.)
+Usá web_search + web_fetch cuando necesites datos reales y actuales de la web; no inventes datos que podés verificar.
 `.trim();
 
 const SYSTEM_PROMPTS: Record<string, string> = {
@@ -276,8 +281,37 @@ const N8N_TOOLS_DEF = [
   },
 ];
 
+const WEB_TOOLS_DEF = [
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Busca en la web (DuckDuckGo) y devuelve los primeros resultados con título, URL y dominio. Útil para research de competencia, tendencias, datos de mercado actuales. Después podés usar web_fetch para leer una URL en detalle.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "Términos de búsqueda." } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description: "Descarga una URL (http/https) y devuelve su contenido como texto plano (HTML limpiado). Útil para leer una página web, un artículo, una landing de un competidor, etc.",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string", description: "URL completa con http(s)://" } },
+        required: ["url"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 function getToolsForAgent(agentKey: string) {
-  const base = [...META_TOOLS_DEF];
+  const base = [...META_TOOLS_DEF, ...WEB_TOOLS_DEF];
   if (agentKey === "n8n") return [...base, ...N8N_TOOLS_DEF];
   return base;
 }
@@ -734,6 +768,56 @@ async function callN8nMcp(toolName: string, args: Record<string, unknown>): Prom
   }
 }
 
+async function execWebFetch(args: { url?: string }): Promise<unknown> {
+  const url = (args.url ?? "").trim();
+  if (!/^https?:\/\//i.test(url)) return { error: "URL inválida (debe empezar con http:// o https://)" };
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-OS/1.0)" }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return { error: `HTTP ${r.status}`, url };
+    const ct = r.headers.get("content-type") ?? "";
+    const raw = await r.text();
+    if (ct.includes("json")) return { url, contentType: ct, content: raw.slice(0, 8000) };
+    const text = raw
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<\/(p|div|h[1-6]|li|tr|br)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+      .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim();
+    return { url, chars: text.length, content: text.slice(0, 8000) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e), url };
+  }
+}
+
+async function execWebSearch(args: { query?: string }): Promise<unknown> {
+  const q = (args.query ?? "").trim();
+  if (!q) return { error: "query requerida" };
+  try {
+    const r = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
+      method: "POST",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-OS/1.0)", "Content-Type": "application/x-www-form-urlencoded" },
+      signal: AbortSignal.timeout(15000),
+    });
+    const html = await r.text();
+    const results: Array<{ title: string; url: string }> = [];
+    const re = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) && results.length < 6) {
+      let href = m[1];
+      const uddg = /[?&]uddg=([^&]+)/.exec(href);
+      if (uddg) href = decodeURIComponent(uddg[1]);
+      if (href.startsWith("//")) href = "https:" + href;
+      const title = m[2].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
+      if (title && href.startsWith("http")) results.push({ title, url: href });
+    }
+    if (results.length === 0) return { query: q, results: [], note: "Sin resultados parseables. Probá web_fetch con una URL directa." };
+    return { query: q, results };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 async function executeTool(db: Db, companyId: string, name: string, argsJson: string): Promise<unknown> {
   let args: Record<string, unknown> = {};
   try { args = JSON.parse(argsJson || "{}"); } catch { return { error: `Invalid JSON args: ${argsJson.slice(0, 200)}` }; }
@@ -744,6 +828,8 @@ async function executeTool(db: Db, companyId: string, name: string, argsJson: st
   if (name === "compare_meta_accounts") return execCompareMetaAccounts(db, args as Parameters<typeof execCompareMetaAccounts>[1]);
   if (name === "research_niche_competition") return execResearchNicheCompetition(args as Parameters<typeof execResearchNicheCompetition>[0]);
   if (name === "deploy_dashboard") return execDeployDashboard(args as Parameters<typeof execDeployDashboard>[0]);
+  if (name === "web_search") return execWebSearch(args as { query?: string });
+  if (name === "web_fetch") return execWebFetch(args as { url?: string });
 
   if (name.startsWith("n8n_")) {
     const key = name.slice(4);
