@@ -10,6 +10,7 @@
 import type { Db } from "@paperclipai/db";
 import { adsInsights, adsAlerts, clients } from "@paperclipai/db";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { createClientReportTask } from "./clickup-sync.js";
 
 const SESSION = process.env.WA_AUTOMATE_SESSION_ID || "lmtm";
 
@@ -249,52 +250,54 @@ const pct = (a: number, b: number) => (b > 0 ? ((a / b - 1) * 100) : 0);
 
 // ── #1 Weekly client report ───────────────────────────────────────────────────
 
-export async function generateClientReport(db: Db, clientId: string): Promise<{ text: string; hasData: boolean } | null> {
+export async function generateClientReport(db: Db, clientId: string): Promise<{ title: string; markdown: string; hasData: boolean } | null> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return null;
   const today = new Date();
   const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
   const w = await aggInsights(db, clientId, d(7), d(0));
   const prev = await aggInsights(db, clientId, d(14), d(8));
-  if (w.impressions === 0 && w.spend === 0) return { text: "", hasData: false };
+  if (w.impressions === 0 && w.spend === 0) return { title: "", markdown: "", hasData: false };
 
   const ctr = w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0;
   const cpl = w.leads > 0 ? w.spend / w.leads : 0;
   const spendDelta = pct(w.spend, prev.spend);
   const leadsDelta = pct(w.leads, prev.leads);
 
-  const metrics = [
-    `*Reporte semanal — ${client.name}*`,
-    `_Últimos 7 días_`,
-    "",
-    `💰 Inversión: ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs semana previa)`,
-    `🎯 Leads/conversiones: ${w.leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
-    `👁️ Impresiones: ${w.impressions.toLocaleString("es-AR")} · Alcance: ${w.reach.toLocaleString("es-AR")}`,
-    `🖱️ CTR: ${ctr.toFixed(2)}%` + (w.leads > 0 ? ` · CPL: ${money(cpl)}` : ""),
-  ].join("\n");
-
   const narrative = await aiNarrative(
-    "Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 3-4 oraciones en español rioplatense, claras y accionables, resumiendo el desempeño y qué hacer la próxima semana. Sin saludos, sin markdown de títulos. Nunca inventes números: usá solo los provistos.",
+    "Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 3-4 oraciones en español rioplatense, claras y accionables, resumiendo el desempeño y qué hacer la próxima semana. Sin saludos, sin títulos. Nunca inventes números: usá solo los provistos.",
     `Cliente: ${client.name}\nInversión 7d: ${money(w.spend)} (semana previa ${money(prev.spend)})\nLeads 7d: ${w.leads} (previa ${prev.leads})\nImpresiones: ${w.impressions}\nCTR: ${ctr.toFixed(2)}%\nCPL: ${w.leads > 0 ? money(cpl) : "s/d"}`,
   );
-
   const link = dashboardLink(client.slug);
-  const text = [metrics, "", narrative ? `📊 ${narrative}` : "", link ? `Ver dashboard: ${link}` : "", "_LMTM-OS_"].filter(Boolean).join("\n");
-  return { text, hasData: true };
+
+  // Standard markdown for the ClickUp task description.
+  const markdown = [
+    "_Últimos 7 días_",
+    "",
+    `- **Inversión:** ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs semana previa)`,
+    `- **Leads / conversiones:** ${w.leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
+    `- **Impresiones:** ${w.impressions.toLocaleString("es-AR")} · **Alcance:** ${w.reach.toLocaleString("es-AR")}`,
+    `- **CTR:** ${ctr.toFixed(2)}%` + (w.leads > 0 ? ` · **CPL:** ${money(cpl)}` : ""),
+    ...(narrative ? ["", "### Análisis", narrative] : []),
+    ...(link ? ["", `[Ver dashboard](${link})`] : []),
+    "",
+    "_Generado automáticamente por LMTM-OS_",
+  ].join("\n");
+
+  const fecha = dayStr(today);
+  return { title: `📊 Reporte semanal — ${fecha}`, markdown, hasData: true };
 }
 
-export async function runClientReports(db: Db): Promise<{ sent: number }> {
+export async function runClientReports(db: Db): Promise<{ created: number }> {
   const rows = await db.select().from(clients).where(eq(clients.status, "active"));
-  let sent = 0;
+  let created = 0;
   for (const client of rows) {
-    const number = (client.metadata as { notifyWhatsapp?: string } | null)?.notifyWhatsapp?.trim();
-    if (!number) continue;
     const report = await generateClientReport(db, client.id);
     if (!report?.hasData) continue;
-    const r = await sendWhatsAppToNumber(number, report.text);
-    if (r.ok) sent += 1;
+    const r = await createClientReportTask(db, client.id, report.title, report.markdown);
+    if (r.ok) created += 1;
   }
-  return { sent };
+  return { created };
 }
 
 // ── #3 Cross-client portfolio brief (for the team) ────────────────────────────

@@ -120,6 +120,50 @@ async function listListsInFolder(folderId: string): Promise<CuList[]> {
 }
 
 /**
+ * Create a weekly-report task in the client's ClickUp folder, inside a
+ * "📊 Reportes" list (created on first use). Returns the task URL.
+ */
+export async function createClientReportTask(
+  db: Db,
+  clientId: string,
+  title: string,
+  markdown: string,
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client) return { ok: false, error: "client not found" };
+
+  let folderId = client.clickupFolderId;
+  if (!folderId) {
+    // Try to detect the folder first.
+    try {
+      const r = await detectClientClickUpLists(db, clientId);
+      folderId = r.folderId;
+    } catch (e) {
+      return { ok: false, error: `no se pudo detectar el folder de ClickUp: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+  if (!folderId) return { ok: false, error: "el cliente no tiene folder de ClickUp" };
+
+  try {
+    const lists = await listListsInFolder(folderId);
+    let reportes = lists.find((l) => /reportes?/i.test(l.name));
+    if (!reportes) {
+      reportes = await cu<CuList>(`/folder/${encodeURIComponent(folderId)}/list`, {
+        method: "POST",
+        body: { name: "📊 Reportes" },
+      });
+    }
+    const task = await cu<{ id: string; url?: string }>(`/list/${encodeURIComponent(reportes.id)}/task`, {
+      method: "POST",
+      body: { name: title, markdown_description: markdown },
+    });
+    return { ok: true, url: task.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
  * Find the client's folder by name. Walks every space (the "Clientes" space
  * first, since that's where client folders live) and matches a folder whose
  * name equals / contains the client name. Returns the folder + its space.

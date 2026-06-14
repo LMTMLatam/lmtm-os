@@ -336,12 +336,15 @@ function ClientNotify({ client }: { client: Client }) {
           try {
             const r = await clientsApi.runReport(client.slug);
             if (!r.hasData) setMsg("Sin datos de campañas");
-            else setMsg(r.delivered ? "Reporte enviado ✓" : r.deliveryError ? r.deliveryError.slice(0, 40) : "Generado (sin número)");
+            else if (r.created) {
+              setMsg("Reporte creado en ClickUp ✓");
+              if (r.url) window.open(r.url, "_blank");
+            } else setMsg(r.error ? r.error.slice(0, 50) : "No se pudo crear");
           } catch (e) { setMsg((e as Error).message); } finally { setRunning(false); }
         }}
         disabled={running}
         className="text-[10px] px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50 shrink-0"
-        title="Generar y enviar el reporte semanal ahora"
+        title="Generar el reporte semanal como tarea en ClickUp"
       >
         Reporte
       </button>

@@ -114,7 +114,7 @@ export const clientsApi = {
   runAlerts: (idOrSlug: string) =>
     api.post<{ client: string; alerts: Array<{ severity: string; title: string; description: string; recommendation: string }>; delivered: boolean; deliveryError: string | null }>(`/clients/${idOrSlug}/alerts/run`, null),
   runReport: (idOrSlug: string) =>
-    api.post<{ client: string; hasData: boolean; text?: string; delivered: boolean; deliveryError: string | null }>(`/clients/${idOrSlug}/report/run`, null),
+    api.post<{ client: string; hasData: boolean; created: boolean; url: string | null; error: string | null }>(`/clients/${idOrSlug}/report/run`, null),
   runPortfolioBrief: () =>
     api.post<{ delivered: boolean; error?: string; brief: string }>(`/clients/portfolio/brief`, null),
 };
