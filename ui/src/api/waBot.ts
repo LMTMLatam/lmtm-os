@@ -15,9 +15,42 @@ export interface WaPublicHealth {
   bot: { status: string; connectedPhone: string | null; autoStartAttempts: number; lastAutoStartError: string | null };
 }
 
+export interface WaGroup {
+  groupJid: string;
+  groupName: string | null;
+}
+
+export interface WaGroupConfig {
+  groupJid: string;
+  groupName: string | null;
+  enabled: boolean;
+  inactivityMinutes: number;
+  minMessages: number;
+  deliveryMode: string;
+  deliveryTarget: string | null;
+  summaryTone: string;
+}
+
+export interface WaSummary {
+  id: string;
+  groupJid: string;
+  groupName: string | null;
+  summaryDate: string;
+  content: string;
+  messageCount: number;
+  sentAt: string | null;
+  createdAt: string;
+}
+
 export const waBotApi = {
   status: () => api.get<WaBotStatus>("/wa-bot/status"),
   health: () => api.get<WaPublicHealth>("/wa-bot/public-health"),
   start: () => api.post<{ ok?: boolean; error?: string }>("/wa-bot/start", null),
   stop: () => api.post<{ ok: boolean }>("/wa-bot/stop", null),
+  groups: () => api.get<WaGroup[]>("/wa-bot/groups"),
+  groupConfigs: () => api.get<WaGroupConfig[]>("/wa-bot/groups/configs"),
+  groupSummaries: (jid: string) => api.get<WaSummary[]>(`/wa-bot/groups/${encodeURIComponent(jid)}/summaries`),
+  setGroupConfig: (jid: string, body: Partial<WaGroupConfig>) =>
+    api.put<WaGroupConfig>(`/wa-bot/groups/${encodeURIComponent(jid)}/config`, body),
+  runSummaryNow: () => api.post<{ ok: boolean }>("/wa-bot/summary/run", null),
 };

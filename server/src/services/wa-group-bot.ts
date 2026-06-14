@@ -35,9 +35,9 @@ interface GroupCfg {
 
 const DEFAULT_CFG: GroupCfg = {
   enabled: true,
-  inactivityMinutes: 30,
+  inactivityMinutes: 60, // resumir tras 1h de inactividad (configurable por grupo)
   minMessages: 3,
-  deliveryMode: "group",
+  deliveryMode: "none", // solo al panel por defecto (no re-postear al grupo)
   deliveryTarget: null,
   summaryTone: "rio_platense",
   groupName: null,
