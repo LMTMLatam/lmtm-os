@@ -101,6 +101,7 @@ export function Clients() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <PortfolioBriefButton />
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -257,6 +258,31 @@ function ClickUpLinks({ client }: { client: Client }) {
   );
 }
 
+function PortfolioBriefButton() {
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <div className="flex items-center gap-2">
+      {msg && <span className="text-[11px] text-muted-foreground max-w-[200px] truncate">{msg}</span>}
+      <button
+        onClick={async () => {
+          setRunning(true); setMsg(null);
+          try {
+            const r = await clientsApi.runPortfolioBrief();
+            setMsg(r.delivered ? "Brief enviado al equipo ✓" : (r.error ?? "Generado").slice(0, 60));
+          } catch (e) { setMsg((e as Error).message); } finally { setRunning(false); }
+        }}
+        disabled={running}
+        className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1.5"
+        title="Generar el brief cross-cliente del portfolio y enviarlo al equipo"
+      >
+        <Bell className="h-3.5 w-3.5" />
+        {running ? "Generando…" : "Brief portfolio"}
+      </button>
+    </div>
+  );
+}
+
 function ClientNotify({ client }: { client: Client }) {
   const [num, setNum] = useState(client.metadata?.notifyWhatsapp ?? "");
   const [saved, setSaved] = useState(false);
@@ -303,6 +329,21 @@ function ClientNotify({ client }: { client: Client }) {
         title="Calcular y enviar alertas ahora"
       >
         {running ? "…" : "Alertas"}
+      </button>
+      <button
+        onClick={async () => {
+          setRunning(true); setMsg(null);
+          try {
+            const r = await clientsApi.runReport(client.slug);
+            if (!r.hasData) setMsg("Sin datos de campañas");
+            else setMsg(r.delivered ? "Reporte enviado ✓" : r.deliveryError ? r.deliveryError.slice(0, 40) : "Generado (sin número)");
+          } catch (e) { setMsg((e as Error).message); } finally { setRunning(false); }
+        }}
+        disabled={running}
+        className="text-[10px] px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50 shrink-0"
+        title="Generar y enviar el reporte semanal ahora"
+      >
+        Reporte
       </button>
       {saved && <span className="text-[9px] text-emerald-500 shrink-0">✓</span>}
       {msg && <span className="text-[9px] text-muted-foreground truncate max-w-[120px]">{msg}</span>}

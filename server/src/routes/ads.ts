@@ -39,7 +39,7 @@ import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext } from "../services/clickup-sync.js";
-import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber } from "../services/agency-ops.js";
+import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief } from "../services/agency-ops.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -1961,6 +1961,31 @@ export function adsRoutes(db: Db): Router {
   router.post("/clients/alerts/run-all", async (_req, res) => {
     const result = await runClientAlerts(db);
     res.json(result);
+  });
+
+  // POST /api/clients/:id/report/run — generate + deliver this client's weekly report now.
+  router.post("/clients/:id/report/run", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const [row] = await db.select().from(clients).where(condition);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const report = await generateClientReport(db, row.id);
+    if (!report?.hasData) return res.json({ client: row.slug, hasData: false, delivered: false });
+    const number = (row.metadata as { notifyWhatsapp?: string } | null)?.notifyWhatsapp?.trim();
+    let delivery: { ok: boolean; error?: string } | null = null;
+    if (number) delivery = await sendWhatsAppToNumber(number, report.text);
+    res.json({ client: row.slug, hasData: true, text: report.text, delivered: delivery?.ok ?? false, deliveryError: delivery?.error ?? null });
+  });
+
+  // POST /api/clients/reports/run-all — weekly report sweep across all clients.
+  router.post("/clients/reports/run-all", async (_req, res) => {
+    res.json(await runClientReports(db));
+  });
+
+  // POST /api/clients/portfolio/brief — cross-client brief (delivers to LMTM_TEAM_WHATSAPP).
+  router.post("/clients/portfolio/brief", async (_req, res) => {
+    res.json(await runPortfolioBrief(db));
   });
 
   return router;

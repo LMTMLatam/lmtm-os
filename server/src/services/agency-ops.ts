@@ -211,17 +211,169 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
   return { clients: clientsNotified, alertsSent };
 }
 
+// ── AI narrative (MiniMax) ────────────────────────────────────────────────────
+
+async function aiNarrative(systemPrompt: string, userContent: string): Promise<string | null> {
+  const key = process.env.MINIMAX_API_KEY;
+  if (!key) return null;
+  const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
+  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2.7";
+  try {
+    const r = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
+        max_tokens: 700,
+        temperature: 0.5,
+      }),
+    });
+    if (!r.ok) return null;
+    const json = (await r.json()) as { choices?: Array<{ message?: { content?: string } }>; base_resp?: { status_code?: number } };
+    if (json.base_resp?.status_code && json.base_resp.status_code !== 0) return null;
+    const text = json.choices?.[0]?.message?.content ?? "";
+    return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function dashboardLink(slug: string): string {
+  const base = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+  return base ? `${base}/c/${slug}` : "";
+}
+
+const money = (v: number) => "$" + Math.round(v).toLocaleString("es-AR");
+const pct = (a: number, b: number) => (b > 0 ? ((a / b - 1) * 100) : 0);
+
+// ── #1 Weekly client report ───────────────────────────────────────────────────
+
+export async function generateClientReport(db: Db, clientId: string): Promise<{ text: string; hasData: boolean } | null> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client) return null;
+  const today = new Date();
+  const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
+  const w = await aggInsights(db, clientId, d(7), d(0));
+  const prev = await aggInsights(db, clientId, d(14), d(8));
+  if (w.impressions === 0 && w.spend === 0) return { text: "", hasData: false };
+
+  const ctr = w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0;
+  const cpl = w.leads > 0 ? w.spend / w.leads : 0;
+  const spendDelta = pct(w.spend, prev.spend);
+  const leadsDelta = pct(w.leads, prev.leads);
+
+  const metrics = [
+    `*Reporte semanal — ${client.name}*`,
+    `_Últimos 7 días_`,
+    "",
+    `💰 Inversión: ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs semana previa)`,
+    `🎯 Leads/conversiones: ${w.leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
+    `👁️ Impresiones: ${w.impressions.toLocaleString("es-AR")} · Alcance: ${w.reach.toLocaleString("es-AR")}`,
+    `🖱️ CTR: ${ctr.toFixed(2)}%` + (w.leads > 0 ? ` · CPL: ${money(cpl)}` : ""),
+  ].join("\n");
+
+  const narrative = await aiNarrative(
+    "Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 3-4 oraciones en español rioplatense, claras y accionables, resumiendo el desempeño y qué hacer la próxima semana. Sin saludos, sin markdown de títulos. Nunca inventes números: usá solo los provistos.",
+    `Cliente: ${client.name}\nInversión 7d: ${money(w.spend)} (semana previa ${money(prev.spend)})\nLeads 7d: ${w.leads} (previa ${prev.leads})\nImpresiones: ${w.impressions}\nCTR: ${ctr.toFixed(2)}%\nCPL: ${w.leads > 0 ? money(cpl) : "s/d"}`,
+  );
+
+  const link = dashboardLink(client.slug);
+  const text = [metrics, "", narrative ? `📊 ${narrative}` : "", link ? `Ver dashboard: ${link}` : "", "_LMTM-OS_"].filter(Boolean).join("\n");
+  return { text, hasData: true };
+}
+
+export async function runClientReports(db: Db): Promise<{ sent: number }> {
+  const rows = await db.select().from(clients).where(eq(clients.status, "active"));
+  let sent = 0;
+  for (const client of rows) {
+    const number = (client.metadata as { notifyWhatsapp?: string } | null)?.notifyWhatsapp?.trim();
+    if (!number) continue;
+    const report = await generateClientReport(db, client.id);
+    if (!report?.hasData) continue;
+    const r = await sendWhatsAppToNumber(number, report.text);
+    if (r.ok) sent += 1;
+  }
+  return { sent };
+}
+
+// ── #3 Cross-client portfolio brief (for the team) ────────────────────────────
+
+export async function generatePortfolioBrief(db: Db): Promise<string> {
+  const rows = await db.select().from(clients).where(eq(clients.status, "active"));
+  const today = new Date();
+  const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
+
+  const perClient: Array<{ name: string; industry: string | null; spend: number; leads: number; ctr: number; cpl: number }> = [];
+  for (const c of rows) {
+    const w = await aggInsights(db, c.id, d(7), d(0));
+    if (w.impressions === 0 && w.spend === 0) continue;
+    const ctr = w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0;
+    const cpl = w.leads > 0 ? w.spend / w.leads : 0;
+    perClient.push({ name: c.name, industry: c.industry, spend: w.spend, leads: w.leads, ctr, cpl });
+  }
+  if (perClient.length === 0) return "Sin datos de campañas en los últimos 7 días.";
+
+  const totalSpend = perClient.reduce((a, x) => a + x.spend, 0);
+  const totalLeads = perClient.reduce((a, x) => a + x.leads, 0);
+  const withCpl = perClient.filter((x) => x.cpl > 0).sort((a, b) => a.cpl - b.cpl);
+  const best = withCpl.slice(0, 3);
+  const worst = withCpl.slice(-3).reverse();
+
+  const lines = [
+    `*Brief de portfolio — LMTM*`,
+    `_Últimos 7 días · ${perClient.length} clientes activos_`,
+    "",
+    `💰 Inversión total: ${money(totalSpend)} · 🎯 Leads: ${totalLeads}`,
+    "",
+    "🏆 Mejor CPL:",
+    ...best.map((x) => `  • ${x.name}: ${money(x.cpl)} (${x.leads} leads)`),
+    "",
+    "⚠️ Mayor CPL (revisar):",
+    ...worst.map((x) => `  • ${x.name}: ${money(x.cpl)} (${x.leads} leads)`),
+  ];
+
+  const narrative = await aiNarrative(
+    "Sos el estratega jefe de LMTM. En 3-5 oraciones en español rioplatense, dale al equipo 2-3 conclusiones accionables del portfolio de la semana: qué patrones se ven por industria, qué cuentas atender, qué aprendizajes replicar. Sin títulos. Nunca inventes números.",
+    perClient.map((x) => `${x.name} (${x.industry ?? "s/rubro"}): inv ${money(x.spend)}, ${x.leads} leads, CTR ${x.ctr.toFixed(2)}%, CPL ${x.cpl > 0 ? money(x.cpl) : "s/d"}`).join("\n"),
+  );
+  if (narrative) lines.push("", `🧠 ${narrative}`);
+  lines.push("", "_LMTM-OS · inteligencia cross-cliente_");
+  return lines.join("\n");
+}
+
+export async function runPortfolioBrief(db: Db): Promise<{ delivered: boolean; error?: string; brief: string }> {
+  const brief = await generatePortfolioBrief(db);
+  const team = (process.env.LMTM_TEAM_WHATSAPP ?? "").trim();
+  if (!team) return { delivered: false, error: "LMTM_TEAM_WHATSAPP not configured", brief };
+  const r = await sendWhatsAppToNumber(team, brief);
+  return { delivered: r.ok, error: r.error, brief };
+}
+
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
 let alertsTimer: ReturnType<typeof setInterval> | null = null;
+let weeklyTimer: ReturnType<typeof setInterval> | null = null;
+let lastWeeklyRun = "";
 
 export function initAgencyOps(db: Db): void {
   if (alertsTimer) return;
   const SIX_HOURS = 6 * 3600 * 1000;
-  // First run a few minutes after boot, then every 6h.
   setTimeout(() => { runClientAlerts(db).catch((e) => console.warn("[agency-ops] alerts run failed:", e)); }, 5 * 60 * 1000);
   alertsTimer = setInterval(() => {
     runClientAlerts(db).catch((e) => console.warn("[agency-ops] alerts run failed:", e));
   }, SIX_HOURS);
-  console.log("[agency-ops] scheduled client alert runs every 6h");
+
+  // Weekly reports + portfolio brief: checked daily, fires on Mondays.
+  const maybeWeekly = async () => {
+    const now = new Date();
+    const monday = now.getUTCDay() === 1; // Monday
+    const wk = `${now.getUTCFullYear()}-${dayStr(now).slice(5, 7)}-${Math.floor(now.getUTCDate() / 7)}`;
+    if (!monday || lastWeeklyRun === wk) return;
+    lastWeeklyRun = wk;
+    await runClientReports(db).catch((e) => console.warn("[agency-ops] reports failed:", e));
+    await runPortfolioBrief(db).catch((e) => console.warn("[agency-ops] brief failed:", e));
+  };
+  weeklyTimer = setInterval(() => { void maybeWeekly(); }, 12 * 3600 * 1000);
+  console.log("[agency-ops] scheduled: alerts every 6h, weekly reports+brief on Mondays");
 }
