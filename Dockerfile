@@ -150,7 +150,10 @@ RUN mkdir -p /app/node_modules/@paperclipai && \
 # Running pnpm install --prod here ensures every missing symlink gets
 # created, because pnpm's linker sees the full dependency graph and
 # creates root-level symlinks for all production deps.
-RUN pnpm install --prod --no-frozen-lockfile --reporter=append-only 2>&1 | tail -20
+# NOTE: no `| tail` pipe here — piping makes the RUN exit code come from
+# `tail` (always 0), which would silently mask a failed pnpm install and
+# ship a broken image. The append-only reporter already keeps output terse.
+RUN pnpm install --prod --no-frozen-lockfile --reporter=append-only
 
 # Install the LMTM-bundled plugins into the runtime plugin dir.
 # The plugin loader scans ${LMTM_LOCAL_PLUGIN_DIR} on startup and

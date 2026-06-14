@@ -14,15 +14,13 @@ set -u
 echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=${PORT:-3100} NODE_ENV=${NODE_ENV:-?}"
 
-# ── Pre-flight: log whether the core deps resolve (helps diagnose the
-#    'missing module' class of crash without waiting for the stack trace). ──
-echo "[preflight] module resolution:"
-node --conditions=production -e "
-for (const m of ['express','drizzle-orm','postgres','detect-port']) {
-  try { require.resolve(m); console.log('  OK  ' + m); }
-  catch (e) { console.log('  ERR ' + m + ': ' + String(e.message).split(String.fromCharCode(10))[0]); }
-}
-" 2>&1 | tee /tmp/preflight.log
+# NOTE: do NOT add a `require.resolve()` module preflight here. The server
+# loads its deps via ESM `import`, which resolves them through pnpm's
+# server/node_modules + .pnpm store correctly. A CommonJS `require.resolve`
+# from /app gives FALSE "module not found" errors for express/drizzle-orm/
+# etc. — that false signal sent a previous debugging session down a multi-
+# hour Docker/symlink rabbit hole when the real crash was a config error.
+# The /api/crash-log below is the source of truth: read the actual stack.
 
 # ── Fallback proxy: only started if the real server exits. ──
 start_proxy() {
@@ -33,8 +31,7 @@ const PORT = parseInt(process.env.PORT || '3100', 10);
 http.createServer(function (req, res) {
   var u = req.url || '';
   if (u.indexOf('/api/crash-log') === 0 || u.indexOf('/api/diagnostics') === 0) {
-    var out = { ok: false, server: 'down', preflight: '', log: '' };
-    try { out.preflight = fs.readFileSync('/tmp/preflight.log', 'utf8'); } catch (e) {}
+    var out = { ok: false, server: 'down', log: '' };
     try { out.log = fs.readFileSync('/tmp/server.log', 'utf8'); } catch (e) {}
     out.ok = !!out.log;
     res.writeHead(200, { 'Content-Type': 'application/json' });
