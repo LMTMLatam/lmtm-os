@@ -120,6 +120,68 @@ async function listListsInFolder(folderId: string): Promise<CuList[]> {
 }
 
 /**
+ * Analyze the client's "Redes Sociales" ClickUp list for a date window:
+ * how many posts were planned (have a due date in range) vs published
+ * (task closed/done), and which planned ones were missed (due date passed,
+ * not done). Returns null if the client has no Redes Sociales list synced.
+ */
+type RedesStats = {
+  total: number;
+  byStatus: Record<string, number>;
+  publishedThisWeek: number;
+  plannedThisWeek: number;
+  missed: number;
+  missedNames: string[];
+  hasDates: boolean; // whether any post carries a planned date (due/start)
+};
+
+// Status names (custom, per-client) that mean "published / done".
+const PUBLISHED_RE = /public|hecho|listo|done|complet|aprobad|finaliz|subido|posteado/i;
+
+export async function getRedesPostStats(
+  db: Db,
+  clientId: string,
+  sinceMs: number,
+  untilMs: number,
+): Promise<RedesStats | null> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client?.clickupListRedesId) return null;
+  const r = await cu<{ tasks: Array<{
+    name: string;
+    status?: { status?: string; type?: string };
+    due_date?: string | null; start_date?: string | null;
+    date_updated?: string | null; date_done?: string | null; date_closed?: string | null;
+  }> }>(
+    `/list/${encodeURIComponent(client.clickupListRedesId)}/task`,
+    { query: { archived: false, include_closed: true, subtasks: false } },
+  );
+  const tasks = r.tasks ?? [];
+  const now = Date.now();
+  const byStatus: Record<string, number> = {};
+  let total = 0, publishedThisWeek = 0, plannedThisWeek = 0, hasDates = false;
+  const missedNames: string[] = [];
+
+  for (const t of tasks) {
+    total += 1;
+    const sName = t.status?.status ?? "sin estado";
+    byStatus[sName] = (byStatus[sName] ?? 0) + 1;
+    const isPub = t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
+
+    const planMs = Number(t.due_date ?? t.start_date ?? 0);
+    if (planMs) hasDates = true;
+    if (planMs && planMs >= sinceMs && planMs <= untilMs) {
+      plannedThisWeek += 1;
+      if (!isPub && planMs < now) missedNames.push(t.name);
+    }
+    if (isPub) {
+      const pubMs = Number(t.date_done ?? t.date_closed ?? t.date_updated ?? 0);
+      if (pubMs && pubMs >= sinceMs && pubMs <= untilMs) publishedThisWeek += 1;
+    }
+  }
+  return { total, byStatus, publishedThisWeek, plannedThisWeek, missed: missedNames.length, missedNames, hasDates };
+}
+
+/**
  * Create a weekly-report task in the client's ClickUp folder, inside a
  * "📊 Reportes" list (created on first use). Returns the task URL.
  */

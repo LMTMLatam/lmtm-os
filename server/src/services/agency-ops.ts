@@ -10,7 +10,7 @@
 import type { Db } from "@paperclipai/db";
 import { adsInsights, adsAlerts, clients } from "@paperclipai/db";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
-import { createClientReportTask } from "./clickup-sync.js";
+import { createClientReportTask, getRedesPostStats } from "./clickup-sync.js";
 
 const SESSION = process.env.WA_AUTOMATE_SESSION_ID || "lmtm";
 
@@ -257,7 +257,13 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
   const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
   const w = await aggInsights(db, clientId, d(7), d(0));
   const prev = await aggInsights(db, clientId, d(14), d(8));
-  if (w.impressions === 0 && w.spend === 0) return { title: "", markdown: "", hasData: false };
+
+  // Social posts: planned vs published this week (from the ClickUp Redes list).
+  const weekAgoMs = today.getTime() - 7 * 86400000;
+  const redes = await getRedesPostStats(db, clientId, weekAgoMs, today.getTime() + 86400000).catch(() => null);
+  const hasAds = w.impressions > 0 || w.spend > 0;
+  const hasRedes = !!redes && redes.total > 0;
+  if (!hasAds && !hasRedes) return { title: "", markdown: "", hasData: false };
 
   const ctr = w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0;
   const cpl = w.leads > 0 ? w.spend / w.leads : 0;
@@ -270,14 +276,43 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
   );
   const link = dashboardLink(client.slug);
 
+  // Redes Sociales section. We adapt to how the client's ClickUp list is set up:
+  // if posts carry planned dates we show planned-vs-published (and flag misses);
+  // otherwise we show the pipeline by status + posts published this week.
+  const redesLines: string[] = [];
+  if (redes && redes.total > 0) {
+    redesLines.push("", "### Redes Sociales (ClickUp)");
+    if (redes.hasDates && redes.plannedThisWeek > 0) {
+      const ok = redes.plannedThisWeek - redes.missed;
+      redesLines.push(`- **Planeados esta semana:** ${redes.plannedThisWeek} · **Realizados:** ${ok}`);
+      if (redes.missed > 0) {
+        redesLines.push(`- ⚠️ **No realizados (${redes.missed}):** ${redes.missedNames.slice(0, 10).join(", ")}${redes.missedNames.length > 10 ? "…" : ""}`);
+      } else {
+        redesLines.push("- ✅ Todos los posts planeados de la semana se realizaron.");
+      }
+    } else {
+      const bd = Object.entries(redes.byStatus).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s}: ${n}`).join(" · ");
+      redesLines.push(`- **Posts en la lista:** ${redes.total}${bd ? ` (${bd})` : ""}`);
+      redesLines.push(`- **Publicados esta semana:** ${redes.publishedThisWeek}`);
+      if (!redes.hasDates) {
+        redesLines.push("- _Para medir planeado vs realizado y detectar fallas, cargá una fecha en cada post y un estado “Publicado” en ClickUp._");
+      }
+    }
+  }
+
   // Standard markdown for the ClickUp task description.
-  const markdown = [
-    "_Últimos 7 días_",
+  const adsLines = hasAds ? [
+    "_Publicidad — últimos 7 días_",
     "",
     `- **Inversión:** ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs semana previa)`,
     `- **Leads / conversiones:** ${w.leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
     `- **Impresiones:** ${w.impressions.toLocaleString("es-AR")} · **Alcance:** ${w.reach.toLocaleString("es-AR")}`,
     `- **CTR:** ${ctr.toFixed(2)}%` + (w.leads > 0 ? ` · **CPL:** ${money(cpl)}` : ""),
+  ] : ["_Sin actividad de publicidad esta semana._"];
+
+  const markdown = [
+    ...adsLines,
+    ...redesLines,
     ...(narrative ? ["", "### Análisis", narrative] : []),
     ...(link ? ["", `[Ver dashboard](${link})`] : []),
     "",
