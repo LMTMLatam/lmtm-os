@@ -27,7 +27,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -2010,6 +2010,22 @@ export function adsRoutes(db: Db): Router {
   router.get("/clients/:id/intel", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });
+
+    // Extra ClickUp fields for the Enfoque Técnico deep-link.
+    const [detail] = await db.select({
+      clickupListEnfoqueTecnicoId: clients.clickupListEnfoqueTecnicoId,
+      metadata: clients.metadata,
+    }).from(clients).where(eq(clients.id, row.id)).limit(1);
+
+    // Auto-sync Enfoque Técnico into the brain if stale (> 30 min since last update).
+    const [enfoqueEntry] = await db.select({ updatedAt: clientMemory.updatedAt })
+      .from(clientMemory)
+      .where(and(eq(clientMemory.clientId, row.id), eq(clientMemory.key, "enfoque-tecnico")))
+      .limit(1);
+    if (!enfoqueEntry || Date.now() - enfoqueEntry.updatedAt.getTime() > 30 * 60 * 1000) {
+      await refreshClientBrain(db, row.id).catch(() => {});
+    }
+
     const [score, brain, opps, feedback, content] = await Promise.all([
       getLatestScore(db, row.id),
       getClientBrain(db, row.id),
@@ -2017,7 +2033,12 @@ export function adsRoutes(db: Db): Router {
       listFeedback(db, { clientId: row.id }),
       topContent(db, row.id, 8),
     ]);
-    res.json({ client: { id: row.id, slug: row.slug, name: row.name }, score, brain, opportunities: opps, feedback, topContent: content });
+
+    const teamId = (detail?.metadata?.clickupTeamId as string | undefined) ?? null;
+    const docId = detail?.clickupListEnfoqueTecnicoId ?? null;
+    const enfoqueTecnicoUrl = teamId && docId ? `https://app.clickup.com/${teamId}/v/dc/${docId}` : null;
+
+    res.json({ client: { id: row.id, slug: row.slug, name: row.name, enfoqueTecnicoUrl }, score, brain, opportunities: opps, feedback, topContent: content });
   });
 
   router.get("/clients/:id/score", async (req, res) => {

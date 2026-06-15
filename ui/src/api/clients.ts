@@ -127,7 +127,7 @@ export const clientsApi = {
 };
 
 export interface ClientIntel {
-  client: { id: string; slug: string; name: string };
+  client: { id: string; slug: string; name: string; enfoqueTecnicoUrl: string | null };
   score: { healthScore: number; opsScore: number; components: Record<string, unknown>; date: string } | null;
   brain: Array<{ id: string; kind: string; key: string; content: string; pinned: boolean; updatedAt: string }>;
   opportunities: Array<{ id: string; kind: string; title: string; rationale: string | null; suggestedAction: string | null; priority: number; status: string }>;

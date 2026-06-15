@@ -4,7 +4,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { clientsApi, type Client } from "../api/clients";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Brain, Gauge, Lightbulb, MessageSquareWarning, BarChart3, RefreshCw } from "lucide-react";
+import { Brain, Gauge, Lightbulb, MessageSquareWarning, BarChart3, RefreshCw, ExternalLink, FileText } from "lucide-react";
 
 function scoreColor(v: number): string {
   if (v >= 70) return "text-emerald-500";
@@ -95,15 +95,47 @@ export function Intelligence() {
 
           {/* Customer Brain */}
           <Card className="p-5">
-            <div className="flex items-center gap-2 mb-3"><Brain className="h-4 w-4" /><h2 className="font-medium">Customer Brain</h2></div>
-            {intel.brain.length === 0 ? <p className="text-sm text-muted-foreground">Memoria vacía. Tocá "Refrescar memoria".</p> : (
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2"><Brain className="h-4 w-4" /><h2 className="font-medium">Customer Brain</h2></div>
+              {intel.client.enfoqueTecnicoUrl && (
+                <a href={intel.client.enfoqueTecnicoUrl} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-violet-500 hover:text-violet-400 transition-colors">
+                  <FileText className="h-3.5 w-3.5" />Enfoque Técnico<ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-3">Sincronizado con el Enfoque Técnico de ClickUp al cargar.</p>
+            {intel.brain.length === 0 ? <p className="text-sm text-muted-foreground">Memoria vacía. Completá el Enfoque Técnico en ClickUp o tocá "Refrescar memoria".</p> : (
               <div className="space-y-1.5">
-                {intel.brain.slice(0, 20).map((m) => (
-                  <div key={m.id} className="text-sm flex gap-2">
-                    <Badge className="text-[10px] px-1.5 py-0 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300 shrink-0 self-start">{m.kind}</Badge>
-                    <span className="text-muted-foreground whitespace-pre-wrap">{m.content.slice(0, 280)}</span>
-                  </div>
-                ))}
+                {/* Enfoque Técnico pinned entry — shown first and highlighted */}
+                {(() => {
+                  const enfoqueEntry = intel.brain.find(m => m.key === "enfoque-tecnico");
+                  const rest = intel.brain.filter(m => m.key !== "enfoque-tecnico").slice(0, 18);
+                  return (
+                    <>
+                      {enfoqueEntry && (
+                        <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-3 mb-2">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <FileText className="h-3.5 w-3.5 text-violet-400" />
+                            <span className="text-xs font-medium text-violet-400">Enfoque Técnico</span>
+                            {intel.client.enfoqueTecnicoUrl && (
+                              <a href={intel.client.enfoqueTecnicoUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-violet-400 hover:text-violet-300"><ExternalLink className="h-3 w-3" /></a>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                            {enfoqueEntry.content.length > 600 ? enfoqueEntry.content.slice(0, 600) + "…" : enfoqueEntry.content}
+                          </p>
+                        </div>
+                      )}
+                      {rest.map((m) => (
+                        <div key={m.id} className="text-sm flex gap-2">
+                          <Badge className="text-[10px] px-1.5 py-0 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300 shrink-0 self-start">{m.kind}</Badge>
+                          <span className="text-muted-foreground whitespace-pre-wrap">{m.content.slice(0, 280)}</span>
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </Card>

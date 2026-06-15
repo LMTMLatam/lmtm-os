@@ -104,3 +104,4 @@ export function initCustomerBrain(db: Db): void {
   brainTimer = setInterval(() => { run().catch((e) => console.warn("[customer-brain] refresh failed:", e)); }, 12 * 3600 * 1000);
   console.log("[customer-brain] scheduled brain refresh every 12h");
 }
+
