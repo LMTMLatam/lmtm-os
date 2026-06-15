@@ -1987,6 +1987,7 @@ export function adsRoutes(db: Db): Router {
 
   // POST /api/clients/whatsapp/test — send a test message to the team alerts
   // number, to verify the WhatsApp gateway can actually deliver end-to-end.
+  // (rebuild marker: ensure fresh image picks up this route)
   router.post("/clients/whatsapp/test", async (_req, res) => {
     const number = alertsNumber();
     if (!number) return res.status(400).json({ ok: false, error: "LMTM_ALERTS_WHATSAPP / LMTM_TEAM_WHATSAPP no configurado" });
