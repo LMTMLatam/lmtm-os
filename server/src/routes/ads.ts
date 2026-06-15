@@ -1985,6 +1985,16 @@ export function adsRoutes(db: Db): Router {
     res.json(result);
   });
 
+  // POST /api/clients/whatsapp/test — send a test message to the team alerts
+  // number, to verify the WhatsApp gateway can actually deliver end-to-end.
+  router.post("/clients/whatsapp/test", async (_req, res) => {
+    const number = alertsNumber();
+    if (!number) return res.status(400).json({ ok: false, error: "LMTM_ALERTS_WHATSAPP / LMTM_TEAM_WHATSAPP no configurado" });
+    const text = `🔔 *LMTM-OS — mensaje de prueba*\nEl gateway de WhatsApp está funcionando. Las alertas de las cuentas llegarán a este número.\n\n${new Date().toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}`;
+    const r = await sendWhatsAppToNumber(number, text);
+    res.status(r.ok ? 200 : 502).json({ ...r, number });
+  });
+
   // POST /api/clients/:id/report/run — generate + create this client's weekly report
   // as a task in ClickUp now.
   router.post("/clients/:id/report/run", async (req, res) => {
