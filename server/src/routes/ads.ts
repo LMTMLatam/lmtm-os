@@ -1896,6 +1896,8 @@ export function adsRoutes(db: Db): Router {
     if (!row) return res.status(404).json({ error: "client not found" });
     try {
       const result = await detectClientClickUpLists(db, row.id);
+      // Sync the Customer Brain so it picks up the (now-detected) Enfoque Técnico doc.
+      await refreshClientBrain(db, row.id).catch((e) => console.warn("[clickup-sync] brain refresh failed:", e));
       res.json(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1914,6 +1916,8 @@ export function adsRoutes(db: Db): Router {
     if (!row) return res.status(404).json({ error: "client not found" });
     try {
       const result = await refreshEnfoqueTecnicoContext(db, row.id);
+      // Push the freshly-fetched Enfoque Técnico into the Customer Brain.
+      await refreshClientBrain(db, row.id).catch((e) => console.warn("[clickup-enfoque-refresh] brain refresh failed:", e));
       res.json(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
