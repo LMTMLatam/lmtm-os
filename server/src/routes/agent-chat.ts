@@ -6,6 +6,7 @@ import { clients, metaConnections, metaAdAccountMappings, agentChatSessions } fr
 import { badRequest, unauthorized } from "../errors.js";
 import { assertCompanyAccess } from "./authz.js";
 import { getEnfoqueTecnicoContext } from "../services/clickup-sync.js";
+import { getBrainContext } from "../services/customer-brain.js";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const MAX_LOOP_ITERATIONS = 10;
@@ -921,9 +922,14 @@ export function agentChatRoutes(db: Db) {
           } else {
             clientContextStr = `Cliente: ${clientRow.name}`;
           }
+          // Customer Brain: living memory (facts, performance, decisions).
+          try {
+            const brain = await getBrainContext(db, clientRow.id, 1800);
+            if (brain) clientContextStr += `\n\nMemoria del cliente (Customer Brain):\n${brain}`;
+          } catch { /* brain optional */ }
         }
       } catch (e) {
-        console.warn("[agent-chat] failed to load Enfoque Técnico context for", body.clientSlug, e);
+        console.warn("[agent-chat] failed to load client context for", body.clientSlug, e);
       }
     }
     const clientContext = clientContextStr ? `\n\nContexto del cliente: ${clientContextStr}` : "";

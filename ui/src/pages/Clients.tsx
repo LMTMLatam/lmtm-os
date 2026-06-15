@@ -52,6 +52,13 @@ export function Clients() {
 
   const clients: Client[] = query.data?.clients ?? [];
 
+  const scoresQuery = useQuery({
+    queryKey: ["clients", "scores"],
+    queryFn: () => clientsApi.scores(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const scores = scoresQuery.data ?? {};
+
   const filtered = useMemo(() => {
     if (!q.trim()) return clients;
     const needle = q.toLowerCase();
@@ -155,7 +162,7 @@ export function Clients() {
       {query.isSuccess && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((c) => (
-            <ClientCard key={c.id} client={c} />
+            <ClientCard key={c.id} client={c} score={scores[c.id]} />
           ))}
         </div>
       )}
@@ -336,16 +343,28 @@ function ClientNotify({ client }: { client: Client }) {
   );
 }
 
-function ClientCard({ client }: { client: Client }) {
+function scoreColor(v: number): string {
+  if (v >= 70) return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (v >= 40) return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
+}
+
+function ClientCard({ client, score }: { client: Client; score?: { health: number; ops: number } }) {
   return (
     <Card className="p-4 hover:border-foreground/30 transition-colors group">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-medium text-sm truncate">{client.name}</h3>
             <Badge className={`text-[10px] px-1.5 py-0 ${STATUS_VARIANT[client.status]}`}>
               {client.status}
             </Badge>
+            {score && (
+              <>
+                <Badge className={`text-[10px] px-1.5 py-0 ${scoreColor(score.health)}`} title="Salud de cuenta (ads)">S {score.health}</Badge>
+                <Badge className={`text-[10px] px-1.5 py-0 ${scoreColor(score.ops)}`} title="Score operativo (cumplimiento)">O {score.ops}</Badge>
+              </>
+            )}
           </div>
           {client.legalName && client.legalName !== client.name && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">

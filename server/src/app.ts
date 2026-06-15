@@ -20,6 +20,13 @@ import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
 import { initWaBot } from "./services/wa-group-bot.js";
 import { initAgencyOps } from "./services/agency-ops.js";
+import { initCustomerBrain } from "./services/customer-brain.js";
+import { initAccountScoring } from "./services/account-scoring.js";
+import { initKnowledgeGraph } from "./services/knowledge-graph.js";
+import { initLearningEngine } from "./services/learning-engine.js";
+import { initAuditor } from "./services/auditor.js";
+import { initFeedbackAgent } from "./services/feedback-agent.js";
+import { initOpportunities } from "./services/opportunities-engine.js";
 import { companyRoutes } from "./routes/companies.js";
 import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
@@ -247,6 +254,18 @@ export async function createApp(
   api.use("/wa-bot", waBotRoutes(db));
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
+  // Intelligence layer (0107): brain, scores, KG, learnings, auditor, feedback, opportunities.
+  try {
+    initCustomerBrain(db);
+    initAccountScoring(db);
+    initKnowledgeGraph(db);
+    initLearningEngine(db);
+    initAuditor(db);
+    initFeedbackAgent(db);
+    initOpportunities(db);
+  } catch (e) {
+    console.warn("[intelligence] init failed:", e);
+  }
   api.use(dashboardRoutes(db));
   api.use(userProfileRoutes(db));
   api.use(sidebarBadgeRoutes(db));

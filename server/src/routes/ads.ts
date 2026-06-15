@@ -27,7 +27,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -40,6 +40,13 @@ import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask } from "../services/clickup-sync.js";
 import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
+import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
+import { getClientBrain, refreshClientBrain } from "../services/customer-brain.js";
+import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
+import { listFeedback, ingestFeedback } from "../services/feedback-agent.js";
+import { runOperationalAudit } from "../services/auditor.js";
+import { mineLearnings } from "../services/learning-engine.js";
+import { rebuildClientContent, topContent } from "../services/knowledge-graph.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -638,6 +645,17 @@ export function adsRoutes(db: Db): Router {
       onboardedAt: body.onboardedAt ? new Date(body.onboardedAt) : null,
     }).returning();
     res.status(201).json(row);
+  });
+
+  // GET /api/clients/scores — latest health/ops score per client (bulk, for cards).
+  // Registered before /clients/:id so the static path wins over the dynamic one.
+  router.get("/clients/scores", async (_req, res) => {
+    const since = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
+    const rows = await db.select({ clientId: accountScores.clientId, date: accountScores.date, healthScore: accountScores.healthScore, opsScore: accountScores.opsScore })
+      .from(accountScores).where(gte(accountScores.date, since)).orderBy(sql`${accountScores.date} DESC`);
+    const map: Record<string, { health: number; ops: number }> = {};
+    for (const r of rows) if (!map[r.clientId]) map[r.clientId] = { health: r.healthScore, ops: r.opsScore };
+    res.json(map);
   });
 
   router.get("/clients/:id", async (req, res) => {
@@ -1986,6 +2004,53 @@ export function adsRoutes(db: Db): Router {
   router.post("/clients/portfolio/brief", async (_req, res) => {
     res.json(await runPortfolioBrief(db));
   });
+
+  // ── Intelligence layer ───────────────────────────────────────────
+  // GET /api/clients/:id/intel — combined intelligence panel payload.
+  router.get("/clients/:id/intel", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const [score, brain, opps, feedback, content] = await Promise.all([
+      getLatestScore(db, row.id),
+      getClientBrain(db, row.id),
+      listOpportunities(db, row.id),
+      listFeedback(db, { clientId: row.id }),
+      topContent(db, row.id, 8),
+    ]);
+    res.json({ client: { id: row.id, slug: row.slug, name: row.name }, score, brain, opportunities: opps, feedback, topContent: content });
+  });
+
+  router.get("/clients/:id/score", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json({ latest: await getLatestScore(db, row.id), history: await getScoreHistory(db, row.id) });
+  });
+  router.post("/clients/:id/score/run", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json(await computeClientScore(db, row.id));
+  });
+  router.post("/clients/:id/brain/refresh", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json(await refreshClientBrain(db, row.id));
+  });
+  router.post("/clients/:id/opportunities/run", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json(await generateClientOpportunities(db, row.id));
+  });
+  router.post("/clients/:id/content/rebuild", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json(await rebuildClientContent(db, row.id));
+  });
+
+  // Cross-client / agency-wide intelligence runs (kept under /clients auth boundary).
+  router.post("/clients/intel/scores", async (_req, res) => { res.json(await runClientScores(db)); });
+  router.post("/clients/intel/audit", async (_req, res) => { res.json(await runOperationalAudit(db)); });
+  router.post("/clients/intel/feedback", async (_req, res) => { res.json(await ingestFeedback(db)); });
+  router.post("/clients/intel/learnings", async (_req, res) => { res.json(await mineLearnings(db)); });
 
   return router;
 }

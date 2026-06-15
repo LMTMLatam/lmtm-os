@@ -750,6 +750,13 @@
       "when": 1780200000000,
       "tag": "0106_clickup_standard_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1780286400000,
+      "tag": "0107_intelligence_layer",
+      "breakpoints": true
     }
   ]
 }

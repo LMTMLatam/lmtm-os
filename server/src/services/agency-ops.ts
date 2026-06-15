@@ -68,16 +68,16 @@ export interface ComputedAlert {
   recommendation: string;
 }
 
-type Agg = { spend: number; impressions: number; clicks: number; leads: number; reach: number };
+export type Agg = { spend: number; impressions: number; clicks: number; leads: number; reach: number };
 
 function n(v: unknown): number {
   const x = typeof v === "number" ? v : parseFloat(String(v ?? 0));
   return Number.isFinite(x) ? x : 0;
 }
 
-const dayStr = (d: Date) => d.toISOString().slice(0, 10);
+export const dayStr = (d: Date) => d.toISOString().slice(0, 10);
 
-async function aggInsights(db: Db, clientId: string, sinceISO: string, untilISO: string): Promise<Agg> {
+export async function aggInsights(db: Db, clientId: string, sinceISO: string, untilISO: string): Promise<Agg> {
   const [row] = await db
     .select({
       spend: sql<string>`COALESCE(SUM(${adsInsights.spend}), 0)`,
@@ -220,7 +220,7 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
 
 // ── AI narrative (MiniMax) ────────────────────────────────────────────────────
 
-async function aiNarrative(systemPrompt: string, userContent: string): Promise<string | null> {
+export async function aiNarrative(systemPrompt: string, userContent: string): Promise<string | null> {
   const key = process.env.MINIMAX_API_KEY;
   if (!key) return null;
   const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";

@@ -117,7 +117,23 @@ export const clientsApi = {
     api.post<{ client: string; hasData: boolean; created: boolean; url: string | null; error: string | null }>(`/clients/${idOrSlug}/report/run`, null),
   runPortfolioBrief: () =>
     api.post<{ delivered: boolean; error?: string; brief: string }>(`/clients/portfolio/brief`, null),
+  // Intelligence layer
+  scores: () => api.get<Record<string, { health: number; ops: number }>>(`/clients/scores`),
+  intel: (idOrSlug: string) => api.get<ClientIntel>(`/clients/${idOrSlug}/intel`),
+  runScore: (idOrSlug: string) => api.post<{ healthScore: number; opsScore: number; components: Record<string, unknown> }>(`/clients/${idOrSlug}/score/run`, null),
+  refreshBrain: (idOrSlug: string) => api.post<{ updated: number }>(`/clients/${idOrSlug}/brain/refresh`, null),
+  runOpportunities: (idOrSlug: string) => api.post<{ created: number }>(`/clients/${idOrSlug}/opportunities/run`, null),
+  rebuildContent: (idOrSlug: string) => api.post<{ items: number }>(`/clients/${idOrSlug}/content/rebuild`, null),
 };
+
+export interface ClientIntel {
+  client: { id: string; slug: string; name: string };
+  score: { healthScore: number; opsScore: number; components: Record<string, unknown>; date: string } | null;
+  brain: Array<{ id: string; kind: string; key: string; content: string; pinned: boolean; updatedAt: string }>;
+  opportunities: Array<{ id: string; kind: string; title: string; rationale: string | null; suggestedAction: string | null; priority: number; status: string }>;
+  feedback: Array<{ id: string; classification: string | null; sentiment: string | null; rawText: string; status: string; createdAt: string }>;
+  topContent: Array<{ id: string; title: string | null; format: string | null; score: string | null; source: string }>;
+}
 
 export interface ClientCampaign {
   id: string;
