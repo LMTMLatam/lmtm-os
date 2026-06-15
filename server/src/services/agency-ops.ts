@@ -122,9 +122,21 @@ export async function generateClientAlerts(db: Db, clientId: string): Promise<Co
 
   if (last2.spend === 0 && prev5.spend > 0) {
     alerts.push({
-      severity: "warn", title: "Sin actividad reciente", metric: "spend", currentValue: 0, thresholdValue: null,
-      description: "No hubo gasto en los últimos 2 días pero sí en los días previos. ¿Campañas detenidas o sin presupuesto?",
-      recommendation: "Verificar estado de campañas, presupuesto y método de pago.",
+      severity: "critical", title: "Sin actividad / posible saldo bajo", metric: "spend", currentValue: 0, thresholdValue: null,
+      description: "No hubo gasto en los últimos 2 días pero sí en los días previos. Posible saldo agotado, presupuesto consumido, método de pago rechazado o campañas detenidas.",
+      recommendation: "Verificar saldo/método de pago de la cuenta, presupuesto y estado de las campañas.",
+    });
+  }
+
+  // Possible misconfiguration: spend is happening but almost nothing is being
+  // delivered (very low impressions for the money spent) — broken targeting,
+  // disapproved ads, or tracking/setup issues.
+  const cpm7 = last7.impressions > 0 ? (last7.spend / last7.impressions) * 1000 : null;
+  if (last7.spend >= 1000 && last7.impressions > 0 && last7.impressions < 500) {
+    alerts.push({
+      severity: "warn", title: "Cuenta sin entrega (posible mala configuración)", metric: "impressions", currentValue: last7.impressions, thresholdValue: 500,
+      description: `Se gastó $${Math.round(last7.spend)} pero solo ${last7.impressions} impresiones en 7 días${cpm7 ? ` (CPM $${Math.round(cpm7)})` : ""}. Entrega anormalmente baja.`,
+      recommendation: "Revisar configuración: anuncios rechazados, segmentación demasiado acotada, puja/objetivo mal seteados o problemas de la cuenta.",
     });
   }
 
