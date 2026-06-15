@@ -46,7 +46,13 @@ export type MigrationState =
     };
 
 export function createDb(url: string) {
-  const sql = postgres(url);
+  // Bound the pool: Supabase's session-mode pooler caps total client
+  // connections (15 on our plan), shared with the WhatsApp gateway process
+  // and doubled during zero-downtime deploys (old + new container overlap).
+  // postgres.js defaults to max:10, which alone overflows the cap on deploy
+  // and starves the gateway (it then can't persist its WhatsApp session).
+  const max = Number(process.env.PGPOOL_MAX) || 5;
+  const sql = postgres(url, { max, idle_timeout: 20 });
   return drizzlePg(sql, { schema });
 }
 

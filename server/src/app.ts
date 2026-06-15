@@ -528,10 +528,20 @@ export async function createApp(
             "lmtm: auto-installed bundled plugin",
           );
         } catch (e) {
-          logger.error(
-            { err: e, packageName: plugin.packageName },
-            "lmtm: failed to auto-install bundled plugin",
-          );
+          // "Plugin already installed" (HTTP 409) is the expected idempotent
+          // case on every boot — not an error worth alarming on.
+          const status = (e as { status?: number })?.status;
+          if (status === 409) {
+            logger.info(
+              { packageName: plugin.packageName },
+              "lmtm: bundled plugin already installed (skipping)",
+            );
+          } else {
+            logger.error(
+              { err: e, packageName: plugin.packageName },
+              "lmtm: failed to auto-install bundled plugin",
+            );
+          }
         }
       }
       // After installs, the plugins are in "installed" status. We
