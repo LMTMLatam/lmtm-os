@@ -17,6 +17,7 @@ import {
   setWaGroupConfig,
   getWaPublicHealth,
   tickWaBotKeepalive,
+  ensurePairingForUi,
 } from "../services/wa-group-bot.js";
 import { execFileSync } from "node:child_process";
 import { unauthorized } from "../errors.js";
@@ -102,8 +103,15 @@ export function waBotRoutes(db: Db) {
     res.json(out);
   });
 
+  // The WhatsApp section polls this while open. Opening the section is what
+  // triggers pairing (and thus QR generation) — nothing generates a QR in the
+  // background. If disconnected, kick off an on-demand pairing session.
   router.get("/status", async (_req, res) => {
-    const status = getWaBotStatus();
+    let status = getWaBotStatus();
+    if (status.status === "disconnected") {
+      await ensurePairingForUi();
+      status = getWaBotStatus();
+    }
     if (status.status === "connecting" && !status.qr) {
       const { qr } = await fetchQr();
       return res.json({ ...status, qr });
@@ -112,6 +120,7 @@ export function waBotRoutes(db: Db) {
   });
 
   router.get("/qr", async (_req, res) => {
+    if (getWaBotStatus().status === "disconnected") await ensurePairingForUi();
     const result = await fetchQr();
     if (result.status === "connected") return res.json({ connected: true });
     return res.json({ qr: result.qr, status: result.status });

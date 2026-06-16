@@ -558,8 +558,12 @@ export async function handleWebhook(payload: Record<string, unknown>) {
 let lastAutoStartAt: Date | null = null;
 let lastAutoStartError: string | null = null;
 let autoStartAttempts = 0;
+// Tracks whether this session has ever paired (creds exist). Used to decide
+// whether to silently auto-reconnect (restore) vs. wait for the operator to
+// open the WhatsApp section to pair. We never generate a QR in the background.
+let wasEverConnected = false;
 
-async function ensureSessionRunning(): Promise<{ ok: boolean; error?: string }> {
+async function ensureSessionRunning(withQr = true): Promise<{ ok: boolean; error?: string }> {
   if (!baseUrl()) return { ok: false, error: "OPENWA_URL not set" };
   if (cachedStatus === "connected") return { ok: true };
   if (lastAutoStartAt) {
@@ -568,8 +572,8 @@ async function ensureSessionRunning(): Promise<{ ok: boolean; error?: string }> 
   }
   lastAutoStartAt = new Date();
   autoStartAttempts++;
-  console.log(`[wa-bot] ensureSessionRunning → attempt #${autoStartAttempts}`);
-  const result = await startWaBot();
+  console.log(`[wa-bot] ensureSessionRunning → attempt #${autoStartAttempts} (withQr=${withQr})`);
+  const result = await startWaBot(withQr);
   if (result.error) {
     lastAutoStartError = result.error;
     return { ok: false, error: result.error };
@@ -597,11 +601,24 @@ function scheduleReconnect() {
 
 export async function tickWaBotKeepalive() {
   if (!baseUrl()) return;
-  // If disconnected, try to reconnect
-  if (cachedStatus !== "connected") {
-    const r = await ensureSessionRunning();
+  // Only auto-reconnect a session that was already paired (silent restore, no
+  // QR). For a never-paired session we do nothing — the QR is only generated
+  // on demand when the operator opens the WhatsApp section.
+  if (cachedStatus !== "connected" && wasEverConnected) {
+    const r = await ensureSessionRunning(false);
     if (!r.ok && !reconnectTimer) scheduleReconnect();
   }
+}
+
+/**
+ * Called on demand when the operator opens the WhatsApp section (via the
+ * /status or /qr endpoints). Starts a pairing session WITH QR generation.
+ * This is the only path that produces a QR.
+ */
+export async function ensurePairingForUi(): Promise<void> {
+  if (!baseUrl() || cachedStatus === "connected") return;
+  if (qrPollTimer) return; // a pairing poll is already running
+  await ensureSessionRunning(true).catch(() => {});
 }
 
 export async function initWaBot(database: Db) {
@@ -621,14 +638,24 @@ export async function initWaBot(database: Db) {
   if (!baseUrl()) {
     console.warn("[wa-bot] OPENWA_URL not set — WA bot disabled");
   } else {
-    // Auto-start the session 2s after boot so the server can finish wiring up
+    // On boot, attempt a SILENT restore (no QR): if the gateway has persisted
+    // creds it reconnects within a few seconds; if not, we tear the session
+    // down so it doesn't sit churning QRs in the background. A fresh QR is
+    // only generated on demand when the operator opens the WhatsApp section.
     setTimeout(() => {
-      ensureSessionRunning()
-        .then((r) => {
-          if (!r.ok) scheduleReconnect();
-          else autoStartAttempts = 0;
+      ensureSessionRunning(false)
+        .then(async () => {
+          // Give the gateway time to restore creds and report "connected".
+          setTimeout(() => {
+            if (cachedStatus !== "connected") {
+              console.log("[wa-bot] no paired session to restore — stopping until operator opens WhatsApp section");
+              void stopWaBot().catch(() => {});
+            } else {
+              autoStartAttempts = 0;
+            }
+          }, 15_000);
         })
-        .catch(() => scheduleReconnect());
+        .catch(() => {});
     }, 2000);
   }
 
@@ -680,7 +707,7 @@ async function resolveSessionRef(): Promise<string | null> {
   }
 }
 
-export async function startWaBot() {
+export async function startWaBot(withQr = true) {
   if (!baseUrl()) return { error: "OPENWA_URL not configured" };
   try {
     const publicUrl = (process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
@@ -715,7 +742,7 @@ export async function startWaBot() {
     cachedStatus = "connecting";
     cachedQr = null;
     if (db) await db.update(waBotConfig).set({ status: "connecting", updatedAt: new Date() }).catch(() => {});
-    scheduleQrPoll();
+    scheduleQrPoll(90, withQr);
     return { ok: true, data: data.data ?? {} };
   } catch (e) {
     return { error: String(e) };
@@ -729,6 +756,7 @@ export async function stopWaBot() {
   for (const timer of groupTimers.values()) clearTimeout(timer);
   groupTimers.clear();
   if (dailyDigestTimer) { clearTimeout(dailyDigestTimer); dailyDigestTimer = null; }
+  if (qrPollTimer) { clearTimeout(qrPollTimer); qrPollTimer = null; }
   cachedStatus = "disconnected";
   cachedQr = null;
   if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
@@ -750,6 +778,7 @@ async function syncSessionStatus() {
     if (newStatus === "connected" && cachedStatus !== "connected") {
       cachedStatus = "connected";
       cachedQr = null;
+      wasEverConnected = true;
       // OpenWA returns phoneNumber; older code paths used phone/me
       cachedPhone = (d.phoneNumber ?? d.phone ?? d.me ?? null) as string | null;
       if (db) await db.update(waBotConfig).set({ status: "connected", connectedPhone: cachedPhone, lastQr: null, updatedAt: new Date() }).catch(() => {});
@@ -762,7 +791,11 @@ async function syncSessionStatus() {
   }
 }
 
-function scheduleQrPoll(attemptsLeft = 90) {
+// withQr=true → also fetch/refresh the pairing QR each tick (used while the
+// operator has the WhatsApp section open). withQr=false → only check status,
+// no QR generation (used for silent reconnect of an already-paired session on
+// boot/keepalive, so we never churn QRs in the background).
+function scheduleQrPoll(attemptsLeft = 90, withQr = true) {
   if (qrPollTimer) clearTimeout(qrPollTimer);
   if (attemptsLeft <= 0 || cachedStatus !== "connecting") return;
   qrPollTimer = setTimeout(async () => {
@@ -770,8 +803,8 @@ function scheduleQrPoll(attemptsLeft = 90) {
     if (cachedStatus !== "connecting") return;
     await syncSessionStatus();
     if (cachedStatus !== "connecting") return;
-    await fetchQr();
-    scheduleQrPoll(attemptsLeft - 1);
+    if (withQr) await fetchQr();
+    scheduleQrPoll(attemptsLeft - 1, withQr);
   }, 2000);
 }
 

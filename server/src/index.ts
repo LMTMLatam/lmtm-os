@@ -86,7 +86,22 @@ export interface StartedServer {
   databaseUrl: string;
 }
 
+// Safety net: a transient DB hiccup at boot (e.g. a statement-timeout on a
+// concurrent startup query) used to surface as an unhandled rejection and
+// crash the whole process — dropping the real server and handing the port to
+// the fallback proxy. For a long-running production service we log loudly and
+// keep serving instead of dying on a single stray rejection.
+let _processGuardsInstalled = false;
+function installProcessGuards() {
+  if (_processGuardsInstalled) return;
+  _processGuardsInstalled = true;
+  process.on("unhandledRejection", (reason) => {
+    logger.error({ err: reason }, "Unhandled promise rejection (kept alive)");
+  });
+}
+
 export async function startServer(): Promise<StartedServer> {
+  installProcessGuards();
   let config = loadConfig();
   initTelemetry({ enabled: config.telemetryEnabled });
   if (process.env.PAPERCLIP_SECRETS_PROVIDER === undefined) {
