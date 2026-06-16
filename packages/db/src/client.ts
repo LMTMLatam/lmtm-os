@@ -11,7 +11,10 @@ const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
 const MIGRATIONS_JOURNAL_JSON = fileURLToPath(new URL("./migrations/meta/_journal.json", import.meta.url));
 
 function createUtilitySql(url: string) {
-  return postgres(url, { max: 1, onnotice: () => {} });
+  // prepare:false keeps this compatible with Supabase's transaction-mode
+  // pooler (port 6543), which doesn't support session-level prepared
+  // statements. Harmless on the session pooler too.
+  return postgres(url, { max: 1, onnotice: () => {}, prepare: false });
 }
 
 function isSafeIdentifier(value: string): boolean {
@@ -52,7 +55,9 @@ export function createDb(url: string) {
   // postgres.js defaults to max:10, which alone overflows the cap on deploy
   // and starves the gateway (it then can't persist its WhatsApp session).
   const max = Number(process.env.PGPOOL_MAX) || 5;
-  const sql = postgres(url, { max, idle_timeout: 20 });
+  // prepare:false → compatible with Supabase's transaction-mode pooler
+  // (port 6543), which lifts the 15-client cap of the session pooler.
+  const sql = postgres(url, { max, idle_timeout: 20, prepare: false });
   return drizzlePg(sql, { schema });
 }
 

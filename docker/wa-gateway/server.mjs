@@ -50,7 +50,7 @@ const log = pino({ level: process.env.WA_GATEWAY_LOG_LEVEL || "info" });
 // connections over time. We open once and reuse it.
 let sharedSql = null;
 function getSql() {
-  if (!sharedSql && DATABASE_URL) sharedSql = postgres(DATABASE_URL, { max: 1, onnotice: () => {} });
+  if (!sharedSql && DATABASE_URL) sharedSql = postgres(DATABASE_URL, { max: 1, onnotice: () => {}, prepare: false });
   return sharedSql;
 }
 
