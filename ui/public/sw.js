@@ -1,3 +1,4 @@
+// v3: flush stale caches from the 2026-06 deploy churn (force clean rebuild)
 const CACHE_NAME = "paperclip-v3";
 
 self.addEventListener("install", () => {
