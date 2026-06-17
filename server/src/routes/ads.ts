@@ -111,6 +111,15 @@ function decodeState<T extends Record<string, unknown>>(raw: string): T | null {
   }
 }
 
+// Strip ad-platform secrets before serializing a connection to the client.
+// The UI only needs label/status/platform/metadata — never the tokens.
+const CONNECTION_SECRET_FIELDS = ["accessToken", "refreshToken", "clientSecret", "developerToken"] as const;
+function toPublicConnection<T extends Record<string, unknown>>(row: T): Partial<T> {
+  const safe: Record<string, unknown> = { ...row };
+  for (const f of CONNECTION_SECRET_FIELDS) delete safe[f];
+  return safe as Partial<T>;
+}
+
 export function adsRoutes(db: Db): Router {
   const router = Router();
 
@@ -123,24 +132,38 @@ export function adsRoutes(db: Db): Router {
     next();
   });
 
+  // Auth boundary for /ads/* (connections, mappings, sync, ad-account lookups).
+  // These expose ad-platform tokens and let agents read/write campaigns, so they
+  // must never be anonymous. Exception: the OAuth start/callback routes are
+  // reached via a provider redirect without a session, so they stay public.
+  router.use("/ads", (req, _res, next) => {
+    if (req.originalUrl.includes("/ads/oauth/")) return next();
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    next();
+  });
+
   // ---- Connections ----
 
   router.get("/ads/connections", async (req, res) => {
     const companyId = (req.query.companyId as string) ?? null;
     const platform = (req.query.platform as string) ?? null;
-    const conditions = [];
-    if (companyId) conditions.push(eq(adsConnections.companyId, companyId));
+    // A companyId is required so we only ever return connections for a company
+    // the actor can access (and never leak the whole table).
+    if (!companyId) return res.status(400).json({ error: "companyId required" });
+    assertCompanyAccess(req, companyId);
+    const conditions = [eq(adsConnections.companyId, companyId)];
     if (platform && isKnownAdsPlatform(platform)) {
       conditions.push(eq(adsConnections.platform, platform));
     }
-    const rows = await db.select().from(adsConnections).where(conditions.length ? and(...conditions) : undefined);
-    res.json({ connections: rows });
+    const rows = await db.select().from(adsConnections).where(and(...conditions));
+    res.json({ connections: rows.map(toPublicConnection) });
   });
 
   router.get("/ads/connections/:id", async (req, res) => {
     const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!row) return res.status(404).json({ error: "connection not found" });
-    res.json(row);
+    assertCompanyAccess(req, row.companyId);
+    res.json(toPublicConnection(row));
   });
 
   router.post("/ads/connections", async (req, res) => {
@@ -151,6 +174,7 @@ export function adsRoutes(db: Db): Router {
     if (!isKnownAdsPlatform(body.platform)) {
       return res.status(400).json({ error: `unknown platform: ${body.platform}` });
     }
+    assertCompanyAccess(req, body.companyId);
     const [row] = await db.insert(adsConnections).values({
       companyId: body.companyId,
       clientId: body.clientId ?? null,
@@ -173,7 +197,7 @@ export function adsRoutes(db: Db): Router {
       status: body.status ?? "active",
       expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
     }).returning();
-    res.status(201).json(row);
+    res.status(201).json(toPublicConnection(row));
   });
 
   router.patch("/ads/connections/:id", async (req, res) => {
@@ -184,12 +208,18 @@ export function adsRoutes(db: Db): Router {
     }
     if ("expiresAt" in body) update.expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if ("scopes" in body) update.scopes = body.scopes;
+    const [existing] = await db.select({ companyId: adsConnections.companyId }).from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!existing) return res.status(404).json({ error: "connection not found" });
+    assertCompanyAccess(req, existing.companyId);
     const [row] = await db.update(adsConnections).set(update).where(eq(adsConnections.id, req.params.id)).returning();
     if (!row) return res.status(404).json({ error: "connection not found" });
-    res.json(row);
+    res.json(toPublicConnection(row));
   });
 
   router.delete("/ads/connections/:id", async (req, res) => {
+    const [existing] = await db.select({ companyId: adsConnections.companyId }).from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!existing) return res.status(204).end();
+    assertCompanyAccess(req, existing.companyId);
     await db.delete(adsConnections).where(eq(adsConnections.id, req.params.id));
     res.status(204).end();
   });
