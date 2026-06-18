@@ -48,6 +48,7 @@ import { runOperationalAudit } from "../services/auditor.js";
 import { mineLearnings } from "../services/learning-engine.js";
 import { rebuildClientContent, topContent } from "../services/knowledge-graph.js";
 import { runAllAdsSync } from "../services/ads-autosync.js";
+import { fetchAccountBalances, runBalanceCheck } from "../services/balance-monitor.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -2112,6 +2113,16 @@ export function adsRoutes(db: Db): Router {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(await rebuildClientContent(db, row.id));
+  });
+
+  // GET /api/clients/ads/balances — current spend-cap headroom per Meta account.
+  router.get("/clients/ads/balances", async (_req, res) => {
+    res.json({ balances: await fetchAccountBalances(db) });
+  });
+  // POST /api/clients/ads/balance-check — run the low-balance check + WhatsApp now.
+  router.post("/clients/ads/balance-check", async (req, res) => {
+    const threshold = Number(req.body?.threshold) || undefined;
+    res.json(await runBalanceCheck(db, threshold));
   });
 
   // POST /api/clients/ads/sync-all — sync campaigns+insights for every mapping

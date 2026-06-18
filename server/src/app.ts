@@ -21,6 +21,7 @@ import { waBotRoutes } from "./routes/wa-bot.js";
 import { initWaBot } from "./services/wa-group-bot.js";
 import { initAgencyOps } from "./services/agency-ops.js";
 import { initAdsAutoSync } from "./services/ads-autosync.js";
+import { initBalanceMonitor } from "./services/balance-monitor.js";
 import { initCustomerBrain } from "./services/customer-brain.js";
 import { initAccountScoring } from "./services/account-scoring.js";
 import { initKnowledgeGraph } from "./services/knowledge-graph.js";
@@ -256,6 +257,7 @@ export async function createApp(
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
   try { initAdsAutoSync(db); } catch (e) { console.warn("[ads-autosync] init failed:", e); }
+  try { initBalanceMonitor(db); } catch (e) { console.warn("[balance-monitor] init failed:", e); }
   // Intelligence layer (0107): brain, scores, KG, learnings, auditor, feedback, opportunities.
   try {
     initCustomerBrain(db);
