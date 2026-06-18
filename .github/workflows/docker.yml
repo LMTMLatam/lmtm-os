@@ -56,6 +56,10 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          cache-from: type=gha
+          # No GHA layer cache: it intermittently restored stale build layers,
+          # shipping images that didn't contain the latest source (happened
+          # several times — stale ads.ts, sw.js, ads-autosync). Slightly slower
+          # builds in exchange for always shipping current code.
+          no-cache: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
