@@ -124,7 +124,38 @@ export const clientsApi = {
   refreshBrain: (idOrSlug: string) => api.post<{ updated: number }>(`/clients/${idOrSlug}/brain/refresh`, null),
   runOpportunities: (idOrSlug: string) => api.post<{ created: number }>(`/clients/${idOrSlug}/opportunities/run`, null),
   rebuildContent: (idOrSlug: string) => api.post<{ items: number }>(`/clients/${idOrSlug}/content/rebuild`, null),
+  // Competitors + content (pauta vs posteo)
+  listCompetitors: (idOrSlug: string) => api.get<{ competitors: Competitor[] }>(`/clients/${idOrSlug}/competitors`),
+  addCompetitor: (idOrSlug: string, body: Partial<Competitor> & { name: string }) =>
+    api.post<Competitor>(`/clients/${idOrSlug}/competitors`, body),
+  deleteCompetitor: (idOrSlug: string, cid: string) =>
+    api.delete<void>(`/clients/${idOrSlug}/competitors/${cid}`),
+  generateContent: (idOrSlug: string) =>
+    api.post<{ batchId: string; created: number }>(`/clients/${idOrSlug}/content/generate`, null),
+  listContentIdeas: (idOrSlug: string) => api.get<{ ideas: ContentIdea[] }>(`/clients/${idOrSlug}/content-ideas`),
+  contentCsvUrl: (idOrSlug: string) => `/api/clients/${idOrSlug}/content-ideas.csv`,
 };
+
+export interface Competitor {
+  id: string;
+  name: string;
+  fbPageUrl: string | null;
+  igHandle: string | null;
+  website: string | null;
+  notes: string | null;
+  sampleAds: Array<{ text?: string; url?: string }>;
+}
+
+export interface ContentIdea {
+  id: string;
+  kind: "pauta" | "posteo";
+  format: string | null;
+  title: string;
+  copy: string | null;
+  rationale: string | null;
+  source: string | null;
+  createdAt: string;
+}
 
 export interface ClientIntel {
   client: { id: string; slug: string; name: string; enfoqueTecnicoUrl: string | null };

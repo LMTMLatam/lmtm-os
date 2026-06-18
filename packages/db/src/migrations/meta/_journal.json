@@ -757,6 +757,13 @@
       "when": 1780286400000,
       "tag": "0107_intelligence_layer",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1781800000000,
+      "tag": "0108_competitors_content",
+      "breakpoints": true
     }
   ]
 }

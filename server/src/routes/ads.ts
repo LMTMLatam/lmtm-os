@@ -28,7 +28,7 @@ import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
-import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -49,6 +49,9 @@ import { mineLearnings } from "../services/learning-engine.js";
 import { rebuildClientContent, topContent } from "../services/knowledge-graph.js";
 import { runAllAdsSync } from "../services/ads-autosync.js";
 import { fetchAccountBalances, runBalanceCheck } from "../services/balance-monitor.js";
+import { competitors, contentIdeas } from "@paperclipai/db";
+import { generateContentPlan } from "../services/competitor-content.js";
+import { resolveCompanyId } from "../services/intel-common.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -2113,6 +2116,78 @@ export function adsRoutes(db: Db): Router {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(await rebuildClientContent(db, row.id));
+  });
+
+  // ── Competitors + content generation (pauta vs posteo) ───────────────────
+  router.get("/clients/:id/competitors", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const rows = await db.select().from(competitors).where(eq(competitors.clientId, row.id)).orderBy(competitors.name);
+    res.json({ competitors: rows });
+  });
+
+  router.post("/clients/:id/competitors", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const companyId = await resolveCompanyId(db, row.id);
+    if (!companyId) return res.status(400).json({ error: "client has no company" });
+    const b = req.body ?? {};
+    if (!b.name || typeof b.name !== "string") return res.status(400).json({ error: "name required" });
+    const [created] = await db.insert(competitors).values({
+      companyId, clientId: row.id, name: b.name.trim(),
+      fbPageUrl: b.fbPageUrl ?? null, igHandle: b.igHandle ?? null, website: b.website ?? null,
+      notes: b.notes ?? null, sampleAds: Array.isArray(b.sampleAds) ? b.sampleAds : [],
+    }).returning();
+    res.status(201).json(created);
+  });
+
+  router.patch("/clients/:id/competitors/:cid", async (req, res) => {
+    const b = req.body ?? {};
+    const update: Record<string, unknown> = { updatedAt: new Date() };
+    for (const k of ["name", "fbPageUrl", "igHandle", "website", "notes"]) if (k in b) update[k] = b[k];
+    if ("sampleAds" in b && Array.isArray(b.sampleAds)) update.sampleAds = b.sampleAds;
+    const [row] = await db.update(competitors).set(update).where(eq(competitors.id, req.params.cid)).returning();
+    if (!row) return res.status(404).json({ error: "competitor not found" });
+    res.json(row);
+  });
+
+  router.delete("/clients/:id/competitors/:cid", async (req, res) => {
+    await db.delete(competitors).where(eq(competitors.id, req.params.cid));
+    res.status(204).end();
+  });
+
+  // POST /clients/:id/content/generate — AI plan split into pauta vs posteo.
+  router.post("/clients/:id/content/generate", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json(await generateContentPlan(db, row.id));
+  });
+
+  // GET /clients/:id/content-ideas — latest generated ideas (optionally ?kind=).
+  router.get("/clients/:id/content-ideas", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const kind = typeof req.query.kind === "string" ? req.query.kind : null;
+    const conds = [eq(contentIdeas.clientId, row.id)];
+    if (kind === "pauta" || kind === "posteo") conds.push(eq(contentIdeas.kind, kind));
+    const rows = await db.select().from(contentIdeas).where(and(...conds)).orderBy(desc(contentIdeas.createdAt)).limit(100);
+    res.json({ ideas: rows });
+  });
+
+  // GET /clients/:id/content-ideas.csv — export the content plan as a spreadsheet.
+  router.get("/clients/:id/content-ideas.csv", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const rows = await db.select().from(contentIdeas).where(eq(contentIdeas.clientId, row.id)).orderBy(contentIdeas.kind, desc(contentIdeas.createdAt)).limit(500);
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["tipo", "formato", "titulo", "copy", "rationale", "fecha"];
+    const lines = [header.join(",")];
+    for (const r of rows) {
+      lines.push([r.kind === "pauta" ? "Pauta" : "Posteo", r.format, r.title, r.copy, r.rationale, r.createdAt.toISOString().slice(0, 10)].map(esc).join(","));
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${row.slug}-contenido.csv"`);
+    res.send("﻿" + lines.join("\n"));
   });
 
   // GET /api/clients/ads/balances — current spend-cap headroom per Meta account.
