@@ -47,6 +47,7 @@ import { listFeedback, ingestFeedback } from "../services/feedback-agent.js";
 import { runOperationalAudit } from "../services/auditor.js";
 import { mineLearnings } from "../services/learning-engine.js";
 import { rebuildClientContent, topContent } from "../services/knowledge-graph.js";
+import { runAllAdsSync } from "../services/ads-autosync.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -2111,6 +2112,14 @@ export function adsRoutes(db: Db): Router {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(await rebuildClientContent(db, row.id));
+  });
+
+  // POST /api/clients/ads/sync-all — sync campaigns+insights for every mapping
+  // now (used to backfill clients whose data went stale). Optional body
+  // { sinceDays } to widen the window. Runs under the /clients auth boundary.
+  router.post("/clients/ads/sync-all", async (req, res) => {
+    const sinceDays = Number(req.body?.sinceDays) || undefined;
+    res.json(await runAllAdsSync(db, { sinceDays }));
   });
 
   // Cross-client / agency-wide intelligence runs (kept under /clients auth boundary).
