@@ -244,7 +244,11 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
       body: JSON.stringify({
         model,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
-        max_tokens: 700,
+        // MiniMax-M2.7 is a reasoning model: it spends tokens on internal
+        // reasoning before the answer, so a low cap leaves `content` empty
+        // (finish_reason: length). Give it enough headroom for reasoning + a
+        // full reply, otherwise every narrative/report/content gen falls back.
+        max_tokens: 4000,
         temperature: 0.5,
       }),
     });
