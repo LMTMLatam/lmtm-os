@@ -1,8 +1,9 @@
 import type { AdapterModel } from "../types.js";
 
 export const models: AdapterModel[] = [
+  // MiniMax-M3 has no "-highspeed" variant on the API (verified via /models);
+  // offering it caused 2013 "unknown model". Only list real ids.
   { id: "MiniMax-M3", label: "MiniMax M3 (default para LMTM)" },
-  { id: "MiniMax-M3-highspeed", label: "MiniMax M3 (highspeed)" },
   { id: "MiniMax-M2.7", label: "MiniMax M2.7" },
   { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7 (highspeed)" },
   { id: "MiniMax-M2.5", label: "MiniMax M2.5" },

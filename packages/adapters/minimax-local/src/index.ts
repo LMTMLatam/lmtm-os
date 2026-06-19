@@ -10,9 +10,11 @@ import type { AdapterModelProfileDefinition } from "@paperclipai/adapter-utils";
 export const type = "minimax_local";
 export const label = "MiniMax M3 (LMTM-OS default)";
 
+// NOTE: MiniMax-M3 has NO "-highspeed" variant on the API (verified via
+// GET /v1/models). Listing or selecting "MiniMax-M3-highspeed" makes MiniMax
+// reject the whole request with 2013 "unknown model". Only offer real ids.
 export const models = [
   { id: "MiniMax-M3", label: "MiniMax M3 (default)" },
-  { id: "MiniMax-M3-highspeed", label: "MiniMax M3 (highspeed)" },
   { id: "MiniMax-M2.7", label: "MiniMax M2.7" },
   { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7 (highspeed)" },
   { id: "MiniMax-M2.5", label: "MiniMax M2.5" },
@@ -22,9 +24,12 @@ export const modelProfiles: AdapterModelProfileDefinition[] = [
   {
     key: "cheap",
     label: "Economico",
-    description: "M3 highspeed (mas barato) para tareas rapidas; mantiene M3 como modelo principal del agente.",
+    // MiniMax-M3 has no highspeed variant, so the "cheap" profile also runs on
+    // M3 (unified). It exists so corrective wakes / retries resolve to a valid
+    // model instead of the non-existent "MiniMax-M3-highspeed" (which 2013'd).
+    description: "Mantiene MiniMax-M3 (no existe un M3 highspeed en la API).",
     adapterConfig: {
-      model: "MiniMax-M3-highspeed",
+      model: "MiniMax-M3",
     },
     source: "adapter_default",
   },
@@ -40,7 +45,7 @@ Use when:
 - Caso de uso tipico: los 14 agentes LMTM (CMO, Paid Media, Content, etc.).
 
 Core fields:
-- model (string, opcional): default "MiniMax-M3". Tambien: "MiniMax-M3-highspeed", "MiniMax-M2.7", etc.
+- model (string, opcional): default "MiniMax-M3". Tambien: "MiniMax-M2.7", "MiniMax-M2.7-highspeed", etc. (NO existe "MiniMax-M3-highspeed").
 - systemPrompt (string, opcional): prompt de sistema que se antepone a cada run
 - temperature (number, opcional, default 0.7)
 - maxTokens (number, opcional, default 4096)
