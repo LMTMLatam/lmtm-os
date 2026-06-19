@@ -207,17 +207,62 @@ export const metaProvider: AdsProvider = {
   },
 
   async listPages(token: string): Promise<PageSummary[]> {
-    const result: PageSummary[] = [];
-    for await (const batch of paginate<{ id: string; name?: string }>(
-      "/me/accounts",
-      { fields: "id,name" },
-      token,
-    )) {
-      for (const p of batch) {
-        result.push({ id: p.id, name: p.name ?? p.id, raw: p as Record<string, unknown> });
+    // Dedupe by page id: a Page can appear both directly and via a business.
+    const byId = new Map<string, PageSummary>();
+    const add = (p: { id?: string; name?: string }) => {
+      if (!p?.id || byId.has(p.id)) return;
+      byId.set(p.id, { id: p.id, name: p.name ?? p.id, raw: p as Record<string, unknown> });
+    };
+
+    // 1) Pages the user administers directly (/me/accounts). Always available
+    //    with pages_show_list.
+    try {
+      for await (const batch of paginate<{ id: string; name?: string }>(
+        "/me/accounts",
+        { fields: "id,name" },
+        token,
+      )) {
+        for (const p of batch) add(p);
       }
+    } catch {
+      // ignore — business pages below may still resolve
     }
-    return result;
+
+    // 2) Pages reached through Business Managers (the agency model). /me/accounts
+    //    only returns Pages with a DIRECT role, so client Pages assigned via a
+    //    Business Manager (e.g. DUNOD) are invisible there. Enumerate them via
+    //    each business's owned_pages + client_pages. Requires the
+    //    business_management scope; if the token lacks it these calls throw and
+    //    we silently keep just the direct-role pages.
+    try {
+      const businessIds: string[] = [];
+      for await (const batch of paginate<{ id: string }>(
+        "/me/businesses",
+        { fields: "id" },
+        token,
+      )) {
+        for (const b of batch) if (b.id) businessIds.push(b.id);
+      }
+      for (const bizId of businessIds) {
+        for (const edge of ["owned_pages", "client_pages"] as const) {
+          try {
+            for await (const batch of paginate<{ id: string; name?: string }>(
+              `/${bizId}/${edge}`,
+              { fields: "id,name" },
+              token,
+            )) {
+              for (const p of batch) add(p);
+            }
+          } catch {
+            // skip this edge/business and continue
+          }
+        }
+      }
+    } catch {
+      // token lacks business_management — return direct-role pages only
+    }
+
+    return [...byId.values()];
   },
 
   async listAdSets(adAccountId: string, token: string): Promise<AdSetSummary[]> {

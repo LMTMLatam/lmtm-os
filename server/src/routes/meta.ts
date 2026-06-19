@@ -185,6 +185,10 @@ export function metaRoutes(db: Db) {
       "leads_retrieval",
       "ads_read",
       "ads_management",
+      // Needed to list Pages the user reaches through a Business Manager
+      // (agency model) — /me/accounts only returns Pages with a direct role,
+      // so client Pages like DUNOD were invisible without this.
+      "business_management",
     ].join(",");
 
     const state = Buffer.from(
@@ -272,6 +276,7 @@ export function metaRoutes(db: Db) {
       "leads_retrieval",
       "ads_read",
       "ads_management",
+      "business_management",
     ];
     const existing = await db
       .select({ id: metaConnections.id })
