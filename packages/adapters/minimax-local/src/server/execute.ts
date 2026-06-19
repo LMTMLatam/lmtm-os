@@ -61,10 +61,45 @@ function readTools(ctx: AdapterExecutionContext): unknown[] {
   const ctxAny = ctx.context as Record<string, unknown> | undefined;
   if (!ctxAny) return [];
   const tools = ctxAny.tools;
-  if (Array.isArray(tools)) return tools;
+  if (Array.isArray(tools)) return normalizeTools(tools);
   const toolDefs = ctxAny.toolDefs;
-  if (Array.isArray(toolDefs)) return toolDefs;
+  if (Array.isArray(toolDefs)) return normalizeTools(toolDefs);
   return [];
+}
+
+// MiniMax requires every tool to be shaped exactly as
+//   { type: "function", function: { name, description, parameters } }
+// and rejects the WHOLE request with status_code 2013 ("invalid tool type:")
+// if the top-level `type` is missing/empty. The Paperclip runtime hands us
+// tools without that wrapper (and sometimes flattened as {name, parameters}),
+// so normalize defensively before sending. Without this, every agent run with
+// tools fails at the first turn.
+function normalizeTools(tools: unknown[]): unknown[] {
+  const out: unknown[] = [];
+  for (const t of tools) {
+    if (!t || typeof t !== "object") continue;
+    const tool = t as Record<string, unknown>;
+    const nested =
+      tool.function && typeof tool.function === "object"
+        ? (tool.function as Record<string, unknown>)
+        : null;
+    const name = typeof nested?.name === "string" ? nested.name : typeof tool.name === "string" ? tool.name : null;
+    if (!name) continue;
+    const src = nested ?? tool;
+    const rawParams = src.parameters ?? src.parametersSchema ?? src.inputSchema;
+    out.push({
+      type: "function",
+      function: {
+        name,
+        description: typeof src.description === "string" ? src.description : "",
+        parameters:
+          rawParams && typeof rawParams === "object"
+            ? rawParams
+            : { type: "object", properties: {} },
+      },
+    });
+  }
+  return out;
 }
 
 function buildUserPrompt(ctx: AdapterExecutionContext, config: Record<string, unknown>): string {
