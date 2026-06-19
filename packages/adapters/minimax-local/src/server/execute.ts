@@ -202,7 +202,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       : baseSystemPrompt;
 
   const userPrompt = buildUserPrompt(ctx, config);
-  const tools = readTools(ctx);
 
   const messages: MiniMaxChatMessage[] = truncateMessages(
     [
@@ -215,75 +214,147 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     messages.unshift({ role: "system", content: systemPrompt });
   }
 
-  const payload: Record<string, unknown> = {
-    model,
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-    top_p: topP,
-  };
-  if (tools.length > 0) {
-    payload.tools = tools;
-    payload.tool_choice = "auto";
+  // ── Tool catalog ──────────────────────────────────────────────────────────
+  // The run context carries no tools for this adapter, so fetch the executable
+  // catalog (core issue actions + plugin tools) from the in-process agent-tools
+  // endpoint using the agent's local JWT. THIS is what lets the agent actually
+  // act (read its issue, comment, change status, call plugin tools) instead of
+  // only emitting text. If the fetch fails we fall back to context tools and a
+  // single-shot turn.
+  const selfBaseUrl = (
+    process.env.PAPERCLIP_SELF_BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? "3100"}`
+  ).replace(/\/$/, "");
+  const authToken = ctx.authToken ?? null;
+  const maxToolIters = asNumber(config.maxToolIterations, 8);
+
+  let tools: unknown[] = normalizeTools(readTools(ctx));
+  if (authToken) {
+    try {
+      const tc = new AbortController();
+      const tt = setTimeout(() => tc.abort(), 15_000);
+      const r = await fetch(`${selfBaseUrl}/api/agent-tools`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+        signal: tc.signal,
+      });
+      clearTimeout(tt);
+      if (r.ok) {
+        const data = (await r.json().catch(() => ({}))) as { tools?: unknown };
+        if (Array.isArray(data.tools)) tools = data.tools;
+      }
+    } catch {
+      // keep fallback
+    }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  async function callMiniMax(convo: MiniMaxChatMessage[]): Promise<{ response: Response; raw: Record<string, unknown> }> {
+    const payload: Record<string, unknown> = { model, messages: convo, temperature, max_tokens: maxTokens, top_p: topP };
+    if (tools.length > 0) {
+      payload.tools = tools;
+      payload.tool_choice = "auto";
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const raw = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return { response, raw };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function execTool(name: string, args: Record<string, unknown>): Promise<string> {
+    if (!authToken) return "Tool execution unavailable (no auth token).";
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60_000);
+      const r = await fetch(`${selfBaseUrl}/api/agent-tools/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ tool: name, parameters: args }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; content?: string } | null;
+      if (!j) return `Tool "${name}" devolvió HTTP ${r.status}.`;
+      return typeof j.content === "string" ? j.content : JSON.stringify(j);
+    } catch (err) {
+      return `Error llamando a la tool "${name}": ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  // ── Agentic loop ──────────────────────────────────────────────────────────
   const startedAt = Date.now();
+  const convo: MiniMaxChatMessage[] = [...messages];
+  let lastUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  let lastFinish: string | undefined;
+  let finalText = "";
+  let toolCallCount = 0;
+
   try {
-    const response = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const raw = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      return {
-        exitCode: 1,
-        signal: null,
-        timedOut: false,
-        errorCode: `minimax_http_${response.status}`,
-        errorMessage: describeMinimaxFailure(raw) || `HTTP ${response.status}`,
-        sessionParams: { ...session, messages },
-      };
-    }
-    const baseResp = (raw.base_resp ?? {}) as { status_code?: number; status_msg?: string };
-    if (typeof baseResp.status_code === "number" && baseResp.status_code !== 0) {
-      return {
-        exitCode: 1,
-        signal: null,
-        timedOut: false,
-        errorCode: `minimax_upstream_${baseResp.status_code}`,
-        errorMessage: describeMinimaxFailure(raw),
-        sessionParams: { ...session, messages },
-      };
-    }
+    for (let iter = 0; ; iter++) {
+      const { response, raw } = await callMiniMax(convo);
+      if (!response.ok) {
+        return {
+          exitCode: 1, signal: null, timedOut: false,
+          errorCode: `minimax_http_${response.status}`,
+          errorMessage: describeMinimaxFailure(raw) || `HTTP ${response.status}`,
+          sessionParams: { ...session, messages: convo },
+        };
+      }
+      const baseResp = (raw.base_resp ?? {}) as { status_code?: number; status_msg?: string };
+      if (typeof baseResp.status_code === "number" && baseResp.status_code !== 0) {
+        return {
+          exitCode: 1, signal: null, timedOut: false,
+          errorCode: `minimax_upstream_${baseResp.status_code}`,
+          errorMessage: describeMinimaxFailure(raw),
+          sessionParams: { ...session, messages: convo },
+        };
+      }
 
-    const parsed = parseMinimaxCompletion(raw);
-    const assistantText = parsed.message.content || "<empty MiniMax response>";
-    const reasoningText = parsed.message.reasoningContent ?? "";
+      const parsed = parseMinimaxCompletion(raw);
+      lastUsage = parsed.usage;
+      lastFinish = parsed.message.finishReason;
+      const toolCalls = parsed.message.toolCalls ?? [];
 
-    // Update session with the new messages for the next resume.
-    const nextMessages: MiniMaxChatMessage[] = [
-      ...messages,
-      {
+      convo.push({
         role: "assistant",
-        content: parsed.message.content,
-        tool_calls: parsed.message.toolCalls,
-      },
-    ];
-    const summaryText = parsed.message.content.slice(0, 200) || `MiniMax ${model} responded with no content`;
+        content: parsed.message.content ?? "",
+        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      });
 
-    await ctx.onLog(
-      "stdout",
-      reasoningText
-        ? `${reasoningText}\n---\n${assistantText}\n`
-        : `${assistantText}\n`,
-    );
+      await ctx.onLog(
+        "stdout",
+        (parsed.message.reasoningContent ? `${parsed.message.reasoningContent}\n---\n` : "") +
+          `${parsed.message.content || ""}\n`,
+      );
+
+      // Final turn: no more tool calls, cap reached, or no tools available.
+      if (toolCalls.length === 0 || iter >= maxToolIters || tools.length === 0) {
+        finalText = parsed.message.content || "";
+        break;
+      }
+
+      // Execute each tool call and feed the result back as a tool message.
+      for (const call of toolCalls) {
+        toolCallCount++;
+        let args: Record<string, unknown> = {};
+        try {
+          args = call.function.arguments ? (JSON.parse(call.function.arguments) as Record<string, unknown>) : {};
+        } catch {
+          args = {};
+        }
+        await ctx.onLog("stdout", `\n[tool→] ${call.function.name}(${JSON.stringify(args).slice(0, 300)})\n`);
+        const result = await execTool(call.function.name, args);
+        await ctx.onLog("stdout", `[tool←] ${result.slice(0, 400)}\n`);
+        convo.push({ role: "tool", content: result, tool_call_id: call.id });
+      }
+    }
 
     if (ctx.onMeta) {
       await ctx.onMeta({
@@ -291,60 +362,41 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         command: `${baseUrl}/text/chatcompletion_v2`,
         commandNotes: [
           `model=${model}`,
-          `prompt_tokens=${parsed.usage.promptTokens}`,
-          `completion_tokens=${parsed.usage.completionTokens}`,
+          `tools=${tools.length}`,
+          `tool_calls=${toolCallCount}`,
+          `prompt_tokens=${lastUsage.promptTokens}`,
+          `completion_tokens=${lastUsage.completionTokens}`,
         ],
-        prompt: messages.map((m) => `${m.role}: ${typeof m.content === "string" ? m.content : ""}`).join("\n"),
+        prompt: convo.map((m) => `${m.role}: ${typeof m.content === "string" ? m.content : ""}`).join("\n"),
       });
     }
 
-    if (parsed.message.toolCalls && parsed.message.toolCalls.length > 0) {
-      // The agent emitted tool calls. The Paperclip runtime is responsible
-      // for executing them and resuming this adapter in a follow-up call
-      // with tool results appended. We surface this as a structured log
-      // entry so the UI can render it; the session is preserved.
-      await ctx.onLog(
-        "stdout",
-        `\n[minimax_local] ${parsed.message.toolCalls.length} tool call(s) requested. The Paperclip runtime will execute them and resume this session.\n`,
-      );
-    }
-
+    const summaryText = finalText.slice(0, 200) || `MiniMax ${model} responded with no content`;
     return {
-      exitCode: 0,
-      signal: null,
-      timedOut: false,
+      exitCode: 0, signal: null, timedOut: false,
       summary: summaryText,
-      sessionParams: {
-        sessionId: session.sessionId,
-        messages: nextMessages,
-        summary: summaryText,
-      },
+      sessionParams: { sessionId: session.sessionId, messages: convo, summary: summaryText },
       resultJson: {
-        usage: parsed.usage,
-        finishReason: parsed.message.finishReason,
+        usage: lastUsage,
+        finishReason: lastFinish,
+        toolCalls: toolCallCount,
         durationMs: Date.now() - startedAt,
       },
     };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       return {
-        exitCode: null,
-        signal: null,
-        timedOut: true,
+        exitCode: null, signal: null, timedOut: true,
         errorCode: "timeout",
         errorMessage: `MiniMax call timed out after ${timeoutMs}ms`,
-        sessionParams: { ...session, messages },
+        sessionParams: { ...session, messages: convo },
       };
     }
     return {
-      exitCode: 1,
-      signal: null,
-      timedOut: false,
+      exitCode: 1, signal: null, timedOut: false,
       errorCode: "minimax_request_failed",
       errorMessage: err instanceof Error ? err.message : String(err),
-      sessionParams: { ...session, messages },
+      sessionParams: { ...session, messages: convo },
     };
-  } finally {
-    clearTimeout(timer);
   }
 }

@@ -15,6 +15,7 @@ import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
+import { agentToolsRoutes } from "./routes/agent-tools.js";
 import { publicDashboardRoutes } from "./routes/public-dashboards.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
@@ -349,6 +350,8 @@ export async function createApp(
       { workerManager },
     ),
   );
+  // Agent tool executor (minimax_local loop calls back into this with its JWT).
+  api.use(agentToolsRoutes(db, { toolDispatcher }));
   api.use(adapterRoutes());
   api.use(
     accessRoutes(db, {
