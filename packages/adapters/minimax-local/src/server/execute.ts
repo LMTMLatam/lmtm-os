@@ -178,7 +178,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   const session = readSession(ctx);
+  // Instrucciones del agente. Prioridad:
+  //  1) promptTemplate — campo en DB que la UI (pestaña Instructions) muestra y
+  //     edita; es la fuente editable y durable. En Render el filesystem es
+  //     efímero, así que el bundle AGENTS.md en disco NO sirve como almacén:
+  //     las instrucciones viven en adapter_config (DB).
+  //  2) systemPrompt — compat/fallback histórico.
+  //  3) default genérico.
   const baseSystemPrompt =
+    asString(config.promptTemplate) ??
     asString(config.systemPrompt) ??
     "Sos un agente de LMTM-OS (Paperclip). Respondé en español rioplatense cuando sea posible.";
 
