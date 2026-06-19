@@ -441,7 +441,7 @@ async function callClaude(messages: ChatMessage[], tools: unknown[], apiKey: str
 
 async function callMiniMax(messages: ChatMessage[], tools: unknown[], apiKey: string): Promise<AIResponse> {
   const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
-  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2.7";
+  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
 
   const body: Record<string, unknown> = {
     model,

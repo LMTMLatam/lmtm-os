@@ -236,7 +236,7 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
   const key = process.env.MINIMAX_API_KEY;
   if (!key) return null;
   const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
-  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2.7";
+  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
   try {
     const r = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
       method: "POST",
@@ -244,7 +244,7 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
       body: JSON.stringify({
         model,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
-        // MiniMax-M2.7 is a reasoning model: it spends tokens on internal
+        // MiniMax-M3 is a reasoning model: it spends tokens on internal
         // reasoning before the answer, so a low cap leaves `content` empty
         // (finish_reason: length). Give it enough headroom for reasoning + a
         // full reply, otherwise every narrative/report/content gen falls back.

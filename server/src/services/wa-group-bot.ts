@@ -216,7 +216,7 @@ async function callMinimax(systemPrompt: string, userContent: string): Promise<s
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model: process.env.MINIMAX_MODEL ?? "MiniMax-M2.7",
+        model: process.env.MINIMAX_MODEL ?? "MiniMax-M3",
         max_tokens: 1024,
         temperature: 0.4,
         messages: [
