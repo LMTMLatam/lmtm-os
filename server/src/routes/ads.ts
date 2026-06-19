@@ -3,21 +3,25 @@
 // dispatch to the right AdsProvider based on the connection.platform
 // column, not on hardcoded "meta" in the path.
 //
-//   GET    /api/ads/connections
-//   GET    /api/ads/connections/:id
-//   POST   /api/ads/connections          (manual token paste; platform-specific)
-//   PATCH  /api/ads/connections/:id
-//   DELETE /api/ads/connections/:id
-//   GET    /api/ads/connections/:id/ad-accounts
-//   GET    /api/ads/connections/:id/pages
-//   GET    /api/ads/oauth/start?platform=meta&companyId=...
-//   GET    /api/ads/oauth/callback
+// NOTE: the URL prefix is "/integrations" (NOT "/ads"). Browser ad blockers
+// block any URL containing the "ads" path segment, which silently broke these
+// XHR calls in the panel. Keep these paths free of "ads"/"adset" tokens.
 //
-//   GET    /api/ads/mappings
-//   GET    /api/ads/mappings/:id
-//   POST   /api/ads/mappings
-//   PATCH  /api/ads/mappings/:id
-//   DELETE /api/ads/mappings/:id
+//   GET    /api/integrations/connections
+//   GET    /api/integrations/connections/:id
+//   POST   /api/integrations/connections     (manual token paste; platform-specific)
+//   PATCH  /api/integrations/connections/:id
+//   DELETE /api/integrations/connections/:id
+//   GET    /api/integrations/connections/:id/accounts
+//   GET    /api/integrations/connections/:id/pages
+//   GET    /api/integrations/oauth/start?platform=meta&companyId=...
+//   GET    /api/integrations/oauth/callback
+//
+//   GET    /api/integrations/mappings
+//   GET    /api/integrations/mappings/:id
+//   POST   /api/integrations/mappings
+//   PATCH  /api/integrations/mappings/:id
+//   DELETE /api/integrations/mappings/:id
 //
 //   POST   /api/ads/sync/:job            (job: campaigns|adsets|ads|insights|organic|all)
 //   GET    /api/clients                  (list of LMTM clients)
@@ -137,19 +141,25 @@ export function adsRoutes(db: Db): Router {
     next();
   });
 
-  // Auth boundary for /ads/* (connections, mappings, sync, ad-account lookups).
-  // These expose ad-platform tokens and let agents read/write campaigns, so they
-  // must never be anonymous. Exception: the OAuth start/callback routes are
-  // reached via a provider redirect without a session, so they stay public.
-  router.use("/ads", (req, _res, next) => {
-    if (req.originalUrl.includes("/ads/oauth/")) return next();
+  // Auth boundary for /integrations/* (connections, mappings, sync, account
+  // lookups). These expose ad-platform tokens and let agents read/write
+  // campaigns, so they must never be anonymous. Exception: the OAuth
+  // start/callback routes are reached via a provider redirect without a session,
+  // so they stay public.
+  //
+  // NOTE: this prefix is deliberately NOT "/ads" — browser ad blockers
+  // (uBlock/AdGuard/etc.) block any URL containing the "ads" path segment with
+  // net::ERR_BLOCKED_BY_CLIENT, which silently broke the connections lookup in
+  // the panel. Keep ad-platform XHR paths free of "ads"/"adset" tokens.
+  router.use("/integrations", (req, _res, next) => {
+    if (req.originalUrl.includes("/integrations/oauth/")) return next();
     if (req.actor.type === "none") throw unauthorized("Authentication required");
     next();
   });
 
   // ---- Connections ----
 
-  router.get("/ads/connections", async (req, res) => {
+  router.get("/integrations/connections", async (req, res) => {
     const companyId = (req.query.companyId as string) ?? null;
     const platform = (req.query.platform as string) ?? null;
     // A companyId is required so we only ever return connections for a company
@@ -164,14 +174,14 @@ export function adsRoutes(db: Db): Router {
     res.json({ connections: rows.map(toPublicConnection) });
   });
 
-  router.get("/ads/connections/:id", async (req, res) => {
+  router.get("/integrations/connections/:id", async (req, res) => {
     const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!row) return res.status(404).json({ error: "connection not found" });
     assertCompanyAccess(req, row.companyId);
     res.json(toPublicConnection(row));
   });
 
-  router.post("/ads/connections", async (req, res) => {
+  router.post("/integrations/connections", async (req, res) => {
     const body = req.body ?? {};
     if (!body.companyId || !body.platform || !body.label || !body.accessToken) {
       return res.status(400).json({ error: "missing required fields: companyId, platform, label, accessToken" });
@@ -205,7 +215,7 @@ export function adsRoutes(db: Db): Router {
     res.status(201).json(toPublicConnection(row));
   });
 
-  router.patch("/ads/connections/:id", async (req, res) => {
+  router.patch("/integrations/connections/:id", async (req, res) => {
     const body = req.body ?? {};
     const update: Record<string, unknown> = { updatedAt: new Date() };
     for (const k of ["label", "accessToken", "refreshToken", "developerToken", "clientIdText", "clientSecret", "status", "lastError", "businessId", "pageId", "adAccountId", "managerAccountId", "merchantId", "appId", "tenantId", "tokenType"]) {
@@ -221,7 +231,7 @@ export function adsRoutes(db: Db): Router {
     res.json(toPublicConnection(row));
   });
 
-  router.delete("/ads/connections/:id", async (req, res) => {
+  router.delete("/integrations/connections/:id", async (req, res) => {
     const [existing] = await db.select({ companyId: adsConnections.companyId }).from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!existing) return res.status(204).end();
     assertCompanyAccess(req, existing.companyId);
@@ -229,7 +239,7 @@ export function adsRoutes(db: Db): Router {
     res.status(204).end();
   });
 
-  router.get("/ads/connections/:id/ad-accounts", async (req, res) => {
+  router.get("/integrations/connections/:id/accounts", async (req, res) => {
     const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!conn) return res.status(404).json({ error: "connection not found" });
     if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
@@ -242,7 +252,7 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  router.get("/ads/connections/:id/pages", async (req, res) => {
+  router.get("/integrations/connections/:id/pages", async (req, res) => {
     const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!conn) return res.status(404).json({ error: "connection not found" });
     if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
@@ -259,7 +269,7 @@ export function adsRoutes(db: Db): Router {
   // Returns one record per page with the ad accounts linked to that page
   // and the ad sets under each ad account. The UI uses this to let the
   // user pick a subset of ad sets per (page, ad_account, client) mapping.
-  router.get("/ads/connections/:id/pages-with-adsets", async (req, res) => {
+  router.get("/integrations/connections/:id/pages-with-sets", async (req, res) => {
     const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!conn) return res.status(404).json({ error: "connection not found" });
     if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
@@ -328,8 +338,8 @@ export function adsRoutes(db: Db): Router {
 
   // ---- Diagnostic endpoint: returns counts and per-ad-account errors
   // so the user can see exactly which ad accounts failed and why.
-  // GET /api/ads/connections/:id/pages-with-adsets/diagnostics
-  router.get("/ads/connections/:id/pages-with-adsets/diagnostics", async (req, res) => {
+  // GET /api/ads/connections/:id/pages-with-sets/diagnostics
+  router.get("/integrations/connections/:id/pages-with-sets/diagnostics", async (req, res) => {
     const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!conn) return res.status(404).json({ error: "connection not found" });
     if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
@@ -399,7 +409,7 @@ export function adsRoutes(db: Db): Router {
 
   // ---- Mappings ----
 
-  router.get("/ads/mappings", async (req, res) => {
+  router.get("/integrations/mappings", async (req, res) => {
     const companyId = (req.query.companyId as string) ?? null;
     const clientId = (req.query.clientId as string) ?? null;
     const conditions = [];
@@ -409,7 +419,7 @@ export function adsRoutes(db: Db): Router {
     res.json({ mappings: rows });
   });
 
-  router.post("/ads/mappings", async (req, res) => {
+  router.post("/integrations/mappings", async (req, res) => {
     const body = req.body ?? {};
     if (!body.companyId || !body.connectionId || !body.adAccountId) {
       return res.status(400).json({ error: "missing required fields: companyId, connectionId, adAccountId" });
@@ -453,7 +463,7 @@ export function adsRoutes(db: Db): Router {
   // ---- Bulk create mappings (Make.com-style) ----
   // Body: { companyId, connectionId, mappings: [{ adAccountId, pageId, clientId, includedAdsets: string[] }, ...] }
   // Skip any (companyId, adAccountId, pageId) that already exists.
-  router.post("/ads/mappings/bulk", async (req, res) => {
+  router.post("/integrations/mappings/bulk", async (req, res) => {
     const body = req.body ?? {};
     if (!body.companyId || !body.connectionId || !Array.isArray(body.mappings)) {
       return res.status(400).json({ error: "missing required fields: companyId, connectionId, mappings[]" });
@@ -502,7 +512,7 @@ export function adsRoutes(db: Db): Router {
     res.status(201).json(results);
   });
 
-  router.patch("/ads/mappings/:id", async (req, res) => {
+  router.patch("/integrations/mappings/:id", async (req, res) => {
     const body = req.body ?? {};
     const update: Record<string, unknown> = { updatedAt: new Date() };
     for (const k of ["pageId", "label", "clientId"]) {
@@ -513,7 +523,7 @@ export function adsRoutes(db: Db): Router {
     res.json(row);
   });
 
-  router.delete("/ads/mappings/:id", async (req, res) => {
+  router.delete("/integrations/mappings/:id", async (req, res) => {
     await db.delete(adsAccountMappings).where(eq(adsAccountMappings.id, req.params.id));
     res.status(204).end();
   });
@@ -524,7 +534,7 @@ export function adsRoutes(db: Db): Router {
   // Builds the platform's authorization URL with a base64url-encoded
   // state payload and 302-redirects the browser. After the user
   // grants access, the platform sends them back to /api/ads/oauth/callback.
-  router.get("/ads/oauth/start", async (req, res) => {
+  router.get("/integrations/oauth/start", async (req, res) => {
     const platform = String(req.query.platform ?? "");
     if (!isKnownAdsPlatform(platform) || platform === "meta") {
       // Meta uses the legacy /api/meta/oauth/start route for now.
@@ -567,7 +577,7 @@ export function adsRoutes(db: Db): Router {
   // Exchanges the code for tokens via the provider, persists an
   // `ads_connections` row, and redirects the user back to the
   // integrations page.
-  router.get("/ads/oauth/callback", async (req, res) => {
+  router.get("/integrations/oauth/callback", async (req, res) => {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const stateRaw = typeof req.query.state === "string" ? req.query.state : "";
     const errorParam = typeof req.query.error === "string" ? req.query.error : "";
@@ -890,7 +900,7 @@ export function adsRoutes(db: Db): Router {
   // counts. For "all" we run campaigns + adsets + ads + insights in sequence
   // (organic is opt-in via "organic" job because it requires a page mapping
   // and is slower).
-  router.post("/ads/sync/:job", async (req, res) => {
+  router.post("/integrations/sync/:job", async (req, res) => {
     const job = req.params.job;
     if (!["campaigns", "adsets", "ads", "insights", "organic", "all"].includes(job)) {
       return res.status(400).json({ error: `unknown job: ${job}` });

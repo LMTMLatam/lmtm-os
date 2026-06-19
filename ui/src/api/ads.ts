@@ -86,17 +86,17 @@ export const adsApi = {
   listConnections: (companyId: string, platform?: AdsPlatform) => {
     const qs = new URLSearchParams({ companyId });
     if (platform) qs.set("platform", platform);
-    return api.get<AdsConnectionsResponse>(`/ads/connections?${qs.toString()}`);
+    return api.get<AdsConnectionsResponse>(`/integrations/connections?${qs.toString()}`);
   },
   getConnection: (id: string) =>
-    api.get<AdsConnection>(`/ads/connections/${id}`),
+    api.get<AdsConnection>(`/integrations/connections/${id}`),
   listAdAccounts: (connectionId: string) =>
-    api.get<AdsAdAccountsResponse>(`/ads/connections/${connectionId}/ad-accounts`),
+    api.get<AdsAdAccountsResponse>(`/integrations/connections/${connectionId}/accounts`),
   listPages: (connectionId: string) =>
-    api.get<AdsPagesResponse>(`/ads/connections/${connectionId}/pages`),
+    api.get<AdsPagesResponse>(`/integrations/connections/${connectionId}/pages`),
   // Make.com-style: pages + their linked ad accounts + ad sets.
   listPagesWithAdSets: (connectionId: string) =>
-    api.get<AdsPagesWithAdSetsResponse>(`/ads/connections/${connectionId}/pages-with-adsets`),
+    api.get<AdsPagesWithAdSetsResponse>(`/integrations/connections/${connectionId}/pages-with-sets`),
   // Diagnostics: see per-ad-account adset counts + errors.
   pagesWithAdSetsDiagnostics: (connectionId: string) =>
     api.get<{
@@ -104,13 +104,13 @@ export const adsApi = {
       adAccounts: number;
       adSetsByAdAccount: Record<string, { total: number; active: number; paused: number; other: number; error?: string }>;
       errors: string[];
-    }>(`/ads/connections/${connectionId}/pages-with-adsets/diagnostics`),
+    }>(`/integrations/connections/${connectionId}/pages-with-sets/diagnostics`),
   listMappings: (params?: { companyId?: string; clientId?: string }) => {
     const sp = new URLSearchParams();
     if (params?.companyId) sp.set("companyId", params.companyId);
     if (params?.clientId) sp.set("clientId", params.clientId);
     const qs = sp.toString() ? `?${sp.toString()}` : "";
-    return api.get<AdsMappingsResponse>(`/ads/mappings${qs}`);
+    return api.get<AdsMappingsResponse>(`/integrations/mappings${qs}`);
   },
   createMapping: (body: {
     companyId: string;
@@ -121,7 +121,7 @@ export const adsApi = {
     platform?: AdsPlatform;
     label?: string;
     includedAdsets?: string[];
-  }) => api.post<{ mapping: AdsMapping; skipped: boolean; updated: boolean }>("/ads/mappings", body),
+  }) => api.post<{ mapping: AdsMapping; skipped: boolean; updated: boolean }>("/integrations/mappings", body),
   createBulkMappings: (body: {
     companyId: string;
     connectionId: string;
@@ -133,8 +133,8 @@ export const adsApi = {
       label?: string;
       includedAdsets?: string[];
     }>;
-  }) => api.post<{ created: AdsMapping[]; updated: AdsMapping[]; skipped: number }>("/ads/mappings/bulk", body),
-  deleteConnection: (id: string) => api.delete<{ ok: true }>(`/ads/connections/${id}`),
+  }) => api.post<{ created: AdsMapping[]; updated: AdsMapping[]; skipped: number }>("/integrations/mappings/bulk", body),
+  deleteConnection: (id: string) => api.delete<{ ok: true }>(`/integrations/connections/${id}`),
   /**
    * Returns the absolute URL the user must visit to start the Meta OAuth flow.
    * The server redirects to facebook.com/v21.0/dialog/oauth and, on success,

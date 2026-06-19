@@ -104,7 +104,7 @@ export const clientsApi = {
     return `/api/clients/${idOrSlug}/campaigns.csv${qs}`;
   },
   syncAds: (connectionId: string, mappingId: string, job: "campaigns" | "insights" | "all" = "all", since?: string, until?: string) =>
-    api.post<SyncAdsResponse>(`/ads/sync/${job}`, { connectionId, mappingId, since, until }),
+    api.post<SyncAdsResponse>(`/integrations/sync/${job}`, { connectionId, mappingId, since, until }),
   clickupSync: (idOrSlug: string) =>
     api.post<{ folderId: string | null; redes: string | null; video: string | null; enfoqueTecnico: string | null; teamId: string | null; warnings: string[] }>(`/clients/${idOrSlug}/clickup/sync`, null),
   clickupEnfoqueTecnicoRefresh: (idOrSlug: string) =>
