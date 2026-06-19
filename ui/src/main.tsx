@@ -22,10 +22,18 @@ import "./index.css";
 
 initPluginBridge(React, ReactDOM);
 
+// We no longer register a caching service worker — older builds shipped one
+// that could get stuck serving stale assets (showing e.g. Meta as "not
+// connected"). Proactively unregister any existing worker and clear its caches
+// so the app always loads fresh from the network. The /sw.js kill-switch
+// handles browsers that are still stuck on the old worker.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js");
-  });
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) registration.unregister();
+  }).catch(() => {});
+  if (typeof caches !== "undefined") {
+    caches.keys().then((keys) => keys.forEach((key) => caches.delete(key))).catch(() => {});
+  }
 }
 
 const queryClient = new QueryClient({
