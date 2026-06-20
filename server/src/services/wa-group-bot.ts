@@ -646,14 +646,25 @@ export async function initWaBot(database: Db) {
       ensureSessionRunning(false)
         .then(async () => {
           // Give the gateway time to restore creds and report "connected".
+          // A cold container after a redeploy can need a while to re-sync, so
+          // wait generously. Only tear the session down if the gateway is
+          // showing a QR ("qr") — i.e. there are NO persisted creds to restore,
+          // so it would otherwise churn QRs in the background. If it has creds
+          // (connecting/connected) we KEEP it running so alerts can send and
+          // the link survives without the operator re-opening the UI.
           setTimeout(() => {
-            if (cachedStatus !== "connected") {
+            if (cachedStatus === "connected") {
+              autoStartAttempts = 0;
+            } else if (cachedQr !== null) {
+              // Gateway is showing a QR → there are NO persisted creds to
+              // restore, so it would only churn QRs in the background. Stop it
+              // until the operator opens the WhatsApp section.
               console.log("[wa-bot] no paired session to restore — stopping until operator opens WhatsApp section");
               void stopWaBot().catch(() => {});
-            } else {
-              autoStartAttempts = 0;
             }
-          }, 15_000);
+            // connecting WITHOUT a QR = has creds, still syncing → keep it so
+            // alerts can send; keepalive will see it through.
+          }, 45_000);
         })
         .catch(() => {});
     }, 2000);

@@ -280,16 +280,31 @@ async function startSocket() {
   }
 }
 
-async function stopSocket() {
+// Stop the socket. By default this is NON-destructive: it only closes the
+// connection and KEEPS the persisted creds, so the WhatsApp link survives a
+// restart/redeploy. Only an explicit unlink ({ logout: true }) tells WhatsApp
+// to remove the device and wipes the creds.
+//
+// This used to ALWAYS logout()+clearAll(), which silently destroyed the linked
+// session on every automatic teardown — e.g. the server's 15s boot timeout
+// that calls stopWaBot() when the gateway hasn't reconnected yet. After a
+// redeploy the cold container often needs >15s to re-sync, so the link was
+// being wiped on essentially every deploy.
+async function stopSocket({ logout = false } = {}) {
   session.exists = false;
-  try { await session.sock?.logout(); } catch { /* noop */ }
+  if (logout) {
+    try { await session.sock?.logout(); } catch { /* noop */ }
+  }
   try { session.sock?.end?.(undefined); } catch { /* noop */ }
   session.sock = null;
   session.status = "DISCONNECTED";
   session.qrCode = null;
-  session.phoneNumber = null;
-  // Wipe persisted creds so the next start shows a fresh QR.
-  try { await pgAuth?.clearAll?.(); } catch { /* noop */ }
+  if (logout) {
+    session.phoneNumber = null;
+    // Wipe persisted creds only on an explicit unlink so the next start shows
+    // a fresh QR. A plain stop keeps them.
+    try { await pgAuth?.clearAll?.(); } catch { /* noop */ }
+  }
 }
 
 // ── HTTP API ──────────────────────────────────────────────────────────────────
@@ -330,8 +345,11 @@ app.get("/api/sessions/:id/qr", (_req, res) => {
   res.json({ data: { qrCode: session.qrCode }, qrCode: session.qrCode, status: session.status });
 });
 
-app.delete("/api/sessions/:id", async (_req, res) => {
-  await stopSocket();
+app.delete("/api/sessions/:id", async (req, res) => {
+  // Non-destructive by default (just disconnect, keep the link). Pass
+  // ?logout=true to actually unlink the device and wipe creds.
+  const logout = req.query.logout === "true" || req.query.logout === "1";
+  await stopSocket({ logout });
   res.json({ data: { ok: true } });
 });
 
