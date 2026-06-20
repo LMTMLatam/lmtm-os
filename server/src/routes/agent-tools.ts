@@ -16,8 +16,13 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
+import { clients, competitors, accountScores } from "@paperclipai/db";
+import { desc, eq } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
+import { getBrainContext, upsertMemory, type MemoryKind } from "../services/customer-brain.js";
+import { aggInsights } from "../services/agency-ops.js";
+import { resolveCompanyId } from "../services/intel-common.js";
 import { unauthorized } from "../errors.js";
 
 type ToolDef = {
@@ -69,6 +74,92 @@ const CORE_TOOLS: ToolDef[] = [
           reason: { type: "string", description: "Motivo breve del cambio (opcional)" },
         },
         required: ["issueId", "status"],
+      },
+    },
+  },
+  // ── Acceso a datos del cliente (lectura) ──────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "list_clients",
+      description:
+        "Lista los clientes activos de la agencia (id, nombre, slug). Usalo para encontrar el clientId de un cliente por su nombre antes de pedir sus datos.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_brain",
+      description:
+        "Devuelve la MEMORIA viva del cliente: hechos, decisiones, preferencias, riesgos, performance y el Enfoque Técnico acumulado. Leelo SIEMPRE antes de trabajar sobre un cliente para tener contexto.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string", description: "UUID del cliente (de list_clients)" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_competitors",
+      description: "Lista los competidores cargados del cliente (nombre, redes, web, notas, anuncios de muestra).",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_ads_performance",
+      description:
+        "Métricas REALES de Meta Ads del cliente para los últimos N días (spend, impresiones, clicks, leads, reach, CTR, CPL, CPC). Datos sincronizados, no inventes.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          sinceDays: { type: "number", description: "Ventana en días (default 30)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_scores",
+      description: "Devuelve el último score de Salud de cuenta (ads) y Operativo (cumplimiento) del cliente, 0-100.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  // ── Autoaprendizaje (escritura en la memoria del cliente) ─────────────────
+  {
+    type: "function",
+    function: {
+      name: "remember_about_client",
+      description:
+        "Guarda un aprendizaje en la MEMORIA del cliente para que el sistema lo recuerde en el futuro. Usalo cuando descubrís algo útil y durable: qué creatividad/ángulo funciona, una preferencia del cliente, un riesgo, una decisión, un resultado clave. Así el sistema autoaprende a medida que trabajamos. NO guardes ruido ni cosas obvias.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          key: { type: "string", description: "Identificador corto del aprendizaje (ej. 'angulo-ganador', 'preferencia-tono')" },
+          content: { type: "string", description: "El aprendizaje, claro y autocontenido (1-3 frases)" },
+          kind: {
+            type: "string",
+            enum: ["fact", "preference", "decision", "event", "performance", "context", "risk"],
+            description: "Tipo de memoria (default 'fact')",
+          },
+        },
+        required: ["clientId", "key", "content"],
       },
     },
   },
@@ -169,6 +260,84 @@ export function agentToolsRoutes(
           actorAgentId: ctx.agentId,
         });
         return reply(true, `Estado del issue cambiado a "${status}".`);
+      }
+
+      if (tool === "list_clients") {
+        const rows = await db
+          .select({ id: clients.id, name: clients.name, slug: clients.slug })
+          .from(clients)
+          .where(eq(clients.status, "active"))
+          .limit(200);
+        return reply(true, JSON.stringify(rows));
+      }
+
+      if (tool === "get_client_brain") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const brain = await getBrainContext(db, clientId, 4000);
+        return reply(true, brain || "(El cliente todavía no tiene memoria cargada.)");
+      }
+
+      if (tool === "get_client_competitors") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const rows = await db.select().from(competitors).where(eq(competitors.clientId, clientId)).limit(50);
+        const out = rows.map((c) => ({
+          name: c.name,
+          fbPageUrl: c.fbPageUrl,
+          igHandle: c.igHandle,
+          website: c.website,
+          notes: c.notes,
+          sampleAds: (c.sampleAds ?? []).length,
+        }));
+        return reply(true, JSON.stringify(out));
+      }
+
+      if (tool === "get_client_ads_performance") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const days =
+          typeof params.sinceDays === "number" && params.sinceDays > 0 ? Math.min(365, params.sinceDays) : 30;
+        const until = new Date();
+        const since = new Date(until.getTime() - days * 86_400_000);
+        const agg = await aggInsights(db, clientId, since.toISOString(), until.toISOString());
+        const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
+        const cpl = agg.leads > 0 ? agg.spend / agg.leads : null;
+        const cpc = agg.clicks > 0 ? agg.spend / agg.clicks : null;
+        return reply(
+          true,
+          JSON.stringify({
+            windowDays: days,
+            spend: Math.round(agg.spend),
+            impressions: agg.impressions,
+            clicks: agg.clicks,
+            leads: agg.leads,
+            reach: agg.reach,
+            ctrPct: Number(ctr.toFixed(2)),
+            cpl: cpl != null ? Number(cpl.toFixed(2)) : null,
+            cpc: cpc != null ? Number(cpc.toFixed(2)) : null,
+          }),
+        );
+      }
+
+      if (tool === "get_client_scores") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const [row] = await db
+          .select()
+          .from(accountScores)
+          .where(eq(accountScores.clientId, clientId))
+          .orderBy(desc(accountScores.date))
+          .limit(1);
+        if (!row) return reply(true, "(Sin scores calculados todavía para este cliente.)");
+        return reply(true, JSON.stringify({ date: row.date, healthScore: row.healthScore, opsScore: row.opsScore }));
+      }
+
+      if (tool === "remember_about_client") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const key = typeof params.key === "string" ? params.key.slice(0, 120) : "";
+        const content = typeof params.content === "string" ? params.content : "";
+        if (!clientId || !key || !content.trim()) return reply(false, "Faltan clientId, key o content.");
+        const kind = (typeof params.kind === "string" ? params.kind : "fact") as MemoryKind;
+        const companyId = (await resolveCompanyId(db, clientId)) ?? ctx.companyId;
+        await upsertMemory(db, { companyId, clientId, kind, key, content, source: `agent:${ctx.agentId}` });
+        return reply(true, "Aprendizaje guardado en la memoria del cliente.");
       }
 
       // Plugin tool.
