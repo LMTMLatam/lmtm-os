@@ -104,7 +104,10 @@ async function getGroupCfg(groupJid: string): Promise<GroupCfg> {
       enabled: r.enabled ?? true,
       inactivityMinutes: r.inactivityMinutes ?? 30,
       minMessages: r.minMessages ?? 3,
-      deliveryMode: (r.deliveryMode as DeliveryMode) ?? "group",
+      // Default to "none" (panel only, NO re-posting into the group) to match
+      // DEFAULT_CFG. The old "group" fallback caused summaries to be posted back
+      // into the WhatsApp group when delivery_mode was null/unset.
+      deliveryMode: (r.deliveryMode as DeliveryMode) ?? "none",
       deliveryTarget: r.deliveryTarget ?? null,
       summaryTone: (r.summaryTone as SummaryTone) ?? "rio_platense",
       groupName: r.groupName ?? null,
@@ -125,7 +128,7 @@ async function upsertGroupCfg(groupJid: string, patch: Partial<GroupCfg>) {
       enabled: patch.enabled ?? true,
       inactivityMinutes: patch.inactivityMinutes ?? 30,
       minMessages: patch.minMessages ?? 3,
-      deliveryMode: patch.deliveryMode ?? "group",
+      deliveryMode: patch.deliveryMode ?? "none",
       deliveryTarget: patch.deliveryTarget ?? null,
       summaryTone: patch.summaryTone ?? "rio_platense",
       updatedAt: now,
