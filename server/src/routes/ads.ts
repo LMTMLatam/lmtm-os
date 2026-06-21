@@ -31,7 +31,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -274,7 +274,35 @@ export function adsRoutes(db: Db): Router {
     if (!conn) return res.status(404).json({ error: "connection not found" });
     if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
     const provider = getAdsProvider(conn.platform);
-    try {
+
+    // ---- Cache layer ----
+    // Building this payload hits the Meta Graph API ~50+ times (every Business
+    // Manager's owned_pages + client_pages, plus ad accounts and ad sets). Doing
+    // that on every page load hangs the screen AND trips Meta's app-level rate
+    // limit (HTTP 403 "(#4) Application request limit reached"). So we cache the
+    // payload per connection and only rebuild when it's stale or ?refresh=1.
+    // When a rebuild fails (typically because Meta is throttling), we serve the
+    // last known-good payload (flagged stale) instead of hanging or 502-ing.
+    const TTL_MS = 15 * 60 * 1000; // 15 minutes
+    const BUILD_TIMEOUT_MS = 25_000; // never hang the request longer than this
+    const force = req.query.refresh === "1" || req.query.refresh === "true";
+
+    const [cached] = await db
+      .select()
+      .from(adsInventoryCache)
+      .where(eq(adsInventoryCache.connectionId, conn.id));
+    const cacheAgeMs = cached ? Date.now() - new Date(cached.fetchedAt).getTime() : Infinity;
+
+    if (cached && !force && cacheAgeMs < TTL_MS) {
+      return res.json({
+        ...(cached.payload as Record<string, unknown>),
+        cached: true,
+        stale: false,
+        fetchedAt: cached.fetchedAt,
+      });
+    }
+
+    const buildInventory = async () => {
       // ---- Step 1: fetch pages + ad accounts in parallel (independent calls) ----
       const [pages, allAccounts] = await Promise.all([
         provider.listPages(conn.accessToken),
@@ -328,9 +356,41 @@ export function adsRoutes(db: Db): Router {
         };
       }));
 
-      res.json({ pages: perPage });
+      return { pages: perPage };
+    };
+
+    // Rebuild, bounded by a timeout so the request never hangs for minutes
+    // (the Graph helper retries rate-limits with exponential backoff, which can
+    // otherwise stall the response). On any failure we fall back to cache.
+    try {
+      const payload = await Promise.race([
+        buildInventory(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("inventory build timed out")), BUILD_TIMEOUT_MS),
+        ),
+      ]);
+      // Persist the fresh payload as the new known-good cache.
+      await db
+        .insert(adsInventoryCache)
+        .values({ connectionId: conn.id, companyId: conn.companyId, payload })
+        .onConflictDoUpdate({
+          target: adsInventoryCache.connectionId,
+          set: { companyId: conn.companyId, payload, fetchedAt: new Date() },
+        });
+      return res.json({ ...payload, cached: false, stale: false, fetchedAt: new Date() });
     } catch (err) {
-      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      // Build failed (usually Meta throttling). Serve the last known-good
+      // payload if we have one, so the screen still loads.
+      if (cached) {
+        return res.json({
+          ...(cached.payload as Record<string, unknown>),
+          cached: true,
+          stale: true,
+          fetchedAt: cached.fetchedAt,
+          warning: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 

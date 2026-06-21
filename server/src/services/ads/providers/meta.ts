@@ -243,27 +243,39 @@ export const metaProvider: AdsProvider = {
       )) {
         for (const b of batch) if (b.id) businessIds.push(b.id);
       }
-      // Enumerate each business's owned + client pages IN PARALLEL. Doing this
-      // sequentially across ~25 businesses (2 edges each) made the inventory
-      // load hang. Promise.allSettled keeps one failing edge from breaking the
-      // rest; the paginate helper already backs off on rate limits.
-      const edgeTasks: Array<Promise<void>> = [];
+      // Enumerate each business's owned + client pages with BOUNDED concurrency.
+      // Sequentially across ~25 businesses (2 edges each) the inventory load
+      // hung; but firing all ~50 calls at once spikes Meta's app-level rate
+      // limit (x-app-usage call_count > 100% → 403 "(#4) Application request
+      // limit reached"), which then makes the paginate backoff stall for
+      // minutes. A small worker pool keeps it fast without tripping the limit.
+      const edgeJobs: Array<{ bizId: string; edge: "owned_pages" | "client_pages" }> = [];
       for (const bizId of businessIds) {
-        for (const edge of ["owned_pages", "client_pages"] as const) {
-          edgeTasks.push(
-            (async () => {
-              for await (const batch of paginate<{ id: string; name?: string }>(
-                `/${bizId}/${edge}`,
-                { fields: "id,name" },
-                token,
-              )) {
-                for (const p of batch) add(p);
-              }
-            })(),
-          );
-        }
+        edgeJobs.push({ bizId, edge: "owned_pages" });
+        edgeJobs.push({ bizId, edge: "client_pages" });
       }
-      await Promise.allSettled(edgeTasks);
+      const CONCURRENCY = 4;
+      let cursor = 0;
+      const runEdge = async (job: { bizId: string; edge: string }) => {
+        try {
+          for await (const batch of paginate<{ id: string; name?: string }>(
+            `/${job.bizId}/${job.edge}`,
+            { fields: "id,name" },
+            token,
+          )) {
+            for (const p of batch) add(p);
+          }
+        } catch {
+          // one failing edge must not break the rest
+        }
+      };
+      const workers = Array.from({ length: Math.min(CONCURRENCY, edgeJobs.length) }, async () => {
+        while (cursor < edgeJobs.length) {
+          const job = edgeJobs[cursor++];
+          await runEdge(job);
+        }
+      });
+      await Promise.all(workers);
     } catch {
       // token lacks business_management — return direct-role pages only
     }

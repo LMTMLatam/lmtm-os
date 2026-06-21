@@ -89,6 +89,8 @@ export { clients } from "./clients.js";
 export type { Client, NewClient } from "./clients.js";
 export { clientContextCache } from "./client_context_cache.js";
 export type { ClientContextCache, NewClientContextCache } from "./client_context_cache.js";
+export { adsInventoryCache } from "./ads_inventory_cache.js";
+export type { AdsInventoryCache, NewAdsInventoryCache } from "./ads_inventory_cache.js";
 // Intelligence layer (0107): Customer Brain, scores, feedback, content KG, learnings, opportunities.
 export {
   clientMemory,
