@@ -132,6 +132,13 @@ function toPublicConnection<T extends Record<string, unknown>>(row: T): Partial<
 export function adsRoutes(db: Db): Router {
   const router = Router();
 
+  // Single-flight guard for the heavy "pages-with-sets" inventory build. Several
+  // page loads / retries used to each spawn a full build (listPages ~50 Graph
+  // calls + listAdSets across every ad account). Stacked concurrent builds spiked
+  // memory and OOM-killed the 512MB instance. We keep at most ONE in-flight build
+  // per connection; concurrent requests await the same promise.
+  const inventoryBuilds = new Map<string, Promise<{ pages: unknown[] }>>();
+
   // Auth boundary for the client surface. Every /clients/* route (list,
   // create, dashboards, ClickUp sync, CSV export) requires an authenticated
   // actor. The /ads/oauth/* callbacks are deliberately NOT covered here —
@@ -284,7 +291,11 @@ export function adsRoutes(db: Db): Router {
     // When a rebuild fails (typically because Meta is throttling), we serve the
     // last known-good payload (flagged stale) instead of hanging or 502-ing.
     const TTL_MS = 15 * 60 * 1000; // 15 minutes
-    const BUILD_TIMEOUT_MS = 25_000; // never hang the request longer than this
+    // Bounded-concurrency build is ~16-20s; give margin so the first load
+    // finishes and populates the cache (subsequent loads are instant). The
+    // single-flight guard means a timeout here doesn't abandon the build — it
+    // keeps running in the background and caches when done.
+    const BUILD_TIMEOUT_MS = 35_000;
     const force = req.query.refresh === "1" || req.query.refresh === "true";
 
     const [cached] = await db
@@ -309,29 +320,33 @@ export function adsRoutes(db: Db): Router {
         provider.listAdAccounts(conn.accessToken),
       ]);
 
-      // ---- Step 2: fetch ad sets for ALL ad accounts in parallel ----
-      // We pass a noop filter at the provider level and filter here
-      // (by effective_status, excluding DELETED/ARCHIVED by default).
-      // The provider's `listAdSets` signature doesn't yet accept a
-      // filter, so we filter post-hoc on the way out.
+      // ---- Step 2: fetch ad sets for ad accounts with BOUNDED concurrency ----
+      // Firing listAdSets for all ~38 ad accounts at once (on top of listPages'
+      // ~50 calls) burst Meta's rate limit AND spiked memory enough to OOM the
+      // 512MB instance. A worker pool of 4 keeps peak memory + call rate sane.
+      // We filter by effective_status here (drop DELETED/ARCHIVED noise).
       const adSetsByAcc: Record<string, AdSetSummary[]> = {};
       if (provider.listAdSets) {
-        const settled = await Promise.allSettled(
-          allAccounts.map((acc) => provider.listAdSets!(acc.id, conn.accessToken)),
+        const ADSET_CONCURRENCY = 4;
+        let idx = 0;
+        const worker = async () => {
+          while (idx < allAccounts.length) {
+            const acc = allAccounts[idx++];
+            let raw: AdSetSummary[] = [];
+            try {
+              raw = await provider.listAdSets!(acc.id, conn.accessToken);
+            } catch {
+              raw = [];
+            }
+            adSetsByAcc[acc.id] = raw.filter((s) => {
+              const eff = (s.raw as { effective_status?: string }).effective_status ?? s.status;
+              return eff !== "DELETED" && eff !== "ARCHIVED";
+            });
+          }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(ADSET_CONCURRENCY, allAccounts.length) }, () => worker()),
         );
-        for (let i = 0; i < allAccounts.length; i += 1) {
-          const r = settled[i];
-          const raw = r.status === "fulfilled" ? r.value : [];
-          // effective_status from the provider: prefer it over the
-          // raw `status` field. The provider already does this
-          // (see meta.ts listAdSets) but we double-filter here for
-          // safety, and to drop DELETED/ARCHIVED noise.
-          adSetsByAcc[allAccounts[i].id] = raw.filter((s) => {
-            const eff = (s.raw as { effective_status?: string }).effective_status
-              ?? s.status;
-            return eff !== "DELETED" && eff !== "ARCHIVED";
-          });
-        }
       }
 
       // ---- Step 3: build per-page rows (DB lookup only) ----
@@ -362,9 +377,16 @@ export function adsRoutes(db: Db): Router {
     // Rebuild, bounded by a timeout so the request never hangs for minutes
     // (the Graph helper retries rate-limits with exponential backoff, which can
     // otherwise stall the response). On any failure we fall back to cache.
+    // Single-flight: if a build for this connection is already running, await it
+    // instead of starting a second heavy build (prevents the OOM from stacking).
     try {
+      let build = inventoryBuilds.get(conn.id);
+      if (!build) {
+        build = buildInventory().finally(() => inventoryBuilds.delete(conn.id));
+        inventoryBuilds.set(conn.id, build);
+      }
       const payload = await Promise.race([
-        buildInventory(),
+        build,
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("inventory build timed out")), BUILD_TIMEOUT_MS),
         ),
