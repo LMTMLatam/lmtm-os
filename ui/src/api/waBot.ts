@@ -29,6 +29,20 @@ export interface WaGroupConfig {
   deliveryMode: string;
   deliveryTarget: string | null;
   summaryTone: string;
+  clientId: string | null;
+}
+
+export interface WaClientGroup {
+  groupJid: string;
+  groupName: string | null;
+  enabled: boolean;
+  summaries: Array<{
+    id: string;
+    summaryDate: string;
+    content: string;
+    messageCount: number;
+    createdAt: string;
+  }>;
 }
 
 export interface WaSummary {
@@ -53,4 +67,6 @@ export const waBotApi = {
   setGroupConfig: (jid: string, body: Partial<WaGroupConfig>) =>
     api.put<WaGroupConfig>(`/wa-bot/groups/${encodeURIComponent(jid)}/config`, body),
   runSummaryNow: () => api.post<{ ok: boolean }>("/wa-bot/summary/run", null),
+  clientGroups: (clientId: string) =>
+    api.get<{ groups: WaClientGroup[] }>(`/wa-bot/clients/${clientId}/groups`),
 };

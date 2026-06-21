@@ -43,7 +43,9 @@ import {
   Loader2,
   ArrowDown,
   Layers,
+  MessageSquare,
 } from "lucide-react";
+import { waBotApi } from "../api/waBot";
 
 type Tab = "overview" | "paid-media" | "organic" | "crm" | "initiatives" | "team";
 
@@ -258,6 +260,7 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
   const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
 
   return (
+    <div className="space-y-3">
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
       <KpiCard
         title="Spend (30d)"
@@ -313,6 +316,56 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
         />
       </Card>
     </div>
+    <ClientWhatsAppSection clientId={client.id} />
+    </div>
+  );
+}
+
+// WhatsApp groups mapped to this client + their conversation summaries.
+function ClientWhatsAppSection({ clientId }: { clientId: string }) {
+  const { data } = useQuery({
+    queryKey: ["wa-bot", "client-groups", clientId],
+    queryFn: () => waBotApi.clientGroups(clientId),
+    enabled: !!clientId,
+    refetchInterval: 60000,
+  });
+  const groups = data?.groups ?? [];
+
+  return (
+    <Card className="p-4">
+      <h3 className="text-sm font-medium flex items-center gap-2">
+        <MessageSquare className="h-4 w-4" /> WhatsApp
+      </h3>
+      {groups.length === 0 ? (
+        <p className="text-xs text-muted-foreground mt-2">
+          No hay grupos de WhatsApp asignados a este cliente. Asigná uno desde la sección WhatsApp (elegí el cliente en el grupo).
+        </p>
+      ) : (
+        <div className="mt-3 space-y-4">
+          {groups.map((g) => (
+            <div key={g.groupJid}>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1.5">
+                <Users className="h-3.5 w-3.5" />
+                <span className="font-medium text-foreground">{g.groupName ?? g.groupJid}</span>
+                {!g.enabled && <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] px-1.5 py-0">pausado</Badge>}
+              </div>
+              {g.summaries.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Sin resúmenes todavía.</p>
+              ) : (
+                <div className="space-y-2">
+                  {g.summaries.slice(0, 5).map((s) => (
+                    <div key={s.id} className="rounded-md border border-border bg-muted/30 p-3">
+                      <p className="text-[11px] text-muted-foreground mb-1">{s.messageCount} mensajes · {new Date(s.createdAt).toLocaleString()}</p>
+                      <p className="text-xs whitespace-pre-wrap leading-relaxed line-clamp-6">{s.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

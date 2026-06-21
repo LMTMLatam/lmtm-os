@@ -3,6 +3,9 @@ import { pgTable, uuid, text, timestamp, integer, boolean, index } from "drizzle
 export const waGroupConfig = pgTable("wa_group_config", {
   groupJid: text("group_jid").primaryKey(),
   groupName: text("group_name"),
+  // Client this WhatsApp group is mapped to (nullable). Lets group summaries
+  // surface in the client's WhatsApp section and feed its memory.
+  clientId: uuid("client_id"),
   enabled: boolean("enabled").notNull().default(true),
   inactivityMinutes: integer("inactivity_minutes").notNull().default(30),
   minMessages: integer("min_messages").notNull().default(3),

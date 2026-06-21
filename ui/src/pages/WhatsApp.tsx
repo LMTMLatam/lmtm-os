@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { waBotApi, type WaBotStatus, type WaGroupConfig } from "../api/waBot";
+import { clientsApi } from "../api/clients";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MessageCircle, Smartphone, CheckCircle2, RefreshCw, Unlink, Clock, Users, MessageSquare } from "lucide-react";
@@ -202,6 +203,14 @@ function ConversationsPanel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["wa-bot", "groupConfigs"] }),
   });
 
+  const clientsQuery = useQuery({
+    queryKey: ["clients", "active"],
+    queryFn: () => clientsApi.list("active"),
+  });
+  const clientList: Array<{ id: string; name: string }> = Array.isArray(clientsQuery.data)
+    ? (clientsQuery.data as Array<{ id: string; name: string }>)
+    : ((clientsQuery.data as { clients?: Array<{ id: string; name: string }> } | undefined)?.clients ?? []);
+
   const active = groups.find((g) => g.jid === activeJid);
   const inactivity = active?.cfg?.inactivityMinutes ?? 60;
 
@@ -263,6 +272,20 @@ function ConversationsPanel() {
                   className="w-20 h-8 px-2 rounded-md border border-border bg-background text-sm"
                 />
                 <span className="text-muted-foreground">min de inactividad</span>
+                <span className="w-full basis-full" />
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <Users className="h-4 w-4" /> Cliente
+                </span>
+                <select
+                  value={active.cfg?.clientId ?? ""}
+                  onChange={(e) => activeJid && setCfg.mutate({ jid: activeJid, body: { clientId: e.target.value || null } })}
+                  className="h-8 px-2 rounded-md border border-border bg-background text-sm min-w-[180px]"
+                >
+                  <option value="">— Sin cliente —</option>
+                  {clientList.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
                 <button
                   onClick={() => activeJid && setCfg.mutate({ jid: activeJid, body: { enabled: !(active.cfg?.enabled ?? true) } })}
                   className="ml-auto text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted"

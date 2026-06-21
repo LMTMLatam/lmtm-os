@@ -15,6 +15,7 @@ import {
   getWaGroupConfig,
   listWaGroupConfigs,
   setWaGroupConfig,
+  getWaGroupsForClient,
   getWaPublicHealth,
   tickWaBotKeepalive,
   ensurePairingForUi,
@@ -175,6 +176,12 @@ export function waBotRoutes(db: Db) {
     const jid = decodeURIComponent(req.params.jid);
     const summaries = await getGroupSummaries(db, jid);
     res.json(summaries);
+  });
+
+  // WhatsApp groups mapped to a client + their summaries (per-client section).
+  router.get("/clients/:clientId/groups", async (req, res) => {
+    const data = await getWaGroupsForClient(db, req.params.clientId as string);
+    res.json(data);
   });
 
   router.post("/summary/run", async (_req, res) => {

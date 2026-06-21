@@ -7,6 +7,8 @@ import {
   waDailyDigests,
 } from "@paperclipai/db";
 import { desc, gte, eq, and, sql } from "drizzle-orm";
+import { upsertMemory } from "./customer-brain.js";
+import { resolveCompanyId } from "./intel-common.js";
 
 const SESSION_ID = "lmtm";
 
@@ -31,6 +33,7 @@ interface GroupCfg {
   deliveryTarget: string | null;
   summaryTone: SummaryTone;
   groupName: string | null;
+  clientId: string | null;
 }
 
 const DEFAULT_CFG: GroupCfg = {
@@ -41,6 +44,7 @@ const DEFAULT_CFG: GroupCfg = {
   deliveryTarget: null,
   summaryTone: "rio_platense",
   groupName: null,
+  clientId: null,
 };
 
 function mapStatus(s: string | undefined): OurStatus {
@@ -111,6 +115,7 @@ async function getGroupCfg(groupJid: string): Promise<GroupCfg> {
       deliveryTarget: r.deliveryTarget ?? null,
       summaryTone: (r.summaryTone as SummaryTone) ?? "rio_platense",
       groupName: r.groupName ?? null,
+      clientId: r.clientId ?? null,
     };
   } catch {
     return DEFAULT_CFG;
@@ -131,6 +136,7 @@ async function upsertGroupCfg(groupJid: string, patch: Partial<GroupCfg>) {
       deliveryMode: patch.deliveryMode ?? "none",
       deliveryTarget: patch.deliveryTarget ?? null,
       summaryTone: patch.summaryTone ?? "rio_platense",
+      clientId: patch.clientId ?? null,
       updatedAt: now,
     }).catch(() => {});
   } else {
@@ -142,6 +148,7 @@ async function upsertGroupCfg(groupJid: string, patch: Partial<GroupCfg>) {
     if (patch.deliveryMode !== undefined) update.deliveryMode = patch.deliveryMode;
     if (patch.deliveryTarget !== undefined) update.deliveryTarget = patch.deliveryTarget;
     if (patch.summaryTone !== undefined) update.summaryTone = patch.summaryTone;
+    if (patch.clientId !== undefined) update.clientId = patch.clientId;
     await db.update(waGroupConfig).set(update).where(eq(waGroupConfig.groupJid, groupJid)).catch(() => {});
   }
 }
@@ -345,6 +352,24 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
   // Persist name if we learned it
   if (cfg.groupName === null && groupName !== null) {
     await upsertGroupCfg(groupJid, { groupName });
+  }
+
+  // If this group is mapped to a client, feed the summary into the client's
+  // living memory so it surfaces as client context (and self-learning).
+  if (cfg.clientId) {
+    try {
+      const companyId = await resolveCompanyId(db, cfg.clientId);
+      if (companyId) {
+        await upsertMemory(db, {
+          companyId,
+          clientId: cfg.clientId,
+          kind: "event",
+          key: `wa-summary-${summaryDate.slice(0, 10)}`,
+          content: `Resumen WhatsApp (${cfg.groupName ?? groupName ?? "grupo"}): ${summary.slice(0, 600)}`,
+          source: "wa-group-bot",
+        });
+      }
+    } catch { /* noop */ }
   }
 
   const result = await deliverSummary(
@@ -873,4 +898,37 @@ export async function listWaGroupConfigs(database: Db) {
 export async function setWaGroupConfig(database: Db, groupJid: string, patch: Partial<GroupCfg>) {
   await upsertGroupCfg(groupJid, patch);
   return getGroupCfg(groupJid);
+}
+
+/** WhatsApp groups mapped to a client + their recent summaries. Powers the
+ *  per-client WhatsApp section. */
+export async function getWaGroupsForClient(database: Db, clientId: string) {
+  const configs = await database
+    .select()
+    .from(waGroupConfig)
+    .where(eq(waGroupConfig.clientId, clientId))
+    .orderBy(waGroupConfig.groupName);
+  const groups = await Promise.all(
+    configs.map(async (cfg) => {
+      const summaries = await database
+        .select({
+          id: waGroupSummaries.id,
+          summaryDate: waGroupSummaries.summaryDate,
+          content: waGroupSummaries.content,
+          messageCount: waGroupSummaries.messageCount,
+          createdAt: waGroupSummaries.createdAt,
+        })
+        .from(waGroupSummaries)
+        .where(eq(waGroupSummaries.groupJid, cfg.groupJid))
+        .orderBy(desc(waGroupSummaries.createdAt))
+        .limit(15);
+      return {
+        groupJid: cfg.groupJid,
+        groupName: cfg.groupName,
+        enabled: cfg.enabled,
+        summaries,
+      };
+    }),
+  );
+  return { groups };
 }
