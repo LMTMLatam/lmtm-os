@@ -3,7 +3,7 @@
 import type { AdapterModel } from "@paperclipai/adapter-utils";
 import { models as staticModels } from "../index.js";
 
-export const DEFAULT_MODEL = "MiniMax-M3";
+export const DEFAULT_MODEL = "MiniMax-M2";
 
 const DEFAULT_BASE_URL = "https://api.minimaxi.chat/v1";
 

@@ -236,7 +236,7 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
   const key = process.env.MINIMAX_API_KEY;
   if (!key) return null;
   const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
-  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2";
   try {
     const r = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
       method: "POST",

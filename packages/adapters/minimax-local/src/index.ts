@@ -29,7 +29,7 @@ export const modelProfiles: AdapterModelProfileDefinition[] = [
     // model instead of the non-existent "MiniMax-M3-highspeed" (which 2013'd).
     description: "Mantiene MiniMax-M3 (no existe un M3 highspeed en la API).",
     adapterConfig: {
-      model: "MiniMax-M3",
+      model: "MiniMax-M2",
     },
     source: "adapter_default",
   },

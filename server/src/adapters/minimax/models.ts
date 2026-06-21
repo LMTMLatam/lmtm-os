@@ -13,7 +13,7 @@ export const models: AdapterModel[] = [
   { id: "MiniMax-M2", label: "MiniMax M2 (legacy)" },
 ];
 
-export const DEFAULT_MODEL = "MiniMax-M3";
+export const DEFAULT_MODEL = "MiniMax-M2";
 
 export async function listModels(): Promise<AdapterModel[]> {
   const apiKey = process.env.MINIMAX_API_KEY;

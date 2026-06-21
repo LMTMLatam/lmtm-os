@@ -70,7 +70,7 @@ export function askRoutes() {
 
     const apiKey = process.env.MINIMAX_API_KEY;
     const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
-    const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+    const model = process.env.MINIMAX_MODEL ?? "MiniMax-M2";
 
     if (!apiKey) {
       return res.status(500).json({ error: "MINIMAX_API_KEY not configured" });
