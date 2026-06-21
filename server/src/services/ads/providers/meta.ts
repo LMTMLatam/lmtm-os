@@ -243,21 +243,27 @@ export const metaProvider: AdsProvider = {
       )) {
         for (const b of batch) if (b.id) businessIds.push(b.id);
       }
+      // Enumerate each business's owned + client pages IN PARALLEL. Doing this
+      // sequentially across ~25 businesses (2 edges each) made the inventory
+      // load hang. Promise.allSettled keeps one failing edge from breaking the
+      // rest; the paginate helper already backs off on rate limits.
+      const edgeTasks: Array<Promise<void>> = [];
       for (const bizId of businessIds) {
         for (const edge of ["owned_pages", "client_pages"] as const) {
-          try {
-            for await (const batch of paginate<{ id: string; name?: string }>(
-              `/${bizId}/${edge}`,
-              { fields: "id,name" },
-              token,
-            )) {
-              for (const p of batch) add(p);
-            }
-          } catch {
-            // skip this edge/business and continue
-          }
+          edgeTasks.push(
+            (async () => {
+              for await (const batch of paginate<{ id: string; name?: string }>(
+                `/${bizId}/${edge}`,
+                { fields: "id,name" },
+                token,
+              )) {
+                for (const p of batch) add(p);
+              }
+            })(),
+          );
         }
       }
+      await Promise.allSettled(edgeTasks);
     } catch {
       // token lacks business_management — return direct-role pages only
     }

@@ -306,15 +306,13 @@ export function adsRoutes(db: Db): Router {
         }
       }
 
-      // ---- Step 3: build per-page rows in parallel (DB lookup + linked accounts) ----
+      // ---- Step 3: build per-page rows (DB lookup only) ----
+      // NOTE: we deliberately do NOT call listAdAccountsForPage per page. With
+      // ~63 pages (business + client pages) that was one extra Graph call per
+      // page, which made the inventory hang/time out. Every page now offers the
+      // full ad-account list and the operator picks the right one.
       const perPage = await Promise.all(pages.map(async (p) => {
-        let accountsToScan = allAccounts;
-        if (provider.listAdAccountsForPage) {
-          try {
-            const linked = await provider.listAdAccountsForPage(p.id, conn.accessToken);
-            if (linked.length) accountsToScan = linked;
-          } catch { /* keep fallback */ }
-        }
+        const accountsToScan = allAccounts;
         const [existing] = await db.select().from(adsAccountMappings).where(
           and(
             eq(adsAccountMappings.companyId, conn.companyId),
