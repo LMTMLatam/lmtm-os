@@ -17,7 +17,8 @@ export const syncLogs = pgTable("sync_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   companyId: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "cascade" }),
+  // SET NULL (not CASCADE): a connection delete must not erase the audit trail.
+  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
   platform: text("platform").notNull().default("meta"),
   jobName: text("job_name").notNull(),
   status: text("status").notNull().default("running"),
@@ -39,7 +40,9 @@ export const adsCampaigns = pgTable("ads_campaigns", {
   id: text("id").primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-  connectionId: uuid("connection_id").notNull().references(() => adsConnections.id, { onDelete: "cascade" }),
+  // SET NULL (not CASCADE): deleting/replacing a connection must not destroy
+  // ad history (insights/campaigns/etc. are unrecoverable) — see migration 0111.
+  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
   platform: text("platform").notNull().default("meta"),
   adAccountId: text("ad_account_id").notNull(),
   name: text("name").notNull(),
@@ -65,7 +68,9 @@ export const adsAdsets = pgTable("ads_adsets", {
   id: text("id").primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-  connectionId: uuid("connection_id").notNull().references(() => adsConnections.id, { onDelete: "cascade" }),
+  // SET NULL (not CASCADE): deleting/replacing a connection must not destroy
+  // ad history (insights/campaigns/etc. are unrecoverable) — see migration 0111.
+  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
   platform: text("platform").notNull().default("meta"),
   campaignId: text("campaign_id"),
   adAccountId: text("ad_account_id").notNull(),
@@ -88,7 +93,9 @@ export const adsCreatives = pgTable("ads_creatives", {
   id: text("id").primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-  connectionId: uuid("connection_id").notNull().references(() => adsConnections.id, { onDelete: "cascade" }),
+  // SET NULL (not CASCADE): deleting/replacing a connection must not destroy
+  // ad history (insights/campaigns/etc. are unrecoverable) — see migration 0111.
+  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
   platform: text("platform").notNull().default("meta"),
   adsetId: text("adset_id"),
   campaignId: text("campaign_id"),
@@ -112,7 +119,9 @@ export const adsInsights = pgTable("ads_insights", {
   id: uuid("id").primaryKey().defaultRandom(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-  connectionId: uuid("connection_id").notNull().references(() => adsConnections.id, { onDelete: "cascade" }),
+  // SET NULL (not CASCADE): deleting/replacing a connection must not destroy
+  // ad history (insights/campaigns/etc. are unrecoverable) — see migration 0111.
+  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
   platform: text("platform").notNull().default("meta"),
   adAccountId: text("ad_account_id").notNull(),
   campaignId: text("campaign_id"),
@@ -147,7 +156,9 @@ export const organicPosts = pgTable("organic_posts", {
   id: text("id").primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-  connectionId: uuid("connection_id").notNull().references(() => adsConnections.id, { onDelete: "cascade" }),
+  // SET NULL (not CASCADE): deleting/replacing a connection must not destroy
+  // ad history (insights/campaigns/etc. are unrecoverable) — see migration 0111.
+  connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
   platform: text("platform").notNull().default("meta"),
   pageId: text("page_id").notNull(),
   message: text("message"),

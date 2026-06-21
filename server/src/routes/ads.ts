@@ -791,7 +791,7 @@ export function adsRoutes(db: Db): Router {
       debugInfo.step2_mappings = { count: mappings.length };
 
       // Distinct (connection, adAccount) pairs the client touches
-      const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter(Boolean)));
+      const connectionIds = Array.from(new Set(mappings.map((m) => m.connectionId).filter((id): id is string => Boolean(id))));
       const connections = connectionIds.length
         ? await db.select().from(adsConnections).where(inArray(adsConnections.id, connectionIds))
         : [];
@@ -799,7 +799,7 @@ export function adsRoutes(db: Db): Router {
       const connectionById = new Map(connections.map((c) => [c.id, c]));
 
     const accounts = mappings.map((m) => {
-      const conn = connectionById.get(m.connectionId);
+      const conn = m.connectionId ? connectionById.get(m.connectionId) : undefined;
       return {
         mappingId: m.id,
         connectionId: m.connectionId,
@@ -1941,6 +1941,13 @@ export function adsRoutes(db: Db): Router {
       const results: any[] = [];
       // For each mapping, run jobs sequentially. Between mappings, sleep 2s.
       for (const m of mappings) {
+        // A mapping whose connection was deleted/replaced (connection_id NULL
+        // after the SET NULL FK) can't be synced — no token. Skip it; the user
+        // re-links it in /connect-ads.
+        if (!m.connectionId) {
+          results.push({ mappingId: m.id, label: m.label, adAccountId: m.adAccountId, job: "all", status: "skipped", note: "mapping has no connection (re-link in Conectar ad account)", startedAt: new Date(), completedAt: new Date() });
+          continue;
+        }
         for (const job of jobs) {
           const startedAt = new Date();
           try {

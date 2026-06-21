@@ -778,6 +778,13 @@
       "when": 1781800000002,
       "tag": "0110_ads_inventory_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1781800000003,
+      "tag": "0111_ads_connection_fk_set_null",
+      "breakpoints": true
     }
   ]
 }

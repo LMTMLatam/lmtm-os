@@ -33,6 +33,8 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
   const errors: Array<{ mappingId: string; error: string }> = [];
 
   for (const m of mappings) {
+    // Skip orphaned mappings (connection deleted/replaced → connection_id NULL).
+    if (!m.connectionId) continue;
     const base = { connectionId: m.connectionId, mappingId: m.id, since, until };
     try {
       records += await adsAggregator.syncCampaigns(db, { ...base, jobName: "campaigns" });

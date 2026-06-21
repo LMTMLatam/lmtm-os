@@ -91,7 +91,8 @@ async function resolveConnectionMappings(db: Db, companyId?: string): Promise<Co
   console.log(`[meta-sync] companyId=${companyId}: found ${maps.length} mapping row(s) in meta_ad_account_mappings`);
 
   if (maps.length > 0) {
-    const connIds = [...new Set(maps.map(m => m.connectionId))];
+    // Drop orphaned mappings (connection deleted/replaced → connection_id NULL).
+    const connIds = [...new Set(maps.map(m => m.connectionId).filter((id): id is string => Boolean(id)))];
     console.log(`[meta-sync] connectionIds from mappings: ${connIds.join(", ")}`);
     const connections = await db
       .select()
@@ -422,7 +423,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
   const errors: string[] = [];
 
   // Load connections referenced by these mappings (skip revoked).
-  const connIds = [...new Set(mappingRows.map((m) => m.connectionId))];
+  const connIds = [...new Set(mappingRows.map((m) => m.connectionId).filter((id): id is string => Boolean(id)))];
   const connList = connIds.length
     ? await db.select().from(metaConnections).where(inArray(metaConnections.id, connIds))
     : [];
@@ -433,7 +434,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
   const jobs: PageJob[] = [];
 
   for (const m of mappingRows) {
-    const conn = connById.get(m.connectionId);
+    const conn = m.connectionId ? connById.get(m.connectionId) : undefined;
     if (!conn || SYNC_EXCLUDED_STATUSES.includes(conn.status)) continue;
 
     let pageId = m.pageId;

@@ -519,6 +519,7 @@ async function execMetaInsights(
       where: eq(metaAdAccountMappings.adAccountId, wanted),
     });
     if (!mapping) return { error: `No mapping found for ${wanted}` };
+    if (!mapping.connectionId) return { error: `Mapping for ${wanted} has no connection — re-link it in Conectar ad account` };
     conn = (await db.query.metaConnections.findFirst({ where: eq(metaConnections.id, mapping.connectionId) })) ?? null;
     if (!conn) return { error: "Mapped connection not found" };
     account = wanted;
@@ -528,6 +529,7 @@ async function execMetaInsights(
     const mappings = await db.select({ adAccountId: metaAdAccountMappings.adAccountId, connectionId: metaAdAccountMappings.connectionId }).from(metaAdAccountMappings).where(and(...filters));
     if (mappings.length === 0) return { error: "No mapping found. Configure one in /integrations/meta first." };
     if (mappings.length > 1) return { error: `Company has ${mappings.length} mappings. Pass adAccount explicitly.` };
+    if (!mappings[0].connectionId) return { error: "Mapping has no connection — re-link it in Conectar ad account" };
     conn = (await db.query.metaConnections.findFirst({ where: eq(metaConnections.id, mappings[0].connectionId) })) ?? null;
     if (!conn) return { error: "Mapped connection not found" };
     account = mappings[0].adAccountId;
@@ -567,6 +569,10 @@ async function execCompareMetaAccounts(
     });
     if (!mapping) {
       results.push({ adAccount: wanted, totals: {}, error: "No mapping found" });
+      continue;
+    }
+    if (!mapping.connectionId) {
+      results.push({ adAccount: wanted, totals: {}, error: "Mapping has no connection (re-link in Conectar ad account)" });
       continue;
     }
     const conn = await db.query.metaConnections.findFirst({ where: eq(metaConnections.id, mapping.connectionId) });

@@ -628,10 +628,11 @@ export function metaRoutes(db: Db) {
       }
       if (mappings.length === 1) {
         const m = mappings[0];
-        conn =
-          (await db.query.metaConnections.findFirst({
-            where: eq(metaConnections.id, m.connectionId),
-          })) ?? null;
+        conn = m.connectionId
+          ? (await db.query.metaConnections.findFirst({
+              where: eq(metaConnections.id, m.connectionId),
+            })) ?? null
+          : null;
         resolvedAdAccount = m.adAccountId;
       } else {
         // Legacy: connection with adAccountId on the company itself

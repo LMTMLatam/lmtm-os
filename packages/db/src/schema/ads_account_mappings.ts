@@ -21,7 +21,9 @@ export const adsAccountMappings = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-    connectionId: uuid("connection_id").notNull().references(() => adsConnections.id, { onDelete: "cascade" }),
+    // SET NULL (not CASCADE): deleting/replacing a connection must not wipe the
+    // client's page↔account↔client mapping — it survives for re-linking (0111).
+    connectionId: uuid("connection_id").references(() => adsConnections.id, { onDelete: "set null" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     platform: text("platform").notNull().default("meta"),
     adAccountId: text("ad_account_id").notNull(),
