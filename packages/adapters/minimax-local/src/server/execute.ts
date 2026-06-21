@@ -320,7 +320,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       const parsed = parseMinimaxCompletion(raw);
       lastUsage = parsed.usage;
       lastFinish = parsed.message.finishReason;
-      const toolCalls = parsed.message.toolCalls ?? [];
+      // Sanitize tool-call arguments: MiniMax-M3 sometimes emits invalid JSON in
+      // function.arguments, and echoing that back on the next turn makes MiniMax
+      // reject the whole request (2013 "invalid function arguments json string"),
+      // killing the run. Force every arguments string to be valid JSON.
+      const toolCalls = (parsed.message.toolCalls ?? []).map((c) => {
+        let argsStr = c.function.arguments || "{}";
+        try {
+          JSON.parse(argsStr);
+        } catch {
+          argsStr = "{}";
+        }
+        return { ...c, function: { ...c.function, arguments: argsStr } };
+      });
 
       convo.push({
         role: "assistant",
