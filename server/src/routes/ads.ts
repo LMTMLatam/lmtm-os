@@ -137,7 +137,7 @@ export function adsRoutes(db: Db): Router {
   // calls + listAdSets across every ad account). Stacked concurrent builds spiked
   // memory and OOM-killed the 512MB instance. We keep at most ONE in-flight build
   // per connection; concurrent requests await the same promise.
-  const inventoryBuilds = new Map<string, Promise<{ pages: unknown[] }>>();
+  const inventoryBuilds = new Map<string, Promise<Record<string, unknown>>>();
 
   // Auth boundary for the client surface. Every /clients/* route (list,
   // create, dashboards, ClickUp sync, CSV export) requires an authenticated
@@ -350,12 +350,14 @@ export function adsRoutes(db: Db): Router {
       }
 
       // ---- Step 3: build per-page rows (DB lookup only) ----
-      // NOTE: we deliberately do NOT call listAdAccountsForPage per page. With
-      // ~63 pages (business + client pages) that was one extra Graph call per
-      // page, which made the inventory hang/time out. Every page now offers the
-      // full ad-account list and the operator picks the right one.
+      // NOTE: we deliberately do NOT call listAdAccountsForPage per page. Every
+      // page offers the full ad-account list and the operator picks the right one.
+      // CRITICAL: adAccounts + adSets are returned ONCE at the top level, NOT per
+      // page. They're identical for every page, so attaching them to each of ~63
+      // page rows made JSON.stringify expand the full account/adset maps 63× —
+      // that ballooned the response and OOM-killed the 512MB instance. The UI
+      // re-attaches the shared maps client-side (cheap object refs in memory).
       const perPage = await Promise.all(pages.map(async (p) => {
-        const accountsToScan = allAccounts;
         const [existing] = await db.select().from(adsAccountMappings).where(
           and(
             eq(adsAccountMappings.companyId, conn.companyId),
@@ -365,13 +367,11 @@ export function adsRoutes(db: Db): Router {
         );
         return {
           page: { id: p.id, name: p.name },
-          adAccounts: accountsToScan,
-          adSets: adSetsByAcc,
           existingMapping: existing ?? null,
         };
       }));
 
-      return { pages: perPage };
+      return { pages: perPage, adAccounts: allAccounts, adSetsByAccount: adSetsByAcc };
     };
 
     // Rebuild, bounded by a timeout so the request never hangs for minutes

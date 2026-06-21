@@ -66,6 +66,14 @@ export interface AdsPageWithAdSets {
 }
 export interface AdsPagesWithAdSetsResponse { pages: AdsPageWithAdSets[]; }
 
+// Raw server shape: adAccounts + adSets are returned ONCE at the top level
+// (not per page) to keep the payload small — see server ads.ts pages-with-sets.
+interface AdsPagesWithAdSetsRaw {
+  pages: Array<{ page: { id: string; name: string }; existingMapping: AdsMapping | null }>;
+  adAccounts: AdsAdAccount[];
+  adSetsByAccount: Record<string, AdsAdSet[]>;
+}
+
 export interface AdsMapping {
   id: string;
   companyId: string;
@@ -95,8 +103,22 @@ export const adsApi = {
   listPages: (connectionId: string) =>
     api.get<AdsPagesResponse>(`/integrations/connections/${connectionId}/pages`),
   // Make.com-style: pages + their linked ad accounts + ad sets.
-  listPagesWithAdSets: (connectionId: string) =>
-    api.get<AdsPagesWithAdSetsResponse>(`/integrations/connections/${connectionId}/pages-with-sets`),
+  // The server returns adAccounts/adSets once at the top level; we re-attach the
+  // shared maps to each page here (cheap object refs) so callers keep the old
+  // per-page shape.
+  listPagesWithAdSets: async (connectionId: string): Promise<AdsPagesWithAdSetsResponse> => {
+    const raw = await api.get<AdsPagesWithAdSetsRaw>(`/integrations/connections/${connectionId}/pages-with-sets`);
+    const adAccounts = raw.adAccounts ?? [];
+    const adSets = raw.adSetsByAccount ?? {};
+    return {
+      pages: (raw.pages ?? []).map((p) => ({
+        page: p.page,
+        adAccounts,
+        adSets,
+        existingMapping: p.existingMapping,
+      })),
+    };
+  },
   // Diagnostics: see per-ad-account adset counts + errors.
   pagesWithAdSetsDiagnostics: (connectionId: string) =>
     api.get<{
