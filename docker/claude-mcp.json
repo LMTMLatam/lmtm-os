@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "paperclip": {
+      "command": "node",
+      "args": ["/app/packages/mcp-server/dist/stdio.js"]
+    }
+  }
+}

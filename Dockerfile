@@ -102,11 +102,23 @@ COPY docker/wa-gateway/server.mjs ./
 FROM node:20-slim AS runtime
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl procps \
+  && apt-get install -y --no-install-recommends ca-certificates curl procps git \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g pnpm@9.15.4 --no-audit --no-fund
 
-ENV NODE_OPTIONS=--max-old-space-size=380
+# Claude Code CLI: the `claude_local` adapter spawns the `claude` CLI per agent
+# run. Agents point ANTHROPIC_BASE_URL at MiniMax's Anthropic-compatible endpoint
+# (set per-agent in adapter_config.env). git is required by the CLI.
+RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund --loglevel=error
+
+# MCP config so the `claude` CLI exposes Paperclip's tools (issues, comments,
+# client data via paperclipApiRequest, self-learning). The MCP subprocess
+# inherits PAPERCLIP_API_URL/KEY/AGENT_ID/COMPANY_ID/RUN_ID from the claude
+# process env, which the adapter sets per run.
+COPY docker/claude-mcp.json /app/claude-mcp.json
+
+ENV NODE_OPTIONS=--max-old-space-size=380 \
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
   PORT=3100 \
