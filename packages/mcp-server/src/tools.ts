@@ -605,5 +605,60 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         });
       },
     ),
+    // ── LMTM client-data + self-learning tools ──────────────────────────────
+    // First-class wrappers over the in-process agent-tools executor
+    // (POST /agent-tools/execute {tool, parameters}). Exposing them as native
+    // MCP tools (instead of making the model hand-craft paperclipApiRequest
+    // calls) stops the model from fumbling/looping on guessed endpoints.
+    makeTool(
+      "lmtmListClients",
+      "Lista los clientes activos de la agencia (id, nombre, slug). Usalo para encontrar el clientId de un cliente por su nombre antes de pedir sus datos.",
+      z.object({}),
+      async () => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "list_clients", parameters: {} } }),
+    ),
+    makeTool(
+      "lmtmGetClientBrain",
+      "Memoria viva del cliente (Customer Brain): contexto, Enfoque Técnico, aprendizajes previos. Leelo ANTES de trabajar un cliente.",
+      z.object({ clientId: z.string().min(1) }),
+      async ({ clientId }) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_brain", parameters: { clientId } } }),
+    ),
+    makeTool(
+      "lmtmGetClientAdsPerformance",
+      "Métricas REALES de Meta Ads del cliente (spend, impresiones, clicks, leads, CTR, CPL, CPC) para los últimos N días. No inventes datos.",
+      z.object({ clientId: z.string().min(1), sinceDays: z.number().int().positive().max(365).optional() }),
+      async ({ clientId, sinceDays }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_client_ads_performance", parameters: { clientId, ...(sinceDays ? { sinceDays } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmGetClientCompetitors",
+      "Lista los competidores cargados del cliente.",
+      z.object({ clientId: z.string().min(1) }),
+      async ({ clientId }) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_competitors", parameters: { clientId } } }),
+    ),
+    makeTool(
+      "lmtmGetClientScores",
+      "Último score de Salud de cuenta (ads) y Operativo (cumplimiento) del cliente, 0-100.",
+      z.object({ clientId: z.string().min(1) }),
+      async ({ clientId }) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_scores", parameters: { clientId } } }),
+    ),
+    makeTool(
+      "lmtmRememberAboutClient",
+      "Guarda un aprendizaje DURABLE en la memoria del cliente (autoaprendizaje). Usalo cuando descubrís algo útil: ángulo/creatividad que funciona, preferencia, riesgo, decisión, resultado clave. No guardes ruido.",
+      z.object({
+        clientId: z.string().min(1),
+        key: z.string().min(1),
+        content: z.string().min(1),
+        kind: z.enum(["fact", "preference", "decision", "event", "performance", "context", "risk"]).optional(),
+      }),
+      async ({ clientId, key, content, kind }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "remember_about_client", parameters: { clientId, key, content, ...(kind ? { kind } : {}) } },
+        }),
+    ),
   ];
 }
