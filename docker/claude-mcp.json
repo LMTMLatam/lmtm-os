@@ -2,7 +2,7 @@
   "mcpServers": {
     "paperclip": {
       "command": "/usr/local/bin/node",
-      "args": ["/app/packages/mcp-server/dist/stdio.js"],
+      "args": ["--conditions=production", "/app/packages/mcp-server/dist/stdio.js"],
       "env": {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "PAPERCLIP_API_URL": "${PAPERCLIP_API_URL}",
