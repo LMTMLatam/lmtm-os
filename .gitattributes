@@ -1,0 +1,5 @@
+# Force LF for SQL migrations so file hashes are stable across OSes.
+# The migration runner hashes these files; CRLF (Windows) vs LF (Linux CI)
+# produced different hashes and made already-applied migrations look pending.
+*.sql text eol=lf
+packages/db/src/migrations/** text eol=lf
