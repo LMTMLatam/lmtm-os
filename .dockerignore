@@ -8,3 +8,9 @@ coverage
 data
 tmp
 *.log
+# Exclude build artifacts so `railway up` never uploads a stale dist that makes
+# the Docker tsc-incremental build skip recompiling (this masked mcp-server
+# source changes — the native MCP tools shipped stale). The Docker builder
+# rebuilds every package's dist from source, so excluding these is safe.
+**/dist
+**/*.tsbuildinfo
