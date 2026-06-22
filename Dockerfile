@@ -235,7 +235,9 @@ RUN mkdir -p /app/.paperclip/plugins && \
 COPY --from=wa-gateway-builder /wa-gateway /app/wa-gateway
 RUN mkdir -p /app/data/wa-session
 
-VOLUME ["/paperclip"]
+# NOTE: no `VOLUME ["/paperclip"]` — Railway's builder rejects the VOLUME
+# instruction, and it's a no-op on Render (ephemeral FS). The app writes to
+# /paperclip directly regardless; durable state lives in Postgres, not the FS.
 EXPOSE 3100 8080
 
 COPY start.sh /app/start.sh
