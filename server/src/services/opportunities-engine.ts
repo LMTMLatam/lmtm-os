@@ -2,24 +2,36 @@
 // Per client, combines performance gaps + niche learnings + the content
 // knowledge graph + Customer Brain + upcoming key dates into ranked, actionable
 // opportunities. Mostly deterministic, with an optional AI-generated idea.
+//
+// High-priority opportunities (priority >= OPPORTUNITY_AUTOCREATE_THRESHOLD) are
+// automatically materialized as issues (originKind="agent_proposed" — pending
+// approval if external work, or active if internal). The created issue id is
+// stored in opportunities.converted_issue_id so subsequent runs don't
+// re-create the same one.
 
 import type { Db } from "@paperclipai/db";
 import { opportunities, clients } from "@paperclipai/db";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc, isNull, gte, sql } from "drizzle-orm";
 import { aggInsights, dayStr, aiNarrative } from "./agency-ops.js";
 import { getBrainContext } from "./customer-brain.js";
 import { learningsForNiche } from "./learning-engine.js";
 import { topContent } from "./knowledge-graph.js";
 import { upcomingEfemerides } from "./efemerides.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
+import { issueService } from "./issues.js";
+import { resolveTriageOwnerId } from "./client-tasks.js";
+
+// Anything at or above this priority becomes a real issue in the per-client
+// Tareas panel. Below stays as a "sugerencia" the operator reviews manually.
+export const OPPORTUNITY_AUTOCREATE_THRESHOLD = 70;
 
 interface Draft { kind: string; title: string; rationale: string; suggestedAction: string; priority: number; basis: Record<string, unknown> }
 
-export async function generateClientOpportunities(db: Db, clientId: string): Promise<{ created: number; opportunities: Draft[] }> {
+export async function generateClientOpportunities(db: Db, clientId: string): Promise<{ created: number; materialized: number; opportunities: Draft[] }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
-  if (!client) return { created: 0, opportunities: [] };
+  if (!client) return { created: 0, materialized: 0, opportunities: [] };
   const companyId = await resolveCompanyId(db, clientId);
-  if (!companyId) return { created: 0, opportunities: [] };
+  if (!companyId) return { created: 0, materialized: 0, opportunities: [] };
 
   const today = new Date();
   const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
@@ -100,7 +112,112 @@ export async function generateClientOpportunities(db: Db, clientId: string): Pro
     }).returning({ id: opportunities.id });
     if (res.length) created += 1;
   }
-  return { created, opportunities: drafts.sort((a, b) => b.priority - a.priority) };
+
+  // Materialize high-priority opportunities as issues (per-client Tareas panel).
+  // Skip ones already converted, so a second run won't duplicate the issue.
+  const autocreate = drafts.filter((d) => d.priority >= OPPORTUNITY_AUTOCREATE_THRESHOLD);
+  let materialized = 0;
+  for (const o of autocreate) {
+    const issueId = await materializeOpportunityAsIssue(db, {
+      clientId,
+      clientName: client.name,
+      companyId,
+      title: o.title,
+      rationale: o.rationale,
+      suggestedAction: o.suggestedAction,
+      basis: o.basis,
+      priority: o.priority,
+      kind: o.kind,
+    });
+    if (issueId) materialized += 1;
+  }
+
+  return {
+    created,
+    materialized,
+    opportunities: drafts.sort((a, b) => b.priority - a.priority),
+  };
+}
+
+/**
+ * If the opportunity is high-priority and not yet materialized, create an
+ * issue tagged to the client. Internal work → `todo` (active). External work
+ * (anything involving the client, money or publishing) → `backlog` with
+ * `origin_kind=agent_proposed` (needs approval in the Tareas panel).
+ *
+ * Returns the created issue id, or null if skipped (already converted / no
+ * company / error). Best-effort — never throws so the rest of the run keeps
+ * going.
+ */
+export async function materializeOpportunityAsIssue(
+  db: Db,
+  input: {
+    clientId: string;
+    clientName: string;
+    companyId: string;
+    title: string;
+    rationale: string;
+    suggestedAction: string;
+    basis: Record<string, unknown>;
+    priority: number;
+    kind: string;
+  },
+): Promise<string | null> {
+  try {
+    // Find the matching opportunity row (same dedup key) and skip if already
+    // converted — materializing twice would create duplicate issues.
+    const [row] = await db
+      .select({ id: opportunities.id, convertedIssueId: opportunities.convertedIssueId })
+      .from(opportunities)
+      .where(and(
+        eq(opportunities.clientId, input.clientId),
+        eq(opportunities.kind, input.kind),
+        eq(opportunities.title, input.title.slice(0, 200)),
+      ))
+      .limit(1);
+    if (row?.convertedIssueId) return null; // already done
+
+    // External kinds ("campaign", "budget") touch client / money → proposal.
+    // Content / timing are informational, internal work → active.
+    const isExternal = input.kind === "campaign" || input.kind === "budget";
+    const priority =
+      input.priority >= 90 ? "urgent"
+      : input.priority >= 75 ? "high"
+      : input.priority >= 60 ? "medium"
+      : "low";
+
+    const description = [
+      `**Cliente**: ${input.clientName}`,
+      `**Por qué** (rationale): ${input.rationale || "(s/d)"}`,
+      `**Acción sugerida**: ${input.suggestedAction || "(s/d)"}`,
+      `_Origen: opportunities-engine · prioridad ${input.priority} · auto-creado_`,
+    ].join("\n\n");
+
+    const assigneeAgentId = await resolveTriageOwnerId(db, input.companyId);
+    const created = await issueService(db).create(input.companyId, {
+      title: input.title.slice(0, 200),
+      description,
+      status: (isExternal ? "backlog" : "todo") as never,
+      priority: priority as never,
+      clientId: input.clientId,
+      originKind: "agent_proposed",
+      createdByAgentId: null,
+      ...(assigneeAgentId ? { assigneeAgentId } : {}),
+    } as never);
+    const issueId = String((created as Record<string, unknown>).id ?? "");
+    if (!issueId) return null;
+
+    if (row?.id) {
+      await db
+        .update(opportunities)
+        .set({ convertedIssueId: issueId, convertedAt: new Date(), status: "converted" })
+        .where(eq(opportunities.id, row.id));
+    }
+    return issueId;
+  } catch (e) {
+    console.warn("[opportunities] materialize failed", input.clientId, input.kind, input.title, e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 export async function listOpportunities(db: Db, clientId: string) {
@@ -108,11 +225,16 @@ export async function listOpportunities(db: Db, clientId: string) {
     .orderBy(desc(opportunities.priority), desc(opportunities.createdAt)).limit(50);
 }
 
-export async function runAllOpportunities(db: Db): Promise<{ clients: number }> {
+export async function runAllOpportunities(db: Db): Promise<{ clients: number; materialized: number }> {
   const rows = await activeClients(db);
   let done = 0;
-  for (const c of rows) { const r = await generateClientOpportunities(db, c.id).catch(() => ({ created: 0 })); if (r.created > 0) done += 1; }
-  return { clients: done };
+  let materialized = 0;
+  for (const c of rows) {
+    const r = await generateClientOpportunities(db, c.id).catch(() => ({ created: 0, materialized: 0 }));
+    if (r.created > 0) done += 1;
+    materialized += r.materialized ?? 0;
+  }
+  return { clients: done, materialized };
 }
 
 let oppTimer: ReturnType<typeof setInterval> | null = null;
