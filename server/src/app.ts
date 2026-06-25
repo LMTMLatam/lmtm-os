@@ -258,7 +258,11 @@ export async function createApp(
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
   try { initAdsAutoSync(db); } catch (e) { console.warn("[ads-autosync] init failed:", e); }
-  try { initBalanceMonitor(db); } catch (e) { console.warn("[balance-monitor] init failed:", e); }
+  // Low-balance alerts are now folded into the daily operational audit (one
+  // report, not three). The standalone scheduler is left off so the team isn't
+  // pinged twice; fetchAccountBalances/runBalanceCheck stay available for the
+  // panel + on-demand routes.
+  void initBalanceMonitor;
   // Intelligence layer (0107): brain, scores, KG, learnings, auditor, feedback, opportunities.
   try {
     initCustomerBrain(db);
@@ -268,6 +272,18 @@ export async function createApp(
     initAuditor(db);
     initFeedbackAgent(db);
     initOpportunities(db);
+    // One-shot Sheets mapping sweep on boot: picks up the per-client planning
+    // Sheet for clients that haven't been mapped yet. Fails silently if Google
+    // OAuth isn't configured (e.g. local dev).
+    void (async () => {
+      try {
+        const { autoDetectAllMissingSheets } = await import("./services/sheets-mapping.js");
+        const r = await autoDetectAllMissingSheets(db);
+        console.log(`[sheets-mapping] boot sweep: ${r.detected}/${r.clients} detected (${r.errors} errors)`);
+      } catch (e) {
+        console.log(`[sheets-mapping] boot sweep skipped: ${e instanceof Error ? e.message : e}`);
+      }
+    })();
   } catch (e) {
     console.warn("[intelligence] init failed:", e);
   }
