@@ -16,12 +16,16 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores } from "@paperclipai/db";
-import { desc, eq } from "drizzle-orm";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings } from "@paperclipai/db";
+import { desc, eq, and, gte, or, inArray } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { getBrainContext, upsertMemory, type MemoryKind } from "../services/customer-brain.js";
-import { aggInsights } from "../services/agency-ops.js";
+import { aggInsights, sendWhatsAppToNumber, alertsNumber } from "../services/agency-ops.js";
+import { fetchAccountBalances } from "../services/balance-monitor.js";
+import { getRedesScheduledContent } from "../services/clickup-sync.js";
+import { createClientTask } from "../services/client-tasks.js";
+import { clickupTools, googleTools } from "../services/agent-mcp-tools.js";
 import { resolveCompanyId } from "../services/intel-common.js";
 import { unauthorized } from "../errors.js";
 
@@ -141,6 +145,111 @@ const CORE_TOOLS: ToolDef[] = [
     },
   },
   // ── Autoaprendizaje (escritura en la memoria del cliente) ─────────────────
+  // ── ClickUp (in-process MCP wrapper, mismo backend que el MCP stdio) ───────
+  {
+    type: "function",
+    function: {
+      name: "clickup_list_workspaces",
+      description: "Lista los workspaces (teams) de ClickUp visibles al token. Útil para arrancar la exploración.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "clickup_list_spaces",
+      description: "Lista los spaces de un workspace de ClickUp.",
+      parameters: {
+        type: "object",
+        properties: { workspaceId: { type: "string", description: "Workspace id (de clickup_list_workspaces)" } },
+        required: ["workspaceId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "clickup_list_lists",
+      description: "Lista las listas dentro de un folder de ClickUp.",
+      parameters: {
+        type: "object",
+        properties: { folderId: { type: "string", description: "Folder id de ClickUp" } },
+        required: ["folderId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "clickup_list_tasks",
+      description: "Lista las tareas (posts, etc.) de una lista de ClickUp. Útil para cruzar contenido programado con lo publicado en redes.",
+      parameters: {
+        type: "object",
+        properties: {
+          listId: { type: "string", description: "List id de ClickUp" },
+          limit: { type: "number", description: "Cantidad máxima (default 50, max 100)" },
+        },
+        required: ["listId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "clickup_create_task",
+      description:
+        "Crea una tarea en una lista de ClickUp. Útil para anotar pendientes operativos que deben vivir en la planilla del cliente. Devuelve la tarea con su id y URL.",
+      parameters: {
+        type: "object",
+        properties: {
+          listId: { type: "string", description: "List id destino" },
+          name: { type: "string", description: "Título de la tarea" },
+          description: { type: "string", description: "Descripción markdown (opcional)" },
+          priority: { type: "number", description: "1=urgente, 2=alta, 3=normal, 4=baja" },
+          dueDate: { type: "number", description: "Fecha de vencimiento en Unix ms (opcional)" },
+        },
+        required: ["listId", "name"],
+      },
+    },
+  },
+  // ── Google Sheets (in-process MCP wrapper) ─────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "sheets_read",
+      description:
+        "Lee un rango de celdas de un Google Sheet (la planilla de planning del cliente). Devuelve filas como arrays de strings. Usalo para verificar qué está cargado en la planilla del cliente.",
+      parameters: {
+        type: "object",
+        properties: {
+          spreadsheetId: { type: "string", description: "ID del Sheet (de clients.sheetsSpreadsheetId)" },
+          range: { type: "string", description: "Rango A1 notation, ej. 'Hoja1!A1:F50'" },
+        },
+        required: ["spreadsheetId", "range"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "sheets_append",
+      description:
+        "Agrega filas al final de un rango del Sheet del cliente (programar nuevos posts, registrar learnings, etc.).",
+      parameters: {
+        type: "object",
+        properties: {
+          spreadsheetId: { type: "string" },
+          range: { type: "string", description: "Rango destino, ej. 'Hoja1!A:F'" },
+          values: {
+            type: "array",
+            description: "Filas a agregar (cada fila es un array de strings)",
+            items: { type: "array", items: { type: "string" } },
+          },
+        },
+        required: ["spreadsheetId", "range", "values"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -160,6 +269,114 @@ const CORE_TOOLS: ToolDef[] = [
           },
         },
         required: ["clientId", "key", "content"],
+      },
+    },
+  },
+  // ── Saldo / presupuesto de la cuenta publicitaria ────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_client_balance",
+      description:
+        "Saldo REAL de las cuentas de Meta Ads del cliente: spend cap, gastado y lo que queda antes del tope (en la moneda de la cuenta). Usalo para detectar cuentas por frenarse por falta de presupuesto. Devuelve [] si el cliente no tiene cuenta mapeada.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string", description: "UUID del cliente" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  // ── Publicaciones orgánicas reales (IG + FB) ─────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_client_organic_posts",
+      description:
+        "Publicaciones orgánicas REALES sincronizadas de las redes del cliente (Instagram + Facebook) en las últimas N horas: texto, fecha, permalink, plataforma y tipo. Usalo para verificar si lo que se debía postear realmente salió. Devuelve [] si no hay datos sincronizados.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "UUID del cliente" },
+          sinceHours: { type: "number", description: "Ventana en horas (default 168 = 7 días)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  // ── Contenido programado (sheet de ClickUp Redes) ────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_client_scheduled_content",
+      description:
+        "Contenido PROGRAMADO del cliente desde la lista de Redes Sociales de ClickUp dentro de una ventana: qué se planeó publicar, cuándo, su estado y si ya está marcado como publicado. Cruzalo con get_client_organic_posts para ver si el plan se cumple. Devuelve null si el cliente no tiene lista de Redes mapeada.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "UUID del cliente" },
+          sinceHours: { type: "number", description: "Horas hacia atrás (default 168 = 7 días)" },
+          aheadHours: { type: "number", description: "Horas hacia adelante (default 336 = 14 días)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  // ── Alerta de saldo por WhatsApp (NO crear issues para saldo) ────────────
+  {
+    type: "function",
+    function: {
+      name: "send_balance_alert",
+      description:
+        "Envía una alerta de saldo bajo por WhatsApp al equipo de la agencia. Usalo SIEMPRE que detectes saldo bajo / pauta frenada / spend_cap agotado. NUNCA crees issues para alertas de saldo — van por WhatsApp con esta tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "UUID del cliente" },
+          message: { type: "string", description: "Mensaje de la alerta (ej. 'MAERS: spend_cap agotado, pauta frenada, recargar urgente')" },
+        },
+        required: ["clientId", "message"],
+      },
+    },
+  },
+  // ── Reporte genérico por WhatsApp (cuando el equipo lo pide) ─────────────
+  {
+    type: "function",
+    function: {
+      name: "send_whatsapp_report",
+      description:
+        "Envía un reporte/mensaje por WhatsApp al equipo de la agencia. Usalo cuando el equipo te pide que reportes/avises algo por WhatsApp (un resumen, un estado, un hallazgo, lo que sea). Para alertas de saldo usá send_balance_alert. El texto se manda tal cual al número interno del equipo.",
+      parameters: {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "Texto del reporte a enviar (markdown de WhatsApp: *negrita*, _itálica_, saltos de línea)." },
+          title: { type: "string", description: "Título opcional para encabezar el reporte (ej. 'Reporte de pauta - DUNOD')." },
+        },
+        required: ["message"],
+      },
+    },
+  },
+  // ── Crear tarea para un cliente (detección de pendientes) ────────────────
+  {
+    type: "function",
+    function: {
+      name: "create_client_task",
+      description:
+        "Crea una tarea (issue) asociada a un cliente cuando detectás un pendiente real (ej. algo que surgió en un grupo de WhatsApp, una corrección a hacer, un seguimiento). NO uses esto para alertas de saldo/presupuesto — esas van por WhatsApp con send_balance_alert. Las tareas INTERNAS (operativas, sin contacto al cliente ni gasto) se crean activas. Las EXTERNAS (contactar al cliente, gastar plata, publicar algo) quedan en estado 'para aprobar'. Evitá duplicar: si la tarea ya existe abierta para ese cliente, no la repitas.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "UUID del cliente (de list_clients)" },
+          title: { type: "string", description: "Título corto y accionable de la tarea" },
+          description: { type: "string", description: "Detalle / contexto de la tarea (markdown)" },
+          taskType: {
+            type: "string",
+            enum: ["internal", "external"],
+            description: "internal = operativa interna (se crea activa); external = implica al cliente o gasto (queda para aprobar). Default internal.",
+          },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Prioridad (default medium)" },
+          source: { type: "string", description: "De dónde salió la tarea (ej. 'grupo WhatsApp X', 'auditoría', default 'agente')" },
+        },
+        required: ["clientId", "title"],
       },
     },
   },
@@ -259,6 +476,34 @@ export function agentToolsRoutes(
           status: status as never,
           actorAgentId: ctx.agentId,
         });
+        // Automatic learning: when work on a client issue is completed, record an
+        // event in the client brain so the system learns from everything it does
+        // (a factual trail of what was resolved — NOT unverified conclusions).
+        if (status === "done") {
+          const clientId = (issue as Record<string, unknown>).clientId as string | undefined;
+          if (clientId) {
+            try {
+              const companyId = (await resolveCompanyId(db, clientId)) ?? ctx.companyId;
+              if (companyId) {
+                const last = await issuesSvc.listComments(issue.id, { order: "desc", limit: 1 });
+                const summary = (last[0]?.body ?? "").trim().slice(0, 600);
+                const identifier = String((issue as Record<string, unknown>).identifier ?? issue.id);
+                const content = summary
+                  ? `Resuelto "${issue.title}": ${summary}`
+                  : `Resuelto "${issue.title}".`;
+                await upsertMemory(db, {
+                  companyId,
+                  clientId,
+                  kind: "event",
+                  key: `issue-${identifier}`,
+                  content,
+                  source: `agente:${ctx.agentId ?? "?"}`,
+                  confidence: 0.8,
+                });
+              }
+            } catch { /* learning is best-effort; never block the status change */ }
+          }
+        }
         return reply(true, `Estado del issue cambiado a "${status}".`);
       }
 
@@ -315,6 +560,227 @@ export function agentToolsRoutes(
             cpc: cpc != null ? Number(cpc.toFixed(2)) : null,
           }),
         );
+      }
+
+      if (tool === "get_client_balance") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const balances = await fetchAccountBalances(db, undefined, { clientId });
+        if (balances.length === 0) {
+          return reply(true, "(Sin cuentas de Meta mapeadas a este cliente — no se puede leer saldo. Mapear la cuenta en 'Conectar ad account'.)");
+        }
+        const out = balances.map((b) => ({
+          account: b.account,
+          currency: b.currency,
+          spendCap: b.spendCap,
+          amountSpent: b.amountSpent,
+          remaining: b.remaining, // null = sin tope (uncapped/prepago)
+          low: b.low,
+          accountStatus: b.accountStatus,
+        }));
+        return reply(true, JSON.stringify(out));
+      }
+
+      if (tool === "get_client_organic_posts") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const hours = typeof params.sinceHours === "number" && params.sinceHours > 0 ? Math.min(24 * 90, params.sinceHours) : 168;
+        const since = new Date(Date.now() - hours * 3_600_000);
+        const maps = await db
+          .select({ pageId: adsAccountMappings.pageId })
+          .from(adsAccountMappings)
+          .where(eq(adsAccountMappings.clientId, clientId));
+        const pageIds = [...new Set(maps.map((m) => m.pageId).filter((p): p is string => !!p))];
+        const match = pageIds.length
+          ? or(eq(organicPosts.clientId, clientId), inArray(organicPosts.pageId, pageIds))
+          : eq(organicPosts.clientId, clientId);
+        const rows = await db
+          .select({
+            platform: organicPosts.platform,
+            message: organicPosts.message,
+            permalinkUrl: organicPosts.permalinkUrl,
+            postType: organicPosts.postType,
+            createdTime: organicPosts.createdTime,
+          })
+          .from(organicPosts)
+          .where(and(gte(organicPosts.createdTime, since), match))
+          .orderBy(desc(organicPosts.createdTime))
+          .limit(50);
+        if (rows.length === 0) {
+          return reply(true, "(Sin publicaciones orgánicas sincronizadas en la ventana. Si el cliente publica pero no aparece, falta reconectar la página de Meta o no se sincronizó todavía.)");
+        }
+        const out = rows.map((r) => ({
+          platform: r.platform,
+          type: r.postType,
+          text: (r.message ?? "").slice(0, 280),
+          permalink: r.permalinkUrl,
+          publishedAt: r.createdTime?.toISOString() ?? null,
+        }));
+        return reply(true, JSON.stringify({ windowHours: hours, count: out.length, posts: out }));
+      }
+
+      if (tool === "get_client_scheduled_content") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const back = typeof params.sinceHours === "number" && params.sinceHours > 0 ? params.sinceHours : 168;
+        const ahead = typeof params.aheadHours === "number" && params.aheadHours > 0 ? params.aheadHours : 336;
+        const now = Date.now();
+        const items = await getRedesScheduledContent(db, clientId, now - back * 3_600_000, now + ahead * 3_600_000);
+        if (items === null) {
+          return reply(true, "(El cliente no tiene la lista de Redes Sociales de ClickUp mapeada — sincronizar ClickUp del cliente.)");
+        }
+        return reply(true, JSON.stringify({ count: items.length, items }));
+      }
+
+      if (tool === "send_balance_alert") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const message = typeof params.message === "string" ? params.message : "";
+        if (!clientId || !message) return reply(false, "Falta clientId o message.");
+        const team = alertsNumber();
+        if (!team) return reply(false, "LMTM_ALERTS_WHATSAPP no configurado — no se puede enviar.");
+        const [client] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId));
+        const clientName = client?.name ?? "Cliente";
+        const text = `*⚠️ Alerta de saldo — ${clientName}*\n\n${message}\n\n_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._\n_LMTM-OS · agente_`;
+        const r = await sendWhatsAppToNumber(team, text);
+        if (!r.ok) return reply(false, `No se pudo enviar WhatsApp: ${r.error ?? "error desconocido"}`);
+        return reply(true, `Alerta de saldo enviada por WhatsApp al equipo para ${clientName}.`);
+      }
+
+      if (tool === "send_whatsapp_report") {
+        const message = typeof params.message === "string" ? params.message.trim() : "";
+        const title = typeof params.title === "string" ? params.title.trim() : "";
+        if (!message) return reply(false, "Falta message.");
+        const team = alertsNumber();
+        if (!team) return reply(false, "LMTM_ALERTS_WHATSAPP no configurado — no se puede enviar.");
+        const text = `${title ? `*${title}*\n\n` : ""}${message}\n\n_LMTM-OS · reporte de agente_`;
+        const r = await sendWhatsAppToNumber(team, text);
+        if (!r.ok) return reply(false, `No se pudo enviar WhatsApp: ${r.error ?? "error desconocido"}`);
+        return reply(true, "Reporte enviado por WhatsApp al equipo.");
+      }
+
+      // ClickUp tools (in-process MCP wrapper).
+      if (tool === "clickup_list_workspaces") {
+        if (!process.env.CLICKUP_API_TOKEN) {
+          return reply(false, "CLICKUP_API_TOKEN no configurado en el server.");
+        }
+        try {
+          const r = await clickupTools.listWorkspaces();
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `clickup_list_workspaces: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "clickup_list_spaces") {
+        if (!process.env.CLICKUP_API_TOKEN) {
+          return reply(false, "CLICKUP_API_TOKEN no configurado en el server.");
+        }
+        const workspaceId = typeof params.workspaceId === "string" ? params.workspaceId : "";
+        if (!workspaceId) return reply(false, "Falta workspaceId.");
+        try {
+          const r = await clickupTools.listSpaces({ workspaceId });
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `clickup_list_spaces: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "clickup_list_lists") {
+        if (!process.env.CLICKUP_API_TOKEN) {
+          return reply(false, "CLICKUP_API_TOKEN no configurado en el server.");
+        }
+        const folderId = typeof params.folderId === "string" ? params.folderId : "";
+        if (!folderId) return reply(false, "Falta folderId.");
+        try {
+          const r = await clickupTools.listLists({ folderId });
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `clickup_list_lists: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "clickup_list_tasks") {
+        if (!process.env.CLICKUP_API_TOKEN) {
+          return reply(false, "CLICKUP_API_TOKEN no configurado en el server.");
+        }
+        const listId = typeof params.listId === "string" ? params.listId : "";
+        if (!listId) return reply(false, "Falta listId.");
+        const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(100, params.limit) : 50;
+        try {
+          const r = await clickupTools.listTasks({ listId, limit });
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `clickup_list_tasks: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "clickup_create_task") {
+        if (!process.env.CLICKUP_API_TOKEN) {
+          return reply(false, "CLICKUP_API_TOKEN no configurado en el server.");
+        }
+        const listId = typeof params.listId === "string" ? params.listId : "";
+        const name = typeof params.name === "string" ? params.name.trim() : "";
+        if (!listId || !name) return reply(false, "Faltan listId o name.");
+        try {
+          const r = await clickupTools.createTask({
+            listId,
+            name,
+            description: typeof params.description === "string" ? params.description : undefined,
+            priority: typeof params.priority === "number" ? params.priority : undefined,
+            dueDate: typeof params.dueDate === "number" ? params.dueDate : undefined,
+          });
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `clickup_create_task: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      // Google Sheets tools (in-process MCP wrapper).
+      if (tool === "sheets_read") {
+        if (!process.env.GOOGLE_OAUTH_REFRESH_TOKEN) {
+          return reply(false, "Google OAuth no configurado en el server (GOOGLE_OAUTH_REFRESH_TOKEN).");
+        }
+        const spreadsheetId = typeof params.spreadsheetId === "string" ? params.spreadsheetId : "";
+        const range = typeof params.range === "string" ? params.range : "";
+        if (!spreadsheetId || !range) return reply(false, "Faltan spreadsheetId o range.");
+        try {
+          const r = await googleTools.sheetsRead({ spreadsheetId, range });
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `sheets_read: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "sheets_append") {
+        if (!process.env.GOOGLE_OAUTH_REFRESH_TOKEN) {
+          return reply(false, "Google OAuth no configurado en el server (GOOGLE_OAUTH_REFRESH_TOKEN).");
+        }
+        const spreadsheetId = typeof params.spreadsheetId === "string" ? params.spreadsheetId : "";
+        const range = typeof params.range === "string" ? params.range : "";
+        const values = Array.isArray(params.values) ? (params.values as unknown[][]) : null;
+        if (!spreadsheetId || !range || !values) return reply(false, "Faltan spreadsheetId, range o values.");
+        try {
+          const r = await googleTools.sheetsAppend({ spreadsheetId, range, values });
+          return reply(true, JSON.stringify(r));
+        } catch (e) {
+          return reply(false, `sheets_append: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "create_client_task") {
+        const r = await createClientTask(db, {
+          clientId: typeof params.clientId === "string" ? params.clientId : "",
+          title: typeof params.title === "string" ? params.title : "",
+          description: typeof params.description === "string" ? params.description : undefined,
+          taskType: params.taskType === "external" ? "external" : "internal",
+          priority: typeof params.priority === "string" ? (params.priority as never) : undefined,
+          source: typeof params.source === "string" ? params.source : undefined,
+          createdByAgentId: ctx.agentId || null,
+          fallbackCompanyId: ctx.companyId,
+        });
+        if (!r.created && !r.duplicate) return reply(false, r.message);
+        if (r.duplicate) return reply(true, `${r.message} (${r.identifier ?? "sin id"}) No se duplicó.`);
+        return reply(true, `${r.message} ${r.identifier ?? ""}`.trim());
       }
 
       if (tool === "get_client_scores") {
