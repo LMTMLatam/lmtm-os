@@ -56,6 +56,8 @@
     "@paperclipai/adapter-pi-local": "workspace:*",
     "@paperclipai/adapter-utils": "workspace:*",
     "@paperclipai/db": "workspace:*",
+    "@paperclipai/mcp-clickup": "workspace:*",
+    "@paperclipai/mcp-google": "workspace:*",
     "@paperclipai/plugin-sdk": "workspace:*",
     "@paperclipai/shared": "workspace:*",
     "@types/qrcode": "^1.5.6",

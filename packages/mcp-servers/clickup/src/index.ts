@@ -37,6 +37,34 @@ import {
   updateTaskSchema,
 } from "./tools.js";
 
+// Re-export the tool implementations so the LMTM-OS server can call them
+// directly in-process (see server/src/services/agent-mcp-tools.ts). The MCP
+// stdio entry point still works unchanged.
+export {
+  addComment,
+  addCommentSchema,
+  createTask,
+  createTaskSchema,
+  getTask,
+  getTaskSchema,
+  listFolderlessLists,
+  listFolderlessListsSchema,
+  listFolders,
+  listFoldersSchema,
+  listLists,
+  listListsSchema,
+  listSpaces,
+  listSpacesSchema,
+  listTasks,
+  listTasksSchema,
+  listWorkspaces,
+  listWorkspacesSchema,
+  searchTasks,
+  searchTasksSchema,
+  updateTask,
+  updateTaskSchema,
+};
+
 function asText(value: unknown) {
   return {
     content: [
