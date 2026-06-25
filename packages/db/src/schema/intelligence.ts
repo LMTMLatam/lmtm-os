@@ -135,11 +135,17 @@ export const opportunities = pgTable(
     priority: integer("priority").notNull().default(0),
     status: text("status").notNull().default("new"),
     externalRef: text("external_ref"),
+    // Filled when the opportunity is materialized into a real issue via
+    // materializeOpportunityAsIssue(). NULL = pending review, set = linked
+    // to the issue we created from it. Migration 0113.
+    convertedIssueId: uuid("converted_issue_id"),
+    convertedAt: timestamp("converted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     dedup: uniqueIndex("opportunities_dedup_idx").on(t.clientId, t.kind, t.title),
     clientIdx: index("opportunities_client_idx").on(t.clientId),
+    convertedIdx: index("opportunities_converted_idx").on(t.clientId, t.convertedAt),
   }),
 );
 export type Opportunity = typeof opportunities.$inferSelect;
