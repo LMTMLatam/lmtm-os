@@ -1,78 +1,113 @@
 ---
 name: lmtm-tool-reference
 displayName: Referencia de herramientas
-description: Qué tools existen en LMTM-OS, qué hace cada una, cuándo usarla.
+description: Las tools MCP REALES de LMTM-OS, qué hace cada una y de dónde salen los datos del cliente.
 required: false
 ---
 
-# Referencia de herramientas
+# Referencia de herramientas (MCP — lo que REALMENTE existe)
 
-## Paperclip (built-in)
+Trabajás como Claude Code con dos MCPs: `paperclip` (plataforma + datos de clientes)
+y `make` (automatización Make.com — scenarios, hooks, connections, data stores).
+No hay endpoints `/api/lmtm/*`, no hay CRM externo (Kommo y similares).
+No adivines paths ni esperes tools que no están acá.
 
-Operaciones de control plane (issues, projects, agents, etc):
+## Control plane (Paperclip)
 
-- `paperclip.list_issues` — listar issues con filtros
-- `paperclip.get_issue` — detalle de un issue
-- `paperclip.create_issue` — crear issue (asignar a un agente o proyecto)
-- `paperclip.update_issue` — cambiar status, priority, assignee
-- `paperclip.add_comment` — comentar en un issue
-- `paperclip.list_agents` — ver agentes activos y su estado
-- `paperclip.get_agent` — detalle de un agente
-- `paperclip.wakeup_agent` — despertar un agente con un mensaje
-- `paperclip.list_companies` — listar companies
-- `paperclip.get_company` — detalle de una company
-- `paperclip.list_projects` — listar proyectos
-- `paperclip.create_project` — crear proyecto
+- `paperclipGetIssue` — detalle de un issue (issueId = env PAPERCLIP_TASK_ID).
+- `paperclipGetHeartbeatContext` — contexto del run / heartbeat.
+- `paperclipListIssues` — listar issues (filtros, búsqueda).
+- `paperclipListComments` / `paperclipAddComment` — leer / comentar un issue.
+- `paperclipUpdateIssue` — cambiar status (`done` / `in_progress` / `blocked`), priority, assignee.
+- `paperclipCheckoutIssue` — tomar un issue.
+- `paperclipApiRequest` — fallback genérico a la API de Paperclip (NO inventes rutas LMTM con esto).
 
-## lmtm_ads (custom plugin)
+## Datos del cliente (las ÚNICAS fuentes válidas)
 
-Datos de las plataformas de ads. Solo disponible después de que el plugin
-`lmtm-ads-tools` esté instalado y configurado.
+Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 
-- `lmtm_ads.list_clients` — lista de clientes LMTM
-- `lmtm_ads.list_connections` — conexiones OAuth configuradas (Meta, Google, etc)
-- `lmtm_ads.list_ad_accounts` — cuentas de ads disponibles
-- `lmtm_ads.list_campaigns` — campañas por cliente/plataforma
-- `lmtm_ads.get_campaign` — detalle de una campaña
-- `lmtm_ads.get_insights` — métricas de performance (spend, ROAS, CTR, etc)
-- `lmtm_ads.list_creatives` — creativos por campaña
-- `lmtm_ads.list_pages` — páginas de Facebook conectadas
+- `lmtmListClients` — clientes activos (id, nombre, slug). Encontrá el clientId por nombre acá.
+- `lmtmGetClientBrain` — **memoria viva del cliente + Enfoque Técnico**. Leelo SIEMPRE primero.
+- `lmtmGetClientAdsPerformance` — métricas REALES de Meta (spend, impresiones, clicks, leads, reach, CTR, CPL, CPC) en una ventana de días.
+- `lmtmGetClientBalance` — **saldo/presupuesto REAL de la cuenta de Meta**: spend_cap, amount_spent y `remaining` (lo que queda antes del tope). ESTO es el "presupuesto" y el "límite de crédito" del cliente — no existe en ningún otro lado. Si detectás saldo bajo, usá `lmtmSendBalanceAlert` (NO issues).
+- `lmtmGetClientOrganicPosts` — publicaciones orgánicas reales (IG + FB) en las últimas N horas.
+- `lmtmGetClientScheduledContent` — contenido programado en la lista de Redes de ClickUp (qué se planeó publicar y cuándo).
+- `lmtmGetClientCompetitors` — competidores cargados.
+- `lmtmGetClientScores` — score de salud de cuenta y operativo.
+- `lmtmRememberAboutClient` — guardar un aprendizaje DURABLE en la memoria del cliente.
+- `lmtmSendBalanceAlert` — **envía alerta de saldo bajo por WhatsApp al equipo**. Usala SIEMPRE que detectes saldo bajo / spend_cap agotado / pauta frenada. NUNCA crees issues para alertas de saldo.
+- `lmtmSendWhatsappReport` — **envía un reporte/mensaje genérico por WhatsApp al equipo** (message + title opcional). Usala cuando el equipo te pide reportar/avisar algo por WhatsApp. Sí podés mandar WhatsApp.
+- `lmtmCreateClientTask` — crear una tarea para un cliente (internas se crean activas; externas quedan para aprobar). **NO la uses para alertas de saldo** — esas van por WhatsApp con `lmtmSendBalanceAlert`.
 
-**Parámetros típicos**:
-- `client_slug` (e.g. `acme-corp`)
-- `platform` (`meta` | `google` | `tiktok` | `linkedin`)
-- `date_preset` (`last_7d` | `last_30d` | `this_month` | `last_month`)
-- `date_range` (`{"since": "2026-01-01", "until": "2026-01-31"}`)
+## Reglas de oro
 
-## lmtm_planilla (próximamente)
+1. **Fuentes de datos del cliente = solo Meta (tools lmtm*) + brain + Enfoque Técnico.** Nada más. No hay planilla ni CRM externo. No los busques ni los uses como excusa para bloquear.
+2. **Presupuesto / saldo / límite de crédito = `lmtmGetClientBalance`** (spend_cap, amount_spent, remaining). No busques un "presupuesto cargado en ARS" en otro lado.
+3. **Alertas de saldo → WhatsApp, NUNCA issues.** Si detectás saldo bajo / spend_cap agotado / pauta frenada, usá `lmtmSendBalanceAlert` para avisar al equipo por WhatsApp. NO crees tareas/issues para esto.
+4. **Nunca bloquees por data faltante.** Si una tool devuelve 0/vacío o el cliente no está mapeado, anotá el gap y resolvé con el brain + Enfoque Técnico. Entregá la mejor respuesta posible y cerrá en `done`. `blocked` es solo para algo genuinamente imposible.
+5. **No generalices desde un cliente.** Un 0 es de ESE cliente (no mapeado / sin pauta), no del pipeline.
+6. **Si podés llamar a una tool, no inventes ni asumas.** Pero si una tool no existe, NO la esperes: usá las que sí están.
+7. **Siempre buscá la resolución con las herramientas que tenés, incluido el browser.** Tenés `WebFetch`, `WebSearch` y `Bash` (curl) habilitados. Si una tool/API no te da el dato, buscalo por otra vía antes de marcar "sin verificar"/blocked.
 
-Datos de la planilla de clientes (no leer de archivos, leer de la DB):
+## Fallback de verificación de posteos (planeado vs publicado)
 
-- `lmtm_planilla.list_clients`
-- `lmtm_planilla.get_client`
-- `lmtm_planilla.list_active_clients`
+Si `lmtmGetClientOrganicPosts` viene vacío o el cliente no tiene la página de Meta conectada por API, **NO concluyas "no se puede verificar"**. En vez de eso:
+1. Conseguí el handle/URL de IG/FB del cliente desde `lmtmGetClientBrain` (o buscalo con `WebSearch` por el nombre del cliente).
+2. Abrí el perfil público con `WebFetch` (o `curl` vía `Bash`).
+3. Compará los posteos reales que ves contra `lmtmGetClientScheduledContent` (lo planeado en ClickUp) y reportá qué salió vs qué faltó.
 
-## lmtm_crm (próximamente, vía plugin de Hostinger)
+Solo marcá blocked/sin-verificar si REALMENTE agotaste API + brain + browser. Documentá qué vías probaste.
 
-Datos del CRM propio de LMTM:
+## Aprendizaje automático (la memoria del cliente crece sola)
 
-- `lmtm_crm.list_leads`
-- `lmtm_crm.list_deals`
-- `lmtm_crm.get_pipeline`
+El sistema aprende de TODO lo que hacen los agentes:
+1. **Antes** de trabajar un cliente, leé `lmtmGetClientBrain` para no repetir y construir sobre lo aprendido.
+2. **Al terminar**, guardá lo DURADERO y VERIFICADO con `lmtmRememberAboutClient`: qué funcionó/no, decisiones, preferencias, hallazgos confirmados, patrones.
+3. Además, cuando marcás un issue de cliente como `done`, el sistema **auto-registra** un evento en la memoria del cliente (queda el rastro de lo resuelto).
 
-## Cuándo usar cada cosa
+**No envenenes la memoria**: nunca guardes gaps transitorios ("hoy dio 0"), suposiciones ni conclusiones sin verificar. Solo hechos comprobados y aprendizajes reutilizables.
 
-- **Necesito data de un cliente** → `lmtm_planilla.get_client` (no
-  preguntar al humano).
-- **Necesito métricas de ads** → `lmtm_ads.get_insights` (no asumir,
-  leer de la plataforma).
-- **Necesito asignar trabajo** → `paperclip.create_issue` con assignee.
-- **Necesito escalar al humano** → `paperclip.create_comment` en el issue
-  + wakeup_agent al PM.
-- **Necesito un reporte** → usar las tools + formato de
-  `lmtm-reporting-cadence`.
+(El motor de learnings agrega además patrones por nicho —`learnings`— y el brain se refresca solo cada 12h con identidad + Enfoque Técnico + performance.)
 
-## Regla de oro
+## Make.com (MCP `make`) — automatización del pipeline
 
-> **Si podés llamar a una tool para obtener el dato, no inventes ni
-> asumas.** Las tools existen para tener data real.
+Los agentes tienen acceso directo a Make.com vía MCP. Estas tools permiten operar
+scenarios, hooks, connections y data stores de la org LMTM (team 228071):
+
+### Scenarios (flujos de automatización)
+- `scenarios_list` — listar todos los scenarios del team.
+- `scenarios_get` — detalle de un scenario (blueprint, scheduling, status).
+- `scenarios_create` / `scenarios_update` / `scenarios_delete` — CRUD de scenarios.
+- `scenarios_activate` / `scenarios_deactivate` — prender/apagar un scenario.
+- `scenarios_run` — ejecutar un scenario manualmente.
+
+### Ejecuciones
+- `executions_list` — listar ejecuciones de un scenario.
+- `executions_get` / `executions_get-detail` — detalle de una ejecución.
+
+### Hooks (webhooks)
+- `hooks_list` / `hooks_get` — listar/ver webhooks.
+- `hooks_create` / `hooks_update` / `hooks_delete` — CRUD de hooks.
+
+### Connections
+- `connections_list` / `connections_get` — ver conexiones (Google, ClickUp, Meta, etc.).
+
+### Data Stores
+- `data-stores_list` / `data-stores_get` — ver data stores.
+- `data-store-records_list` / `data-store-records_create` / `data-store-records_update` / `data-store-records_delete` — CRUD de registros.
+
+### Scenarios clave de LMTM
+- **AutoPoster: CU -> Redes sociales** — publica desde ClickUp a redes cuando llega la fecha de inicio.
+- **AutoPoster: Plantilla Clientes** — plantilla para clonar al crear un cliente nuevo.
+- **Cronopost | Click Up -> Drive -> Sheets** — sincroniza contenido de ClickUp a Sheets/Drive.
+- **Google sheets -> Click Up** — pasa contenido del Sheet del cliente a ClickUp.
+- Scenarios por cliente (ADR Luparini, Alun Nehuen, BITTI, BOERO, etc.).
+
+### Reglas para Make
+- **No borres scenarios de clientes** sin confirmación del equipo.
+- Si un scenario falla, revisá `executions_get-detail` antes de tocar el blueprint.
+- Para crear un cliente nuevo: cloná el scenario desde "AutoPoster: Plantilla Clientes".
+
+## Triage / derivación de issues
+
+Por defecto **todos los issues entran asignados a Pablo (CEO/triage)**, que los **deriva** al especialista correcto reasignando con `paperclipUpdateIssue` (`assigneeAgentId`). Si sos un especialista y te llega un issue reasignado, es tuyo: resolvelo. Si detectás que un issue es de otra área, comentá y (si tenés permiso) reasignalo o devolvélo a Pablo.

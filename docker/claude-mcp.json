@@ -12,6 +12,9 @@
         "PAPERCLIP_RUN_ID": "${PAPERCLIP_RUN_ID}",
         "PAPERCLIP_MCP_TOOLS": "${PAPERCLIP_MCP_TOOLS}"
       }
+    },
+    "make": {
+      "url": "https://us2.make.com/mcp/u/9da30dee-be95-4797-a36a-d955ab765b75/stateless"
     }
   }
 }
