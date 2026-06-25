@@ -36,6 +36,11 @@ export const clients = pgTable(
     clickupListVideoId: text("clickup_list_video_id"),
     clickupListEnfoqueTecnicoId: text("clickup_list_enfoque_tecnico_id"),
     clickupListsSyncedAt: timestamp("clickup_lists_synced_at", { withTimezone: true }),
+    // LMTM-OS: per-client Google Sheets planilla (the planning sheet each
+    // client has in Drive). Auto-detected by name from the agency's Drive,
+    // but the operator can override.
+    sheetsSpreadsheetId: text("sheets_spreadsheet_id"),
+    sheetsDetectedAt: timestamp("sheets_detected_at", { withTimezone: true }),
     onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
     offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
