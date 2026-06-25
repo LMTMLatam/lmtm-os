@@ -31,7 +31,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, type AdsAccountMapping } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -42,11 +42,12 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
-import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask } from "../services/clickup-sync.js";
+import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent } from "../services/clickup-sync.js";
 import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
 import { getClientBrain, refreshClientBrain } from "../services/customer-brain.js";
 import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
+import { autoDetectClientSheet, setClientSheet, clearClientSheet } from "../services/sheets-mapping.js";
 import { listFeedback, ingestFeedback } from "../services/feedback-agent.js";
 import { runOperationalAudit } from "../services/auditor.js";
 import { mineLearnings } from "../services/learning-engine.js";
@@ -506,23 +507,18 @@ export function adsRoutes(db: Db): Router {
     }
     const includedAdsets = Array.isArray(body.includedAdsets) ? body.includedAdsets.filter((x: unknown) => typeof x === "string") : [];
     const adAccountId = body.adAccountId.startsWith("act_") ? body.adAccountId : `act_${body.adAccountId}`;
-    // Skip if (company, adAccount, page) mapping already exists
-    const conditions = [
-      eq(adsAccountMappings.companyId, body.companyId),
-      eq(adsAccountMappings.adAccountId, adAccountId),
-    ];
-    if (body.pageId) {
-      conditions.push(eq(adsAccountMappings.pageId, body.pageId));
-    } else {
-      conditions.push(isNull(adsAccountMappings.pageId));
-    }
-    const [existing] = await db.select().from(adsAccountMappings).where(and(...conditions));
+    // The unique key is (company_id, ad_account_id) — one mapping per ad account.
+    const [existing] = await db
+      .select()
+      .from(adsAccountMappings)
+      .where(and(eq(adsAccountMappings.companyId, body.companyId), eq(adsAccountMappings.adAccountId, adAccountId)));
     if (existing) {
-      // Update the included adsets + clientId in-place
       const [row] = await db.update(adsAccountMappings).set({
-        clientId: body.clientId ?? null,
+        connectionId: body.connectionId,
+        clientId: body.clientId ?? existing.clientId,
+        pageId: body.pageId ?? existing.pageId,
         includedAdsets: includedAdsets as unknown as string[],
-        label: body.label ?? null,
+        label: body.label ?? existing.label,
         updatedAt: new Date(),
       }).where(eq(adsAccountMappings.id, existing.id)).returning();
       return res.status(200).json({ mapping: row, skipped: false, updated: true });
@@ -536,6 +532,16 @@ export function adsRoutes(db: Db): Router {
       pageId: body.pageId ?? null,
       label: body.label ?? null,
       includedAdsets: includedAdsets as unknown as string[],
+    }).onConflictDoUpdate({
+      target: [adsAccountMappings.companyId, adsAccountMappings.adAccountId],
+      set: {
+        connectionId: body.connectionId,
+        clientId: body.clientId ?? null,
+        pageId: body.pageId ?? null,
+        label: body.label ?? null,
+        includedAdsets: includedAdsets as unknown as string[],
+        updatedAt: new Date(),
+      },
     }).returning();
     res.status(201).json({ mapping: row, skipped: false, updated: false });
   });
@@ -553,23 +559,33 @@ export function adsRoutes(db: Db): Router {
       updated: [],
       skipped: 0,
     };
+    // Dedup the incoming payload by ad account FIRST. The unique constraint is
+    // (company_id, ad_account_id) — one mapping per ad account — but the UI is
+    // page-centric and several pages can default to the same ad account, which
+    // used to produce duplicate inserts → unique violation → 500. We collapse
+    // to one row per account, preferring the entry that carries a clientId.
+    const byAccount = new Map<string, typeof body.mappings[number]>();
     for (const m of body.mappings) {
       if (!m.adAccountId) { results.skipped += 1; continue; }
       const adAccountId = m.adAccountId.startsWith("act_") ? m.adAccountId : `act_${m.adAccountId}`;
+      const prev = byAccount.get(adAccountId);
+      // Prefer the mapping that assigns a client (the meaningful one).
+      if (!prev || (!prev.clientId && m.clientId)) byAccount.set(adAccountId, { ...m, adAccountId });
+    }
+
+    for (const m of byAccount.values()) {
+      const adAccountId = m.adAccountId as string;
       const includedAdsets = Array.isArray(m.includedAdsets) ? m.includedAdsets.filter((x: unknown) => typeof x === "string") : [];
-      const conditions = [
-        eq(adsAccountMappings.companyId, body.companyId),
-        eq(adsAccountMappings.adAccountId, adAccountId),
-      ];
-      if (m.pageId) {
-        conditions.push(eq(adsAccountMappings.pageId, m.pageId));
-      } else {
-        conditions.push(isNull(adsAccountMappings.pageId));
-      }
-      const [existing] = await db.select().from(adsAccountMappings).where(and(...conditions));
+      // Existing mapping for this account (the real unique key), regardless of page.
+      const [existing] = await db
+        .select()
+        .from(adsAccountMappings)
+        .where(and(eq(adsAccountMappings.companyId, body.companyId), eq(adsAccountMappings.adAccountId, adAccountId)));
       if (existing) {
         const [row] = await db.update(adsAccountMappings).set({
+          connectionId: body.connectionId,
           clientId: m.clientId ?? existing.clientId,
+          pageId: m.pageId ?? existing.pageId,
           includedAdsets: includedAdsets as unknown as string[],
           label: m.label ?? existing.label,
           updatedAt: new Date(),
@@ -577,6 +593,7 @@ export function adsRoutes(db: Db): Router {
         results.updated.push(row);
         continue;
       }
+      // Insert; on the off-chance of a concurrent insert, upsert on the unique key.
       const [row] = await db.insert(adsAccountMappings).values({
         companyId: body.companyId,
         connectionId: body.connectionId,
@@ -586,6 +603,16 @@ export function adsRoutes(db: Db): Router {
         pageId: m.pageId ?? null,
         label: m.label ?? null,
         includedAdsets: includedAdsets as unknown as string[],
+      }).onConflictDoUpdate({
+        target: [adsAccountMappings.companyId, adsAccountMappings.adAccountId],
+        set: {
+          connectionId: body.connectionId,
+          clientId: m.clientId ?? null,
+          pageId: m.pageId ?? null,
+          label: m.label ?? null,
+          includedAdsets: includedAdsets as unknown as string[],
+          updatedAt: new Date(),
+        },
       }).returning();
       results.created.push(row);
     }
@@ -790,6 +817,166 @@ export function adsRoutes(db: Db): Router {
     const [row] = await db.select().from(clients).where(condition);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(row);
+  });
+
+  // ---- Per-client tasks panel ----
+  // Everything actionable for one client in one place: agent/routine-created
+  // issues tagged to the client, the ClickUp scheduled content, and the posting
+  // status (planned vs actually published on the real network).
+  router.get("/clients/:idOrSlug/tasks", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const [client] = await db.select().from(clients).where(isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug));
+    if (!client) return res.status(404).json({ error: "client not found" });
+
+    const now = Date.now();
+
+    // 1) Tasks (issues) tagged to this client.
+    const taskRows = await db
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+        title: issues.title,
+        status: issues.status,
+        priority: issues.priority,
+        originKind: issues.originKind,
+        createdAt: issues.createdAt,
+      })
+      .from(issues)
+      .where(eq(issues.clientId, client.id))
+      .orderBy(desc(issues.createdAt))
+      .limit(100);
+    const tasks = taskRows.map((t) => ({
+      ...t,
+      needsApproval: t.originKind === "agent_proposed" && t.status === "backlog",
+    }));
+
+    // 2) Scheduled content from ClickUp (7d back → 14d ahead).
+    const scheduled = (await getRedesScheduledContent(db, client.id, now - 7 * 86_400_000, now + 14 * 86_400_000).catch(() => null)) ?? [];
+
+    // 3) Real posting status: organic posts actually published in the last 7d.
+    const maps = await db.select({ pageId: adsAccountMappings.pageId }).from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
+    const pageIds = [...new Set(maps.map((m) => m.pageId).filter((p): p is string => !!p))];
+    const since7 = new Date(now - 7 * 86_400_000);
+    const match = pageIds.length
+      ? or(eq(organicPosts.clientId, client.id), inArray(organicPosts.pageId, pageIds))
+      : eq(organicPosts.clientId, client.id);
+    const organicRows = await db
+      .select({ platform: organicPosts.platform, createdTime: organicPosts.createdTime })
+      .from(organicPosts)
+      .where(and(gte(organicPosts.createdTime, since7), match));
+    const publishedLast7 = organicRows.length;
+    const hasNetwork = pageIds.length > 0;
+    const plannedPast = scheduled.filter((s) => s.plannedDate && new Date(s.plannedDate).getTime() <= now && !s.published).length;
+
+    let postingStatus: "ok" | "warn" | "unverifiable";
+    let postingDetail: string;
+    if (!hasNetwork) {
+      postingStatus = "unverifiable";
+      postingDetail = "Sin red de Meta conectada para verificar.";
+    } else if (publishedLast7 === 0 && organicRows.length === 0) {
+      postingStatus = scheduled.length > 0 ? "warn" : "unverifiable";
+      postingDetail = scheduled.length > 0
+        ? "Hay contenido planeado pero no se detectan publicaciones reales en 7 días."
+        : "Sin publicaciones sincronizadas todavía.";
+    } else {
+      postingStatus = plannedPast > 0 ? "warn" : "ok";
+      postingDetail = plannedPast > 0
+        ? `${publishedLast7} publicado(s) en 7d, pero ${plannedPast} planeado(s) sin salir.`
+        : `${publishedLast7} publicación(es) reflejada(s) en la red (7d).`;
+    }
+
+    // 4) Suggestions: pending opportunities not yet materialized as issues.
+    //    We list both converted (link to issue) and pending so the UI can show
+    //    "ya creada" badges. Only suggestions still NEW (no issue yet) need an
+    //    accept/reject action.
+    const oppRows = await db
+      .select({
+        id: opportunities.id,
+        kind: opportunities.kind,
+        title: opportunities.title,
+        rationale: opportunities.rationale,
+        suggestedAction: opportunities.suggestedAction,
+        priority: opportunities.priority,
+        status: opportunities.status,
+        convertedIssueId: opportunities.convertedIssueId,
+        createdAt: opportunities.createdAt,
+      })
+      .from(opportunities)
+      .where(eq(opportunities.clientId, client.id))
+      .orderBy(desc(opportunities.priority), desc(opportunities.createdAt))
+      .limit(20);
+    const suggestions = oppRows
+      .filter((o) => !o.convertedIssueId)
+      .map((o) => ({
+        id: o.id,
+        kind: o.kind,
+        title: o.title,
+        rationale: o.rationale,
+        suggestedAction: o.suggestedAction,
+        priority: o.priority,
+        status: o.status,
+        createdAt: o.createdAt.toISOString(),
+      }));
+
+    res.json({
+      client: { id: client.id, name: client.name, slug: client.slug },
+      tasks,
+      suggestions,
+      scheduled,
+      posting: { status: postingStatus, detail: postingDetail, publishedLast7, plannedPastDue: plannedPast, hasNetwork },
+    });
+  });
+
+  // POST /api/clients/:id/suggestions/:oppId/:action
+  // Convert an opportunity into an issue now (accept) or drop it (dismiss).
+  router.post("/clients/:id/suggestions/:oppId/:action", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const action = req.params.action;
+    if (action !== "accept" && action !== "dismiss") return res.status(400).json({ error: "action must be accept|dismiss" });
+    const oppId = req.params.oppId;
+    const [opp] = await db.select().from(opportunities).where(eq(opportunities.id, oppId));
+    if (!opp || opp.clientId !== row.id) return res.status(404).json({ error: "opportunity not found" });
+    if (action === "dismiss") {
+      await db.update(opportunities).set({ status: "dismissed", convertedAt: new Date() }).where(eq(opportunities.id, oppId));
+      return res.json({ ok: true, status: "dismissed" });
+    }
+    // accept → materialize as issue
+    const companyId = await resolveCompanyId(db, row.id);
+    if (!companyId) return res.status(400).json({ error: "client has no company" });
+    const { materializeOpportunityAsIssue } = await import("../services/opportunities-engine.js");
+    const issueId = await materializeOpportunityAsIssue(db, {
+      clientId: row.id,
+      clientName: row.name,
+      companyId,
+      title: opp.title,
+      rationale: opp.rationale ?? "",
+      suggestedAction: opp.suggestedAction ?? "",
+      basis: (opp.basis as Record<string, unknown>) ?? {},
+      priority: opp.priority,
+      kind: opp.kind,
+    });
+    if (!issueId) return res.status(500).json({ error: "could not materialize opportunity" });
+    const [created] = await db
+      .select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, priority: issues.priority })
+      .from(issues)
+      .where(eq(issues.id, issueId));
+    res.json({ ok: true, issue: created });
+  });
+
+  // Approve a proposed (external) task → activate it. Or dismiss → cancel it.
+  router.post("/clients/tasks/:issueId/:action", async (req, res) => {
+    const { issueId, action } = req.params;
+    if (action !== "approve" && action !== "dismiss") return res.status(400).json({ error: "action must be approve|dismiss" });
+    const newStatus = action === "approve" ? "todo" : "cancelled";
+    const [row] = await db
+      .update(issues)
+      .set({ status: newStatus, originKind: action === "approve" ? "agent_detected" : "agent_proposed", updatedAt: new Date() })
+      .where(eq(issues.id, issueId))
+      .returning({ id: issues.id, identifier: issues.identifier, status: issues.status });
+    if (!row) return res.status(404).json({ error: "task not found" });
+    res.json({ ok: true, task: row });
   });
 
   // ---- Client-scoped ads summary (for the ClientDashboard "Paid Media" tab + Overview KPIs) ----
@@ -1033,6 +1220,52 @@ export function adsRoutes(db: Db): Router {
       totalRecords: total,
       results,
     });
+  });
+
+  // ---- Background sync (fire-and-forget) ----
+  //
+  // POST /api/ads/sync/background  { connectionId, mappingIds?: string[], sinceDays? }
+  //
+  // Kicks off campaigns+insights+organic sync for the given mappings (or every
+  // mapping on the connection) WITHOUT blocking. Used right after the operator
+  // saves account mappings: the mappings persist instantly, and the heavy
+  // Meta-rate-limited pull happens in the background so the dashboards fill in
+  // over the next minutes instead of hanging the save (and timing out / hitting
+  // the app rate limit, which used to make the whole save look like it failed).
+  router.post("/integrations/sync/background", async (req, res) => {
+    const { connectionId, mappingIds, sinceDays } = req.body ?? {};
+    if (!connectionId) return res.status(400).json({ error: "missing connectionId" });
+    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, connectionId));
+    if (!conn) return res.status(404).json({ error: "connection not found" });
+    assertCompanyAccess(req, conn.companyId);
+
+    const ids = Array.isArray(mappingIds) && mappingIds.length > 0 ? (mappingIds as string[]) : null;
+    const maps = ids
+      ? await db.select().from(adsAccountMappings).where(and(eq(adsAccountMappings.connectionId, connectionId), inArray(adsAccountMappings.id, ids)))
+      : await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.connectionId, connectionId));
+
+    const days = typeof sinceDays === "number" && sinceDays > 0 ? Math.min(365, sinceDays) : 90;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const until = new Date();
+
+    // Respond immediately; run the sync detached.
+    res.status(202).json({ ok: true, started: maps.length, sinceDays: days });
+
+    void (async () => {
+      for (const m of maps) {
+        const opts = { connectionId, mappingId: m.id, since, until };
+        for (const fn of [adsAggregator.syncCampaigns, adsAggregator.syncInsights, adsAggregator.syncOrganic]) {
+          try {
+            await fn(db, { ...opts, jobName: "background" });
+          } catch (e) {
+            console.warn(`[ads-bg-sync] mapping ${m.id} ${fn.name} failed:`, e instanceof Error ? e.message : e);
+          }
+        }
+        // Gentle pacing to stay under Meta's app rate limit.
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      console.log(`[ads-bg-sync] done: ${maps.length} mapping(s) on connection ${connectionId}`);
+    })();
   });
 
   // ---- Detailed campaigns view for the ClientDashboard ----
@@ -2208,6 +2441,68 @@ export function adsRoutes(db: Db): Router {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(await generateClientOpportunities(db, row.id));
+  });
+
+  // GET /api/clients/:id/opportunities — list the suggestions (including any
+  // already materialized to an issue, so the UI can link back).
+  router.get("/clients/:id/opportunities", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const list = await listOpportunities(db, row.id);
+    res.json({
+      client: { id: row.id, slug: row.slug, name: row.name },
+      opportunities: list.map((o) => ({
+        id: o.id,
+        kind: o.kind,
+        title: o.title,
+        rationale: o.rationale,
+        suggestedAction: o.suggestedAction,
+        priority: o.priority,
+        status: o.status,
+        convertedIssueId: o.convertedIssueId,
+        convertedAt: o.convertedAt?.toISOString() ?? null,
+        createdAt: o.createdAt.toISOString(),
+      })),
+    });
+  });
+
+  // POST /api/clients/:id/sheets/refresh — re-run Drive auto-detection for the
+  // client's planning Sheet. Returns candidates + the auto-picked mapping.
+  router.post("/clients/:id/sheets/refresh", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    try {
+      const r = await autoDetectClientSheet(db, row.id);
+      res.json({
+        ok: true,
+        spreadsheetId: r.spreadsheetId,
+        source: r.source,
+        candidates: r.candidates,
+        error: r.error ?? null,
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, spreadsheetId: null, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  // PUT /api/clients/:id/sheets — operator override of the Sheet mapping.
+  router.put("/clients/:id/sheets", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const id = typeof (req.body as { spreadsheetId?: unknown })?.spreadsheetId === "string"
+      ? (req.body as { spreadsheetId: string }).spreadsheetId.trim()
+      : "";
+    if (!id) return res.status(400).json({ ok: false, error: "spreadsheetId required" });
+    await setClientSheet(db, row.id, id);
+    res.json({ ok: true, spreadsheetId: id });
+  });
+
+  // DELETE /api/clients/:id/sheets — clear the mapping.
+  router.delete("/clients/:id/sheets", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    await clearClientSheet(db, row.id);
+    res.json({ ok: true });
   });
   router.post("/clients/:id/content/rebuild", async (req, res) => {
     const row = await resolveClient(req.params.id, db);

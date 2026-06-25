@@ -29,6 +29,9 @@ export interface Client {
   /** Repurposed: holds the Enfoque Técnico DOC id (not a list). */
   clickupListEnfoqueTecnicoId: string | null;
   clickupListsSyncedAt: string | null;
+  // LMTM-OS: per-client Google Sheets planilla mapping (auto-detected, can be overridden).
+  sheetsSpreadsheetId: string | null;
+  sheetsDetectedAt: string | null;
   onboardedAt: string | null;
   offboardedAt: string | null;
   createdAt: string;
@@ -122,7 +125,7 @@ export const clientsApi = {
   intel: (idOrSlug: string) => api.get<ClientIntel>(`/clients/${idOrSlug}/intel`),
   runScore: (idOrSlug: string) => api.post<{ healthScore: number; opsScore: number; components: Record<string, unknown> }>(`/clients/${idOrSlug}/score/run`, null),
   refreshBrain: (idOrSlug: string) => api.post<{ updated: number }>(`/clients/${idOrSlug}/brain/refresh`, null),
-  runOpportunities: (idOrSlug: string) => api.post<{ created: number }>(`/clients/${idOrSlug}/opportunities/run`, null),
+  runOpportunities: (idOrSlug: string) => api.post<{ created: number; materialized: number }>(`/clients/${idOrSlug}/opportunities/run`, null),
   rebuildContent: (idOrSlug: string) => api.post<{ items: number }>(`/clients/${idOrSlug}/content/rebuild`, null),
   // Competitors + content (pauta vs posteo)
   listCompetitors: (idOrSlug: string) => api.get<{ competitors: Competitor[] }>(`/clients/${idOrSlug}/competitors`),
@@ -134,7 +137,62 @@ export const clientsApi = {
     api.post<{ batchId: string; created: number }>(`/clients/${idOrSlug}/content/generate`, null),
   listContentIdeas: (idOrSlug: string) => api.get<{ ideas: ContentIdea[] }>(`/clients/${idOrSlug}/content-ideas`),
   contentCsvUrl: (idOrSlug: string) => `/api/clients/${idOrSlug}/content-ideas.csv`,
+  // Per-client tasks panel (issues + scheduled content + posting status + suggestions)
+  tasks: (idOrSlug: string) => api.get<ClientTasksResponse>(`/clients/${idOrSlug}/tasks`),
+  taskAction: (issueId: string, action: "approve" | "dismiss") =>
+    api.post<{ ok: boolean; task: { id: string; identifier: string | null; status: string } }>(`/clients/tasks/${issueId}/${action}`, null),
+  suggestionAction: (clientId: string, oppId: string, action: "accept" | "dismiss") =>
+    api.post<{ ok: boolean; status?: string; issue?: { id: string; identifier: string | null; title: string; status: string; priority: string } }>(`/clients/${clientId}/suggestions/${oppId}/${action}`, null),
+  listOpportunities: (clientId: string) =>
+    api.get<{ client: { id: string; slug: string; name: string }; opportunities: Array<{ id: string; kind: string; title: string; rationale: string | null; suggestedAction: string | null; priority: number; status: string; convertedIssueId: string | null; convertedAt: string | null; createdAt: string }> }>(`/clients/${clientId}/opportunities`),
+  refreshSheetsMapping: (clientId: string) =>
+    api.post<{ ok: boolean; spreadsheetId: string | null; error?: string }>(`/clients/${clientId}/sheets/refresh`, null),
+  setSheetsMapping: (clientId: string, spreadsheetId: string) =>
+    api.put<{ ok: boolean }>(`/clients/${clientId}/sheets`, { spreadsheetId }),
+  removeSheetsMapping: (clientId: string) =>
+    api.delete<{ ok: boolean }>(`/clients/${clientId}/sheets`),
 };
+
+export interface ClientTask {
+  id: string;
+  identifier: string | null;
+  title: string;
+  status: string;
+  priority: string;
+  originKind: string;
+  createdAt: string;
+  needsApproval: boolean;
+}
+export interface ClientSuggestion {
+  id: string;
+  kind: string;
+  title: string;
+  rationale: string | null;
+  suggestedAction: string | null;
+  priority: number;
+  status: string;
+  createdAt: string;
+}
+export interface ClientScheduledItem {
+  name: string;
+  status: string;
+  published: boolean;
+  plannedDate: string | null;
+  url: string | null;
+}
+export interface ClientTasksResponse {
+  client: { id: string; name: string; slug: string };
+  tasks: ClientTask[];
+  suggestions: ClientSuggestion[];
+  scheduled: ClientScheduledItem[];
+  posting: {
+    status: "ok" | "warn" | "unverifiable";
+    detail: string;
+    publishedLast7: number;
+    plannedPastDue: number;
+    hasNetwork: boolean;
+  };
+}
 
 export interface Competitor {
   id: string;

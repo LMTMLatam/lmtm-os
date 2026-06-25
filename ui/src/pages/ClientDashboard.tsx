@@ -44,13 +44,18 @@ import {
   ArrowDown,
   Layers,
   MessageSquare,
+  ListTodo,
+  Clock,
+  Lightbulb,
+  RefreshCw,
 } from "lucide-react";
 import { waBotApi } from "../api/waBot";
 
-type Tab = "overview" | "paid-media" | "organic" | "crm" | "initiatives" | "team";
+type Tab = "overview" | "tasks" | "paid-media" | "organic" | "crm" | "initiatives" | "team";
 
 const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
   { value: "overview", label: "Overview", icon: BarChart3 },
+  { value: "tasks", label: "Tareas", icon: ListTodo },
   { value: "paid-media", label: "Paid Media", icon: TrendingUp },
   { value: "organic", label: "Organic / SEO", icon: SearchIcon },
   { value: "crm", label: "CRM & Funnel", icon: Target },
@@ -237,6 +242,8 @@ function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: Clie
   switch (tab) {
     case "overview":
       return <OverviewTab client={client} ads={ads} />;
+    case "tasks":
+      return <TasksTab client={client} />;
     case "paid-media":
       return <PaidMediaTab client={client} ads={ads} />;
     case "organic":
@@ -248,6 +255,206 @@ function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: Clie
     case "team":
       return <TeamTab client={client} />;
   }
+}
+
+function TasksTab({ client }: { client: Client }) {
+  const qc = useQueryClient();
+  const tasksQuery = useQuery({
+    queryKey: ["client", client.slug, "tasks"],
+    queryFn: () => clientsApi.tasks(client.slug),
+    refetchInterval: 30000,
+  });
+  const act = useMutation({
+    mutationFn: (args: { issueId: string; action: "approve" | "dismiss" }) => clientsApi.taskAction(args.issueId, args.action),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "tasks"] }),
+  });
+  const sugAct = useMutation({
+    mutationFn: (args: { oppId: string; action: "accept" | "dismiss" }) =>
+      clientsApi.suggestionAction(client.id, args.oppId, args.action),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "tasks"] }),
+  });
+  const runOpps = useMutation({
+    mutationFn: () => clientsApi.runOpportunities(client.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "tasks"] }),
+  });
+
+  const data = tasksQuery.data;
+  if (tasksQuery.isLoading) return <p className="text-sm text-muted-foreground">Cargando tareas…</p>;
+  if (!data) return <p className="text-sm text-muted-foreground">No se pudieron cargar las tareas.</p>;
+
+  const proposals = data.tasks.filter((t) => t.needsApproval);
+  const active = data.tasks.filter((t) => !t.needsApproval && !["done", "cancelled"].includes(t.status));
+  const done = data.tasks.filter((t) => ["done", "cancelled"].includes(t.status));
+  const suggestions = data.suggestions ?? [];
+
+  const postCls =
+    data.posting.status === "ok" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+    : data.posting.status === "warn" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    : "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300";
+  const PostIcon = data.posting.status === "ok" ? CheckCircle2 : AlertCircle;
+  const prioCls = (p: string) =>
+    p === "urgent" || p === "high" ? "text-rose-600 dark:text-rose-400" : p === "low" ? "text-muted-foreground" : "text-foreground";
+
+  return (
+    <div className="space-y-4">
+      {/* Posting status */}
+      <Card className={`p-3 flex items-center gap-2 text-sm ${postCls}`}>
+        <PostIcon className="h-4 w-4 shrink-0" />
+        <span className="font-medium">Posteo:</span>
+        <span>{data.posting.detail}</span>
+      </Card>
+
+      {/* Proposals awaiting approval */}
+      {proposals.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-1.5">
+            <AlertCircle className="h-4 w-4 text-amber-500" /> Para aprobar ({proposals.length})
+          </h3>
+          <div className="space-y-2">
+            {proposals.map((t) => (
+              <Card key={t.id} className="p-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{t.title}</p>
+                  <p className="text-xs text-muted-foreground">{t.identifier} · externa · {new Date(t.createdAt).toLocaleDateString("es-AR")}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button size="sm" variant="outline" disabled={act.isPending} onClick={() => act.mutate({ issueId: t.id, action: "approve" })}>Aprobar</Button>
+                  <Button size="sm" variant="ghost" disabled={act.isPending} onClick={() => act.mutate({ issueId: t.id, action: "dismiss" })}>Descartar</Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Suggestions — opportunities auto-detected, pending user decision */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-medium flex items-center gap-1.5">
+            <Lightbulb className="h-4 w-4 text-violet-500" /> Sugerencias para lanzar ({suggestions.length})
+          </h3>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={runOpps.isPending}
+            onClick={() => runOpps.mutate()}
+            title="Regenerar oportunidades para este cliente (basado en CTR, ROAS, contenido y alertas)"
+          >
+            <RefreshCw className={`h-3 w-3 ${runOpps.isPending ? "animate-spin" : ""}`} />
+            <span className="ml-1 text-[11px]">Regenerar</span>
+          </Button>
+        </div>
+        {suggestions.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {runOpps.data
+              ? `Regenerado: ${runOpps.data.created} oportunidad(es), ${runOpps.data.materialized ?? 0} auto-creada(s) como tareas.`
+              : "Sin sugerencias pendientes. Tocá Regenerar para analizar CTR/ROAS/posteo del cliente."}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {suggestions.map((s) => (
+              <Card key={s.id} className="p-3 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`text-[10px] px-1.5 py-0 rounded ${
+                        s.priority >= 90 ? "bg-rose-500/10 text-rose-700"
+                        : s.priority >= 75 ? "bg-amber-500/10 text-amber-700"
+                        : "bg-zinc-500/10 text-zinc-600"
+                      }`}
+                      title={`Prioridad ${s.priority}/100`}
+                    >
+                      P{s.priority}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0 rounded bg-violet-500/10 text-violet-700">
+                      {s.kind}
+                    </span>
+                    <p className="text-sm font-medium truncate">{s.title}</p>
+                  </div>
+                  {s.rationale && (
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.rationale}</p>
+                  )}
+                  {s.suggestedAction && (
+                    <p className="text-xs text-foreground/80 mt-1 italic line-clamp-1">→ {s.suggestedAction}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={sugAct.isPending}
+                    onClick={() => sugAct.mutate({ oppId: s.id, action: "accept" })}
+                    title="Convertir esta sugerencia en una tarea real"
+                  >
+                    Lanzar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={sugAct.isPending}
+                    onClick={() => sugAct.mutate({ oppId: s.id, action: "dismiss" })}
+                    title="Descartar esta sugerencia"
+                  >
+                    Descartar
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Active tasks */}
+      <div>
+        <h3 className="text-sm font-medium mb-2 flex items-center gap-1.5">
+          <ListTodo className="h-4 w-4" /> Tareas activas ({active.length})
+        </h3>
+        {active.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Sin tareas activas para este cliente.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {active.map((t) => (
+              <Card key={t.id} className="p-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm truncate">{t.title}</p>
+                  <p className="text-xs text-muted-foreground">{t.identifier} · {t.status}</p>
+                </div>
+                <span className={`text-xs shrink-0 ${prioCls(t.priority)}`}>{t.priority}</span>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Scheduled content */}
+      <div>
+        <h3 className="text-sm font-medium mb-2 flex items-center gap-1.5">
+          <Calendar className="h-4 w-4" /> Contenido programado (ClickUp)
+        </h3>
+        {data.scheduled.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Sin contenido programado en la ventana (o lista de Redes no mapeada).</p>
+        ) : (
+          <div className="space-y-1">
+            {data.scheduled.slice(0, 30).map((s, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 text-sm py-1 border-b border-border/40 last:border-0">
+                <span className="truncate flex items-center gap-1.5">
+                  {s.published ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /> : <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                  {s.name}
+                </span>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {s.plannedDate ? new Date(s.plannedDate).toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) : "—"} · {s.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {done.length > 0 && (
+        <p className="text-xs text-muted-foreground">{done.length} tarea(s) cerrada(s).</p>
+      )}
+    </div>
+  );
 }
 
 function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }) {
