@@ -112,6 +112,23 @@ export async function driveGet(i: z.infer<typeof driveGetSchema>) {
   });
 }
 
+export const driveMoveSchema = z.object({
+  fileId: z.string().describe("ID of the file to move (e.g. an Apps Script project, which is a Drive file)."),
+  addParentId: z.string().describe("Destination folder ID."),
+  removeParentId: z.string().optional().describe("Current parent folder ID to detach from (e.g. 'root')."),
+});
+export async function driveMove(i: z.infer<typeof driveMoveSchema>) {
+  return gFetch(`${DRIVE}/${i.fileId}`, {
+    method: "PATCH",
+    query: {
+      supportsAllDrives: true,
+      addParents: i.addParentId,
+      removeParents: i.removeParentId ?? "root",
+      fields: "id,name,parents",
+    },
+  });
+}
+
 export const driveCreateFolderSchema = z.object({
   name: z.string(),
   parentFolderId: z.string().optional().describe("Parent folder ID. Omit for My Drive root."),

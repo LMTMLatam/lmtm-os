@@ -14,7 +14,13 @@
 import type { Db } from "@paperclipai/db";
 import { clients, companies } from "@paperclipai/db";
 import { eq } from "drizzle-orm";
-import { driveCopy } from "@paperclipai/mcp-google";
+import {
+  driveCopy,
+  driveMove,
+  scriptCreate,
+  scriptGetContent,
+  scriptUpdateContent,
+} from "@paperclipai/mcp-google";
 import { createClientTask } from "./client-tasks.js";
 
 export const CLIENTES_SPACE_ID = "90131985551";
@@ -23,8 +29,87 @@ export const CLIENTES_SPACE_ID = "90131985551";
 const REDES = {
   template: "1D21iXNcBYxez0Mpd4B4BR6aZlVgoERSTyRbMAWJUXRY", // "Plantilla _Cronopost"
   folder: "15ZkCu9M2MTi-f3YPTbC1ttNv0DbBcnVQ", // "Redes -> Click Up"
-  scripts: "1nbhnzZYjeKdlrIGWYBPLyFTFUC16r5pk",
+  scripts: "1nbhnzZYjeKdlrIGWYBPLyFTFUC16r5pk", // "scripts redes" folder
+  scriptTemplate: "14H0_s9ozhWfqlA49_rWDbuwSj8udq8EWqZw8T8Ef1P9MmQ-RK0NHLLC4", // "PLANILLA SCRIPT REDES"
 };
+
+const CU_API = "https://api.clickup.com/api/v2";
+
+/** Find the "Redes Sociales" list inside a client's ClickUp folder (the list the
+ * Cronopost script feeds). Returns its id, or null if the folder has no such list. */
+async function findRedesListId(folderId: string): Promise<string | null> {
+  const token = process.env.CLICKUP_API_TOKEN;
+  if (!token) return null;
+  try {
+    const r = await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, {
+      headers: { Authorization: token },
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { lists?: Array<{ id: string; name: string }> };
+    const hit = (j.lists ?? []).find((l) => /redes\s*sociales/i.test(l.name));
+    return hit?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+interface ScriptProvision {
+  scriptId: string | null;
+  scriptUrl: string | null;
+  triggerInstalled: boolean;
+  note: string;
+}
+
+/**
+ * Auto-create the per-client Cronopost→ClickUp Apps Script from the template,
+ * pointed at the new Sheet + the client's "Redes Sociales" list, and file it in
+ * the scripts folder. The time-based trigger can't be installed via the API
+ * (Apps Script requires a code run for installable triggers, which needs a GCP
+ * association + runtime scopes we don't have), so it stays a 1-click step:
+ * open the script and run crearTriggerDiario() once.
+ */
+async function provisionScriptForClient(args: {
+  clientName: string;
+  sheetId: string;
+  clickUpListId: string;
+}): Promise<ScriptProvision> {
+  const out: ScriptProvision = { scriptId: null, scriptUrl: null, triggerInstalled: false, note: "" };
+  // 1. Read the template's files (code + manifest).
+  const tpl = (await scriptGetContent({ scriptId: REDES.scriptTemplate })) as {
+    files?: Array<{ name: string; type: "SERVER_JS" | "HTML" | "JSON"; source: string }>;
+  };
+  const files = tpl.files ?? [];
+  if (files.length === 0) {
+    out.note = "no se pudo leer la plantilla de script";
+    return out;
+  }
+  // 2. Parameterize the PROJECTS config in the SERVER_JS file.
+  const parameterized = files.map((f) => {
+    if (f.type !== "SERVER_JS") return f;
+    let s = f.source;
+    s = s.replace(/projectName:\s*"CLIENTE"/g, `projectName: ${JSON.stringify(args.clientName)}`);
+    s = s.replace(/clickUpListId:\s*"ID LISTA DE CLICKUP"/g, `clickUpListId: ${JSON.stringify(args.clickUpListId)}`);
+    s = s.replace(/spreadsheetId:\s*"ID DEL SHEET"/g, `spreadsheetId: ${JSON.stringify(args.sheetId)}`);
+    return { name: f.name, type: f.type, source: s };
+  });
+  // 3. Create the project, set its content, move it into the scripts folder.
+  const created = (await scriptCreate({ title: `${args.clientName} - Redes` })) as { scriptId?: string };
+  const scriptId = created.scriptId;
+  if (!scriptId) {
+    out.note = "scriptCreate no devolvió scriptId";
+    return out;
+  }
+  out.scriptId = scriptId;
+  out.scriptUrl = `https://script.google.com/d/${scriptId}/edit`;
+  await scriptUpdateContent({ scriptId, files: parameterized as never });
+  try {
+    await driveMove({ fileId: scriptId, addParentId: REDES.scripts, removeParentId: "root" });
+  } catch {
+    /* move is cosmetic; the script works wherever it lives */
+  }
+  out.note = "script creado y configurado; falta instalar el trigger (1 clic: abrir el script y correr crearTriggerDiario)";
+  return out;
+}
 
 function slugify(name: string): string {
   return name
@@ -44,6 +129,7 @@ async function defaultCompanyId(db: Db): Promise<string | null> {
 export interface ProvisionResult {
   client: { id: string; slug: string; name: string; created: boolean } | null;
   redesSheet: { id: string; url: string | null } | null;
+  script: ScriptProvision | null;
   errors: string[];
 }
 
@@ -53,7 +139,7 @@ export async function provisionClientFromClickUp(
   input: { folderId: string; folderName: string },
 ): Promise<ProvisionResult> {
   const name = (input.folderName ?? "").trim();
-  const out: ProvisionResult = { client: null, redesSheet: null, errors: [] };
+  const out: ProvisionResult = { client: null, redesSheet: null, script: null, errors: [] };
   if (!name) {
     out.errors.push("folderName vacío");
     return out;
@@ -111,17 +197,35 @@ export async function provisionClientFromClickUp(
     out.client = { id: clientId, slug, name, created: true };
   }
 
-  // 3. File a task for the pipeline agent to finish script + Make wiring.
+  // 3. Auto-create the Cronopost→ClickUp Apps Script (pointed at the new Sheet
+  //    + the client's "Redes Sociales" list). Best-effort: needs both the sheet
+  //    and the list to exist.
+  const listId = await findRedesListId(input.folderId);
+  if (sheetId && listId) {
+    try {
+      out.script = await provisionScriptForClient({ clientName: name, sheetId, clickUpListId: listId });
+    } catch (e) {
+      out.errors.push(`script: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else if (!listId) {
+    out.errors.push("lista 'Redes Sociales' no encontrada en el folder → script no creado");
+  }
+
+  // 4. File a task for the remaining manual/agent steps (trigger + Make).
   try {
     const fallbackCompanyId = (await defaultCompanyId(db)) ?? undefined;
+    const scriptLine = out.script?.scriptUrl
+      ? `• Apps Script creado y configurado: ${out.script.scriptUrl}\n  ⚠️ Falta 1 clic: abrir el script y correr la función *crearTriggerDiario* (instala el trigger diario).\n`
+      : `• Apps Script: ⚠️ no se pudo crear (${out.errors.join("; ") || "revisar"}). Crear a mano desde la plantilla.\n`;
     await createClientTask(db, {
       clientId,
-      title: `Onboarding ${name}: Apps Script + scenario Make`,
+      title: `Onboarding ${name}: trigger + scenario Make`,
       description:
-        `Cliente nuevo detectado en ClickUp (folder ${input.folderId}).\n` +
+        `Cliente nuevo detectado en ClickUp (folder ${input.folderId}). Provisión automática:\n` +
         `• Sheet de Redes: ${out.redesSheet?.url ?? "⚠️ no se pudo crear, revisar"}\n` +
-        `Falta para completar el pipeline (ver skill lmtm-pipeline):\n` +
-        `1) Crear el Apps Script en la carpeta de scripts (${REDES.scripts}) apuntando al sheetId ${sheetId ?? "(sheet pendiente)"} y al folder de ClickUp ${input.folderId}.\n` +
+        scriptLine +
+        `Falta para terminar el pipeline (ver skill lmtm-pipeline):\n` +
+        `1) Instalar el trigger del script (1 clic, ver arriba).\n` +
         `2) Clonar el scenario "AutoPoster: Plantilla Clientes" en Make para este cliente y activarlo.\n` +
         `3) Probar una fila de punta a punta y guardar los IDs en el brain del cliente.`,
       taskType: "internal",

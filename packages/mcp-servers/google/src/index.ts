@@ -64,6 +64,7 @@ export {
   sheetsUpdate,
   sheetsUpdateSchema,
 };
+export { driveMove, driveMoveSchema } from "./tools.js";
 
 function asText(value: unknown) {
   return {
