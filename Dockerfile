@@ -122,7 +122,7 @@ COPY docker/claude-mcp.json /app/claude-mcp.json
 # spawning `claude` subprocesses + streaming their logs) the server's own heap
 # climbed past 380MB and OOM-crashed into the fallback proxy. The claude
 # subprocesses have their own memory, so this only governs the server process.
-ENV NODE_OPTIONS=--max-old-space-size=3072 \
+ENV NODE_OPTIONS=--max-old-space-size=4096 \
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
