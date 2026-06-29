@@ -54,7 +54,7 @@ export function ConnectAds() {
 
   const [step, setStep] = useState<Step>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [syncResult, setSyncResult] = useState<{ total: number; perJob: Record<string, number> } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ total: number; perJob: Record<string, number>; syncing?: number } | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   // pageId -> state
   const [pageRows, setPageRows] = useState<Record<string, PageRowState>>({});
@@ -201,27 +201,32 @@ export function ConnectAds() {
           includedAdsets: Array.from(row.includedAdsetIds),
         }));
       if (mappings.length === 0) throw new Error("No hay mappings para guardar");
-      // 1) Bulk create (skip-existing semantics)
+      // 1) Persist the mappings. This is the part that MUST succeed — it's fast
+      //    and doesn't touch Meta, so the mapping is saved the instant it returns.
       const created = await adsApi.createBulkMappings({
         companyId,
         connectionId: connection.id,
         mappings,
       });
-      // 2) Sync each created mapping
-      setStep("syncing");
-      const perJob: Record<string, number> = {};
-      let total = 0;
-      for (const m of created.created.concat(created.updated)) {
-        for (const job of ["campaigns", "insights", "all"] as const) {
-          const r = await clientsApi.syncAds(connection.id, m.id, job, sinceIso(365), untilIso(0));
-          perJob[job] = (perJob[job] ?? 0) + (r.totalRecords ?? 0);
-          total += r.totalRecords ?? 0;
-        }
+      const savedMappings = created.created.concat(created.updated);
+      // 2) Kick off the data pull in the BACKGROUND (fire-and-forget). The heavy,
+      //    Meta-rate-limited sync no longer blocks the save: it runs server-side
+      //    and the dashboards fill in over the next minutes. A failure here never
+      //    loses the mapping — it's already saved above.
+      try {
+        await adsApi.syncBackground({
+          connectionId: connection.id,
+          mappingIds: savedMappings.map((m) => m.id),
+          sinceDays: 90,
+        });
+      } catch {
+        /* trigger failed — mappings are still saved; the daily autosync picks
+           them up. Never fail the save on a sync hiccup. */
       }
-      return { total, perJob, created: created.created.length, updated: created.updated.length, skipped: created.skipped };
+      return { created: created.created.length, updated: created.updated.length, skipped: created.skipped, syncing: savedMappings.length };
     },
     onSuccess: (res) => {
-      setSyncResult({ total: res.total, perJob: res.perJob });
+      setSyncResult({ total: 0, perJob: {}, syncing: res.syncing });
       setStep("done");
       qc.invalidateQueries({ queryKey: ["ads"] });
       qc.invalidateQueries({ queryKey: queryKeys.clients.campaigns("__lmtm__", sinceIso(365), untilIso(0)) });
@@ -371,17 +376,10 @@ export function ConnectAds() {
             <div className="flex items-start gap-3">
               <CheckCircle2 className="mt-0.5 size-5 text-green-500" />
               <div className="flex-1">
-                <div className="font-medium">¡Listo!</div>
+                <div className="font-medium">¡Mapeos guardados!</div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  Sincronizamos {syncResult?.total ?? 0} filas (campañas + adsets + insights) en los últimos 365 días.
+                  Guardamos {syncResult?.syncing ?? stats.mapped} cuenta(s). Estamos sincronizando los datos de Meta (últimos 90 días) en segundo plano — los dashboards se van a ir llenando en los próximos minutos. Podés cerrar esta pantalla.
                 </div>
-                {syncResult && Object.keys(syncResult.perJob).length > 0 && (
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {Object.entries(syncResult.perJob).map(([job, n]) => (
-                      <li key={job}>· {job}: {n} filas</li>
-                    ))}
-                  </ul>
-                )}
               </div>
             </div>
             <div className="mt-4 flex gap-2">

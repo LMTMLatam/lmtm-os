@@ -181,6 +181,63 @@ export async function getRedesPostStats(
   return { total, byStatus, publishedThisWeek, plannedThisWeek, missed: missedNames.length, missedNames, hasDates };
 }
 
+export interface ScheduledContentItem {
+  name: string;
+  status: string;
+  published: boolean;
+  plannedDate: string | null; // ISO, when the post is/was scheduled
+  url: string | null;
+}
+
+/**
+ * The client's planned content from the "Redes Sociales" ClickUp list within a
+ * time window (default: from 7 days ago to 14 days ahead). This is the "sheet
+ * programado" the content agents need to verify what should be posted and when.
+ * Returns the actual items (name, status, planned date), not just aggregates.
+ */
+export async function getRedesScheduledContent(
+  db: Db,
+  clientId: string,
+  sinceMs: number,
+  untilMs: number,
+): Promise<ScheduledContentItem[] | null> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client?.clickupListRedesId) return null;
+  const r = await cu<{ tasks: Array<{
+    name: string;
+    status?: { status?: string; type?: string };
+    due_date?: string | null; start_date?: string | null;
+    date_done?: string | null; date_closed?: string | null;
+    url?: string | null;
+  }> }>(
+    `/list/${encodeURIComponent(client.clickupListRedesId)}/task`,
+    { query: { archived: false, include_closed: true, subtasks: false } },
+  );
+  const tasks = r.tasks ?? [];
+  const out: ScheduledContentItem[] = [];
+  for (const t of tasks) {
+    const planMs = Number(t.due_date ?? t.start_date ?? 0);
+    if (planMs && (planMs < sinceMs || planMs > untilMs)) continue;
+    const sName = t.status?.status ?? "sin estado";
+    const published =
+      t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
+    out.push({
+      name: t.name,
+      status: sName,
+      published,
+      plannedDate: planMs ? new Date(planMs).toISOString() : null,
+      url: t.url ?? null,
+    });
+  }
+  // Nearest-first by planned date (nulls last).
+  out.sort((a, b) => {
+    if (!a.plannedDate) return 1;
+    if (!b.plannedDate) return -1;
+    return a.plannedDate.localeCompare(b.plannedDate);
+  });
+  return out;
+}
+
 /**
  * Create a weekly-report task in the client's ClickUp folder, inside a
  * "📊 Reportes" list (created on first use). Returns the task URL.

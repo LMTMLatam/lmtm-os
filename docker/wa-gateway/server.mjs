@@ -353,6 +353,36 @@ app.delete("/api/sessions/:id", async (req, res) => {
   res.json({ data: { ok: true } });
 });
 
+// All groups the linked account participates in (not just ones we've captured
+// messages from). Lets the panel link ANY group to a client, not only those
+// that already produced chat summaries.
+app.get("/api/sessions/:id/groups", async (_req, res) => {
+  if (!session.sock || session.status !== "CONNECTED") {
+    return res.status(409).json({ error: "not connected", data: [] });
+  }
+  try {
+    // Live roster of every group the account participates in. Retry a couple
+    // times to ride out transient empties right after a restored session.
+    let all = {};
+    for (let attempt = 0; attempt < 3; attempt++) {
+      all = (await session.sock.groupFetchAllParticipating().catch(() => ({}))) || {};
+      if (Object.keys(all).length > 0) break;
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+
+    const groups = Object.values(all).map((g) => ({
+      id: g.id,
+      name: g.subject ?? null,
+      participants: Array.isArray(g.participants) ? g.participants.length : null,
+    }));
+    // Warm the name cache so message handlers don't re-fetch metadata.
+    for (const g of groups) if (g.id && g.name) groupNameCache.set(g.id, g.name);
+    res.json({ data: groups });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e), data: [] });
+  }
+});
+
 app.post("/api/sessions/:id/messages/send-text", async (req, res) => {
   const { chatId, text } = req.body || {};
   if (!chatId || !text) return res.status(400).json({ error: "chatId and text required" });

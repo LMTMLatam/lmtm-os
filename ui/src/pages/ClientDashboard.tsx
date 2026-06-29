@@ -7,6 +7,7 @@ import {
   type Client,
   type ClientAdsSummary,
   type ClientCampaignsResponse,
+  type ContentIdea,
 } from "../api/clients";
 import { PaidMediaDashboard } from "./PaidMediaDashboard";
 import { queryKeys } from "../lib/queryKeys";
@@ -51,22 +52,20 @@ import {
 } from "lucide-react";
 import { waBotApi } from "../api/waBot";
 
-type Tab = "overview" | "tasks" | "paid-media" | "organic" | "crm" | "initiatives" | "team";
+type Tab = "tasks" | "dashboard" | "ideas" | "memoria" | "competidores";
 
 const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
-  { value: "overview", label: "Overview", icon: BarChart3 },
   { value: "tasks", label: "Tareas", icon: ListTodo },
-  { value: "paid-media", label: "Paid Media", icon: TrendingUp },
-  { value: "organic", label: "Organic / SEO", icon: SearchIcon },
-  { value: "crm", label: "CRM & Funnel", icon: Target },
-  { value: "initiatives", label: "Initiatives", icon: Briefcase },
-  { value: "team", label: "Team & Access", icon: Users },
+  { value: "dashboard", label: "Dashboard", icon: BarChart3 },
+  { value: "ideas", label: "Ideas de posteos", icon: Lightbulb },
+  { value: "memoria", label: "Memoria", icon: Layers },
+  { value: "competidores", label: "Competidores", icon: Target },
 ];
 
 export function ClientDashboard() {
   const { slug, tab } = useParams<{ slug: string; tab?: string }>();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const activeTab: Tab = (TABS.find((t) => t.value === tab)?.value ?? "overview") as Tab;
+  const activeTab: Tab = (TABS.find((t) => t.value === tab)?.value ?? "tasks") as Tab;
 
   const clientQuery = useQuery({
     queryKey: queryKeys.clients.detail(slug ?? ""),
@@ -240,21 +239,214 @@ export function ClientDashboard() {
 
 function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: ClientAdsSummary }) {
   switch (tab) {
-    case "overview":
-      return <OverviewTab client={client} ads={ads} />;
     case "tasks":
       return <TasksTab client={client} />;
-    case "paid-media":
+    case "dashboard":
       return <PaidMediaTab client={client} ads={ads} />;
-    case "organic":
-      return <OrganicTab client={client} />;
-    case "crm":
-      return <CrmTab client={client} />;
-    case "initiatives":
-      return <InitiativesTab client={client} />;
-    case "team":
-      return <TeamTab client={client} />;
+    case "ideas":
+      return <IdeasTab client={client} />;
+    case "memoria":
+      return <MemoriaTab client={client} />;
+    case "competidores":
+      return <CompetidoresTab client={client} />;
   }
+}
+
+// ── Ideas de posteos ────────────────────────────────────────────────────────
+// Surfaces the competitor-driven content ideas (pauta + posteo). Every client
+// should always have ideas; if none exist yet the user can generate them, and
+// the backend also auto-generates them weekly.
+function IdeasTab({ client }: { client: Client }) {
+  const qc = useQueryClient();
+  const ideasQuery = useQuery({
+    queryKey: ["client", client.slug, "content-ideas"],
+    queryFn: () => clientsApi.listContentIdeas(client.slug),
+  });
+  const gen = useMutation({
+    mutationFn: () => clientsApi.generateContent(client.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "content-ideas"] }),
+  });
+
+  const ideas = ideasQuery.data?.ideas ?? [];
+  const pauta = ideas.filter((i) => i.kind === "pauta");
+  const posteo = ideas.filter((i) => i.kind === "posteo");
+
+  const IdeaCard = ({ i }: { i: ContentIdea }) => (
+    <Card className="p-3 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">{i.title}</p>
+        {i.format && <Badge variant="outline" className="shrink-0 text-[10px] uppercase">{i.format}</Badge>}
+      </div>
+      {i.copy && <p className="text-xs text-muted-foreground whitespace-pre-wrap">{i.copy}</p>}
+      {i.rationale && (
+        <p className="text-[11px] text-violet-600 dark:text-violet-400 flex items-start gap-1">
+          <Target className="h-3 w-3 mt-0.5 shrink-0" /> {i.rationale}
+        </p>
+      )}
+    </Card>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Ideas personalizadas (usan competidores cargados + Enfoque Técnico + memoria del cliente).
+        </p>
+        <div className="flex items-center gap-1.5">
+          {ideas.length > 0 && (
+            <a href={clientsApi.contentCsvUrl(client.slug)} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="outline"><Download className="h-3 w-3 mr-1" /> CSV</Button>
+            </a>
+          )}
+          <Button size="sm" disabled={gen.isPending} onClick={() => gen.mutate()}>
+            <RefreshCw className={`h-3 w-3 mr-1 ${gen.isPending ? "animate-spin" : ""}`} />
+            {ideas.length > 0 ? "Regenerar" : "Generar ideas"}
+          </Button>
+        </div>
+      </div>
+
+      {ideasQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Cargando ideas…</p>
+      ) : ideas.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-muted-foreground">
+          Todavía no hay ideas para {client.name}. Tocá <span className="font-medium">Generar ideas</span> para crear
+          una tanda usando sus competidores y su Enfoque Técnico.
+        </Card>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Megaphone className="h-4 w-4 text-rose-500" /> Pauta ({pauta.length})</h3>
+            <div className="space-y-2">{pauta.map((i) => <IdeaCard key={i.id} i={i} />)}</div>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Lightbulb className="h-4 w-4 text-amber-500" /> Posteo orgánico ({posteo.length})</h3>
+            <div className="space-y-2">{posteo.map((i) => <IdeaCard key={i.id} i={i} />)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Memoria ─────────────────────────────────────────────────────────────────
+// The living client brain: Enfoque Técnico + durable learnings the agents save.
+function MemoriaTab({ client }: { client: Client }) {
+  const qc = useQueryClient();
+  const intelQuery = useQuery({
+    queryKey: ["client", client.slug, "intel"],
+    queryFn: () => clientsApi.intel(client.slug),
+  });
+  const refresh = useMutation({
+    mutationFn: () => clientsApi.refreshBrain(client.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "intel"] }),
+  });
+
+  const intel = intelQuery.data;
+  const brain = (intel?.brain ?? []).slice().sort((a, b) => Number(b.pinned) - Number(a.pinned));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Memoria viva del cliente — Enfoque Técnico + aprendizajes guardados por los agentes.</p>
+        <div className="flex items-center gap-1.5">
+          {intel?.client.enfoqueTecnicoUrl && (
+            <a href={intel.client.enfoqueTecnicoUrl} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="outline"><ExternalLink className="h-3 w-3 mr-1" /> Enfoque Técnico</Button>
+            </a>
+          )}
+          <Button size="sm" variant="outline" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+            <RefreshCcw className={`h-3 w-3 mr-1 ${refresh.isPending ? "animate-spin" : ""}`} /> Refrescar
+          </Button>
+        </div>
+      </div>
+
+      {intel?.score && (
+        <div className="flex gap-2">
+          <Card className="p-3 flex-1"><p className="text-xs text-muted-foreground">Salud de cuenta</p><p className="text-lg font-semibold tabular-nums">{intel.score.healthScore}/100</p></Card>
+          <Card className="p-3 flex-1"><p className="text-xs text-muted-foreground">Score operativo</p><p className="text-lg font-semibold tabular-nums">{intel.score.opsScore}/100</p></Card>
+        </div>
+      )}
+
+      {intelQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Cargando memoria…</p>
+      ) : brain.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-muted-foreground">Sin memoria todavía. Se llena con el Enfoque Técnico (ClickUp) y lo que aprenden los agentes.</Card>
+      ) : (
+        <div className="space-y-2">
+          {brain.map((b) => (
+            <Card key={b.id} className="p-3 space-y-1">
+              <div className="flex items-center gap-1.5">
+                {b.pinned && <Badge variant="outline" className="text-[10px]">📌 fijado</Badge>}
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{b.kind} · {b.key}</span>
+              </div>
+              <p className="text-sm whitespace-pre-wrap">{b.content}</p>
+              <p className="text-[10px] text-muted-foreground">{new Date(b.updatedAt).toLocaleDateString("es-AR")}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Competidores ────────────────────────────────────────────────────────────
+// Per-client competitors. These feed the Ideas engine (differentiation angles).
+function CompetidoresTab({ client }: { client: Client }) {
+  const qc = useQueryClient();
+  const compQuery = useQuery({
+    queryKey: ["client", client.slug, "competitors"],
+    queryFn: () => clientsApi.listCompetitors(client.slug),
+  });
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const add = useMutation({
+    mutationFn: () => clientsApi.addCompetitor(client.id, { name: name.trim(), fbPageUrl: url.trim() || null }),
+    onSuccess: () => { setName(""); setUrl(""); qc.invalidateQueries({ queryKey: ["client", client.slug, "competitors"] }); },
+  });
+  const del = useMutation({
+    mutationFn: (cid: string) => clientsApi.deleteCompetitor(client.id, cid),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "competitors"] }),
+  });
+
+  const comps = compQuery.data?.competitors ?? [];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">Competidores de {client.name}. Se usan para generar ideas diferenciadas en la pestaña <span className="font-medium">Ideas de posteos</span>.</p>
+
+      <Card className="p-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground">Nombre</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Competidor" />
+        </div>
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground">Página / URL (opcional)</label>
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="facebook.com/… o web" />
+        </div>
+        <Button size="sm" disabled={!name.trim() || add.isPending} onClick={() => add.mutate()}>Agregar</Button>
+      </Card>
+
+      {compQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Cargando competidores…</p>
+      ) : comps.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-muted-foreground">Sin competidores cargados. Agregá al menos uno para que las ideas se diferencien de la competencia.</Card>
+      ) : (
+        <div className="space-y-2">
+          {comps.map((c) => (
+            <Card key={c.id} className="p-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{c.name}</p>
+                {c.fbPageUrl && <a href={c.fbPageUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 dark:text-blue-400 inline-flex items-center gap-1"><Facebook className="h-3 w-3" /> {c.fbPageUrl}</a>}
+                {c.notes && <p className="text-xs text-muted-foreground">{c.notes}</p>}
+                {c.sampleAds?.length > 0 && <p className="text-[11px] text-muted-foreground mt-1">{c.sampleAds.length} anuncio(s) observado(s)</p>}
+              </div>
+              <Button size="sm" variant="ghost" disabled={del.isPending} onClick={() => del.mutate(c.id)}>Quitar</Button>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TasksTab({ client }: { client: Client }) {

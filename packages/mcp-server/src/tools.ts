@@ -660,5 +660,84 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
           body: { tool: "remember_about_client", parameters: { clientId, key, content, ...(kind ? { kind } : {}) } },
         }),
     ),
+    makeTool(
+      "lmtmGetClientBalance",
+      "Saldo REAL de las cuentas de Meta Ads del cliente: spend cap, gastado y lo que queda antes del tope. Para detectar cuentas por frenarse por falta de presupuesto.",
+      z.object({ clientId: z.string().min(1) }),
+      async ({ clientId }) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_balance", parameters: { clientId } } }),
+    ),
+    makeTool(
+      "lmtmGetClientOrganicPosts",
+      "Publicaciones orgánicas REALES (Instagram + Facebook) del cliente en las últimas N horas: texto, fecha, permalink, plataforma, tipo. Para verificar si lo que se debía postear realmente salió.",
+      z.object({ clientId: z.string().min(1), sinceHours: z.number().int().positive().max(24 * 90).optional() }),
+      async ({ clientId, sinceHours }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_client_organic_posts", parameters: { clientId, ...(sinceHours ? { sinceHours } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmGetClientScheduledContent",
+      "Contenido PROGRAMADO del cliente (lista de Redes Sociales de ClickUp): qué se planeó publicar, cuándo, estado y si está marcado como publicado. Cruzalo con lmtmGetClientOrganicPosts para ver si el plan se cumple.",
+      z.object({
+        clientId: z.string().min(1),
+        sinceHours: z.number().int().positive().optional(),
+        aheadHours: z.number().int().positive().optional(),
+      }),
+      async ({ clientId, sinceHours, aheadHours }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_client_scheduled_content", parameters: { clientId, ...(sinceHours ? { sinceHours } : {}), ...(aheadHours ? { aheadHours } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmSendBalanceAlert",
+      "Envía una alerta de saldo bajo por WhatsApp al equipo. Usalo SIEMPRE para alertas de saldo/presupuesto/spend_cap. NUNCA crees issues para saldo — van por WhatsApp con esta tool.",
+      z.object({
+        clientId: z.string().min(1),
+        message: z.string().min(1).describe("Mensaje de la alerta (ej. 'MAERS: spend_cap agotado, pauta frenada')"),
+      }),
+      async ({ clientId, message }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "send_balance_alert", parameters: { clientId, message } },
+        }),
+    ),
+    makeTool(
+      "lmtmSendWhatsappReport",
+      "Envía un reporte/mensaje por WhatsApp al equipo de la agencia. Usalo cuando te piden reportar/avisar algo por WhatsApp (resumen, estado, hallazgo). Para alertas de saldo usá lmtmSendBalanceAlert.",
+      z.object({
+        message: z.string().min(1).describe("Texto del reporte (markdown de WhatsApp)"),
+        title: z.string().optional().describe("Título opcional para encabezar el reporte"),
+      }),
+      async ({ message, title }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "send_whatsapp_report", parameters: { message, ...(title ? { title } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmCreateClientTask",
+      "Crea una tarea (issue) asociada a un cliente cuando detectás un pendiente real (ej. surgió en un grupo de WhatsApp). NO uses esto para alertas de saldo — esas van por WhatsApp con lmtmSendBalanceAlert. taskType 'internal' (operativa) se crea activa; 'external' (implica al cliente o gasto) queda para aprobar. No dupliques tareas ya abiertas.",
+      z.object({
+        clientId: z.string().min(1),
+        title: z.string().min(1),
+        description: z.string().optional(),
+        taskType: z.enum(["internal", "external"]).optional(),
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+        source: z.string().optional(),
+      }),
+      async ({ clientId, title, description, taskType, priority, source }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: {
+            tool: "create_client_task",
+            parameters: {
+              clientId,
+              title,
+              ...(description ? { description } : {}),
+              ...(taskType ? { taskType } : {}),
+              ...(priority ? { priority } : {}),
+              ...(source ? { source } : {}),
+            },
+          },
+        }),
+    ),
   ];
 }

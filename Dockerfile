@@ -102,7 +102,7 @@ COPY docker/wa-gateway/server.mjs ./
 FROM node:20-slim AS runtime
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl procps git \
+  && apt-get install -y --no-install-recommends ca-certificates curl procps git openssh-client \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g pnpm@9.15.4 --no-audit --no-fund
 

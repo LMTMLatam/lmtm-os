@@ -11,7 +11,7 @@ import { competitors, contentIdeas, clients } from "@paperclipai/db";
 import { eq } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
 import { getBrainContext } from "./customer-brain.js";
-import { resolveCompanyId } from "./intel-common.js";
+import { resolveCompanyId, activeClients } from "./intel-common.js";
 
 export interface GeneratedIdea { kind: "pauta" | "posteo"; format?: string; title: string; copy?: string; rationale?: string }
 
@@ -96,4 +96,74 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
   })));
 
   return { batchId, created: ideas.length, ideas };
+}
+
+/**
+ * Generate content ideas across all active clients. With { onlyMissing: true }
+ * it skips clients that already have ideas (used on boot to backfill); the
+ * weekly sweep regenerates everyone so ideas stay fresh and reflect new
+ * competitors/learnings. AI calls are spaced out to stay gentle on the model.
+ */
+export async function sweepContentIdeas(
+  db: Db,
+  opts: { onlyMissing?: boolean } = {},
+): Promise<{ clients: number; generated: number }> {
+  const rows = await activeClients(db);
+  let generated = 0;
+  for (const c of rows) {
+    try {
+      if (opts.onlyMissing) {
+        const [existing] = await db
+          .select({ id: contentIdeas.id })
+          .from(contentIdeas)
+          .where(eq(contentIdeas.clientId, c.id))
+          .limit(1);
+        if (existing) continue;
+      }
+      const r = await generateContentPlan(db, c.id);
+      if (r.created > 0) generated += 1;
+    } catch {
+      /* best-effort per client */
+    }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  return { clients: rows.length, generated };
+}
+
+let contentTimer: ReturnType<typeof setInterval> | null = null;
+let lastContentWeek = "";
+
+function isoWeekKey(d: Date): string {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+export function initContentIdeas(db: Db): void {
+  if (contentTimer) return;
+  // Boot backfill: every active client should have ideas. Only fills the gaps
+  // so we don't re-spend on clients that already have a plan.
+  setTimeout(() => {
+    void sweepContentIdeas(db, { onlyMissing: true })
+      .then((r) => console.log(`[content-ideas] boot sweep: ${r.generated} generated / ${r.clients} clients`))
+      .catch((e) => console.warn("[content-ideas] boot sweep failed:", e));
+  }, 3 * 60 * 1000);
+
+  // Weekly refresh for everyone (fires once per ISO week on the configured DOW).
+  const WEEKLY_DOW = Number(process.env.LMTM_WEEKLY_IDEAS_DOW ?? 1); // Monday
+  const tick = async () => {
+    const now = new Date();
+    if (now.getDay() !== WEEKLY_DOW) return;
+    const week = isoWeekKey(now);
+    if (week === lastContentWeek) return;
+    lastContentWeek = week;
+    await sweepContentIdeas(db)
+      .then((r) => console.log(`[content-ideas] weekly sweep: ${r.generated} generated / ${r.clients} clients`))
+      .catch((e) => console.warn("[content-ideas] weekly sweep failed:", e));
+  };
+  contentTimer = setInterval(() => { void tick(); }, 6 * 3600 * 1000);
+  console.log("[content-ideas] scheduled weekly idea generation");
 }

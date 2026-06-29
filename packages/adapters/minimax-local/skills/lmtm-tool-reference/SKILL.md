@@ -7,8 +7,9 @@ required: false
 
 # Referencia de herramientas (MCP — lo que REALMENTE existe)
 
-Trabajás como Claude Code con dos MCPs: `paperclip` (plataforma + datos de clientes)
-y `make` (automatización Make.com — scenarios, hooks, connections, data stores).
+Trabajás como Claude Code con cuatro MCPs: `paperclip` (plataforma + datos de clientes),
+`make` (automatización Make.com), `google` (Sheets · Drive · Apps Script) y `clickup`
+(tareas/listas nativas). Juntos cubren TODO el pipeline de contenido (ver skill `lmtm-pipeline`).
 No hay endpoints `/api/lmtm/*`, no hay CRM externo (Kommo y similares).
 No adivines paths ni esperes tools que no están acá.
 
@@ -107,6 +108,35 @@ scenarios, hooks, connections y data stores de la org LMTM (team 228071):
 - **No borres scenarios de clientes** sin confirmación del equipo.
 - Si un scenario falla, revisá `executions_get-detail` antes de tocar el blueprint.
 - Para crear un cliente nuevo: cloná el scenario desde "AutoPoster: Plantilla Clientes".
+
+## Google (MCP `google`) — Sheets · Drive · Apps Script
+
+Acceso directo a la cuenta `grow@bylmtm.com` (OAuth2). Es la planificación REAL del contenido.
+
+### Sheets (planilla de planificación por cliente)
+- `sheets_metadata` — título + tabs de un spreadsheet (sheetId, título, dimensiones). Usalo ANTES de leer para ubicar el tab correcto (ej: "Cronopost").
+- `sheets_read` — leer un rango A1 (ej `'Cronopost!A1:F100'`). Devuelve filas.
+- `sheets_append` — agregar filas al final de un rango.
+- `sheets_update` — sobrescribir un rango exacto. Usalo para **transcribir/arreglar** una fila que no pasó a ClickUp.
+- `sheets_create` — crear un spreadsheet vacío (preferí `drive_copy` de la plantilla para onboarding).
+
+### Drive
+- `drive_list` — buscar/listar archivos con query `q` (ej `"name contains 'Plantilla'"`, `"'<folderId>' in parents"`). Para encontrar la carpeta del cliente, la plantilla o las planillas.
+- `drive_copy` — copiar un archivo (ej duplicar la **plantilla de Sheet**) a una carpeta con nombre nuevo. Núcleo del onboarding de cliente.
+- `drive_get` — metadata de un archivo (nombre, mimeType, parents, dueño, link).
+- `drive_create_folder` — crear carpeta (ej la del cliente bajo `AALMTMLATAM`).
+
+### Apps Script (el script que empuja el Sheet → ClickUp)
+- `script_create` — crear proyecto Apps Script, opcionalmente bound a un Sheet (`parentId`). Para provisionar el script Sheet→ClickUp de un cliente nuevo.
+- `script_get_content` — ver los archivos (código + manifest) de un proyecto. Para inspeccionar/reparar.
+- `script_update_content` — reemplaza TODOS los archivos del proyecto (incluí el manifest `appsscript`). Para arreglar o instalar el script.
+
+## ClickUp (MCP `clickup`) — tareas y listas nativas
+
+Acceso directo a la API de ClickUp (workspace 37303684). Complementa `lmtmGetClientScheduledContent`.
+- `list_workspaces` / `list_spaces` / `list_folders` / `list_lists` / `list_folderless_lists` — descubrir la jerarquía. Cada space suele ser un cliente.
+- `list_tasks` / `get_task` / `search_tasks` — leer tareas (ej la lista "Redes Sociales").
+- `create_task` / `update_task` / `add_comment` — crear/editar tareas. Usalo para **transcribir** una tarea que no se creó desde el Sheet, o corregir fechas.
 
 ## Triage / derivación de issues
 

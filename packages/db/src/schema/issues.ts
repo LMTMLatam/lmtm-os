@@ -26,6 +26,10 @@ export const issues = pgTable(
     projectId: uuid("project_id").references(() => projects.id),
     projectWorkspaceId: uuid("project_workspace_id").references(() => projectWorkspaces.id, { onDelete: "set null" }),
     goalId: uuid("goal_id").references(() => goals.id),
+    // LMTM client this task belongs to (FK enforced in migration 0112; no
+    // drizzle .references() to avoid a circular schema import). Powers the
+    // per-client task panel and client-scoped task creation by agents.
+    clientId: uuid("client_id"),
     parentId: uuid("parent_id").references((): AnyPgColumn => issues.id),
     title: text("title").notNull(),
     description: text("description"),

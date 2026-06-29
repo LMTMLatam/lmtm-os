@@ -27,7 +27,11 @@ export interface BalanceInfo {
   low: boolean;
 }
 
-export async function fetchAccountBalances(db: Db, threshold = DEFAULT_THRESHOLD): Promise<BalanceInfo[]> {
+export async function fetchAccountBalances(
+  db: Db,
+  threshold = DEFAULT_THRESHOLD,
+  opts: { clientId?: string } = {},
+): Promise<BalanceInfo[]> {
   const rows = await db
     .select({
       adAccountId: adsAccountMappings.adAccountId,
@@ -37,7 +41,8 @@ export async function fetchAccountBalances(db: Db, threshold = DEFAULT_THRESHOLD
     })
     .from(adsAccountMappings)
     .leftJoin(adsConnections, eq(adsConnections.id, adsAccountMappings.connectionId))
-    .leftJoin(clients, eq(clients.id, adsAccountMappings.clientId));
+    .leftJoin(clients, eq(clients.id, adsAccountMappings.clientId))
+    .where(opts.clientId ? eq(adsAccountMappings.clientId, opts.clientId) : undefined);
 
   const out: BalanceInfo[] = [];
   for (const r of rows) {

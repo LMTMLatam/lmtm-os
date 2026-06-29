@@ -14,7 +14,26 @@
       }
     },
     "make": {
+      "type": "http",
       "url": "https://us2.make.com/mcp/u/9da30dee-be95-4797-a36a-d955ab765b75/stateless"
+    },
+    "google": {
+      "command": "/usr/local/bin/node",
+      "args": ["--conditions=production", "/app/packages/mcp-servers/google/dist/stdio.js"],
+      "env": {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+        "GOOGLE_OAUTH_REFRESH_TOKEN": "${GOOGLE_OAUTH_REFRESH_TOKEN}"
+      }
+    },
+    "clickup": {
+      "command": "/usr/local/bin/node",
+      "args": ["--conditions=production", "/app/packages/mcp-servers/clickup/dist/stdio.js"],
+      "env": {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "CLICKUP_API_TOKEN": "${CLICKUP_API_TOKEN}"
+      }
     }
   }
 }

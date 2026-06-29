@@ -70,7 +70,7 @@ export function CompanySettingsSidebar() {
           <SidebarNavItem to="/company/settings/invites" label="Invites" icon={MailPlus} end />
           <SidebarNavItem
             to="/company/settings/integrations/ads"
-            label="Ad Integrations"
+            label="Integrations"
             icon={Link2}
             end
           />

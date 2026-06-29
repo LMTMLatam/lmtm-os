@@ -272,6 +272,16 @@ export async function createApp(
     initAuditor(db);
     initFeedbackAgent(db);
     initOpportunities(db);
+    // Competitor-driven content ideas: backfill on boot + weekly refresh so
+    // every active client always has personalized pauta/posteo ideas.
+    void (async () => {
+      try {
+        const { initContentIdeas } = await import("./services/competitor-content.js");
+        initContentIdeas(db);
+      } catch (e) {
+        console.warn("[content-ideas] init failed:", e);
+      }
+    })();
     // One-shot Sheets mapping sweep on boot: picks up the per-client planning
     // Sheet for clients that haven't been mapped yet. Fails silently if Google
     // OAuth isn't configured (e.g. local dev).

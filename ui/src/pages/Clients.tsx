@@ -351,7 +351,15 @@ function scoreColor(v: number): string {
 
 function ClientCard({ client, score }: { client: Client; score?: { health: number; ops: number } }) {
   return (
-    <Card className="p-4 hover:border-foreground/30 transition-colors group">
+    <Card className="relative p-4 hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer group">
+      {/* Whole-card access: a stretched link covering the card. Inner
+          interactive controls sit above it (relative z-[2]) so they keep
+          working without nesting anchors. */}
+      <Link
+        to={`/c/${client.slug}`}
+        aria-label={`Abrir ${client.name}`}
+        className="absolute inset-0 z-[1] rounded-[inherit]"
+      />
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -397,7 +405,7 @@ function ClientCard({ client, score }: { client: Client; score?: { health: numbe
               href={client.websiteUrl}
               target="_blank"
               rel="noreferrer noopener"
-              className="truncate hover:text-foreground transition-colors"
+              className="relative z-[2] truncate hover:text-foreground transition-colors"
             >
               {client.websiteUrl.replace(/^https?:\/\//, "")}
             </a>
@@ -409,18 +417,20 @@ function ClientCard({ client, score }: { client: Client; score?: { health: numbe
         <span className="text-muted-foreground tabular-nums">
           {formatRetainer(client.monthlyRetainerCents, client.currency)}/mo
         </span>
-        <div className="flex items-center gap-2">
+        <div className="relative z-[2] flex items-center gap-2">
           <ClickUpLinks client={client} />
           <Link
             to={`/c/${client.slug}`}
             className="text-foreground hover:underline inline-flex items-center gap-1"
           >
-            Dashboard
+            Abrir
             <ExternalLink className="h-2.5 w-2.5" />
           </Link>
         </div>
       </div>
-      <ClientNotify client={client} />
+      <div className="relative z-[2]">
+        <ClientNotify client={client} />
+      </div>
     </Card>
   );
 }

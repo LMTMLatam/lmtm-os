@@ -80,6 +80,7 @@ import {
   SVG_CONTENT_TYPE,
 } from "../attachment-types.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
+import { resolveTriageOwnerId } from "../services/client-tasks.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
 import { executionWorkspaceService as executionWorkspaceServiceDirect } from "../services/execution-workspaces.js";
 import { feedbackService } from "../services/feedback.js";
@@ -2303,8 +2304,15 @@ export function issueRoutes(
       actor.actorType,
     );
     assertCanManageIssueMonitor(req, req.body.assigneeAgentId ?? null, Boolean(executionPolicy?.monitor));
+    // Every issue defaults to the triage owner (the "CEO"), who re-derives it to
+    // the best specialist. Only when the creator didn't pick an assignee.
+    const triageDefault =
+      !req.body.assigneeAgentId && !req.body.assigneeUserId
+        ? await resolveTriageOwnerId(db, companyId)
+        : null;
     const issue = await svc.create(companyId, {
       ...req.body,
+      ...(triageDefault ? { assigneeAgentId: triageDefault } : {}),
       executionPolicy,
       createdByAgentId: actor.agentId,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,

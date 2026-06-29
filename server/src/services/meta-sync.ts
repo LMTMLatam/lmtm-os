@@ -545,6 +545,54 @@ export async function syncPagePosts(db: Db, companyId?: string) {
         }
         count += page.length;
       }
+
+      // Instagram organic media for the IG business account linked to this page.
+      // Most LMTM clients post primarily on Instagram, so the operational
+      // auditor needs these to verify REAL posting — not just FB page posts.
+      // Stored under the same FB pageId so the client→posts mapping resolves.
+      try {
+        const igRes = await gGet(`/${pageId}`, {
+          access_token: pageToken,
+          fields: "instagram_business_account{id,username}",
+        });
+        const igAccount = (igRes.instagram_business_account ?? null) as { id?: string } | null;
+        const igId = igAccount?.id;
+        if (igId) {
+          let igPages = 0;
+          for await (const media of paginate(`/${igId}/media`, {
+            access_token: pageToken,
+            fields: "id,caption,permalink,timestamp,media_type,media_product_type,thumbnail_url,media_url",
+          })) {
+            const igValues = media.map((m) => ({
+              id: `ig_${m.id as string}`,
+              companyId: logCompanyId,
+              connectionId: conn.id,
+              platform: "instagram",
+              pageId,
+              message: (m.caption as string | undefined) ?? undefined,
+              fullPicture: (m.thumbnail_url as string | undefined) ?? (m.media_url as string | undefined),
+              permalinkUrl: m.permalink as string | undefined,
+              createdTime: m.timestamp ? new Date(m.timestamp as string) : undefined,
+              postType: ((m.media_product_type ?? m.media_type) as string | undefined)?.toLowerCase(),
+              raw: m,
+              syncedAt: new Date(),
+            }));
+            if (igValues.length > 0) {
+              await db.insert(metaPagePosts).values(igValues).onConflictDoUpdate({
+                target: metaPagePosts.id,
+                set: { message: metaPagePosts.message, syncedAt: new Date(), raw: metaPagePosts.raw },
+              });
+              count += igValues.length;
+            }
+            // Cap at the most recent pages — the audit only needs the last
+            // few weeks, and IG accounts can have thousands of historical media.
+            if (++igPages >= 3) break;
+          }
+        }
+      } catch (e) {
+        console.log(`[meta-sync] page=${pageId}: IG media skip: ${String(e).slice(0, 120)}`);
+      }
+
       await endLog(db, logId, "completed", count);
     } catch (e) {
       const msg = String(e);

@@ -14,6 +14,21 @@ set -u
 echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=${PORT:-3100} NODE_ENV=${NODE_ENV:-?}"
 
+# ── CRM VPS SSH key ──────────────────────────────────────────────────────────
+# The CRM Engineer agent (Esteban) operates the OWN LMTM CRM (FastAPI+React on
+# VPS 82.29.56.162:2222). If CRM_SSH_KEY is provided, materialize it so the
+# agent's Bash can `ssh -i /app/.ssh/crm_claude -p 2222 root@82.29.56.162`.
+if [ -n "${CRM_SSH_KEY:-}" ]; then
+  mkdir -p /app/.ssh && chmod 700 /app/.ssh
+  printf '%s\n' "$CRM_SSH_KEY" > /app/.ssh/crm_claude
+  chmod 600 /app/.ssh/crm_claude
+  # Accept the host key on first use (avoids interactive prompt).
+  ssh-keyscan -p 2222 82.29.56.162 >> /app/.ssh/known_hosts 2>/dev/null || true
+  echo "[wrapper] CRM SSH key materialized at /app/.ssh/crm_claude"
+else
+  echo "[wrapper] CRM_SSH_KEY not set — CRM agent VPS access disabled"
+fi
+
 # NOTE: do NOT add a `require.resolve()` module preflight here. The server
 # loads its deps via ESM `import`, which resolves them through pnpm's
 # server/node_modules + .pnpm store correctly. A CommonJS `require.resolve`

@@ -18,6 +18,9 @@ export interface WaPublicHealth {
 export interface WaGroup {
   groupJid: string;
   groupName: string | null;
+  clientId?: string | null;
+  hasMessages?: boolean;
+  participants?: number | null;
 }
 
 export interface WaGroupConfig {

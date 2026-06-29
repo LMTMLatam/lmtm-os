@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ExternalLink, Loader2, Plug, Trash2, XCircle } from "lucide-react";
 import { adsApi, type AdsConnection, type AdsPlatform } from "../api/ads";
+import { secretsApi } from "../api/secrets";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { Button } from "@/components/ui/button";
@@ -207,6 +208,205 @@ function PlatformCard({
   );
 }
 
+// ── Pipeline & automation integrations (Google Workspace, Make, ClickUp) ──────
+// These are NOT ad platforms (so they don't live in ads_connections). The
+// "Connect" action stores the credential as a company Secret with a stable key
+// that the server / agents resolve at runtime. This is what powers the content
+// pipeline: Sheet → Apps Script → ClickUp → webhook → Make → publicación.
+
+interface PipelineField {
+  key: string;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+}
+
+interface PipelineDescriptor {
+  id: string;
+  name: string;
+  description: string;
+  primaryKey: string; // secret key that signals "connected"
+  fields: PipelineField[];
+  scopesNote?: string;
+}
+
+const PIPELINE: PipelineDescriptor[] = [
+  {
+    id: "google",
+    name: "Google Workspace (Sheets · Drive · Apps Script)",
+    description:
+      "Planificación de posts en Sheets, archivos en Drive y el Apps Script que envía a ClickUp. Pegá un OAuth refresh token (o el JSON del service account) de grow@bylmtm.com con scopes drive, spreadsheets y script.projects para que los agentes lean/escriban Sheets y arreglen el script.",
+    primaryKey: "GOOGLE_PIPELINE_CREDENTIALS",
+    fields: [
+      {
+        key: "GOOGLE_PIPELINE_CREDENTIALS",
+        label: "OAuth refresh token o service-account JSON",
+        placeholder: "Pegá el refresh token (o el JSON completo del service account)",
+        multiline: true,
+      },
+    ],
+    scopesNote: "drive, spreadsheets, script.projects",
+  },
+  {
+    id: "make",
+    name: "Make",
+    description:
+      "Automatizaciones: el webhook de ClickUp dispara la publicación en Make. Conectá el MCP server de Make (org LMTM) para que los agentes lean logs de ejecución, clonen scenarios desde la plantilla y arreglen fallos.",
+    primaryKey: "MAKE_API_TOKEN",
+    fields: [
+      { key: "MAKE_MCP_URL", label: "MCP server URL", placeholder: "https://us2.make.com/mcp/api/v1/u/.../sse" },
+      { key: "MAKE_API_TOKEN", label: "API / MCP token", placeholder: "Make API token (org 2367960)" },
+    ],
+  },
+  {
+    id: "clickup",
+    name: "ClickUp",
+    description:
+      "Folder por cliente con listas Redes Sociales / Producción de video y el doc Enfoque Técnico. Personal API token del workspace LMTM (si ya está configurado en el servidor, pegarlo acá lo sobreescribe a nivel empresa).",
+    primaryKey: "CLICKUP_API_TOKEN",
+    fields: [
+      { key: "CLICKUP_API_TOKEN", label: "Personal API token", placeholder: "pk_..." },
+    ],
+  },
+];
+
+function PipelineIntegrations({ companyId }: { companyId: string }) {
+  const queryClient = useQueryClient();
+  const secretsQuery = useQuery({
+    queryKey: ["company-secrets", companyId],
+    queryFn: () => secretsApi.list(companyId),
+    enabled: !!companyId,
+  });
+  const secrets = secretsQuery.data ?? [];
+
+  return (
+    <div className="flex flex-col gap-4">
+      {PIPELINE.map((p) => {
+        const connected = secrets.some(
+          (s) => s.key === p.primaryKey && s.status === "active",
+        );
+        return (
+          <PipelineCard
+            key={p.id}
+            descriptor={p}
+            connected={connected}
+            companyId={companyId}
+            onSaved={() =>
+              queryClient.invalidateQueries({ queryKey: ["company-secrets", companyId] })
+            }
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function PipelineCard({
+  descriptor,
+  connected,
+  companyId,
+  onSaved,
+}: {
+  descriptor: PipelineDescriptor;
+  connected: boolean;
+  companyId: string;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const entries = descriptor.fields.filter((f) => (values[f.key] ?? "").trim().length > 0);
+      if (entries.length === 0) throw new Error("Completá al menos un campo.");
+      for (const f of entries) {
+        await secretsApi.create(companyId, {
+          name: f.label,
+          key: f.key,
+          value: values[f.key].trim(),
+        });
+      }
+    },
+    onSuccess: () => {
+      setOpen(false);
+      setValues({});
+      setError(null);
+      onSaved();
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "No se pudo guardar."),
+  });
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+            <Plug className="h-4 w-4 text-muted-foreground" />
+            {descriptor.name}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground max-w-prose">{descriptor.description}</p>
+        </div>
+        {connected ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Connected
+          </span>
+        ) : null}
+      </div>
+      {descriptor.scopesNote ? (
+        <div className="text-xs text-muted-foreground mb-3">
+          <span className="font-medium text-foreground/70">Scopes:</span> {descriptor.scopesNote}
+        </div>
+      ) : null}
+
+      {!open ? (
+        <Button variant={connected ? "outline" : "default"} size="sm" onClick={() => setOpen(true)}>
+          <Plug className="h-3.5 w-3.5" />
+          <span className="ml-1.5">{connected ? "Reconnect / update" : "Connect"}</span>
+        </Button>
+      ) : (
+        <div className="mt-2 flex flex-col gap-3 rounded-md border border-dashed border-border bg-muted/30 p-3">
+          {descriptor.fields.map((f) => (
+            <label key={f.key} className="flex flex-col gap-1 text-xs">
+              <span className="font-medium text-foreground/80">{f.label}</span>
+              {f.multiline ? (
+                <textarea
+                  className="min-h-[80px] rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
+                  placeholder={f.placeholder}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                />
+              ) : (
+                <input
+                  type="text"
+                  className="rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
+                  placeholder={f.placeholder}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                />
+              )}
+            </label>
+          ))}
+          {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              <span className="ml-1.5">Guardar conexión</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setOpen(false); setError(null); }}>
+              Cancelar
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Se guarda como secreto de la empresa (encriptado). Los agentes lo resuelven en runtime.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdsIntegrations() {
   const { selectedCompany, selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -215,7 +415,7 @@ export function AdsIntegrations() {
   useEffect(() => {
     setBreadcrumbs([
       { label: "Company", href: "/company/settings" },
-      { label: "Ad Integrations" },
+      { label: "Integrations" },
     ]);
   }, [setBreadcrumbs]);
 
@@ -271,12 +471,13 @@ export function AdsIntegrations() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Ad Platform Integrations</h1>
+        <h1 className="text-2xl font-bold text-foreground">Integrations</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connect {selectedCompany.name} to ad platforms (Meta, Google, TikTok, LinkedIn) so LMTM-OS agents can read performance and manage campaigns via the bundled plugins.
+          Connect {selectedCompany.name} to its tools so LMTM-OS agents can read data, manage campaigns and run the content pipeline (Sheets → ClickUp → Make → publicación).
         </p>
       </header>
 
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Ad Platforms</h2>
       {connectionsQuery.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -296,6 +497,11 @@ export function AdsIntegrations() {
           ))}
         </div>
       )}
+
+      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        Pipeline &amp; Automatización
+      </h2>
+      <PipelineIntegrations companyId={selectedCompanyId!} />
 
       <section className="mt-8 rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground">
         <h4 className="mb-1 text-sm font-semibold text-foreground">How OAuth works</h4>

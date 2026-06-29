@@ -57,7 +57,12 @@ export async function ingestFeedback(db: Db): Promise<{ captured: number; escala
     captured += 1;
 
     // Escalate complaints to the team immediately.
-    if (classification === "complaint" && team) {
+    // Per the boss, WhatsApp currently carries ONLY balance + missing-planned-posts
+    // alerts. Complaint escalation is captured to the panel regardless, but the
+    // WhatsApp ping is gated off by default (flip LMTM_FEEDBACK_WHATSAPP_ESCALATION=1
+    // to re-enable) so the team isn't pinged for operational/feedback chatter.
+    const feedbackWhatsAppOn = process.env.LMTM_FEEDBACK_WHATSAPP_ESCALATION === "1";
+    if (feedbackWhatsAppOn && classification === "complaint" && team) {
       const who = m.groupName ?? "grupo";
       const body = `🔴 *Feedback a atender* (${who})\n${m.senderName ? m.senderName + ": " : ""}${m.body.slice(0, 300)}\n\n_LMTM-OS · feedback_`;
       const r = await sendWhatsAppToNumber(team, body);

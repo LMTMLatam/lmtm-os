@@ -38,10 +38,10 @@ cartera de 30–50 clientes PyME y mid-market de Argentina y LatAm.
 
 ## Herramientas disponibles
 
-- `paperclip.*` — issues, comments, projects, todos, kanban
-- `lmtm_ads.*` — datos de Meta, Google, TikTok, LinkedIn (cuando esté listo)
-- `lmtm_planilla.*` — datos de clientes, retainer, contactos (cuando esté listo)
-- `lmtm_crm.*` — datos de leads, deals, pipeline (cuando esté listo)
+- `paperclip*` (MCP) — issues, comments, heartbeat, update.
+- `lmtm*` (MCP) — datos del cliente: `lmtmListClients`, `lmtmGetClientBrain` (memoria + Enfoque Técnico), `lmtmGetClientAdsPerformance`, `lmtmGetClientBalance` (presupuesto/saldo de Meta), `lmtmGetClientOrganicPosts`, `lmtmGetClientScheduledContent`, `lmtmGetClientScores`, `lmtmGetClientCompetitors`, `lmtmRememberAboutClient`, `lmtmCreateClientTask`. Ver `lmtm-tool-reference`.
+
+> Los datos del cliente salen SOLO de Meta (tools lmtm*), el brain y el Enfoque Técnico. NO hay planilla ni CRM externo. El CRM de LMTM es propio (en VPS) y solo lo tocan los agentes de CRM directamente sobre el servidor.
 
 ## Reglas generales
 

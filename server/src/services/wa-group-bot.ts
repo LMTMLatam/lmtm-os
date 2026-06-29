@@ -9,6 +9,7 @@ import {
 import { desc, gte, eq, and, sql } from "drizzle-orm";
 import { upsertMemory } from "./customer-brain.js";
 import { resolveCompanyId } from "./intel-common.js";
+import { detectClientTasksFromMessages } from "./client-tasks.js";
 
 const SESSION_ID = "lmtm";
 
@@ -355,7 +356,9 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
   }
 
   // If this group is mapped to a client, feed the summary into the client's
-  // living memory so it surfaces as client context (and self-learning).
+  // living memory so it surfaces as client context (and self-learning), and
+  // detect any pending tasks raised in the chat → file them as client tasks
+  // (internal active, external proposed for approval).
   if (cfg.clientId) {
     try {
       const companyId = await resolveCompanyId(db, cfg.clientId);
@@ -368,6 +371,15 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
           content: `Resumen WhatsApp (${cfg.groupName ?? groupName ?? "grupo"}): ${summary.slice(0, 600)}`,
           source: "wa-group-bot",
         });
+      }
+      const taskRes = await detectClientTasksFromMessages(db, {
+        clientId: cfg.clientId,
+        source: `grupo WhatsApp ${cfg.groupName ?? groupName ?? ""}`.trim(),
+        messages: messages.map((m) => ({ senderName: m.senderName, body: m.body })),
+        fallbackCompanyId: companyId ?? undefined,
+      }).catch(() => null);
+      if (taskRes && (taskRes.created > 0 || taskRes.proposed > 0)) {
+        console.log(`[wa-bot] tasks detected for client ${cfg.clientId}: ${taskRes.created} activas, ${taskRes.proposed} para aprobar`);
       }
     } catch { /* noop */ }
   }
@@ -863,11 +875,76 @@ export async function fetchQr(): Promise<{ qr: string | null; status: OurStatus 
   }
 }
 
+/** Ask the gateway for EVERY group the linked account participates in (not just
+ *  ones we've captured messages from). Returns [] if not connected/unreachable. */
+export async function fetchGatewayGroups(): Promise<Array<{ id: string; name: string | null; participants: number | null }>> {
+  if (!baseUrl()) return [];
+  try {
+    const r = await owGet(`/api/sessions/${SESSION_ID}/groups`);
+    const data = (r as { data?: unknown }).data;
+    if (!Array.isArray(data)) return [];
+    return data
+      .map((g) => {
+        const o = g as Record<string, unknown>;
+        const id = typeof o.id === "string" ? o.id : null;
+        if (!id) return null;
+        return {
+          id,
+          name: typeof o.name === "string" ? o.name : null,
+          participants: typeof o.participants === "number" ? o.participants : null,
+        };
+      })
+      .filter((g): g is { id: string; name: string | null; participants: number | null } => g !== null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Full group list for the linking UI: merges ALL groups the account belongs to
+ * (from the gateway) with the ones we've recorded messages for and any existing
+ * client links. Every group shows up so the operator can map it to a client,
+ * even if it never produced a chat summary. Falls back to DB-only when the
+ * gateway is offline so the panel never breaks.
+ */
 export async function getWaBotGroups(database: Db) {
-  return database
+  const merged = new Map<string, { groupJid: string; groupName: string | null; clientId: string | null; hasMessages: boolean; participants: number | null }>();
+
+  // 1) Authoritative full list from the gateway.
+  for (const g of await fetchGatewayGroups()) {
+    merged.set(g.id, { groupJid: g.id, groupName: g.name, clientId: null, hasMessages: false, participants: g.participants });
+  }
+
+  // 2) Groups we've captured messages from (name fallback + hasMessages flag).
+  const msgGroups = await database
     .select({ groupJid: waGroupMessages.groupJid, groupName: waGroupMessages.groupName })
     .from(waGroupMessages)
     .groupBy(waGroupMessages.groupJid, waGroupMessages.groupName);
+  for (const g of msgGroups) {
+    const cur = merged.get(g.groupJid);
+    if (cur) {
+      cur.hasMessages = true;
+      if (!cur.groupName && g.groupName) cur.groupName = g.groupName;
+    } else {
+      merged.set(g.groupJid, { groupJid: g.groupJid, groupName: g.groupName, clientId: null, hasMessages: true, participants: null });
+    }
+  }
+
+  // 3) Overlay existing config (client link + persisted name).
+  const configs = await database
+    .select({ groupJid: waGroupConfig.groupJid, groupName: waGroupConfig.groupName, clientId: waGroupConfig.clientId })
+    .from(waGroupConfig);
+  for (const c of configs) {
+    const cur = merged.get(c.groupJid);
+    if (cur) {
+      cur.clientId = c.clientId ?? cur.clientId;
+      if (!cur.groupName && c.groupName) cur.groupName = c.groupName;
+    } else {
+      merged.set(c.groupJid, { groupJid: c.groupJid, groupName: c.groupName, clientId: c.clientId ?? null, hasMessages: false, participants: null });
+    }
+  }
+
+  return [...merged.values()].sort((a, b) => (a.groupName ?? a.groupJid).localeCompare(b.groupName ?? b.groupJid));
 }
 
 export async function getGroupMessages(database: Db, groupJid: string, since?: Date) {

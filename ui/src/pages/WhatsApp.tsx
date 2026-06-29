@@ -178,8 +178,8 @@ function ConversationsPanel() {
 
   // Union of groups that have a config and groups that have messages.
   const groups = useMemo(() => {
-    const map = new Map<string, { jid: string; name: string | null; cfg?: WaGroupConfig }>();
-    for (const g of groupsQuery.data ?? []) map.set(g.groupJid, { jid: g.groupJid, name: g.groupName });
+    const map = new Map<string, { jid: string; name: string | null; hasMessages?: boolean; cfg?: WaGroupConfig }>();
+    for (const g of groupsQuery.data ?? []) map.set(g.groupJid, { jid: g.groupJid, name: g.groupName, hasMessages: g.hasMessages });
     for (const c of configsQuery.data ?? []) {
       const e = map.get(c.groupJid) ?? { jid: c.groupJid, name: c.groupName };
       e.cfg = c;
@@ -221,7 +221,7 @@ function ConversationsPanel() {
           <MessageSquare className="h-5 w-5" /> Resúmenes de conversaciones
         </h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Cuando un grupo queda inactivo por el tiempo configurado, el bot detecta que la conversación terminó y la resume automáticamente acá.
+          Acá figuran <strong>todos</strong> los grupos del número vinculado: asigná cada uno a su cliente desde el selector, tenga o no resúmenes todavía. Cuando un grupo queda inactivo por el tiempo configurado, el bot lo resume automáticamente.
         </p>
       </div>
 
@@ -245,9 +245,19 @@ function ConversationsPanel() {
                 }`}
               >
                 <span className="truncate block">{g.name ?? g.jid}</span>
-                {g.cfg && !g.cfg.enabled && (
-                  <span className="text-[10px] text-amber-500">pausado</span>
-                )}
+                <span className="flex items-center gap-1.5">
+                  {g.cfg?.clientId ? (
+                    <span className="text-[10px] text-emerald-500">vinculado</span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground/60">sin vincular</span>
+                  )}
+                  {g.hasMessages === false && (
+                    <span className="text-[10px] text-muted-foreground/50">· sin actividad</span>
+                  )}
+                  {g.cfg && !g.cfg.enabled && (
+                    <span className="text-[10px] text-amber-500">· pausado</span>
+                  )}
+                </span>
               </button>
             ))}
           </div>

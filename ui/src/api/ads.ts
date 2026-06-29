@@ -156,6 +156,10 @@ export const adsApi = {
       includedAdsets?: string[];
     }>;
   }) => api.post<{ created: AdsMapping[]; updated: AdsMapping[]; skipped: number }>("/integrations/mappings/bulk", body),
+  /** Kick off a non-blocking background sync for the given mappings (or all on
+   *  the connection). Returns immediately; data fills in over the next minutes. */
+  syncBackground: (body: { connectionId: string; mappingIds?: string[]; sinceDays?: number }) =>
+    api.post<{ ok: boolean; started: number; sinceDays: number }>("/integrations/sync/background", body),
   deleteConnection: (id: string) => api.delete<{ ok: true }>(`/integrations/connections/${id}`),
   /**
    * Returns the absolute URL the user must visit to start the Meta OAuth flow.
