@@ -84,6 +84,19 @@ primero si es **Redes**, **Video** o ambos, y usá los IDs de arriba según corr
 4. **Lista en ClickUp** → si no existe, `clickup` para crear la lista "Redes Sociales" del cliente (o el space).
 5. Probá una fila de punta a punta y dejá registrado en el brain del cliente (`lmtmRememberAboutClient`) los IDs (sheetId, scriptId, scenarioId, listId) para futuras reparaciones.
 
+## Reparar un script de cliente roto (self-healing)
+
+El sistema te abre una tarea "⚠️ Script de Redes con problemas: <cliente>" cuando un
+Apps Script falla o deja de correr. Cómo resolverlo con tus tools de Google:
+
+1. **Diagnosticá** con `script_processes` (scriptId del link de la tarea): mirá si la última ejecución es FAILED/TIMED_OUT o si hace días que no corre.
+2. **Leé el código** con `script_get_content`. Revisá la config (línea ~18): `projectName`, `clickUpListId`, `spreadsheetId`, `sheetName: "Cronopost"`. Errores típicos: sheetId o listId mal/viejos, hoja "Cronopost" renombrada, token de ClickUp vencido.
+3. **Corregí** con `script_update_content` (mandá TODOS los archivos, incluido el manifest `appsscript`). Verificá con `script_processes` que la próxima corrida quede COMPLETED.
+4. **Trigger caído** (no corre hace días): hay que reinstalar el trigger corriendo `crearTriggerDiario` en el script — eso es 1 clic manual del equipo (no se puede por API); dejalo claro en la tarea.
+5. **No pierdas posteos**: si quedaron filas del Sheet sin pasar a ClickUp, transcribilas vos con `sheets_read` + `clickup create_task` en la lista "Redes Sociales" del cliente.
+
+Cerrá la tarea solo cuando confirmes (con `script_processes` o viendo las tareas en ClickUp) que el flujo volvió a andar. Guardá en el brain qué estaba roto y cómo se arregló.
+
 ## Reglas
 
 - **Buscá siempre la resolución con las tools** (incluido browser) antes de marcar blocked.

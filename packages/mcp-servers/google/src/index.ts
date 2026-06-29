@@ -22,6 +22,8 @@ import {
   scriptCreateSchema,
   scriptGetContent,
   scriptGetContentSchema,
+  scriptProcesses,
+  scriptProcessesSchema,
   scriptUpdateContent,
   scriptUpdateContentSchema,
   sheetsAppend,
@@ -65,6 +67,7 @@ export {
   sheetsUpdateSchema,
 };
 export { driveMove, driveMoveSchema } from "./tools.js";
+export { scriptProcesses, scriptProcessesSchema } from "./tools.js";
 
 function asText(value: unknown) {
   return {
@@ -161,6 +164,12 @@ export function createGoogleMcpServer() {
     "Get the files (code + manifest) of an Apps Script project. Use to inspect/repair the Sheet→ClickUp script.",
     scriptGetContentSchema.shape,
     wrap(scriptGetContent),
+  );
+  server.tool(
+    "script_processes",
+    "List recent executions of an Apps Script project with their status (COMPLETED/FAILED/TIMED_OUT). Use to check whether a client's Sheet→ClickUp script is running and healthy.",
+    scriptProcessesSchema.shape,
+    wrap(scriptProcesses),
   );
   server.tool(
     "script_update_content",

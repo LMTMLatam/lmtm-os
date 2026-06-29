@@ -296,6 +296,16 @@ export async function createApp(
         console.warn("[content-ideas] init failed:", e);
       }
     })();
+    // Per-client Apps Script health: detect failing/stale Cronopost→ClickUp
+    // scripts and file a fix task for an agent. Self-healing for the pipeline.
+    void (async () => {
+      try {
+        const { initScriptHealth } = await import("./services/script-health.js");
+        initScriptHealth(db);
+      } catch (e) {
+        console.warn("[script-health] init failed:", e);
+      }
+    })();
     // One-shot Sheets mapping sweep on boot: picks up the per-client planning
     // Sheet for clients that haven't been mapped yet. Fails silently if Google
     // OAuth isn't configured (e.g. local dev).

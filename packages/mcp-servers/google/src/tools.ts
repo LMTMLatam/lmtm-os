@@ -170,6 +170,26 @@ export async function scriptGetContent(i: z.infer<typeof scriptGetContentSchema>
   return gFetch(`${SCRIPT}/${i.scriptId}/content`);
 }
 
+export const scriptProcessesSchema = z.object({
+  scriptId: z.string().describe("The Apps Script project id whose executions to list."),
+  statuses: z
+    .array(z.enum(["COMPLETED", "CANCELED", "FAILED", "TIMED_OUT", "RUNNING", "PAUSED", "UNKNOWN"]))
+    .optional()
+    .describe("Filter to these execution statuses (e.g. ['FAILED','TIMED_OUT'] to catch errors)."),
+  pageSize: z.number().int().min(1).max(50).optional().default(20),
+});
+export async function scriptProcesses(i: z.infer<typeof scriptProcessesSchema>) {
+  // scriptId is a top-level query param (NOT under scriptProcessFilter). We
+  // fetch recent executions and let the caller filter by status, which avoids
+  // the repeated-param encoding the single-value query helper can't express.
+  const query: Record<string, string | number> = {
+    scriptId: i.scriptId,
+    pageSize: i.pageSize ?? 20,
+  };
+  if (i.statuses?.length === 1) query["scriptProcessFilter.statuses"] = i.statuses[0];
+  return gFetch("https://script.googleapis.com/v1/processes:listScriptProcesses", { query });
+}
+
 export const scriptUpdateContentSchema = z.object({
   scriptId: z.string(),
   files: z

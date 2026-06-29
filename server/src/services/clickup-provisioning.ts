@@ -210,6 +210,13 @@ export async function provisionClientFromClickUp(
   if (sheetId && listId) {
     try {
       out.script = await provisionScriptForClient({ clientName: name, sheetId, clickUpListId: listId });
+      // Remember the script id on the client so the health monitor can resolve
+      // it directly (instead of matching by name).
+      if (out.script?.scriptId) {
+        const [row] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
+        const meta = { ...((row?.metadata as Record<string, unknown>) ?? {}), redesScriptId: out.script.scriptId };
+        await db.update(clients).set({ metadata: meta as never, updatedAt: new Date() }).where(eq(clients.id, clientId));
+      }
     } catch (e) {
       out.errors.push(`script: ${e instanceof Error ? e.message : String(e)}`);
     }
