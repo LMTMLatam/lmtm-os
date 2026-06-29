@@ -272,6 +272,16 @@ export async function createApp(
     initAuditor(db);
     initFeedbackAgent(db);
     initOpportunities(db);
+    // Auto-delegation: re-route issues stranded on the triage owner to the
+    // matching specialist so work flows instead of piling on one agent.
+    void (async () => {
+      try {
+        const { initIssueRouter } = await import("./services/issue-router.js");
+        initIssueRouter(db);
+      } catch (e) {
+        console.warn("[issue-router] init failed:", e);
+      }
+    })();
     // Competitor-driven content ideas: backfill on boot + weekly refresh so
     // every active client always has personalized pauta/posteo ideas.
     void (async () => {

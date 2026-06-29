@@ -87,9 +87,11 @@ export async function createClientTask(db: Db, input: CreateClientTaskInput): Pr
     ? `${input.description}\n\n_Origen: ${source} · detectado por agente_`
     : `_Origen: ${source} · detectado por agente_`;
 
-  // Every issue defaults to the triage owner (the "CEO"), who re-derives it to
-  // the best specialist. If no triage owner is flagged, leave it unassigned.
-  const assigneeAgentId = await resolveTriageOwnerId(db, companyId);
+  // Route to the matching specialist by area (paid/content/seo/…); if the text
+  // doesn't clearly belong to an area, fall back to the triage owner (the "CEO").
+  // Keeps work flowing to whoever can do it instead of piling on one agent.
+  const { routeNewIssue } = await import("./issue-router.js");
+  const assigneeAgentId = await routeNewIssue(db, companyId, `${title}\n${input.description ?? ""}`);
 
   const created = await issueService(db).create(companyId, {
     title,
