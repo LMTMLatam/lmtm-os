@@ -15,6 +15,7 @@ import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
+import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { agentToolsRoutes } from "./routes/agent-tools.js";
 import { publicDashboardRoutes } from "./routes/public-dashboards.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
@@ -212,6 +213,9 @@ export async function createApp(
     app.all("/api/auth/{*authPath}", opts.betterAuthHandler);
   }
   app.use(llmRoutes(db));
+  // ClickUp webhook (client auto-provisioning). Unauthenticated by design —
+  // verified by HMAC over the raw body — so it sits before the authed router.
+  app.use("/api/clickup", clickupWebhookRoutes(db));
 
   const hostServicesDisposers = new Map<string, () => void>();
   const workerManager = opts.pluginWorkerManager ?? createPluginWorkerManager();
