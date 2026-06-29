@@ -199,8 +199,14 @@ export async function provisionClientFromClickUp(
 
   // 3. Auto-create the Cronopost→ClickUp Apps Script (pointed at the new Sheet
   //    + the client's "Redes Sociales" list). Best-effort: needs both the sheet
-  //    and the list to exist.
-  const listId = await findRedesListId(input.folderId);
+  //    and the list to exist. When a folder is created from a ClickUp template
+  //    its lists can lag the folderCreated event by a moment, so we retry the
+  //    lookup for a few seconds before giving up.
+  let listId: string | null = null;
+  for (let attempt = 0; attempt < 6 && !listId; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 3000));
+    listId = await findRedesListId(input.folderId);
+  }
   if (sheetId && listId) {
     try {
       out.script = await provisionScriptForClient({ clientName: name, sheetId, clickUpListId: listId });
