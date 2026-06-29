@@ -117,7 +117,12 @@ RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund --loglevel=err
 # process env, which the adapter sets per run.
 COPY docker/claude-mcp.json /app/claude-mcp.json
 
-ENV NODE_OPTIONS=--max-old-space-size=380 \
+# Heap cap raised from 380 (a Render 512MB-era value) to 1536: on Railway the
+# container has far more RAM, and once the agent fleet actually runs (14 agents
+# spawning `claude` subprocesses + streaming their logs) the server's own heap
+# climbed past 380MB and OOM-crashed into the fallback proxy. The claude
+# subprocesses have their own memory, so this only governs the server process.
+ENV NODE_OPTIONS=--max-old-space-size=1536 \
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
