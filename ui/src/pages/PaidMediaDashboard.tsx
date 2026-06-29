@@ -100,7 +100,6 @@ type Section =
   | "audiencia"
   | "leads"
   | "alertas"
-  | "ideas"
   | "reportes"
   | "oportunidades"
   | "configuracion";
@@ -116,7 +115,6 @@ const SECTIONS: Array<{ value: Section; label: string; icon: typeof LayoutDashbo
   { value: "audiencia", label: "Audiencia", icon: Users },
   { value: "leads", label: "Leads / Conversiones", icon: Filter },
   { value: "alertas", label: "Alertas", icon: Bell },
-  { value: "ideas", label: "Ideas de contenido", icon: Lightbulb },
   { value: "reportes", label: "Reportes", icon: TrendingUp },
   { value: "oportunidades", label: "Oportunidades", icon: Sparkles },
   { value: "configuracion", label: "Configuración", icon: Target },
@@ -271,7 +269,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const today = useMemo(() => new Date(), []);
   const defaultSince = useMemo(() => {
     const d = new Date(today);
-    d.setDate(d.getDate() - 365);
+    d.setDate(d.getDate() - 30); // default = last month (cached); custom dates trigger a sync
     return d.toISOString().slice(0, 10);
   }, [today]);
   const defaultUntil = useMemo(() => today.toISOString().slice(0, 10), [today]);
@@ -370,34 +368,21 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
     }
   }, [syncMutation.isSuccess, syncMutation.data]);
 
-  // ---- Auto-sync ----
-  // Triggers the bulk sync automatically on:
-  //   1. First mount (so users land on a populated dashboard)
-  //   2. Whenever the user changes the date range
-  //   3. Every 5 minutes while the page is open (so the data is always fresh)
-  // No button, no confirmation, no waiting.
+  // ---- Sync policy ----
+  // Default (last 30 days) shows the data the daily background sync already
+  // cached — NO sync on mount, so opening a client is instant and doesn't
+  // hammer Meta. A sync only fires when the user CHANGES the date range (i.e.
+  // asks for a custom window). This fixed the dashboard-sync saturation.
   const initialMount = useRef(true);
   useEffect(() => {
     if (initialMount.current) {
       initialMount.current = false;
-      // First load: fire and forget
-      syncMutation.mutate();
-      return;
+      return; // first load: use cached data, do not sync
     }
-    // Subsequent range changes: debounce 800ms then sync
     const t = setTimeout(() => syncMutation.mutate(), 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client.slug, range.since, range.until]);
-
-  // Periodic auto-sync every 5 min (only if no sync is in flight)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!syncMutation.isPending) syncMutation.mutate();
-    }, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ---- Totals (from funnel) ----
   const funnel = funnelQuery.data?.funnel;
@@ -458,7 +443,6 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
       case "audiencia": return <AudienciaSection audience={audience} fmt={fmt} />;
       case "leads": return <LeadsSection funnel={funnel} fmt={fmt} />;
       case "alertas": return <AlertasSection alerts={alerts} />;
-      case "ideas": return <IdeasSection creatives={creatives} organic={organic} fmt={fmt} />;
       case "reportes": return <ReportesSection series={series} campaigns={campaigns} creatives={creatives} fmt={fmt} />;
       case "oportunidades": return <OportunidadesSection campaigns={campaigns} creatives={creatives} audience={audience} fmt={fmt} />;
       case "configuracion": return <ConfiguracionSection ads={ads} />;
