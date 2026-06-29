@@ -16,6 +16,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
+import { financeRoutes } from "./routes/finance.js";
 import { agentToolsRoutes } from "./routes/agent-tools.js";
 import { publicDashboardRoutes } from "./routes/public-dashboards.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
@@ -235,6 +236,7 @@ export async function createApp(
   api.use(metaRoutes(db));
   api.use(metaSyncRoutes(db));
   api.use(adsRoutes(db));
+  api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
   // Mounted at /api/public so the URL space stays under /api.
   api.use("/public", publicDashboardRoutes(db));

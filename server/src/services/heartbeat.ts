@@ -184,6 +184,14 @@ const MAX_RUN_EVENT_PAYLOAD_DEPTH = 6;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = AGENT_DEFAULT_MAX_CONCURRENT_RUNS;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MIN = 1;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 50;
+// Global cap on concurrent agent runs across the WHOLE fleet (independent of the
+// per-agent maxConcurrentRuns). Each run spawns a ~400MB `claude` subprocess, so
+// without this 14 agents could saturate the box. Keeping it small lets the
+// backlog drain gradually with breathing room. Tune via env.
+const GLOBAL_MAX_CONCURRENT_RUNS = Math.max(
+  1,
+  Math.floor(Number(process.env.LMTM_GLOBAL_MAX_CONCURRENT_RUNS ?? 3)) || 3,
+);
 const LIVENESS_BOOKKEEPING_ACTIVITY_ACTIONS = [
   "environment.lease_acquired",
   "environment.lease_released",
@@ -5774,6 +5782,15 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     return Number(count ?? 0);
   }
 
+  // Count runs in flight across ALL agents (for the global concurrency cap).
+  async function countAllRunningRuns() {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    return Number(count ?? 0);
+  }
+
   async function claimQueuedRun(run: typeof heartbeatRuns.$inferSelect) {
     if (run.status !== "queued") return run;
     const agent = await getAgent(run.agentId);
@@ -6691,8 +6708,14 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       }
       const policy = parseHeartbeatPolicy(agent);
       const runningCount = await countRunningRunsForAgent(agentId);
-      const availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
-      if (availableSlots <= 0) return [];
+      const perAgentSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
+      if (perAgentSlots <= 0) return [];
+      // Global throttle: never exceed GLOBAL_MAX_CONCURRENT_RUNS across the whole
+      // fleet, so 50 queued issues drain gradually instead of saturating the box.
+      const globalRunning = await countAllRunningRuns();
+      const globalSlots = Math.max(0, GLOBAL_MAX_CONCURRENT_RUNS - globalRunning);
+      if (globalSlots <= 0) return [];
+      const availableSlots = Math.min(perAgentSlots, globalSlots);
 
       const queuedRuns = await db
         .select()

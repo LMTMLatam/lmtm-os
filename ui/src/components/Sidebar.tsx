@@ -14,6 +14,7 @@ import {
   Settings,
   Users,
   Building2,
+  Wallet,
   MessageCircle,
   Brain,
   Swords,
@@ -118,6 +119,7 @@ export function Sidebar() {
 
         <SidebarSection label="Company">
           <SidebarNavItem to="/clients" label="Clients" icon={Building2} />
+          <SidebarNavItem to="/finance" label="Finanzas" icon={Wallet} />
           <SidebarNavItem to="/intelligence" label="Inteligencia" icon={Brain} />
           <SidebarNavItem to="/competitors" label="Competencia" icon={Swords} />
           <SidebarNavItem to="/whatsapp" label="WhatsApp" icon={MessageCircle} />

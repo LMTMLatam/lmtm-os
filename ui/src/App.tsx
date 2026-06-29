@@ -7,6 +7,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
 import { Clients } from "./pages/Clients";
+import { Finance } from "./pages/Finance";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
@@ -75,6 +76,7 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Clients />} />
+      <Route path="finance" element={<Finance />} />
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />
       <Route path="competitors" element={<Competitors />} />
