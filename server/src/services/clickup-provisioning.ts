@@ -226,8 +226,8 @@ export async function provisionClientFromClickUp(
         scriptLine +
         `Falta para terminar el pipeline (ver skill lmtm-pipeline):\n` +
         `1) Instalar el trigger del script (1 clic, ver arriba).\n` +
-        `2) Clonar el scenario "AutoPoster: Plantilla Clientes" en Make para este cliente y activarlo.\n` +
-        `3) Probar una fila de punta a punta y guardar los IDs en el brain del cliente.`,
+        `2) Probar una fila de punta a punta y guardar los IDs en el brain del cliente.\n` +
+        `(El scenario de Make se configura aparte — no se automatiza por ahora.)`,
       taskType: "internal",
       priority: "high",
       source: "clickup-webhook",
