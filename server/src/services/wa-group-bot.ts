@@ -5,6 +5,7 @@ import {
   waBotConfig,
   waGroupConfig,
   waDailyDigests,
+  clients,
 } from "@paperclipai/db";
 import { desc, gte, eq, and, sql } from "drizzle-orm";
 import { upsertMemory } from "./customer-brain.js";
@@ -309,6 +310,59 @@ async function deliverSummary(
   return { delivered };
 }
 
+// --- Client mapping + ClickUp summary delivery ---
+
+const CU_API = "https://api.clickup.com/api/v2";
+
+/** Match a WhatsApp group name to an LMTM client by name overlap. */
+async function matchGroupToClient(database: NonNullable<typeof db>, groupName: string): Promise<string | null> {
+  const g = groupName.toLowerCase();
+  const rows = await database.select({ id: clients.id, name: clients.name }).from(clients);
+  const hit = rows.find((c) => {
+    const n = c.name.trim().toLowerCase();
+    return n.length > 2 && (g.includes(n) || n.includes(g));
+  });
+  return hit?.id ?? null;
+}
+
+/** Create the conversation summary as a task in the client's ClickUp folder
+ * (prefers a "Reportes" list, falls back to "Redes Sociales" then the first list). */
+async function createClientSummaryTask(
+  database: NonNullable<typeof db>,
+  clientId: string,
+  groupName: string | null,
+  summary: string,
+  summaryDate: string,
+): Promise<void> {
+  const token = process.env.CLICKUP_API_TOKEN?.trim();
+  if (!token) return;
+  const [c] = await database.select({ folderId: clients.clickupFolderId }).from(clients).where(eq(clients.id, clientId));
+  if (!c?.folderId) return;
+  const H = { Authorization: token, "Content-Type": "application/json" };
+  try {
+    const lists = (await (await fetch(`${CU_API}/folder/${c.folderId}/list?archived=false`, { headers: H })).json()) as {
+      lists?: Array<{ id: string; name: string }>;
+    };
+    const all = lists.lists ?? [];
+    const list =
+      all.find((l) => /reportes/i.test(l.name)) ??
+      all.find((l) => /redes\s*sociales/i.test(l.name)) ??
+      all[0];
+    if (!list) return;
+    await fetch(`${CU_API}/list/${list.id}/task`, {
+      method: "POST",
+      headers: H,
+      body: JSON.stringify({
+        name: `Resumen WhatsApp ${summaryDate.slice(0, 10)}${groupName ? ` — ${groupName}` : ""}`,
+        description: summary,
+        tags: ["resumen-wsp"],
+      }),
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 // --- Per-group inactivity-triggered summary ---
 
 async function runGroupSummary(groupJid: string, groupName: string | null) {
@@ -355,13 +409,24 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
     await upsertGroupCfg(groupJid, { groupName });
   }
 
+  // Auto-map the group to a client by name if it isn't mapped yet, so the
+  // summary routes to the right client's memory + ClickUp.
+  if (!cfg.clientId) {
+    const matched = await matchGroupToClient(db, cfg.groupName ?? groupName ?? "").catch(() => null);
+    if (matched) {
+      cfg.clientId = matched;
+      await upsertGroupCfg(groupJid, { clientId: matched }).catch(() => {});
+    }
+  }
+
   // If this group is mapped to a client, feed the summary into the client's
-  // living memory so it surfaces as client context (and self-learning), and
-  // detect any pending tasks raised in the chat → file them as client tasks
-  // (internal active, external proposed for approval).
+  // living memory so it surfaces as client context (and self-learning), create
+  // the summary in the client's ClickUp, and detect pending tasks raised in the
+  // chat → file them as client tasks (internal active, external proposed).
   if (cfg.clientId) {
     try {
       const companyId = await resolveCompanyId(db, cfg.clientId);
+      await createClientSummaryTask(db, cfg.clientId, cfg.groupName ?? groupName, summary, summaryDate).catch(() => {});
       if (companyId) {
         await upsertMemory(db, {
           companyId,

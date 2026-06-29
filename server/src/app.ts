@@ -308,6 +308,16 @@ export async function createApp(
         console.warn("[script-health] init failed:", e);
       }
     })();
+    // Anti-saturation safety net: reap zombie "running" runs that block the
+    // global concurrency cap and freeze the queue.
+    void (async () => {
+      try {
+        const { initStaleRunReaper } = await import("./services/stale-run-reaper.js");
+        initStaleRunReaper(db);
+      } catch (e) {
+        console.warn("[stale-run-reaper] init failed:", e);
+      }
+    })();
     // One-shot Sheets mapping sweep on boot: picks up the per-client planning
     // Sheet for clients that haven't been mapped yet. Fails silently if Google
     // OAuth isn't configured (e.g. local dev).

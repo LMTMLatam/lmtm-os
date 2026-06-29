@@ -142,10 +142,23 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let lastRunDay = "";
+const CHECK_EVERY_DAYS = Math.max(1, Number(process.env.LMTM_SCRIPT_CHECK_DAYS ?? 5));
 
 export function initScriptHealth(db: Db): void {
   if (timer) return;
-  setTimeout(() => { void runScriptHealthCheck(db).catch((e) => console.warn("[script-health] run failed:", e)); }, 8 * 60 * 1000);
-  timer = setInterval(() => { void runScriptHealthCheck(db).catch((e) => console.warn("[script-health] run failed:", e)); }, 12 * 3600 * 1000);
-  console.log("[script-health] scheduled per-client Apps Script health checks (every 12h)");
+  // Run at most once every CHECK_EVERY_DAYS days. We gate on a day-of-year
+  // modulo so it fires roughly every N days regardless of restarts.
+  const tick = async () => {
+    const now = new Date();
+    const dayKey = now.toISOString().slice(0, 10);
+    if (dayKey === lastRunDay) return;
+    const dayOfYear = Math.floor((now.getTime() - Date.UTC(now.getUTCFullYear(), 0, 0)) / 86400000);
+    if (dayOfYear % CHECK_EVERY_DAYS !== 0) return;
+    lastRunDay = dayKey;
+    await runScriptHealthCheck(db).catch((e) => console.warn("[script-health] run failed:", e));
+  };
+  setTimeout(() => { void tick(); }, 8 * 60 * 1000);
+  timer = setInterval(() => { void tick(); }, 6 * 3600 * 1000); // checks; fires once every N days
+  console.log(`[script-health] scheduled per-client Apps Script health checks (every ${CHECK_EVERY_DAYS} days)`);
 }

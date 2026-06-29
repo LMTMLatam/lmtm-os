@@ -95,7 +95,63 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     copy: i.copy ?? null, rationale: i.rationale ?? null, source: aiRaw ? "ai" : "fallback", batchId,
   })));
 
+  // Mirror the ideas into the client's "Super Redes" ClickUp list (best-effort,
+  // deduped by title) so the team works them where they live in ClickUp.
+  await pushIdeasToSuperRedes(db, clientId, ideas).catch(() => {});
+
   return { batchId, created: ideas.length, ideas };
+}
+
+const CU_API = "https://api.clickup.com/api/v2";
+
+/** Create the generated ideas as tasks in the client's "Super Redes" ClickUp
+ * list. Deduped by task name so re-running doesn't pile up duplicates. */
+async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedIdea[]): Promise<void> {
+  const token = process.env.CLICKUP_API_TOKEN?.trim();
+  if (!token || ideas.length === 0) return;
+  const [client] = await db
+    .select({ folderId: clients.clickupFolderId })
+    .from(clients)
+    .where(eq(clients.id, clientId));
+  const folderId = client?.folderId;
+  if (!folderId) return;
+  const H = { Authorization: token, "Content-Type": "application/json" };
+
+  // Find the "Super Redes" list in the client's folder.
+  const lists = (await (await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, { headers: H })).json()) as {
+    lists?: Array<{ id: string; name: string }>;
+  };
+  const list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
+  if (!list) return;
+
+  // Existing task names (dedup).
+  const existing = (await (await fetch(`${CU_API}/list/${list.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
+    tasks?: Array<{ name: string }>;
+  };
+  const have = new Set((existing.tasks ?? []).map((t) => t.name.trim().toLowerCase()));
+
+  for (const idea of ideas) {
+    const name = idea.title.trim();
+    if (have.has(name.toLowerCase())) continue;
+    const desc = [
+      idea.kind === "pauta" ? "🎯 Pauta" : "📲 Posteo",
+      idea.format ? `Formato: ${idea.format}` : "",
+      idea.copy ? `\n${idea.copy}` : "",
+      idea.rationale ? `\n\n💡 ${idea.rationale}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    try {
+      await fetch(`${CU_API}/list/${list.id}/task`, {
+        method: "POST",
+        headers: H,
+        body: JSON.stringify({ name, description: desc, tags: ["idea-lmtm-os", idea.kind] }),
+      });
+    } catch {
+      /* best-effort per idea */
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 /**
