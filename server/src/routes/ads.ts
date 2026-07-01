@@ -2451,6 +2451,12 @@ export function adsRoutes(db: Db): Router {
     res.json(await runClientReports(db));
   });
 
+  // POST /api/clients/reports/run-monthly — 30-day monthly report sweep.
+  router.post("/clients/reports/run-monthly", async (_req, res) => {
+    const { runMonthlyClientReports } = await import("../services/agency-ops.js");
+    res.json(await runMonthlyClientReports(db));
+  });
+
   // POST /api/clients/portfolio/brief — cross-client brief (delivers to LMTM_TEAM_WHATSAPP).
   router.post("/clients/portfolio/brief", async (_req, res) => {
     res.json(await runPortfolioBrief(db));

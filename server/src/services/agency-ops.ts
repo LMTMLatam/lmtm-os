@@ -150,7 +150,67 @@ export async function generateClientAlerts(db: Db, clientId: string): Promise<Co
     });
   }
 
+  // Creative fatigue: unlike the account-level CTR alert above, this names the
+  // SPECIFIC ad whose CTR decayed while it's still spending — the one to refresh.
+  const fatigue = await detectAdFatigue(db, clientId, d(7), d(0), d(14), d(8));
+  if (fatigue) {
+    alerts.push({
+      severity: "warn", title: "Fatiga de creatividad", metric: "adCtr",
+      currentValue: Number((fatigue.recentCtr * 100).toFixed(2)), thresholdValue: Number((fatigue.priorCtr * 100).toFixed(2)),
+      description: `El aviso ${fatigue.label} bajó su CTR de ${(fatigue.priorCtr * 100).toFixed(2)}% a ${(fatigue.recentCtr * 100).toFixed(2)}% (−${Math.round((1 - fatigue.recentCtr / fatigue.priorCtr) * 100)}%) y sigue gastando.`,
+      recommendation: "Refrescar la creatividad de ese aviso (nuevo hook/formato/ángulo) o pausarlo y redistribuir el presupuesto.",
+    });
+  }
+
   return alerts;
+}
+
+/**
+ * Find the ad with the sharpest CTR decay between a prior and a recent window,
+ * among ads with enough signal in both and still spending. Returns null if none
+ * qualifies. Kept separate so the alert engine stays readable.
+ */
+async function detectAdFatigue(
+  db: Db, clientId: string,
+  recentSince: string, recentUntil: string, priorSince: string, priorUntil: string,
+): Promise<{ label: string; recentCtr: number; priorCtr: number } | null> {
+  const perAd = (since: string, until: string) => db
+    .select({
+      adId: adsInsights.adId,
+      campaign: sql<string>`max(${adsInsights.campaignName})`,
+      impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+      clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+      spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric,0)`,
+    })
+    .from(adsInsights)
+    .where(and(
+      eq(adsInsights.clientId, clientId),
+      gte(adsInsights.date, since),
+      lte(adsInsights.date, until),
+      sql`${adsInsights.adId} is not null`,
+    ))
+    .groupBy(adsInsights.adId);
+
+  const [recentRows, priorRows] = await Promise.all([perAd(recentSince, recentUntil), perAd(priorSince, priorUntil)]);
+  const prior = new Map(priorRows.map((r) => [r.adId, r]));
+
+  let worst: { label: string; recentCtr: number; priorCtr: number; drop: number } | null = null;
+  for (const r of recentRows) {
+    const p = prior.get(r.adId);
+    if (!p) continue;
+    if (r.impressions < 500 || p.impressions < 500) continue; // enough signal in both windows
+    if (Number(r.spend) <= 0) continue; // only worth refreshing if it's still spending
+    const recentCtr = r.clicks / r.impressions;
+    const priorCtr = p.clicks / p.impressions;
+    if (priorCtr < 0.01) continue; // was already weak — not "fatigue"
+    if (recentCtr > priorCtr * 0.6) continue; // needs a ≥40% drop
+    const drop = priorCtr - recentCtr;
+    if (!worst || drop > worst.drop) {
+      const label = r.campaign ? `"${r.campaign}" (ad ${String(r.adId).slice(-6)})` : `ad ${String(r.adId).slice(-6)}`;
+      worst = { label, recentCtr, priorCtr, drop };
+    }
+  }
+  return worst ? { label: worst.label, recentCtr: worst.recentCtr, priorCtr: worst.priorCtr } : null;
 }
 
 /** Resolve the companyId for a client via its insights rows (alerts table needs it). */
@@ -314,16 +374,23 @@ const pct = (a: number, b: number) => (b > 0 ? ((a / b - 1) * 100) : 0);
 
 // ── #1 Weekly client report ───────────────────────────────────────────────────
 
-export async function generateClientReport(db: Db, clientId: string): Promise<{ title: string; markdown: string; hasData: boolean } | null> {
+export async function generateClientReport(
+  db: Db,
+  clientId: string,
+  opts: { windowDays?: number; periodLabel?: string; periodWord?: string } = {},
+): Promise<{ title: string; markdown: string; hasData: boolean } | null> {
+  const windowDays = opts.windowDays ?? 7;
+  const periodLabel = opts.periodLabel ?? "semanal";
+  const periodWord = opts.periodWord ?? "semana"; // "semana" | "mes"
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return null;
   const today = new Date();
   const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
-  const w = await aggInsights(db, clientId, d(7), d(0));
-  const prev = await aggInsights(db, clientId, d(14), d(8));
+  const w = await aggInsights(db, clientId, d(windowDays), d(0));
+  const prev = await aggInsights(db, clientId, d(windowDays * 2), d(windowDays + 1));
 
-  // Social posts: planned vs published this week (from the ClickUp Redes list).
-  const weekAgoMs = today.getTime() - 7 * 86400000;
+  // Social posts: planned vs published in the period (from the ClickUp Redes list).
+  const weekAgoMs = today.getTime() - windowDays * 86400000;
   const redes = await getRedesPostStats(db, clientId, weekAgoMs, today.getTime() + 86400000).catch(() => null);
   const hasAds = w.impressions > 0 || w.spend > 0;
   const hasRedes = !!redes && redes.total > 0;
@@ -345,15 +412,15 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
   const redesSummary = redes
     ? (redes.hasDates && redes.plannedThisWeek > 0
         ? `planeados ${redes.plannedThisWeek}, no realizados ${redes.missed}${redes.missed > 0 ? " (" + redes.missedNames.slice(0, 6).join(", ") + ")" : ""}`
-        : `${redes.total} posts en lista, publicados esta semana ${redes.publishedThisWeek}, por estado ${Object.entries(redes.byStatus).map(([s, n]) => s + ":" + n).join(", ")}`)
+        : `${redes.total} posts en lista, publicados en el período ${redes.publishedThisWeek}, por estado ${Object.entries(redes.byStatus).map(([s, n]) => s + ":" + n).join(", ")}`)
     : "sin lista de redes";
 
   const narrative = await aiNarrative(
-    "Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 4-5 oraciones en español rioplatense, claras y accionables. Revisá el desempeño de publicidad Y la actividad en redes sociales (posteos de la semana) considerando las redes y la estrategia definidas en el Enfoque Técnico del cliente. Si faltaron posteos planeados, marcalo. Cerrá con qué hacer la próxima semana. Sin saludos, sin títulos. Nunca inventes números: usá solo los provistos.",
+    `Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 4-5 oraciones en español rioplatense, claras y accionables. Revisá el desempeño de publicidad Y la actividad en redes sociales (posteos del ${periodWord}) considerando las redes y la estrategia definidas en el Enfoque Técnico del cliente. Si faltaron posteos planeados, marcalo. Cerrá con qué hacer el próximo ${periodWord}. Sin saludos, sin títulos. Nunca inventes números: usá solo los provistos.`,
     `Cliente: ${client.name}\n` +
     (enfoque ? `Enfoque Técnico (contexto/redes del cliente):\n${enfoque}\n\n` : "Enfoque Técnico: no cargado.\n\n") +
-    `Publicidad 7d: inversión ${money(w.spend)} (previa ${money(prev.spend)}), leads ${w.leads} (previa ${prev.leads}), impresiones ${w.impressions}, CTR ${ctr.toFixed(2)}%, CPL ${w.leads > 0 ? money(cpl) : "s/d"}\n` +
-    `Redes esta semana: ${redesSummary}`,
+    `Publicidad ${windowDays}d: inversión ${money(w.spend)} (previa ${money(prev.spend)}), leads ${w.leads} (previa ${prev.leads}), impresiones ${w.impressions}, CTR ${ctr.toFixed(2)}%, CPL ${w.leads > 0 ? money(cpl) : "s/d"}\n` +
+    `Redes en el período: ${redesSummary}`,
   );
   const link = dashboardLink(client.slug);
 
@@ -365,16 +432,16 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
     redesLines.push("", "### Redes Sociales (ClickUp)");
     if (redes.hasDates && redes.plannedThisWeek > 0) {
       const ok = redes.plannedThisWeek - redes.missed;
-      redesLines.push(`- **Planeados esta semana:** ${redes.plannedThisWeek} · **Realizados:** ${ok}`);
+      redesLines.push(`- **Planeados este ${periodWord}:** ${redes.plannedThisWeek} · **Realizados:** ${ok}`);
       if (redes.missed > 0) {
         redesLines.push(`- ⚠️ **No realizados (${redes.missed}):** ${redes.missedNames.slice(0, 10).join(", ")}${redes.missedNames.length > 10 ? "…" : ""}`);
       } else {
-        redesLines.push("- ✅ Todos los posts planeados de la semana se realizaron.");
+        redesLines.push(`- ✅ Todos los posts planeados del ${periodWord} se realizaron.`);
       }
     } else {
       const bd = Object.entries(redes.byStatus).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s}: ${n}`).join(" · ");
       redesLines.push(`- **Posts en la lista:** ${redes.total}${bd ? ` (${bd})` : ""}`);
-      redesLines.push(`- **Publicados esta semana:** ${redes.publishedThisWeek}`);
+      redesLines.push(`- **Publicados este ${periodWord}:** ${redes.publishedThisWeek}`);
       if (!redes.hasDates) {
         redesLines.push("- _Para medir planeado vs realizado y detectar fallas, cargá una fecha en cada post y un estado “Publicado” en ClickUp._");
       }
@@ -383,13 +450,13 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
 
   // Standard markdown for the ClickUp task description.
   const adsLines = hasAds ? [
-    "_Publicidad — últimos 7 días_",
+    `_Publicidad — últimos ${windowDays} días_`,
     "",
-    `- **Inversión:** ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs semana previa)`,
+    `- **Inversión:** ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs período previo)`,
     `- **Leads / conversiones:** ${w.leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
     `- **Impresiones:** ${w.impressions.toLocaleString("es-AR")} · **Alcance:** ${w.reach.toLocaleString("es-AR")}`,
     `- **CTR:** ${ctr.toFixed(2)}%` + (w.leads > 0 ? ` · **CPL:** ${money(cpl)}` : ""),
-  ] : ["_Sin actividad de publicidad esta semana._"];
+  ] : [`_Sin actividad de publicidad este ${periodWord}._`];
 
   const markdown = [
     ...adsLines,
@@ -401,19 +468,28 @@ export async function generateClientReport(db: Db, clientId: string): Promise<{ 
   ].join("\n");
 
   const fecha = dayStr(today);
-  return { title: `📊 Reporte semanal — ${fecha}`, markdown, hasData: true };
+  const titleWord = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
+  return { title: `📊 Reporte ${titleWord} — ${fecha}`, markdown, hasData: true };
 }
 
-export async function runClientReports(db: Db): Promise<{ created: number }> {
+export async function runClientReports(
+  db: Db,
+  opts: { windowDays?: number; periodLabel?: string; periodWord?: string } = {},
+): Promise<{ created: number }> {
   const rows = await db.select().from(clients).where(eq(clients.status, "active"));
   let created = 0;
   for (const client of rows) {
-    const report = await generateClientReport(db, client.id);
+    const report = await generateClientReport(db, client.id, opts);
     if (!report?.hasData) continue;
     const r = await createClientReportTask(db, client.id, report.title, report.markdown);
     if (r.ok) created += 1;
   }
   return { created };
+}
+
+/** Monthly variant of the client report (30-day window, "mensual" labels). */
+export async function runMonthlyClientReports(db: Db): Promise<{ created: number }> {
+  return runClientReports(db, { windowDays: 30, periodLabel: "mensual", periodWord: "mes" });
 }
 
 // ── #3 Cross-client portfolio brief (for the team) ────────────────────────────
@@ -474,6 +550,7 @@ export async function runPortfolioBrief(db: Db): Promise<{ delivered: boolean; e
 let alertsTimer: ReturnType<typeof setInterval> | null = null;
 let weeklyTimer: ReturnType<typeof setInterval> | null = null;
 let lastWeeklyRun = "";
+let lastMonthlyRun = "";
 
 export function initAgencyOps(db: Db): void {
   if (alertsTimer) return;
@@ -483,16 +560,24 @@ export function initAgencyOps(db: Db): void {
     runClientAlerts(db).catch((e) => console.warn("[agency-ops] alerts run failed:", e));
   }, SIX_HOURS);
 
-  // Weekly reports + portfolio brief: checked daily, fires on Mondays.
-  const maybeWeekly = async () => {
+  // Weekly reports + portfolio brief on Mondays; monthly report on the 1st.
+  // Both checked on the same daily-ish timer with a run-once dedup key.
+  const maybePeriodic = async () => {
     const now = new Date();
-    const monday = now.getUTCDay() === 1; // Monday
     const wk = `${now.getUTCFullYear()}-${dayStr(now).slice(5, 7)}-${Math.floor(now.getUTCDate() / 7)}`;
-    if (!monday || lastWeeklyRun === wk) return;
-    lastWeeklyRun = wk;
-    await runClientReports(db).catch((e) => console.warn("[agency-ops] reports failed:", e));
-    await runPortfolioBrief(db).catch((e) => console.warn("[agency-ops] brief failed:", e));
+    if (now.getUTCDay() === 1 && lastWeeklyRun !== wk) {
+      lastWeeklyRun = wk;
+      await runClientReports(db).catch((e) => console.warn("[agency-ops] weekly reports failed:", e));
+      await runPortfolioBrief(db).catch((e) => console.warn("[agency-ops] brief failed:", e));
+    }
+    const mo = `${now.getUTCFullYear()}-${now.getUTCMonth()}`;
+    if (now.getUTCDate() === 1 && lastMonthlyRun !== mo) {
+      lastMonthlyRun = mo;
+      await runMonthlyClientReports(db)
+        .then((r) => console.log(`[agency-ops] monthly reports: ${r.created} created`))
+        .catch((e) => console.warn("[agency-ops] monthly reports failed:", e));
+    }
   };
-  weeklyTimer = setInterval(() => { void maybeWeekly(); }, 12 * 3600 * 1000);
-  console.log("[agency-ops] scheduled: alerts every 6h, weekly reports+brief on Mondays");
+  weeklyTimer = setInterval(() => { void maybePeriodic(); }, 12 * 3600 * 1000);
+  console.log("[agency-ops] scheduled: alerts every 6h, weekly reports on Mondays, monthly report on the 1st");
 }

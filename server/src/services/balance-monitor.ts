@@ -8,21 +8,27 @@
 // (uncapped / read-only / prepaid) are skipped — there's no cap to run out of.
 
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsConnections, clients } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { adsAccountMappings, adsConnections, adsInsights, clients } from "@paperclipai/db";
+import { and, eq, gte, sql } from "drizzle-orm";
+import { sendWhatsAppToNumber, alertsNumber, dayStr } from "./agency-ops.js";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 // Threshold in the account's major currency unit (pesos for ARS accounts).
 const DEFAULT_THRESHOLD = Number(process.env.LMTM_BALANCE_ALERT_THRESHOLD) || 100000;
+// Flag pacing when the budget will run out within this many days at the current
+// burn rate (and it isn't already "low" — that has its own alert).
+const PACING_DAYS = Number(process.env.LMTM_PACING_ALERT_DAYS) || 7;
 
 export interface BalanceInfo {
   account: string;
+  clientId: string | null;
   clientName: string;
   currency: string;
   spendCap: number;     // major units
   amountSpent: number;  // major units
   remaining: number | null; // major units; null when uncapped (spend_cap = 0)
+  dailySpend: number;   // avg major units/day over the last 7d
+  daysLeft: number | null; // remaining / dailySpend; null when uncapped or not spending
   accountStatus: number;
   low: boolean;
 }
@@ -35,6 +41,7 @@ export async function fetchAccountBalances(
   const rows = await db
     .select({
       adAccountId: adsAccountMappings.adAccountId,
+      clientId: adsAccountMappings.clientId,
       accessToken: adsConnections.accessToken,
       platform: adsConnections.platform,
       clientName: clients.name,
@@ -43,6 +50,16 @@ export async function fetchAccountBalances(
     .leftJoin(adsConnections, eq(adsConnections.id, adsAccountMappings.connectionId))
     .leftJoin(clients, eq(clients.id, adsAccountMappings.clientId))
     .where(opts.clientId ? eq(adsAccountMappings.clientId, opts.clientId) : undefined);
+
+  // Last-7d spend per ad account → daily burn rate (for pacing). One query.
+  const since7 = dayStr(new Date(Date.now() - 7 * 86_400_000));
+  const spendRows = await db
+    .select({ adAccountId: adsInsights.adAccountId, spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric,0)` })
+    .from(adsInsights)
+    .where(gte(adsInsights.date, since7))
+    .groupBy(adsInsights.adAccountId);
+  const bare = (a: string) => a.replace(/^act_/, "");
+  const spend7ByAccount = new Map(spendRows.map((r) => [bare(r.adAccountId), Number(r.spend)]));
 
   const out: BalanceInfo[] = [];
   for (const r of rows) {
@@ -59,13 +76,18 @@ export async function fetchAccountBalances(
       const spendCap = Number(j.spend_cap ?? 0) / 100;
       const amountSpent = Number(j.amount_spent ?? 0) / 100;
       const remaining = spendCap > 0 ? spendCap - amountSpent : null;
+      const dailySpend = (spend7ByAccount.get(bare(acct)) ?? 0) / 7;
+      const daysLeft = remaining !== null && dailySpend > 0 ? remaining / dailySpend : null;
       out.push({
         account: acct,
+        clientId: r.clientId ?? null,
         clientName: r.clientName ?? j.name ?? acct,
         currency: j.currency ?? "",
         spendCap,
         amountSpent,
         remaining,
+        dailySpend,
+        daysLeft,
         accountStatus: Number(j.account_status ?? 0),
         low: remaining !== null && remaining < threshold,
       });
@@ -76,23 +98,39 @@ export async function fetchAccountBalances(
 }
 
 /** Check balances and WhatsApp the team a digest of accounts running low. */
-export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Promise<{ checked: number; low: BalanceInfo[]; delivered: boolean }> {
+export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Promise<{ checked: number; low: BalanceInfo[]; pacing: BalanceInfo[]; delivered: boolean }> {
   const all = await fetchAccountBalances(db, threshold);
   const low = all.filter((b) => b.low);
+  // Pacing: healthy balance now, but at the current burn rate it runs out within
+  // PACING_DAYS — a proactive heads-up BEFORE it becomes "low". Excludes accounts
+  // already flagged low (that has its own alert).
+  const pacing = all.filter((b) => !b.low && b.daysLeft !== null && b.daysLeft <= PACING_DAYS && b.dailySpend > 0);
   let delivered = false;
   const team = alertsNumber();
-  if (team && low.length > 0) {
-    const fmt = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("es-AR")}`;
+  const fmt = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("es-AR")}`;
+  const sections: string[] = [];
+  if (low.length > 0) {
     const lines = ["*⚠️ Saldo bajo en cuentas de Meta*", ""];
     for (const b of low) {
       const left = b.remaining ?? 0;
       lines.push(`• *${b.clientName}*: quedan ${fmt(left, b.currency)} antes del tope${left <= 0 ? " (¡FRENADA!)" : ""}`);
     }
-    lines.push("", "_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._", "_LMTM-OS · monitor de saldo_");
-    const r = await sendWhatsAppToNumber(team, lines.join("\n"));
+    lines.push("", "_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._");
+    sections.push(lines.join("\n"));
+  }
+  if (pacing.length > 0) {
+    const lines = ["*⏳ Presupuesto por agotarse (ritmo de gasto)*", ""];
+    for (const b of pacing) {
+      lines.push(`• *${b.clientName}*: quedan ${fmt(b.remaining ?? 0, b.currency)}, gasta ${fmt(b.dailySpend, b.currency)}/día → se agota en ~${Math.floor(b.daysLeft!)} día(s).`);
+    }
+    lines.push("", "_Planificá la recarga antes de que la pauta se frene._");
+    sections.push(lines.join("\n"));
+  }
+  if (team && sections.length > 0) {
+    const r = await sendWhatsAppToNumber(team, [...sections, "_LMTM-OS · monitor de saldo_"].join("\n\n"));
     delivered = r.ok;
   }
-  return { checked: all.length, low, delivered };
+  return { checked: all.length, low, pacing, delivered };
 }
 
 let balanceTimer: ReturnType<typeof setInterval> | null = null;
