@@ -240,9 +240,9 @@ function ClickUpLinks({ client }: { client: Client }) {
         <a href={clickupUrl(teamId, "li", client.clickupListRedesId)} target="_blank" rel="noreferrer noopener"
           className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="📲 Redes Sociales">RS</a>
       )}
-      {client.clickupListVideoId && (
-        <a href={clickupUrl(teamId, "li", client.clickupListVideoId)} target="_blank" rel="noreferrer noopener"
-          className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Producción de video">PV</a>
+      {(client.metadata?.produccionSheetId as string | undefined) && (
+        <a href={`https://docs.google.com/spreadsheets/d/${client.metadata!.produccionSheetId}/edit`} target="_blank" rel="noreferrer noopener"
+          className="text-muted-foreground/60 hover:text-foreground text-[10px]" title="Producción de video (Sheet)">PV</a>
       )}
       {client.clickupListEnfoqueTecnicoId && (
         <a href={clickupUrl(teamId, "dc", client.clickupListEnfoqueTecnicoId)} target="_blank" rel="noreferrer noopener"
