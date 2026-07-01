@@ -2618,6 +2618,82 @@ export function adsRoutes(db: Db): Router {
     res.json(await runClientAlerts(db));
   });
 
+  // GET /growth/overview — agency-wide growth panel: ad spend/leads trend,
+  // weekly issue throughput, and the growth-roundtable debates + their
+  // follow-up proposals (see services/growth-roundtable.ts — proposals are
+  // real child issues via issues.parentId, not text-matched).
+  router.get("/growth/overview", async (_req, res) => {
+    try {
+      const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+      const since56 = new Date(Date.now() - 56 * 86_400_000);
+
+      const [activeClientsRow] = await db.select({ n: sql<number>`count(*)::int` })
+        .from(clients).where(eq(clients.status, "active"));
+
+      const spendRows = await db
+        .select({
+          date: adsInsights.date,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(gte(adsInsights.date, since30))
+        .groupBy(adsInsights.date)
+        .orderBy(adsInsights.date);
+      const spendTrend = spendRows.map((r) => ({ date: String(r.date), spend: Number(r.spend), leads: Number(r.leads) }));
+      const spend30d = spendTrend.reduce((a, r) => a + r.spend, 0);
+      const leads30d = spendTrend.reduce((a, r) => a + r.leads, 0);
+
+      const createdRows = await db.select({
+        week: sql<string>`to_char(date_trunc('week', ${issues.createdAt}), 'YYYY-MM-DD')`,
+        n: sql<number>`count(*)::int`,
+      }).from(issues).where(gte(issues.createdAt, since56)).groupBy(sql`1`).orderBy(sql`1`);
+      const doneRows = await db.select({
+        week: sql<string>`to_char(date_trunc('week', ${issues.updatedAt}), 'YYYY-MM-DD')`,
+        n: sql<number>`count(*)::int`,
+      }).from(issues).where(and(eq(issues.status, "done"), gte(issues.updatedAt, since56))).groupBy(sql`1`).orderBy(sql`1`);
+      const weekMap = new Map<string, { week: string; created: number; done: number }>();
+      for (const r of createdRows) weekMap.set(r.week, { week: r.week, created: Number(r.n), done: 0 });
+      for (const r of doneRows) {
+        const existing = weekMap.get(r.week);
+        if (existing) existing.done = Number(r.n);
+        else weekMap.set(r.week, { week: r.week, created: 0, done: Number(r.n) });
+      }
+      const issuesThroughput = [...weekMap.values()].sort((a, b) => a.week.localeCompare(b.week));
+
+      const roundtables = await db.select({
+        id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, createdAt: issues.createdAt,
+      }).from(issues).where(sql`${issues.title} ilike '[MESA REDONDA]%'`).orderBy(desc(issues.createdAt)).limit(12);
+
+      const roundtableIds = roundtables.map((r) => r.id);
+      const proposalRows = roundtableIds.length ? await db.select({
+        id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, createdAt: issues.createdAt, parentId: issues.parentId,
+      }).from(issues).where(inArray(issues.parentId, roundtableIds)).orderBy(desc(issues.createdAt)) : [];
+
+      const roundtablesWithProposals = roundtables.map((rt) => ({
+        ...rt,
+        category: rt.title.replace(/^\[MESA REDONDA\]\s*/, ""),
+        proposals: proposalRows.filter((p) => p.parentId === rt.id),
+      }));
+
+      res.json({
+        kpis: {
+          activeClients: Number(activeClientsRow?.n ?? 0),
+          spend30d,
+          leads30d,
+          issuesDoneThisWeek: issuesThroughput.at(-1)?.done ?? 0,
+        },
+        spendTrend,
+        issuesThroughput,
+        roundtables: roundtablesWithProposals,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[growth overview] failed", msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
   // GET /clients/:id/content-ideas — latest generated ideas (optionally ?kind=).
   router.get("/clients/:id/content-ideas", async (req, res) => {
     const row = await resolveClient(req.params.id, db);

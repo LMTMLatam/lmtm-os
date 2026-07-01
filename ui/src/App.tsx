@@ -40,6 +40,7 @@ import { CompanySkills } from "./pages/CompanySkills";
 import { AdsIntegrations } from "./pages/AdsIntegrations";
 import { WhatsApp } from "./pages/WhatsApp";
 import { Intelligence } from "./pages/Intelligence";
+import { Growth } from "./pages/Growth";
 import { Competitors } from "./pages/Competitors";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
@@ -79,6 +80,7 @@ function boardRoutes() {
       <Route path="finance" element={<Finance />} />
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />
+      <Route path="growth" element={<Growth />} />
       <Route path="competitors" element={<Competitors />} />
       <Route path="c/:slug" element={<ClientDashboard />} />
       <Route path="c/:slug/:tab" element={<ClientDashboard />} />
