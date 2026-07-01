@@ -140,42 +140,40 @@ export function adsRoutes(db: Db): Router {
   // per connection; concurrent requests await the same promise.
   const inventoryBuilds = new Map<string, Promise<Record<string, unknown>>>();
 
-  // Auth boundary for the client surface. Every /clients/* route (list,
-  // create, dashboards, ClickUp sync, CSV export) requires an authenticated
-  // actor. The /ads/oauth/* callbacks are deliberately NOT covered here —
-  // the OAuth provider redirects to them without a session.
-  router.use("/clients", (req, _res, next) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
-    next();
-  });
-
-  // Auth boundary for /integrations/* (connections, mappings, sync, account
-  // lookups). These expose ad-platform tokens and let agents read/write
-  // campaigns, so they must never be anonymous. Exception: the OAuth
-  // start/callback routes are reached via a provider redirect without a session,
-  // so they stay public.
+  // Auth boundary — DEFAULT DENY. Every route on this router requires an
+  // authenticated actor unless its path is on the explicit public allowlist.
+  // This is deliberately default-deny (not opt-in per prefix): a new route
+  // added to this file is protected automatically, instead of being born
+  // anonymous until someone remembers to add a guard. Mirrors the same pattern
+  // used by wa-bot.ts (PUBLIC_WA_PATHS).
   //
-  // NOTE: this prefix is deliberately NOT "/ads" — browser ad blockers
-  // (uBlock/AdGuard/etc.) block any URL containing the "ads" path segment with
-  // net::ERR_BLOCKED_BY_CLIENT, which silently broke the connections lookup in
-  // the panel. Keep ad-platform XHR paths free of "ads"/"adset" tokens.
-  router.use("/integrations", (req, _res, next) => {
-    if (req.originalUrl.includes("/integrations/oauth/")) return next();
+  // The ONLY public paths are the OAuth start/callback routes — the ad platform
+  // redirects the user to them without a Paperclip session. Everything else
+  // (clients, integrations, growth, ops) exposes ad-platform tokens, agency
+  // data, or spend/LLM-firing actions and must never be anonymous.
+  //
+  // NOTE: the ad-platform prefix is deliberately "/integrations" NOT "/ads" —
+  // browser ad blockers (uBlock/AdGuard/etc.) block any URL containing the "ads"
+  // path segment with net::ERR_BLOCKED_BY_CLIENT, which silently broke the
+  // connections lookup in the panel. Keep ad-platform XHR paths free of
+  // "ads"/"adset" tokens.
+  //
+  // Scoping: this router is mounted at the /api root (api.use(adsRoutes(db))),
+  // so its middleware also sees requests destined for sibling routers mounted
+  // after it (finance, /public dashboards, etc.). We must therefore act ONLY on
+  // the prefixes this router actually serves — otherwise we'd reject anonymous
+  // requests to public sibling routes. Adding a NEW top-level prefix to this
+  // file means adding it here too.
+  const OWNED_PREFIXES = ["/clients", "/integrations", "/growth", "/ops"];
+  const isPublicAdsPath = (req: Request): boolean =>
+    req.originalUrl.includes("/integrations/oauth/");
+  router.use((req, _res, next) => {
+    const owned = OWNED_PREFIXES.some((p) => req.path === p || req.path.startsWith(p + "/"));
+    if (!owned) return next();               // foreign path → let it fall through
+    if (isPublicAdsPath(req)) return next();  // OAuth start/callback
     if (req.actor.type === "none") throw unauthorized("Authentication required");
     next();
   });
-
-  // Auth boundary for the agency-ops surface. /growth/* (overview panel data,
-  // manual roundtable trigger) and /ops/* (manual alert sweep) expose or mutate
-  // agency-wide data and fire real WhatsApp sends + LLM calls, so they must
-  // never be anonymous. The scheduler drives the real cadence; these routes are
-  // dashboard/operator conveniences only.
-  const requireActor = (req: Request, _res: Response, next: () => void) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
-    next();
-  };
-  router.use("/growth", requireActor);
-  router.use("/ops", requireActor);
 
   // ---- Connections ----
 

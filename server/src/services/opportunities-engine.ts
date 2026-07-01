@@ -20,6 +20,7 @@ import { upcomingEfemerides } from "./efemerides.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
 import { issueService } from "./issues.js";
 import { resolveTriageOwnerId } from "./client-tasks.js";
+import { getLatestScore } from "./account-scoring.js";
 
 // Anything at or above this priority becomes a real issue in the per-client
 // Tareas panel. Below stays as a "sugerencia" the operator reviews manually.
@@ -86,7 +87,30 @@ export async function generateClientOpportunities(db: Db, clientId: string): Pro
     });
   }
 
-  // 5. Optional AI-generated creative idea from the combined context.
+  // 5. Upsell: a client that's winning AND on an upswing is the moment to
+  // propose scaling (more budget / a new service). Grounded in real data:
+  // sustained 30-day lead volume + healthy account score + this week beating
+  // last week. External (commercial) → becomes an approval proposal, never an
+  // autonomous spend action.
+  const w30 = await aggInsights(db, clientId, d(30), d(0));
+  const prev7 = await aggInsights(db, clientId, d(14), d(7));
+  const score = await getLatestScore(db, clientId).catch(() => null);
+  const health = score?.healthScore ?? 0;
+  const onUpswing = w7.leads > prev7.leads || (w7.impressions >= 200 && prev7.impressions >= 200 &&
+    (w7.clicks / w7.impressions) > (prev7.clicks / Math.max(prev7.impressions, 1)));
+  if (w30.leads >= 10 && health >= 65 && onUpswing) {
+    const cpl = w30.leads > 0 ? w30.spend / w30.leads : 0;
+    drafts.push({
+      kind: "upsell",
+      title: "Oportunidad de upsell (rindiendo y en alza)",
+      rationale: `30 días: ${w30.leads} leads, CPL $${Math.round(cpl)}, score de salud ${health}. Esta semana (${w7.leads} leads) supera la anterior (${prev7.leads}).`,
+      suggestedAction: "Proponerle al cliente escalar pauta o sumar un servicio (contenido/CRM/otra plataforma). Armar la propuesta comercial con estos números.",
+      priority: 78,
+      basis: { leads30d: w30.leads, cpl: Math.round(cpl), healthScore: health, leads7d: w7.leads, leadsPrev7d: prev7.leads },
+    });
+  }
+
+  // 6. Optional AI-generated creative idea from the combined context.
   try {
     const brain = await getBrainContext(db, clientId, 1200);
     const idea = await aiNarrative(
@@ -177,9 +201,9 @@ export async function materializeOpportunityAsIssue(
       .limit(1);
     if (row?.convertedIssueId) return null; // already done
 
-    // External kinds ("campaign", "budget") touch client / money → proposal.
-    // Content / timing are informational, internal work → active.
-    const isExternal = input.kind === "campaign" || input.kind === "budget";
+    // External kinds ("campaign", "budget", "upsell") touch client / money →
+    // proposal. Content / timing are informational, internal work → active.
+    const isExternal = input.kind === "campaign" || input.kind === "budget" || input.kind === "upsell";
     const priority =
       input.priority >= 90 ? "urgent"
       : input.priority >= 75 ? "high"
