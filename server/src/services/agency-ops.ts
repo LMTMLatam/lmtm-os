@@ -9,7 +9,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { adsInsights, adsAlerts, clients } from "@paperclipai/db";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { createClientReportTask, getRedesPostStats, getEnfoqueTecnicoContext } from "./clickup-sync.js";
 
 const SESSION = process.env.WA_AUTOMATE_SESSION_ID || "lmtm";
@@ -185,31 +185,43 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
     const computed = await generateClientAlerts(db, client.id);
     if (computed.length === 0) continue;
 
-    // Dedup: skip alerts whose metric already has a pending row from the last 24h.
-    const recent = await db
-      .select({ metric: adsAlerts.metric })
+    // Only skip a metric if it was already SENT (delivered) in the last 24h —
+    // NOT merely inserted. A metric stuck at "pending" (WhatsApp send failed,
+    // e.g. gateway down) is retried every cycle instead of being silently
+    // swallowed forever: previously any row within 24h — sent or not — blocked
+    // a retry, so a gateway outage meant those alerts NEVER went out even
+    // after the gateway came back (the real 3+ day gap that motivated this).
+    const since24h = new Date(Date.now() - 24 * 3600 * 1000);
+    const existing = await db
+      .select({ id: adsAlerts.id, metric: adsAlerts.metric, status: adsAlerts.status })
       .from(adsAlerts)
-      .where(and(
-        eq(adsAlerts.clientId, client.id),
-        gte(adsAlerts.createdAt, new Date(Date.now() - 24 * 3600 * 1000)),
-      ));
-    const recentMetrics = new Set(recent.map((r) => r.metric));
-    const fresh = computed.filter((a) => !recentMetrics.has(a.metric));
+      .where(and(eq(adsAlerts.clientId, client.id), gte(adsAlerts.createdAt, since24h)));
+    const sentMetrics = new Set(existing.filter((r) => r.status === "sent").map((r) => r.metric));
+    const pendingIdByMetric = new Map(existing.filter((r) => r.status !== "sent").map((r) => [r.metric, r.id]));
+
+    const fresh = computed.filter((a) => !sentMetrics.has(a.metric));
     if (fresh.length === 0) continue;
 
-    await db.insert(adsAlerts).values(fresh.map((a) => ({
-      companyId,
-      clientId: client.id,
-      platform: "meta",
-      severity: a.severity,
-      title: a.title,
-      description: a.description,
-      metric: a.metric,
-      currentValue: a.currentValue != null ? String(a.currentValue) : null,
-      thresholdValue: a.thresholdValue != null ? String(a.thresholdValue) : null,
-      recommendation: a.recommendation,
-      status: "pending",
-    })));
+    const toInsert = fresh.filter((a) => !pendingIdByMetric.has(a.metric));
+    let insertedIds: string[] = [];
+    if (toInsert.length > 0) {
+      const inserted = await db.insert(adsAlerts).values(toInsert.map((a) => ({
+        companyId,
+        clientId: client.id,
+        platform: "meta",
+        severity: a.severity,
+        title: a.title,
+        description: a.description,
+        metric: a.metric,
+        currentValue: a.currentValue != null ? String(a.currentValue) : null,
+        thresholdValue: a.thresholdValue != null ? String(a.thresholdValue) : null,
+        recommendation: a.recommendation,
+        status: "pending",
+      }))).returning({ id: adsAlerts.id });
+      insertedIds = inserted.map((r) => r.id);
+    }
+    const retryIds = fresh.filter((a) => pendingIdByMetric.has(a.metric)).map((a) => pendingIdByMetric.get(a.metric)!);
+    const coveredIds = [...insertedIds, ...retryIds];
 
     // Deliver to the agency's internal number (all clients' alerts → same number).
     // The message names the client so it's clear which account each alert is about.
@@ -223,7 +235,13 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
         "_LMTM-OS · monitoreo automático_",
       ].join("\n");
       const sent = await sendWhatsAppToNumber(team, body);
-      if (sent.ok) { alertsSent += fresh.length; clientsNotified += 1; }
+      if (sent.ok) {
+        alertsSent += fresh.length;
+        clientsNotified += 1;
+        if (coveredIds.length > 0) {
+          await db.update(adsAlerts).set({ status: "sent" }).where(inArray(adsAlerts.id, coveredIds)).catch(() => {});
+        }
+      }
     }
   }
 

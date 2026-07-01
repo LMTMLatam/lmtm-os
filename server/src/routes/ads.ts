@@ -2611,6 +2611,13 @@ export function adsRoutes(db: Db): Router {
     res.json(await runGrowthRoundtable(db));
   });
 
+  // POST /ops/alerts/run — manual trigger for the ads-alert sweep (normally
+  // runs every 6h). Flushes any alert stuck at "pending" (e.g. from a
+  // WhatsApp gateway outage) without waiting for the next cycle.
+  router.post("/ops/alerts/run", async (_req, res) => {
+    res.json(await runClientAlerts(db));
+  });
+
   // GET /clients/:id/content-ideas — latest generated ideas (optionally ?kind=).
   router.get("/clients/:id/content-ideas", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
