@@ -310,8 +310,10 @@ export function App() {
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
+          <Route path="finance" element={<UnprefixedBoardRedirect />} />
           <Route path="whatsapp" element={<UnprefixedBoardRedirect />} />
           <Route path="intelligence" element={<UnprefixedBoardRedirect />} />
+          <Route path="growth" element={<UnprefixedBoardRedirect />} />
           <Route path="competitors" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
