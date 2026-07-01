@@ -298,6 +298,16 @@ export async function createApp(
         console.warn("[content-ideas] init failed:", e);
       }
     })();
+    // Weekly growth roundtable: agents debate agency-level growth (automation,
+    // upsell, efficiency, brand) on a recurring issue, invited by @mention.
+    void (async () => {
+      try {
+        const { initGrowthRoundtable } = await import("./services/growth-roundtable.js");
+        initGrowthRoundtable(db);
+      } catch (e) {
+        console.warn("[growth-roundtable] init failed:", e);
+      }
+    })();
     // Per-client Apps Script health: detect failing/stale Cronopost→ClickUp
     // scripts and file a fix task for an agent. Self-healing for the pipeline.
     void (async () => {

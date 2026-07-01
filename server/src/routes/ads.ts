@@ -2604,6 +2604,13 @@ export function adsRoutes(db: Db): Router {
     res.json(await generateContentPlan(db, row.id));
   });
 
+  // POST /growth/roundtable/run — manual trigger for the weekly growth
+  // roundtable (normally fires automatically on LMTM_ROUNDTABLE_DOW).
+  router.post("/growth/roundtable/run", async (_req, res) => {
+    const { runGrowthRoundtable } = await import("../services/growth-roundtable.js");
+    res.json(await runGrowthRoundtable(db));
+  });
+
   // GET /clients/:id/content-ideas — latest generated ideas (optionally ?kind=).
   router.get("/clients/:id/content-ideas", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
