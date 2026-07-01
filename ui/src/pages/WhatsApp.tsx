@@ -42,7 +42,7 @@ export function WhatsApp() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["wa-bot", "status"] }),
   });
   const stop = useMutation({
-    mutationFn: () => waBotApi.stop(),
+    mutationFn: (logout?: boolean) => waBotApi.stop(logout),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["wa-bot", "status"] }),
   });
 
@@ -87,7 +87,7 @@ export function WhatsApp() {
             El bot ya está leyendo los grupos donde esté agregado este número. Agregalo a los grupos de clientes o equipo que quieras resumir.
           </p>
           <button
-            onClick={() => { if (confirm("¿Desvincular WhatsApp? Vas a tener que escanear el QR de nuevo.")) stop.mutate(); }}
+            onClick={() => { if (confirm("¿Desvincular WhatsApp? Se cierra la sesión en el teléfono y vas a tener que escanear un QR nuevo para volver a conectar.")) stop.mutate(true); }}
             disabled={stop.isPending}
             className="mt-2 inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted disabled:opacity-50"
           >
@@ -120,7 +120,7 @@ export function WhatsApp() {
             </ol>
           </div>
           <button
-            onClick={() => stop.mutate()}
+            onClick={() => stop.mutate(false)}
             disabled={stop.isPending}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
@@ -129,21 +129,22 @@ export function WhatsApp() {
         </Card>
       )}
 
-      {/* Disconnected — connect CTA */}
+      {/* Disconnected — connect/reconnect CTA */}
       {status === "disconnected" && (
         <Card className="p-8 flex flex-col items-center text-center gap-4">
           <MessageCircle className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground max-w-md">
-            No hay ningún WhatsApp vinculado. Conectá uno para empezar a generar resúmenes de grupos.
-            Recomendado: usar un número dedicado al bot, no uno personal.
+            {s?.wasEverConnected
+              ? "El WhatsApp vinculado se desconectó. Reconectá para generar un código QR nuevo y volver a escanearlo."
+              : "No hay ningún WhatsApp vinculado. Conectá uno para empezar a generar resúmenes de grupos. Recomendado: usar un número dedicado al bot, no uno personal."}
           </p>
           <button
             onClick={() => start.mutate()}
             disabled={start.isPending || !s?.openwaAvailable}
             className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-md bg-foreground text-background hover:opacity-90 disabled:opacity-50"
           >
-            <MessageCircle className="h-4 w-4" />
-            {start.isPending ? "Iniciando…" : "Conectar WhatsApp"}
+            <RefreshCw className="h-4 w-4" />
+            {start.isPending ? "Generando QR…" : s?.wasEverConnected ? "Reconectar WhatsApp" : "Conectar WhatsApp"}
           </button>
           {start.data?.error && (
             <p className="text-xs text-rose-500">{start.data.error}</p>

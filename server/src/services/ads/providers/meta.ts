@@ -566,3 +566,94 @@ export const metaProvider: AdsProvider = {
     }
   },
 };
+
+// ── Audience demographics ─────────────────────────────────────────────────────
+// Not part of the AdsProvider interface (only Meta supports it). The insights
+// sync deliberately omits `breakdowns` to keep the money table small and fast;
+// this is a separate, light, account-level pass (no time_increment → a handful
+// of rows per call) so the /audience dashboard has real age/gender/platform/
+// device data instead of empty arrays.
+
+export interface NormalizedAudienceRow {
+  dimension: "age" | "gender" | "publisher_platform" | "device";
+  key: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  leads: number;
+  reach: number;
+}
+
+interface MetaBreakdownRow {
+  age?: string; gender?: string; publisher_platform?: string; impression_device?: string;
+  impressions?: string; clicks?: string; spend?: string; reach?: string;
+  actions?: Array<{ action_type: string; value: string }>;
+}
+
+function addInto(
+  map: Map<string, NormalizedAudienceRow>,
+  dimension: NormalizedAudienceRow["dimension"],
+  key: string | undefined,
+  row: MetaBreakdownRow,
+): void {
+  const k = (key ?? "unknown").toString();
+  const cur = map.get(k) ?? { dimension, key: k, impressions: 0, clicks: 0, spend: 0, leads: 0, reach: 0 };
+  cur.impressions += intNum(row.impressions);
+  cur.clicks += intNum(row.clicks);
+  cur.spend += num(row.spend) ?? 0;
+  cur.leads += leadsFromActions(row.actions);
+  cur.reach += intNum(row.reach);
+  map.set(k, cur);
+}
+
+/**
+ * Fetch account-level demographic breakdowns for the window. Two Graph calls
+ * (age+gender, publisher_platform+device). Best-effort: a failing breakdown
+ * returns nothing for that dimension rather than throwing the whole pass.
+ */
+export async function fetchMetaAudience(
+  connection: AdsConnection,
+  mapping: AdsAccountMapping,
+  since: Date,
+  until: Date,
+): Promise<NormalizedAudienceRow[]> {
+  if (!mapping.adAccountId) return [];
+  const timeRange = JSON.stringify({ since: since.toISOString().slice(0, 10), until: until.toISOString().slice(0, 10) });
+  const fields = "impressions,clicks,spend,reach,actions";
+  const ages = new Map<string, NormalizedAudienceRow>();
+  const genders = new Map<string, NormalizedAudienceRow>();
+  const platforms = new Map<string, NormalizedAudienceRow>();
+  const devices = new Map<string, NormalizedAudienceRow>();
+
+  try {
+    const r = await gGet<{ data?: MetaBreakdownRow[] }>(
+      `/${mapping.adAccountId}/insights`,
+      { level: "account", time_range: timeRange, breakdowns: "age,gender", fields, limit: "500" },
+      connection.accessToken,
+    );
+    for (const row of r.data ?? []) {
+      addInto(ages, "age", row.age, row);
+      addInto(genders, "gender", row.gender, row);
+    }
+  } catch (e) {
+    console.warn(`[meta-audience] age/gender failed for ${mapping.adAccountId}: ${String(e).slice(0, 160)}`);
+  }
+
+  try {
+    const r = await gGet<{ data?: MetaBreakdownRow[] }>(
+      `/${mapping.adAccountId}/insights`,
+      { level: "account", time_range: timeRange, breakdowns: "publisher_platform,impression_device", fields, limit: "500" },
+      connection.accessToken,
+    );
+    for (const row of r.data ?? []) {
+      addInto(platforms, "publisher_platform", row.publisher_platform, row);
+      addInto(devices, "device", row.impression_device, row);
+    }
+  } catch (e) {
+    console.warn(`[meta-audience] platform/device failed for ${mapping.adAccountId}: ${String(e).slice(0, 160)}`);
+  }
+
+  return [
+    ...ages.values(), ...genders.values(), ...platforms.values(), ...devices.values(),
+  ];
+}

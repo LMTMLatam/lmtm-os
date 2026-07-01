@@ -351,6 +351,7 @@ interface IssuesListProps {
   error?: Error | null;
   agents?: Agent[];
   projects?: ProjectOption[];
+  clients?: { id: string; name: string }[];
   liveIssueIds?: Set<string>;
   projectId?: string;
   viewStateKey: string;
@@ -563,6 +564,7 @@ export function IssuesList({
   error,
   agents,
   projects,
+  clients,
   liveIssueIds,
   projectId,
   viewStateKey,
@@ -1340,6 +1342,7 @@ export function IssuesList({
             agents={agents}
             creators={creatorOptions}
             projects={projects?.map((project) => ({ id: project.id, name: project.name }))}
+            clients={clients}
             labels={labels?.map((label) => ({ id: label.id, name: label.name, color: label.color }))}
             currentUserId={currentUserId}
             enableRoutineVisibilityFilter={enableRoutineVisibilityFilter}

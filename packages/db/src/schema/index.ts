@@ -62,6 +62,8 @@ export { heartbeatRunWatchdogDecisions } from "./heartbeat_run_watchdog_decision
 export { costEvents } from "./cost_events.js";
 export { financeEvents } from "./finance_events.js";
 export { financeEntries } from "./finance_entries.js";
+export { audienceDemographics } from "./audience_demographics.js";
+export { videoReferences } from "./video_references.js";
 export { approvals } from "./approvals.js";
 export { approvalComments } from "./approval_comments.js";
 export { activityLog } from "./activity_log.js";

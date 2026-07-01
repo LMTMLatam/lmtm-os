@@ -120,6 +120,7 @@ function buildReusedExecutionWorkspaceConfigPatchFromIssueSettings(
 
 export interface IssueFilters {
   status?: string;
+  clientId?: string;
   assigneeAgentId?: string;
   participantAgentId?: string;
   assigneeUserId?: string;
@@ -2299,6 +2300,7 @@ export function issueService(db: Db) {
         conditions.push(unreadForUserCondition(companyId, unreadForUserId));
       }
       if (filters?.projectId) conditions.push(eq(issues.projectId, filters.projectId));
+      if (filters?.clientId) conditions.push(eq(issues.clientId, filters.clientId));
       if (filters?.workspaceId) {
         conditions.push(or(
           eq(issues.executionWorkspaceId, filters.workspaceId),

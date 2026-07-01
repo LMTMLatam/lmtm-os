@@ -31,7 +31,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, type AdsAccountMapping } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -1841,6 +1841,55 @@ export function adsRoutes(db: Db): Router {
     try {
       const client = await resolveClient(idOrSlug, db);
       if (!client) return res.status(404).json({ error: "client not found" });
+
+      // Preferred source: the audience_demographics snapshot populated by the
+      // Meta breakdowns pass (age/gender/publisher_platform/device). Falls back
+      // to the legacy ads_insights.raw tally below only if the snapshot is empty.
+      const demo = await db
+        .select({
+          dimension: audienceDemographics.dimension,
+          key: audienceDemographics.dimKey,
+          impressions: audienceDemographics.impressions,
+          clicks: audienceDemographics.clicks,
+          spend: audienceDemographics.spend,
+          leads: audienceDemographics.leads,
+          reach: audienceDemographics.reach,
+        })
+        .from(audienceDemographics)
+        .where(eq(audienceDemographics.clientId, client.id));
+      if (demo.length > 0) {
+        const pick = (dim: string) =>
+          demo
+            .filter((d) => d.dimension === dim)
+            .map((d) => {
+              const impressions = Number(d.impressions ?? 0);
+              const clicks = Number(d.clicks ?? 0);
+              const spend = Number(d.spend ?? 0);
+              const leads = Number(d.leads ?? 0);
+              return {
+                key: d.key,
+                impressions,
+                clicks,
+                spend,
+                leads,
+                reach: Number(d.reach ?? 0),
+                ctr: impressions > 0 ? clicks / impressions : 0,
+                cpc: clicks > 0 ? spend / clicks : 0,
+                cpl: leads > 0 ? spend / leads : 0,
+              };
+            })
+            .sort((a, b) => b.impressions - a.impressions);
+        return res.json({
+          client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency },
+          since, until,
+          source: "demographics",
+          age: pick("age"),
+          gender: pick("gender"),
+          platform: pick("publisher_platform"),
+          device: pick("device"),
+        });
+      }
+
       // We don't have a dedicated demographics table; aggregate from
       // ads_insights.raw where Meta sometimes stores age/gender breakdowns.
       // This returns empty arrays when nothing matches — the UI handles it.

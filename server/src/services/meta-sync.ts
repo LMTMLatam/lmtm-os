@@ -3,32 +3,61 @@ import {
   metaConnections, metaAdAccountMappings,
   syncLogs, metaCampaigns, metaAdsets, metaAds, metaAdsInsights, metaPagePosts, metaPostInsights, metaAlerts,
 } from "@paperclipai/db";
-import { eq, and, gte, lte, inArray, desc, notInArray } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, desc, notInArray, sql } from "drizzle-orm";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const PAGE_LIMIT = 50;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-async function gGet(path: string, params: Record<string, string>): Promise<Record<string, unknown>> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Meta error codes that mean "you're rate-limited / transient, back off and retry".
+// 4 = app rate limit, 17 = user rate limit, 32 = page rate limit,
+// 80001-80004/613 = business-use-case / custom rate limits.
+const RETRYABLE_CODES = new Set([4, 17, 32, 613, 80001, 80002, 80003, 80004]);
+
+/** True if a thrown Graph error looks like a rate-limit (used to stop spending
+ * the remaining call budget on non-essential work like per-post insights). */
+function isRateLimit(e: unknown): boolean {
+  const s = String(e);
+  return /\b(4|17|32|613|80001|80002|80003|80004)\b/.test(s) && /limit|reduce the amount|too many calls|request limit/i.test(s)
+    || /rate limit|request limit reached|reduce the amount/i.test(s);
+}
+
+async function gGet(path: string, params: Record<string, string>, attempt = 0): Promise<Record<string, unknown>> {
   const url = new URL(`${GRAPH}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const r = await fetch(url.toString());
   const json = await r.json().catch(() => ({})) as Record<string, unknown>;
   if (!r.ok) {
-    const msg = (json as { error?: { message?: string } }).error?.message ?? JSON.stringify(json).slice(0, 200);
-    throw new Error(`Graph ${path} → ${r.status}: ${msg}`);
+    const err = (json as { error?: { message?: string; code?: number } }).error;
+    const code = err?.code;
+    const retryable = (code != null && RETRYABLE_CODES.has(code)) || r.status === 429 || r.status >= 500;
+    if (retryable && attempt < 4) {
+      // Sliding-window limits clear with time: 2s, 8s, 20s, 45s.
+      const waitMs = [2000, 8000, 20000, 45000][attempt] ?? 45000;
+      console.log(`[meta-sync] rate/transient on ${path} (code=${code ?? r.status}); backoff ${waitMs}ms (attempt ${attempt + 1}/4)`);
+      await sleep(waitMs);
+      return gGet(path, params, attempt + 1);
+    }
+    const msg = err?.message ?? JSON.stringify(json).slice(0, 200);
+    throw new Error(`Graph ${path} → ${r.status} (code ${code ?? "?"}): ${msg}`);
   }
   return json;
 }
 
-async function* paginate(path: string, params: Record<string, string>): AsyncGenerator<Record<string, unknown>[]> {
+// maxPages bounds history: organic dashboards/audits only need recent posts, so
+// the sweep stops after a couple of pages instead of walking years of history.
+async function* paginate(path: string, params: Record<string, string>, maxPages = Number.POSITIVE_INFINITY): AsyncGenerator<Record<string, unknown>[]> {
   let after: string | undefined;
+  let pages = 0;
   do {
     const p = { ...params, limit: String(PAGE_LIMIT), ...(after ? { after } : {}) };
     const res = await gGet(path, p);
     const data = (res.data ?? []) as Record<string, unknown>[];
     if (data.length) yield data;
+    if (++pages >= maxPages) break;
     const cursors = (res.paging as { cursors?: { after?: string }; next?: string } | undefined);
     after = cursors?.cursors?.after;
     if (!cursors?.next) break;
@@ -414,6 +443,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
       adAccountId: metaAdAccountMappings.adAccountId,
       pageId: metaAdAccountMappings.pageId,
       companyId: metaAdAccountMappings.companyId,
+      clientId: metaAdAccountMappings.clientId,
       connectionId: metaAdAccountMappings.connectionId,
     })
     .from(metaAdAccountMappings)
@@ -429,7 +459,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
     : [];
   const connById = new Map(connList.map((c) => [c.id, c]));
 
-  type PageJob = { conn: typeof metaConnections.$inferSelect; pageId: string; logCompanyId: string };
+  type PageJob = { conn: typeof metaConnections.$inferSelect; pageId: string; logCompanyId: string; clientId: string | null };
   const seen = new Set<string>();
   const jobs: PageJob[] = [];
 
@@ -454,7 +484,7 @@ export async function syncPagePosts(db: Db, companyId?: string) {
     const key = `${conn.id}::${pageId}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    jobs.push({ conn, pageId, logCompanyId: m.companyId });
+    jobs.push({ conn, pageId, logCompanyId: m.companyId, clientId: m.clientId ?? null });
   }
 
   if (jobs.length === 0) {
@@ -484,30 +514,52 @@ export async function syncPagePosts(db: Db, companyId?: string) {
     }
   }
 
-  for (const { conn, pageId, logCompanyId } of jobs) {
+  // Per-post insights are an N+1 firehose (one Graph call per post) and were the
+  // reason the sweep used to blow Meta's app rate-limit and die after ~6 pages,
+  // leaving most clients (SkyGarden among them) with zero organic posts. Storing
+  // the posts themselves is the priority — insights are best-effort. So we only
+  // request insights for RECENT posts, and the moment a rate-limit is hit we stop
+  // requesting them for the rest of the run so post storage on later pages keeps
+  // going. Bounded history (MAX_*_PAGES) keeps the whole sweep within budget.
+  const INSIGHTS_WINDOW_MS = 45 * 86400000;
+  const MAX_FB_POST_PAGES = 2; // ~100 most-recent FB posts per page
+  const MAX_IG_MEDIA_PAGES = 2; // ~100 most-recent IG media per account
+  const insightsCutoff = Date.now() - INSIGHTS_WINDOW_MS;
+  // Per-RUN insight budget instead of a permanent global bail. Before, a single
+  // rate-limit early in the sweep set insightsBlocked=true and zeroed engagement
+  // for EVERY later client (organic_post_insights stayed empty). Now we cap total
+  // insight calls and only stop after *sustained* rate-limiting (gGet already
+  // backs off per call), so most posts across most clients get their metrics.
+  const MAX_INSIGHT_CALLS = Number(process.env.LMTM_MAX_POST_INSIGHT_CALLS ?? 600);
+  let insightCalls = 0;
+  let consecutiveRateLimits = 0;
+  let insightsStopped = false;
+
+  for (const { conn, pageId, logCompanyId, clientId } of jobs) {
     const hasPageToken = pageTokenCache.has(pageId);
     const pageToken = pageTokenCache.get(pageId) ?? conn.accessToken;
     console.log(`[meta-sync] syncing page posts: pageId=${pageId} companyId=${logCompanyId} hasPageToken=${hasPageToken}`);
     const logId = await startLog(db, "page_posts", logCompanyId, conn.id);
     let count = 0;
+    // When the page isn't enumerated in /me/accounts we don't have a dedicated
+    // page token, but the connected user may still be able to read the page's
+    // posts with their USER token (e.g. they're a Business-Manager admin and the
+    // page just fell outside the first /me/accounts page). So instead of giving
+    // up immediately, we try the user token as a fallback and only report the
+    // actionable "reconnect/grant" failure if Graph actually denies access.
     if (!hasPageToken) {
-      // No Page access token for this page → the connected user has no role on
-      // this Facebook Page. Organic posts cannot be read until the page is
-      // granted to the connection (reconnect selecting this page, or add the
-      // user as admin/editor in Business Manager).
-      const msg = `Sin acceso a la página ${pageId}. Reconectá Meta y seleccioná esta página, o agregá al usuario como administrador/editor de la página en Business Manager.`;
-      await endLog(db, logId, "failed", 0, msg);
-      errors.push(msg);
-      continue;
+      console.log(`[meta-sync] page=${pageId}: no dedicated page token, trying user-token fallback`);
     }
+    const accessDeniedMsg = `Sin acceso a la página ${pageId}. Reconectá Meta y seleccioná esta página, o agregá al usuario como administrador/editor de la página en Business Manager.`;
     try {
       for await (const page of paginate(`/${pageId}/posts`, {
         access_token: pageToken,
         fields: "id,message,story,full_picture,permalink_url,created_time",
-      })) {
+      }, MAX_FB_POST_PAGES)) {
         const postValues = page.map((p) => ({
           id: p.id as string,
           companyId: logCompanyId,
+          clientId,
           connectionId: conn.id,
           pageId,
           message: p.message as string | undefined,
@@ -520,15 +572,26 @@ export async function syncPagePosts(db: Db, companyId?: string) {
         }));
         await db.insert(metaPagePosts).values(postValues).onConflictDoUpdate({
           target: metaPagePosts.id,
-          set: { message: metaPagePosts.message, syncedAt: new Date(), raw: metaPagePosts.raw },
+          set: {
+            message: metaPagePosts.message,
+            syncedAt: new Date(),
+            raw: metaPagePosts.raw,
+            // Self-heal posts that were stored before client_id was set.
+            clientId: sql`coalesce(${metaPagePosts.clientId}, excluded.client_id)`,
+          },
         });
-        // Fetch insights per post
+        // Best-effort insights for RECENT posts only; bail for the whole run on
+        // the first rate-limit so we never sacrifice post storage for insights.
         for (const post of postValues) {
+          if (insightsStopped || insightCalls >= MAX_INSIGHT_CALLS) break;
+          if (post.createdTime && post.createdTime.getTime() < insightsCutoff) continue;
           try {
             const insightRes = await gGet(`/${post.id}/insights`, {
               access_token: pageToken,
               metric: "post_impressions_unique,post_impressions,post_engaged_users,post_clicks,post_reactions_by_type_total",
             });
+            insightCalls += 1;
+            consecutiveRateLimits = 0; // a success resets the backoff counter
             const insightData = (insightRes.data ?? []) as Array<{ name: string; values?: Array<{ value: number }> }>;
             for (const metric of insightData) {
               const val = metric.values?.[0]?.value ?? 0;
@@ -541,7 +604,16 @@ export async function syncPagePosts(db: Db, companyId?: string) {
                 set: { value: valueStr, syncedAt: new Date() },
               }).catch(() => {});
             }
-          } catch { /* silent */ }
+          } catch (e) {
+            if (isRateLimit(e)) {
+              // Stop insights only after SUSTAINED rate-limiting, not the first hit.
+              consecutiveRateLimits += 1;
+              if (consecutiveRateLimits >= 8) {
+                insightsStopped = true;
+                console.log(`[meta-sync] post insights: sustained rate-limit (${consecutiveRateLimits}); stopping insights for rest of run`);
+              }
+            }
+          }
         }
         count += page.length;
       }
@@ -558,14 +630,14 @@ export async function syncPagePosts(db: Db, companyId?: string) {
         const igAccount = (igRes.instagram_business_account ?? null) as { id?: string } | null;
         const igId = igAccount?.id;
         if (igId) {
-          let igPages = 0;
           for await (const media of paginate(`/${igId}/media`, {
             access_token: pageToken,
             fields: "id,caption,permalink,timestamp,media_type,media_product_type,thumbnail_url,media_url",
-          })) {
+          }, MAX_IG_MEDIA_PAGES)) {
             const igValues = media.map((m) => ({
               id: `ig_${m.id as string}`,
               companyId: logCompanyId,
+              clientId,
               connectionId: conn.id,
               platform: "instagram",
               pageId,
@@ -580,13 +652,15 @@ export async function syncPagePosts(db: Db, companyId?: string) {
             if (igValues.length > 0) {
               await db.insert(metaPagePosts).values(igValues).onConflictDoUpdate({
                 target: metaPagePosts.id,
-                set: { message: metaPagePosts.message, syncedAt: new Date(), raw: metaPagePosts.raw },
+                set: {
+                  message: metaPagePosts.message,
+                  syncedAt: new Date(),
+                  raw: metaPagePosts.raw,
+                  clientId: sql`coalesce(${metaPagePosts.clientId}, excluded.client_id)`,
+                },
               });
               count += igValues.length;
             }
-            // Cap at the most recent pages — the audit only needs the last
-            // few weeks, and IG accounts can have thousands of historical media.
-            if (++igPages >= 3) break;
           }
         }
       } catch (e) {
@@ -595,11 +669,19 @@ export async function syncPagePosts(db: Db, companyId?: string) {
 
       await endLog(db, logId, "completed", count);
     } catch (e) {
-      const msg = String(e);
+      // A permission denial (no page token AND user token can't read the page)
+      // gets the actionable reconnect message; anything else surfaces raw.
+      const raw = String(e);
+      const isAccessDenied = !hasPageToken
+        && /\(#(200|190|10|803)\)|permission|access|cannot|no se encontró|insufficient/i.test(raw);
+      const msg = isAccessDenied ? accessDeniedMsg : raw;
       await endLog(db, logId, "failed", count, msg);
       errors.push(msg);
     }
     total += count;
+    // Gentle pacing between pages so a 25-page sweep doesn't spike Meta's
+    // sliding-window app limit (gGet's backoff handles spikes; this avoids them).
+    await sleep(800);
   }
   return { synced: total, errors };
 }

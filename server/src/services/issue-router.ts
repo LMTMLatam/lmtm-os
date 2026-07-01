@@ -19,6 +19,10 @@ import { resolveTriageOwnerId } from "./client-tasks.js";
 // specific / highest-value areas first.
 const AREAS: Array<{ area: string; text: RegExp; agent: RegExp }> = [
   { area: "paid", text: /\b(spend[_ ]?cap|pauta|inversi[oó]n|presupuesto|campa[nñ]a|ad ?account|meta ads?|cpa|cpl|cpm|roas|ctr|anuncio|ampliaci[oó]n)\b/i, agent: /paid media/i },
+  // Engineering/infra goes BEFORE content: titles like "[INFRA] Fix sync
+  // orgánico Meta → LMTM-OS" contain "orgánico" and used to mis-route to the
+  // Content agent. Backend/sync/deploy/script work belongs to the CRM Engineer.
+  { area: "engineering", text: /(\[(infra|eng|ing|backend|dev)\])|\b(backend|deploy|servidor|base de datos|database|migraci[oó]n|endpoint|\bapi\b|job de sync|sincronizaci[oó]n|\bsync\b|apps? ?script|\bscript\b|gateway|500|502|logs?|error t[eé]cnico|crashe?)\b/i, agent: /engineer/i },
   { area: "content", text: /\b(contenido|posteo|postear|org[aá]nic[oa]s?|reel|carrusel|creativ[oa]|caption|guion|calendario de contenido)\b/i, agent: /content/i },
   { area: "seo", text: /\b(seo|posicionamiento|keywords?|serp|metatags?|sitemap)\b/i, agent: /\bseo\b/i },
   { area: "n8n", text: /\b(n8n|automatizaci[oó]n|webhook|workflow|escenario de make|integraci[oó]n)\b/i, agent: /n8n/i },

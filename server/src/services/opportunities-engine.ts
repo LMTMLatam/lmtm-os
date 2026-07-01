@@ -194,8 +194,13 @@ export async function materializeOpportunityAsIssue(
     ].join("\n\n");
 
     const assigneeAgentId = await resolveTriageOwnerId(db, input.companyId);
+    // Prefix the issue title with the client name. The opportunity dedup key
+    // (clientId, kind, title) stays on the raw title, but generic titles like
+    // `Priorizar formato "ad"` are identical across clients and render as a wall
+    // of "duplicates" on the board — the client name makes each one legible.
+    const issueTitle = `[${input.clientName}] ${input.title}`.slice(0, 200);
     const created = await issueService(db).create(input.companyId, {
-      title: input.title.slice(0, 200),
+      title: issueTitle,
       description,
       status: (isExternal ? "backlog" : "todo") as never,
       priority: priority as never,

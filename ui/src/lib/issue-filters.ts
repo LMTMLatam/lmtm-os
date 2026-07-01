@@ -17,6 +17,7 @@ export type IssueFilterState = {
   creators: string[];
   labels: string[];
   projects: string[];
+  clients: string[];
   workspaces: string[];
   liveOnly?: boolean;
   hideRoutineExecutions: boolean;
@@ -29,6 +30,7 @@ export const defaultIssueFilterState: IssueFilterState = {
   creators: [],
   labels: [],
   projects: [],
+  clients: [],
   workspaces: [],
   liveOnly: false,
   hideRoutineExecutions: false,
@@ -70,6 +72,7 @@ export function normalizeIssueFilterState(value: unknown): IssueFilterState {
     creators: normalizeIssueFilterValueArray(candidate.creators),
     labels: normalizeIssueFilterValueArray(candidate.labels),
     projects: normalizeIssueFilterValueArray(candidate.projects),
+    clients: normalizeIssueFilterValueArray(candidate.clients),
     workspaces: normalizeIssueFilterValueArray(candidate.workspaces),
     liveOnly: candidate.liveOnly === true,
     hideRoutineExecutions: candidate.hideRoutineExecutions === true,
@@ -160,6 +163,9 @@ export function applyIssueFilters(
   if (state.projects.length > 0) {
     result = result.filter((issue) => issue.projectId != null && state.projects.includes(issue.projectId));
   }
+  if (state.clients.length > 0) {
+    result = result.filter((issue) => issue.clientId != null && state.clients.includes(issue.clientId));
+  }
   if (state.workspaces.length > 0) {
     result = result.filter((issue) => {
       const workspaceId = resolveIssueFilterWorkspaceId(issue, workspaceContext);
@@ -180,6 +186,7 @@ export function countActiveIssueFilters(
   if (state.creators.length > 0) count += 1;
   if (state.labels.length > 0) count += 1;
   if (state.projects.length > 0) count += 1;
+  if (state.clients.length > 0) count += 1;
   if (state.workspaces.length > 0) count += 1;
   if (state.liveOnly) count += 1;
   if (enableRoutineVisibilityFilter && state.hideRoutineExecutions) count += 1;

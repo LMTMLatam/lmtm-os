@@ -29,6 +29,11 @@ type ProjectOption = {
   name: string;
 };
 
+type ClientOption = {
+  id: string;
+  name: string;
+};
+
 type LabelOption = {
   id: string;
   name: string;
@@ -53,6 +58,7 @@ export function IssueFiltersPopover({
   activeFilterCount,
   agents,
   projects,
+  clients,
   labels,
   currentUserId,
   enableRoutineVisibilityFilter = false,
@@ -66,6 +72,7 @@ export function IssueFiltersPopover({
   activeFilterCount: number;
   agents?: AgentOption[];
   projects?: ProjectOption[];
+  clients?: ClientOption[];
   labels?: LabelOption[];
   currentUserId?: string | null;
   enableRoutineVisibilityFilter?: boolean;
@@ -300,6 +307,23 @@ export function IssueFiltersPopover({
                           onCheckedChange={() => onChange({ projects: toggleIssueFilterValue(state.projects, project.id) })}
                         />
                         <span className="text-sm">{project.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {clients && clients.length > 0 ? (
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">Cliente</span>
+                  <div className="max-h-32 space-y-0.5 overflow-y-auto">
+                    {clients.map((client) => (
+                      <label key={client.id} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                        <Checkbox
+                          checked={state.clients.includes(client.id)}
+                          onCheckedChange={() => onChange({ clients: toggleIssueFilterValue(state.clients, client.id) })}
+                        />
+                        <span className="text-sm">{client.name}</span>
                       </label>
                     ))}
                   </div>

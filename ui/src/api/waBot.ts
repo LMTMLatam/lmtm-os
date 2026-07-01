@@ -7,6 +7,7 @@ export interface WaBotStatus {
   connectedPhone: string | null;
   qr: string | null; // PNG data URL while connecting
   openwaAvailable: boolean;
+  wasEverConnected: boolean;
 }
 
 export interface WaPublicHealth {
@@ -63,7 +64,9 @@ export const waBotApi = {
   status: () => api.get<WaBotStatus>("/wa-bot/status"),
   health: () => api.get<WaPublicHealth>("/wa-bot/public-health"),
   start: () => api.post<{ ok?: boolean; error?: string }>("/wa-bot/start", null),
-  stop: () => api.post<{ ok: boolean }>("/wa-bot/stop", null),
+  /** logout=true actually unlinks the device on WhatsApp's side (real "Desvincular").
+   *  Omit/false just closes the socket and keeps the pairing (used to cancel mid-QR). */
+  stop: (logout?: boolean) => api.post<{ ok: boolean }>("/wa-bot/stop", logout ? { logout: true } : null),
   groups: () => api.get<WaGroup[]>("/wa-bot/groups"),
   groupConfigs: () => api.get<WaGroupConfig[]>("/wa-bot/groups/configs"),
   groupSummaries: (jid: string) => api.get<WaSummary[]>(`/wa-bot/groups/${encodeURIComponent(jid)}/summaries`),

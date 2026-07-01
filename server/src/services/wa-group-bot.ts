@@ -316,8 +316,20 @@ const CU_API = "https://api.clickup.com/api/v2";
 
 /** Match a WhatsApp group name to an LMTM client by name overlap. */
 async function matchGroupToClient(database: NonNullable<typeof db>, groupName: string): Promise<string | null> {
-  const g = groupName.toLowerCase();
-  const rows = await database.select({ id: clients.id, name: clients.name }).from(clients);
+  const g = groupName.trim().toLowerCase();
+  const rows = await database.select({ id: clients.id, name: clients.name, metadata: clients.metadata }).from(clients);
+  // 1) Explicit WhatsApp-group aliases (authoritative — from the team's sheet,
+  //    stored in client.metadata.waGroupAliases). Handles cases the fuzzy match
+  //    misses (e.g. "Sky by lmtm" → SKYGARDEN, "SRP Alquileres" → S. Ramasco).
+  for (const c of rows) {
+    const aliases = (c.metadata as { waGroupAliases?: unknown } | null)?.waGroupAliases;
+    if (!Array.isArray(aliases)) continue;
+    for (const a of aliases) {
+      const al = String(a).trim().toLowerCase();
+      if (al && (g === al || g.includes(al) || al.includes(g))) return c.id;
+    }
+  }
+  // 2) Fuzzy fallback on client name.
   const hit = rows.find((c) => {
     const n = c.name.trim().toLowerCase();
     return n.length > 2 && (g.includes(n) || n.includes(g));
@@ -740,6 +752,17 @@ export async function initWaBot(database: Db) {
   inactivityMs = (config?.summaryHour ?? 30) * 60 * 1000;
   inactivityMs = 30 * 60 * 1000;
 
+  // `wasEverConnected` is in-memory and resets on every deploy/restart. Without
+  // this, a session that WAS paired (has a persisted connectedPhone from a
+  // prior run) looks brand-new right after a deploy: the keepalive cron's
+  // `if (... && wasEverConnected)` guard would skip silent reconnect attempts,
+  // and the panel would say "Conectar" instead of "Reconectar". Seed it from
+  // the DB so a real prior pairing survives restarts.
+  if (config?.connectedPhone) {
+    wasEverConnected = true;
+    cachedPhone = config.connectedPhone;
+  }
+
   if (!baseUrl()) {
     console.warn("[wa-bot] OPENWA_URL not set — WA bot disabled");
   } else {
@@ -865,9 +888,18 @@ export async function startWaBot(withQr = true) {
   }
 }
 
-export async function stopWaBot() {
+/**
+ * Stop the bot. Non-destructive by default (`logout: false`): just closes the
+ * socket, keeps the paired creds, so an automatic teardown (e.g. the boot
+ * timeout below) doesn't wipe the link. Pass `{ logout: true }` for an
+ * explicit "Desvincular" from the panel — that actually unlinks the device
+ * on WhatsApp's side and wipes creds, so the next connect always shows a
+ * genuine fresh QR instead of silently restoring the old session.
+ */
+export async function stopWaBot(opts: { logout?: boolean } = {}) {
+  const logout = opts.logout === true;
   if (baseUrl()) {
-    try { await owDelete(`/api/sessions/${sessionRef}`); } catch { /* noop */ }
+    try { await owDelete(`/api/sessions/${sessionRef}${logout ? "?logout=true" : ""}`); } catch { /* noop */ }
   }
   for (const timer of groupTimers.values()) clearTimeout(timer);
   groupTimers.clear();
@@ -875,12 +907,21 @@ export async function stopWaBot() {
   if (qrPollTimer) { clearTimeout(qrPollTimer); qrPollTimer = null; }
   cachedStatus = "disconnected";
   cachedQr = null;
-  if (db) await db.update(waBotConfig).set({ status: "disconnected", updatedAt: new Date() }).catch(() => {});
+  if (logout) {
+    cachedPhone = null;
+    // No creds left to silently restore — don't let keepalive keep retrying.
+    wasEverConnected = false;
+  }
+  if (db) {
+    await db.update(waBotConfig)
+      .set({ status: "disconnected", ...(logout ? { connectedPhone: null } : {}), updatedAt: new Date() })
+      .catch(() => {});
+  }
   return { ok: true };
 }
 
 export function getWaBotStatus() {
-  return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, openwaAvailable: !!baseUrl() };
+  return { status: cachedStatus, connectedPhone: cachedPhone, qr: cachedQr, openwaAvailable: !!baseUrl(), wasEverConnected };
 }
 
 async function syncSessionStatus() {

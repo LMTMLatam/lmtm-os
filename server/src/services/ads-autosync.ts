@@ -9,6 +9,7 @@
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings } from "@paperclipai/db";
 import { adsAggregator } from "./ads/aggregator.js";
+import { syncPagePosts } from "./meta-sync.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -39,6 +40,14 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
     try {
       records += await adsAggregator.syncCampaigns(db, { ...base, jobName: "campaigns" });
       records += await adsAggregator.syncInsights(db, { ...base, jobName: "insights" });
+      // Demographics snapshot (age/gender/platform/device) — Meta-only, two
+      // light account-level Graph calls. Best-effort: it never throws, so a
+      // breakdown permission gap can't fail the mapping's core sync.
+      try {
+        records += await adsAggregator.syncAudience(db, { ...base, jobName: "audience" });
+      } catch (e) {
+        console.warn(`[ads-autosync] audience ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
       ok++;
     } catch (e) {
       failed++;
@@ -48,6 +57,19 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
     }
     // Be gentle with Meta's rate limits between accounts.
     await new Promise((r) => setTimeout(r, 1500));
+  }
+
+  // Organic posts (FB + IG) have no other automatic trigger — the dashboard's
+  // on-mount sync was removed, and ads-autosync historically only pulled ad data.
+  // Run the (now rate-limit-resilient) organic sweep once per day too, so every
+  // client's "posteos" stay fresh instead of frozen at their last manual sync.
+  try {
+    const posts = await syncPagePosts(db);
+    records += posts.synced;
+    console.log(`[ads-autosync] organic posts: ${posts.synced} synced, ${posts.errors?.length ?? 0} page error(s)`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[ads-autosync] organic posts sweep failed: ${msg}`);
   }
 
   console.log(`[ads-autosync] done: ${ok} ok, ${failed} failed, ${records} records across ${mappings.length} mappings`);

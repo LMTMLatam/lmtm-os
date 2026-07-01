@@ -813,6 +813,20 @@
       "when": 1781800000007,
       "tag": "0115_finance_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1781800000008,
+      "tag": "0116_audience_demographics",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1781800000009,
+      "tag": "0117_video_references",
+      "breakpoints": true
     }
   ]
 }

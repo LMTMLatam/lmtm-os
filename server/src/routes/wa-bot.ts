@@ -132,8 +132,9 @@ export function waBotRoutes(db: Db) {
     res.json(result);
   });
 
-  router.post("/stop", async (_req, res) => {
-    const result = await stopWaBot();
+  router.post("/stop", async (req, res) => {
+    const logout = (req.body as { logout?: boolean } | null)?.logout === true;
+    const result = await stopWaBot({ logout });
     res.json(result);
   });
 

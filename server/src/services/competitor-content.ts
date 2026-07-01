@@ -7,13 +7,39 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { competitors, contentIdeas, clients } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
+import { competitors, contentIdeas, clients, videoReferences } from "@paperclipai/db";
+import { and, eq, gte } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
-import { getBrainContext } from "./customer-brain.js";
+import { getBrainContext, upsertMemory } from "./customer-brain.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
 
-export interface GeneratedIdea { kind: "pauta" | "posteo"; format?: string; title: string; copy?: string; rationale?: string }
+/** Formatted block of the client's curated video references (from the team's
+ * reference sheet) so idea generation can riff on formats the team likes. */
+async function videoRefsBlock(db: Db, clientId: string): Promise<string> {
+  const refs = await db
+    .select({ url: videoReferences.url, categorias: videoReferences.categorias, comentario: videoReferences.comentario })
+    .from(videoReferences)
+    .where(eq(videoReferences.clientId, clientId))
+    .limit(25)
+    .catch(() => []);
+  if (refs.length === 0) return "";
+  const lines = refs.map((r) => {
+    const cats = (r.categorias ?? []).join(", ");
+    return `- ${r.url}${cats ? ` [${cats}]` : ""}${r.comentario ? ` — ${r.comentario}` : ""}`;
+  });
+  return `\nReferencias de video que le gustan al equipo (usalas como inspiración de formato/edición, no copies literal):\n${lines.join("\n")}`;
+}
+
+export type ContentObjetivo = "COMERCIAL" | "ENGAGMENT" | "CONCEPTO";
+export interface GeneratedIdea { kind: "pauta" | "posteo"; format?: string; title: string; copy?: string; rationale?: string; objetivo?: ContentObjetivo }
+
+function normalizeObjetivo(v: unknown): ContentObjetivo | undefined {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (s.startsWith("COMER")) return "COMERCIAL";
+  if (s.startsWith("ENGAG")) return "ENGAGMENT";
+  if (s.startsWith("CONCEP")) return "CONCEPTO";
+  return undefined;
+}
 
 function parseIdeas(raw: string): GeneratedIdea[] {
   // The model is asked for a JSON array; be lenient about surrounding prose.
@@ -33,6 +59,7 @@ function parseIdeas(raw: string): GeneratedIdea[] {
         title,
         copy: typeof it.copy === "string" ? it.copy : undefined,
         rationale: typeof it.rationale === "string" ? it.rationale : undefined,
+        objetivo: normalizeObjetivo(it.objetivo),
       });
     }
     return out;
@@ -72,6 +99,7 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}`,
     brain ? `\nContexto del cliente (Enfoque Técnico + memoria):\n${brain}` : "",
     `\nCompetencia:\n${compBlock}`,
+    await videoRefsBlock(db, clientId),
   ].join("\n");
 
   let ideas: GeneratedIdea[] = [];
@@ -104,49 +132,102 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
 
 const CU_API = "https://api.clickup.com/api/v2";
 
-/** Create the generated ideas as tasks in the client's "Super Redes" ClickUp
- * list. Deduped by task name so re-running doesn't pile up duplicates. */
-async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedIdea[]): Promise<void> {
-  const token = process.env.CLICKUP_API_TOKEN?.trim();
-  if (!token || ideas.length === 0) return;
+type CuField = {
+  id: string; name: string; type: string;
+  type_config?: { options?: Array<{ id: string; name?: string; label?: string }> };
+};
+
+/** Accent/space/case-insensitive key so we can match ClickUp field & option
+ * names that carry trailing spaces or accents (e.g. "Aprobación de cliente "). */
+function norm(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+}
+
+/** Resolver over a list's custom fields: field id by name, option id by label. */
+function buildFieldResolver(fields: CuField[]) {
+  const byName = new Map<string, CuField>();
+  for (const f of fields) byName.set(norm(f.name), f);
+  return {
+    fieldId(name: string): string | undefined { return byName.get(norm(name))?.id; },
+    optionId(fieldName: string, optionLabel: string): string | undefined {
+      const f = byName.get(norm(fieldName));
+      const opt = (f?.type_config?.options ?? []).find((o) => norm(o.name ?? o.label ?? "") === norm(optionLabel));
+      return opt?.id;
+    },
+  };
+}
+
+/** Resolve the client's "Super Redes Sociales" list + a custom-field resolver +
+ * the set of existing task names (for dedup). Null if no folder/list. */
+async function resolveSuperRedes(db: Db, clientId: string, H: Record<string, string>): Promise<
+  { listId: string; resolver: ReturnType<typeof buildFieldResolver>; have: Set<string> } | null
+> {
   const [client] = await db
     .select({ folderId: clients.clickupFolderId })
     .from(clients)
     .where(eq(clients.id, clientId));
   const folderId = client?.folderId;
-  if (!folderId) return;
-  const H = { Authorization: token, "Content-Type": "application/json" };
-
-  // Find the "Super Redes" list in the client's folder.
+  if (!folderId) return null;
   const lists = (await (await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, { headers: H })).json()) as {
     lists?: Array<{ id: string; name: string }>;
   };
   const list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
-  if (!list) return;
-
-  // Existing task names (dedup).
+  if (!list) return null;
+  const fieldsRes = (await (await fetch(`${CU_API}/list/${list.id}/field`, { headers: H })).json()) as { fields?: CuField[] };
+  const resolver = buildFieldResolver(fieldsRes.fields ?? []);
   const existing = (await (await fetch(`${CU_API}/list/${list.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
     tasks?: Array<{ name: string }>;
   };
-  const have = new Set((existing.tasks ?? []).map((t) => t.name.trim().toLowerCase()));
+  const have = new Set((existing.tasks ?? []).map((t) => norm(t.name)));
+  return { listId: list.id, resolver, have };
+}
+
+/** Build the custom_fields payload per the LMTM "Super Redes Sociales"
+ * convention: Copy o/y Subtitulo (desarrollo), Objetivo de contenido,
+ * Estado de producción = IDEA, Aprobación de cliente = PENDIENTE. Fields are
+ * resolved by NAME so it works even if option/field ids differ per client. */
+function buildIdeaCustomFields(
+  resolver: ReturnType<typeof buildFieldResolver>,
+  idea: GeneratedIdea,
+): Array<{ id: string; value: unknown }> {
+  const out: Array<{ id: string; value: unknown }> = [];
+  const push = (id: string | undefined, value: unknown) => { if (id != null && value != null) out.push({ id, value }); };
+
+  const copyText = [idea.copy, idea.rationale ? `Por qué encaja: ${idea.rationale}` : ""].filter(Boolean).join("\n");
+  if (copyText) push(resolver.fieldId("Copy o/y Subtitulo"), copyText);
+
+  const objId = resolver.fieldId("Objetivo de contenido");
+  push(objId, resolver.optionId("Objetivo de contenido", idea.objetivo ?? "ENGAGMENT"));
+
+  const estId = resolver.fieldId("Estado de producción");
+  push(estId, resolver.optionId("Estado de producción", "IDEA"));
+
+  const aprId = resolver.fieldId("Aprobación de cliente");
+  push(aprId, resolver.optionId("Aprobación de cliente", "PENDIENTE"));
+
+  return out;
+}
+
+/** Create the generated ideas as tasks in the client's "Super Redes Sociales"
+ * list, with the LMTM custom fields set. Deduped by task name. */
+async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedIdea[]): Promise<void> {
+  const token = process.env.CLICKUP_API_TOKEN?.trim();
+  if (!token || ideas.length === 0) return;
+  const H = { Authorization: token, "Content-Type": "application/json" };
+  const ctx = await resolveSuperRedes(db, clientId, H);
+  if (!ctx) return;
 
   for (const idea of ideas) {
-    const name = idea.title.trim();
-    if (have.has(name.toLowerCase())) continue;
-    const desc = [
-      idea.kind === "pauta" ? "🎯 Pauta" : "📲 Posteo",
-      idea.format ? `Formato: ${idea.format}` : "",
-      idea.copy ? `\n${idea.copy}` : "",
-      idea.rationale ? `\n\n💡 ${idea.rationale}` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const name = idea.title.trim().slice(0, 250);
+    if (!name || ctx.have.has(norm(name))) continue; // never duplicate an existing idea
+    const customFields = buildIdeaCustomFields(ctx.resolver, idea);
+    const body: Record<string, unknown> = { name, tags: ["idea-lmtm-os"] };
+    if (customFields.length) body.custom_fields = customFields;
     try {
-      await fetch(`${CU_API}/list/${list.id}/task`, {
-        method: "POST",
-        headers: H,
-        body: JSON.stringify({ name, description: desc, tags: ["idea-lmtm-os", idea.kind] }),
+      const res = await fetch(`${CU_API}/list/${ctx.listId}/task`, {
+        method: "POST", headers: H, body: JSON.stringify(body),
       });
+      if (res.ok) ctx.have.add(norm(name));
     } catch {
       /* best-effort per idea */
     }
@@ -186,40 +267,201 @@ export async function sweepContentIdeas(
   return { clients: rows.length, generated };
 }
 
-let contentTimer: ReturnType<typeof setInterval> | null = null;
-let lastContentWeek = "";
+/**
+ * Generate ONE new post idea for a client and drop it into its "Super Redes
+ * Sociales" ClickUp list with the LMTM custom fields (Objetivo, Estado=IDEA,
+ * Aprobación=PENDIENTE, Copy). Follows the same instructions the Content agents
+ * use (skill `lmtm-post-ideas`) PLUS the context the engine already had (brain
+ * / Enfoque Técnico + competidores). Idempotent: at most one idea per client
+ * per calendar day, so restarts don't double-post.
+ */
+export async function generateDailyIdeaForClient(db: Db, clientId: string): Promise<{ created: boolean }> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client) return { created: false };
+  const companyId = await resolveCompanyId(db, clientId);
+  if (!companyId) return { created: false };
 
-function isoWeekKey(d: Date): string {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  // One idea per client per day (idempotent across restarts/redeploys).
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const [today] = await db
+    .select({ id: contentIdeas.id })
+    .from(contentIdeas)
+    .where(and(eq(contentIdeas.clientId, clientId), gte(contentIdeas.createdAt, startOfDay)))
+    .limit(1);
+  if (today) return { created: false };
+
+  const comps = await db.select().from(competitors).where(eq(competitors.clientId, clientId));
+  const brain = await getBrainContext(db, clientId, 2500).catch(() => "");
+  const compBlock = comps.length
+    ? comps.map((c) => `- ${c.name}${c.notes ? ` — ${c.notes}` : ""}`).join("\n")
+    : "(sin competidores cargados)";
+
+  const system = [
+    "Sos estratega de contenido de LMTM, agencia de marketing latinoamericana.",
+    "Generá UNA sola idea NUEVA de posteo orgánico para el cliente: accionable, original y alineada a su marca.",
+    "Puede ser un concepto de post concreto, una acción/campaña creativa, o una estrategia a implementar.",
+    "Tené en cuenta el Enfoque Técnico del cliente, su memoria, su rubro/tono y qué hace la competencia (diferenciate, no copies).",
+    "Clasificá el objetivo en COMERCIAL (vender/convertir), ENGAGMENT (interacción/comunidad) o CONCEPTO (marca/valores/educativo).",
+    "Español rioplatense, concreto. Nunca inventes datos de performance.",
+    'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"reel|carrusel|post|story|clip corto|video","title":"la idea en una línea","copy":"desarrollo en 2-3 líneas: qué es, por qué encaja con la marca y cómo ejecutarla","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',
+  ].join("\n");
+  const vids = await videoRefsBlock(db, clientId);
+  const user = [
+    `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}`,
+    brain ? `\nContexto del cliente (Enfoque Técnico + memoria):\n${brain}` : "",
+    `\nCompetencia:\n${compBlock}`,
+    vids,
+  ].join("\n");
+
+  let idea: GeneratedIdea | null = null;
+  const aiRaw = await aiNarrative(system, user).catch(() => null);
+  if (aiRaw) idea = parseIdeas(aiRaw)[0] ?? null;
+  if (!idea) {
+    idea = {
+      kind: "posteo", format: "reel",
+      title: `Detrás de escena / proceso — ${client.name}`,
+      copy: "Reel mostrando el día a día o el proceso del cliente, con un hook fuerte en los primeros 3s. Completar con el ángulo real del cliente.",
+      objetivo: "ENGAGMENT",
+      rationale: "Orgánico de cercanía; suele tener buen alcance en el rubro.",
+    };
+  }
+  if (!idea.objetivo) idea.objetivo = "ENGAGMENT";
+
+  const batchId = randomUUID();
+  await db.insert(contentIdeas).values({
+    companyId, clientId, kind: "posteo", format: idea.format ?? null, title: idea.title,
+    copy: idea.copy ?? null, rationale: idea.rationale ?? null, source: aiRaw ? "ai-daily" : "fallback-daily", batchId,
+  });
+  await pushIdeasToSuperRedes(db, clientId, [idea]).catch(() => {});
+  return { created: true };
 }
+
+/** One idea per active client per day, paced to stay gentle on the model + API. */
+export async function sweepDailyIdeas(db: Db): Promise<{ clients: number; created: number }> {
+  const rows = await activeClients(db);
+  let created = 0;
+  for (const c of rows) {
+    try {
+      const r = await generateDailyIdeaForClient(db, c.id);
+      if (r.created) created += 1;
+    } catch {
+      /* best-effort per client */
+    }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  return { clients: rows.length, created };
+}
+
+const CONTENT_REVIEW_KEY = "content-review-posts";
+
+/** Read task names from the client's "Redes Sociales" + "Super Redes Sociales"
+ * ClickUp lists (for the one-time content review). Best-effort. */
+async function readClientPostNames(db: Db, clientId: string): Promise<string[]> {
+  const token = process.env.CLICKUP_API_TOKEN?.trim();
+  if (!token) return [];
+  const [client] = await db.select({ folderId: clients.clickupFolderId }).from(clients).where(eq(clients.id, clientId));
+  const folderId = client?.folderId;
+  if (!folderId) return [];
+  const H = { Authorization: token, "Content-Type": "application/json" };
+  const lists = (await (await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, { headers: H })).json()) as {
+    lists?: Array<{ id: string; name: string }>;
+  };
+  const targets = (lists.lists ?? []).filter((l) => /redes\s*sociales/i.test(l.name)); // matches "Redes Sociales" + "Super Redes Sociales"
+  const names: string[] = [];
+  for (const l of targets) {
+    try {
+      const r = (await (await fetch(`${CU_API}/list/${l.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
+        tasks?: Array<{ name: string }>;
+      };
+      for (const t of r.tasks ?? []) if (t.name) names.push(t.name.trim());
+    } catch { /* best-effort per list */ }
+  }
+  return names.slice(0, 120);
+}
+
+/**
+ * ONE-TIME per client: review the posts already in its ClickUp lists, distill
+ * what the client publishes (tipos, objetivos, tono, formatos, rubro) and save
+ * that to the client's brain (memory) so every future idea is grounded in it.
+ * Idempotent — skips a client that already has the review memory.
+ */
+export async function reviewClientContentOnce(db: Db, clientId: string): Promise<{ reviewed: boolean }> {
+  const companyId = await resolveCompanyId(db, clientId);
+  if (!companyId) return { reviewed: false };
+  // Idempotent: skip if we already reviewed this client.
+  const existingBrain = await getBrainContext(db, clientId, 6000).catch(() => "");
+  if (existingBrain.includes(CONTENT_REVIEW_KEY) || existingBrain.includes("Review de contenido")) return { reviewed: false };
+
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client) return { reviewed: false };
+  const names = await readClientPostNames(db, clientId);
+  if (names.length === 0) return { reviewed: false };
+
+  const system = [
+    "Sos analista de contenido de LMTM. Te paso los títulos de los posteos que un cliente ya tiene cargados en ClickUp.",
+    "Distilá un resumen accionable de: qué TIPO de contenido publica, qué OBJETIVOS predominan (COMERCIAL/ENGAGMENT/CONCEPTO), qué TONO usa, qué FORMATOS predominan (reel/carrusel/post/story/clip corto), y de qué RUBRO es.",
+    "Devolvé 4-8 bullets concretos, en español rioplatense. Nada de relleno. Este texto se guarda como memoria del cliente y guía la generación de ideas futuras.",
+  ].join("\n");
+  const user = `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}\n\nPosteos cargados (${names.length}):\n${names.map((n) => `- ${n}`).join("\n")}`;
+
+  const summary = await aiNarrative(system, user).catch(() => null);
+  if (!summary) return { reviewed: false };
+
+  await upsertMemory(db, {
+    companyId, clientId, kind: "context", key: CONTENT_REVIEW_KEY,
+    content: `Review de contenido (de sus posteos en ClickUp):\n${summary.trim()}`,
+    source: "content-review", pinned: true,
+  });
+  return { reviewed: true };
+}
+
+/** One-time review sweep across all active clients (skips already-reviewed). */
+export async function sweepContentReviewOnce(db: Db): Promise<{ clients: number; reviewed: number }> {
+  const rows = await activeClients(db);
+  let reviewed = 0;
+  for (const c of rows) {
+    try {
+      const r = await reviewClientContentOnce(db, c.id);
+      if (r.reviewed) reviewed += 1;
+    } catch { /* best-effort per client */ }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  return { clients: rows.length, reviewed };
+}
+
+let contentTimer: ReturnType<typeof setInterval> | null = null;
+let lastContentDay = "";
 
 export function initContentIdeas(db: Db): void {
   if (contentTimer) return;
-  // Boot backfill: every active client should have ideas. Only fills the gaps
-  // so we don't re-spend on clients that already have a plan.
+  // Boot: (1) ONE-TIME content review to seed each client's brain from its
+  // existing posts, then (2) create today's idea for any client missing one.
+  // The review is idempotent, so this only does real work the first time.
   setTimeout(() => {
-    void sweepContentIdeas(db, { onlyMissing: true })
-      .then((r) => console.log(`[content-ideas] boot sweep: ${r.generated} generated / ${r.clients} clients`))
-      .catch((e) => console.warn("[content-ideas] boot sweep failed:", e));
+    void (async () => {
+      const rev = await sweepContentReviewOnce(db).catch((e) => {
+        console.warn("[content-ideas] boot content review failed:", e);
+        return { clients: 0, reviewed: 0 };
+      });
+      console.log(`[content-ideas] boot content review: ${rev.reviewed} reviewed / ${rev.clients} clients`);
+      const day = await sweepDailyIdeas(db).catch((e) => {
+        console.warn("[content-ideas] boot daily sweep failed:", e);
+        return { clients: 0, created: 0 };
+      });
+      console.log(`[content-ideas] boot daily sweep: ${day.created} created / ${day.clients} clients`);
+    })();
   }, 3 * 60 * 1000);
 
-  // Weekly refresh for everyone (fires once per ISO week on the configured DOW).
-  const WEEKLY_DOW = Number(process.env.LMTM_WEEKLY_IDEAS_DOW ?? 1); // Monday
+  // Daily: one idea per client per calendar day (checks every 3h, fires once/day).
   const tick = async () => {
-    const now = new Date();
-    if (now.getDay() !== WEEKLY_DOW) return;
-    const week = isoWeekKey(now);
-    if (week === lastContentWeek) return;
-    lastContentWeek = week;
-    await sweepContentIdeas(db)
-      .then((r) => console.log(`[content-ideas] weekly sweep: ${r.generated} generated / ${r.clients} clients`))
-      .catch((e) => console.warn("[content-ideas] weekly sweep failed:", e));
+    const day = new Date().toISOString().slice(0, 10);
+    if (day === lastContentDay) return;
+    lastContentDay = day;
+    await sweepDailyIdeas(db)
+      .then((r) => console.log(`[content-ideas] daily sweep: ${r.created} created / ${r.clients} clients`))
+      .catch((e) => console.warn("[content-ideas] daily sweep failed:", e));
   };
-  contentTimer = setInterval(() => { void tick(); }, 6 * 3600 * 1000);
-  console.log("[content-ideas] scheduled weekly idea generation");
+  contentTimer = setInterval(() => { void tick(); }, 3 * 3600 * 1000);
+  console.log("[content-ideas] scheduled DAILY idea generation (1/client/day)");
 }

@@ -15,12 +15,14 @@ import {
   adsConnections,
   adsCreatives,
   adsInsights,
+  audienceDemographics,
   organicPostInsights,
   organicPosts,
   syncLogs,
 } from "@paperclipai/db";
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "./registry.js";
+import { fetchMetaAudience } from "./providers/meta.js";
 import type { AdsPlatform } from "./types.js";
 
 export interface SyncJobResult {
@@ -311,10 +313,65 @@ function resolvePlatform(opts: SyncOptions): AdsPlatform {
   return "meta";
 }
 
+/**
+ * Sync demographic breakdowns (age/gender/publisher_platform/device) into the
+ * audience_demographics snapshot. Meta-only — other platforms are no-ops. The
+ * snapshot is replaced per (client, connection) each run so stale keys don't
+ * linger. Best-effort: never throws, so it can't break the daily sweep.
+ */
+async function syncAudience(db: Db, opts: SyncOptions): Promise<number> {
+  const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
+  if (connection.platform !== "meta") return 0;
+  if (!mapping.pageId && !mapping.adAccountId) return 0;
+  const rows = await fetchMetaAudience(connection, mapping, opts.since, opts.until);
+  // Replace this connection's snapshot for the client (scoped so a second ad
+  // account for the same client doesn't wipe the first one's rows).
+  if (mapping.clientId) {
+    await db.delete(audienceDemographics).where(and(
+      eq(audienceDemographics.clientId, mapping.clientId),
+      eq(audienceDemographics.connectionId, connection.id),
+    ));
+  }
+  if (rows.length === 0) return 0;
+  const since = opts.since.toISOString().slice(0, 10);
+  const until = opts.until.toISOString().slice(0, 10);
+  await db.insert(audienceDemographics).values(rows.map((r) => ({
+    companyId: connection.companyId,
+    clientId: mapping.clientId ?? null,
+    connectionId: connection.id,
+    platform: connection.platform,
+    adAccountId: mapping.adAccountId ?? null,
+    dimension: r.dimension,
+    dimKey: r.key,
+    impressions: r.impressions,
+    clicks: r.clicks,
+    spend: r.spend.toFixed(2),
+    leads: r.leads,
+    reach: r.reach,
+    periodSince: since,
+    periodUntil: until,
+    syncedAt: new Date(),
+  }))).onConflictDoUpdate({
+    target: [audienceDemographics.clientId, audienceDemographics.dimension, audienceDemographics.dimKey],
+    set: {
+      impressions: sql`excluded.impressions`,
+      clicks: sql`excluded.clicks`,
+      spend: sql`excluded.spend`,
+      leads: sql`excluded.leads`,
+      reach: sql`excluded.reach`,
+      periodSince: sql`excluded.period_since`,
+      periodUntil: sql`excluded.period_until`,
+      syncedAt: new Date(),
+    },
+  });
+  return rows.length;
+}
+
 export const adsAggregator = {
   syncCampaigns,
   syncAdsets,
   syncCreatives,
   syncInsights,
   syncOrganic,
+  syncAudience,
 };

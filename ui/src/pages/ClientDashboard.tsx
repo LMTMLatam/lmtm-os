@@ -49,6 +49,10 @@ import {
   Clock,
   Lightbulb,
   RefreshCw,
+  FolderKanban,
+  FileSpreadsheet,
+  Clapperboard,
+  Code2,
 } from "lucide-react";
 import { waBotApi } from "../api/waBot";
 
@@ -61,6 +65,67 @@ const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
   { value: "memoria", label: "Memoria", icon: Layers },
   { value: "competidores", label: "Competidores", icon: Target },
 ];
+
+/** Quick-access cards to a client's key external resources: ClickUp folder,
+ * redes sheet (Cronopost), video-production list, and redes Apps Script. */
+function ClientResourcesPanel({ client }: { client: Client }) {
+  const teamId = (client.metadata?.clickupTeamId as string | undefined) || "9013352440";
+  const scriptId = client.metadata?.redesScriptId as string | undefined;
+  const cards: Array<{ title: string; subtitle: string; icon: typeof FolderKanban; url: string | null; color: string }> = [
+    {
+      title: "Carpeta ClickUp",
+      subtitle: "Tareas y listas",
+      icon: FolderKanban,
+      url: client.clickupFolderId ? `https://app.clickup.com/${teamId}/v/f/${client.clickupFolderId}` : null,
+      color: "text-violet-600 dark:text-violet-400",
+    },
+    {
+      title: "Sheet de redes",
+      subtitle: "Cronopost / calendario",
+      icon: FileSpreadsheet,
+      url: client.sheetsSpreadsheetId ? `https://docs.google.com/spreadsheets/d/${client.sheetsSpreadsheetId}/edit` : null,
+      color: "text-emerald-600 dark:text-emerald-400",
+    },
+    {
+      title: "Producción de video",
+      subtitle: "Lista de ClickUp",
+      icon: Clapperboard,
+      url: client.clickupListVideoId ? `https://app.clickup.com/${teamId}/v/li/${client.clickupListVideoId}` : null,
+      color: "text-amber-600 dark:text-amber-400",
+    },
+    {
+      title: "Script de redes",
+      subtitle: "Apps Script",
+      icon: Code2,
+      url: scriptId ? `https://script.google.com/d/${scriptId}/edit` : null,
+      color: "text-sky-600 dark:text-sky-400",
+    },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {cards.map((c) => {
+        const Icon = c.icon;
+        const inner = (
+          <Card className={`flex items-center gap-3 p-3 transition-colors ${c.url ? "hover:bg-accent/50 cursor-pointer" : "opacity-50"}`}>
+            <div className={`shrink-0 ${c.color}`}><Icon className="h-5 w-5" /></div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-tight flex items-center gap-1">
+                {c.title}
+                {c.url ? <ExternalLink className="h-3 w-3 text-muted-foreground" /> : null}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">{c.url ? c.subtitle : "No configurado"}</p>
+            </div>
+          </Card>
+        );
+        return c.url ? (
+          <a key={c.title} href={c.url} target="_blank" rel="noreferrer noopener">{inner}</a>
+        ) : (
+          <div key={c.title}>{inner}</div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ClientDashboard() {
   const { slug, tab } = useParams<{ slug: string; tab?: string }>();
@@ -208,6 +273,9 @@ export function ClientDashboard() {
           )}
         </div>
       </div>
+
+      {/* Quick-access resource cards */}
+      <ClientResourcesPanel client={client} />
 
       {/* Tabs */}
       <div className="border-b flex items-center gap-1">

@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tansta
 import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
+import { clientsApi } from "../api/clients";
 import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -96,6 +97,16 @@ export function Issues() {
     enabled: !!selectedCompanyId,
   });
 
+  const { data: clientsResp } = useQuery({
+    queryKey: ["clients", "list", selectedCompanyId, "active"],
+    queryFn: () => clientsApi.list("active"),
+    enabled: !!selectedCompanyId,
+  });
+  const clientOptions = useMemo(
+    () => (clientsResp?.clients ?? []).map((c) => ({ id: c.id, name: c.name })),
+    [clientsResp],
+  );
+
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.liveRuns(selectedCompanyId!),
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
@@ -184,6 +195,7 @@ export function Issues() {
       error={error as Error | null}
       agents={agents}
       projects={projects}
+      clients={clientOptions}
       liveIssueIds={liveIssueIds}
       viewStateKey="paperclip:issues-view"
       issueLinkState={issueLinkState}
