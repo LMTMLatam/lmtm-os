@@ -13,8 +13,8 @@
 // off-limits rule).
 
 import type { Db } from "@paperclipai/db";
-import { agents, companies } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
+import { agents, companies, issues } from "@paperclipai/db";
+import { and, eq, gte, ilike, ne } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
 import { issueService } from "./issues.js";
 import { resolveTriageOwnerId } from "./client-tasks.js";
@@ -75,6 +75,19 @@ function weekNumber(d: Date): number {
 export async function runGrowthRoundtable(db: Db): Promise<{ created: boolean; issueId?: string }> {
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
   if (!company) return { created: false };
+
+  // Idempotency guard: skip if a roundtable was already created this week —
+  // protects against duplicate scheduler ticks AND a double manual trigger via
+  // the /growth/roundtable/run route (which bypasses the scheduler's own
+  // last-week dedup since it calls this function directly).
+  const sixDaysAgo = new Date(Date.now() - 6 * 86400000);
+  const [recent] = await db.select({ id: issues.id }).from(issues).where(and(
+    eq(issues.companyId, company.id),
+    ilike(issues.title, "[MESA REDONDA]%"),
+    ne(issues.status, "cancelled"),
+    gte(issues.createdAt, sixDaysAgo),
+  )).limit(1);
+  if (recent) return { created: false };
 
   const focus = FOCUS_AREAS[weekNumber(new Date()) % FOCUS_AREAS.length];
   const roster = await db.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.companyId, company.id));
