@@ -44,13 +44,53 @@ export async function generateClientOpportunities(db: Db, clientId: string): Pro
   const drafts: Draft[] = [];
 
   // 1. Apply the niche's winning format (cumulative learning).
-  if (nicheLearnings[0]) {
-    const l = nicheLearnings[0];
-    const fmt = (l.evidence as { topFormat?: string })?.topFormat;
+  const formatLearning = nicheLearnings.find((l) => l.scope === "niche" || l.scope === "global");
+  if (formatLearning) {
+    const fmt = (formatLearning.evidence as { topFormat?: string })?.topFormat;
     if (fmt) drafts.push({
       kind: "content", title: `Priorizar formato "${fmt}"`,
-      rationale: l.pattern, suggestedAction: `Planificar la próxima tanda de contenido en formato "${fmt}".`,
-      priority: 80, basis: { learning: l.pattern },
+      rationale: formatLearning.pattern, suggestedAction: `Planificar la próxima tanda de contenido en formato "${fmt}".`,
+      priority: 80, basis: { learning: formatLearning.pattern },
+    });
+  }
+
+  // 1b. Compare this client against its niche's ads benchmark: if it's clearly
+  // behind the peers' average, flag it — the "ideal" (best quartile) is a
+  // target other clients in the same vertical actually hit, not a made-up KPI.
+  const bench = nicheLearnings.find((l) => l.scope === "niche_benchmark");
+  const benchEv = (bench?.evidence ?? null) as { avgCtr?: number; idealCtr?: number; avgCpl?: number | null; idealCpl?: number | null } | null;
+  const w30 = await aggInsights(db, clientId, d(30), d(0));
+  if (benchEv && w30.impressions >= 500) {
+    const myCtr = w30.clicks / w30.impressions;
+    const myCpl = w30.leads > 0 ? w30.spend / w30.leads : null;
+    if (benchEv.avgCpl != null && myCpl != null && myCpl > benchEv.avgCpl * 1.25) {
+      drafts.push({
+        kind: "campaign", title: "CPL por encima de su rubro",
+        rationale: `CPL 30d $${Math.round(myCpl)} vs promedio del rubro $${Math.round(benchEv.avgCpl)} (ideal del rubro: $${Math.round(benchEv.idealCpl ?? benchEv.avgCpl)}). ${bench!.pattern}`,
+        suggestedAction: "Revisar qué hacen los mejores del rubro (formato, oferta, segmentación) y ajustar la campaña hacia esos patrones.",
+        priority: 76, basis: { myCpl: Math.round(myCpl), nicheAvgCpl: Math.round(benchEv.avgCpl), nicheIdealCpl: Math.round(benchEv.idealCpl ?? benchEv.avgCpl) },
+      });
+    } else if (benchEv.avgCtr != null && myCtr < benchEv.avgCtr * 0.75) {
+      drafts.push({
+        kind: "campaign", title: "CTR por debajo de su rubro",
+        rationale: `CTR 30d ${(myCtr * 100).toFixed(2)}% vs promedio del rubro ${(benchEv.avgCtr * 100).toFixed(2)}% (ideal: ${((benchEv.idealCtr ?? benchEv.avgCtr) * 100).toFixed(2)}%).`,
+        suggestedAction: "Refrescar creatividades tomando los ángulos/formatos que rinden en el rubro.",
+        priority: 74, basis: { myCtr: Number((myCtr * 100).toFixed(2)), nicheAvgCtr: Number((benchEv.avgCtr * 100).toFixed(2)) },
+      });
+    }
+  }
+
+  // 1c. Niche experiment: a format winning in another vertical that this niche
+  // hasn't tried yet — planned as a deliberate test, so the cross-niche
+  // learning loop keeps feeding itself with new data.
+  const experiment = nicheLearnings.find((l) => l.scope === "niche_experiment");
+  if (experiment) {
+    const ev = (experiment.evidence ?? {}) as { format?: string; sourceNiche?: string };
+    if (ev.format) drafts.push({
+      kind: "content", title: `Experimento: probar formato "${ev.format}"`,
+      rationale: experiment.pattern,
+      suggestedAction: `Producir 2-3 piezas en formato "${ev.format}" y comparar su desempeño contra el contenido habitual del cliente.`,
+      priority: 72, basis: { experiment: true, format: ev.format, sourceNiche: ev.sourceNiche ?? null },
     });
   }
 
@@ -92,7 +132,6 @@ export async function generateClientOpportunities(db: Db, clientId: string): Pro
   // sustained 30-day lead volume + healthy account score + this week beating
   // last week. External (commercial) → becomes an approval proposal, never an
   // autonomous spend action.
-  const w30 = await aggInsights(db, clientId, d(30), d(0));
   const prev7 = await aggInsights(db, clientId, d(14), d(7));
   const score = await getLatestScore(db, clientId).catch(() => null);
   const health = score?.healthScore ?? 0;
