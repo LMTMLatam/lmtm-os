@@ -6,11 +6,18 @@ name: keepalive
 # - pings /api/health on LMTM-OS every 5 minutes
 # - pings /api/wa-bot/public-health on LMTM-OS every 5 minutes
 # - if WA bot reports unhealthy, triggers /api/wa-bot/keepalive to force reconnect
-# - if STILL disconnected after the reconnect attempt, fails the job on purpose
-#   (silent auto-reconnect only works for a warm process; a session that was
-#   logged out needs someone to scan a fresh QR in the WhatsApp panel — this
-#   is the only channel left to say so once the session itself is down)
+# - if the bot reports needsPairing after the reconnect attempt, fails the job on
+#   purpose (a session that was logged out needs someone to scan a fresh QR in the
+#   WhatsApp panel — this is the only channel left to say so once it's down)
 # - on hard LMTM-OS failure, exits non-zero so the run is marked failed
+#
+# IMPORTANT: read the bot's explicit health booleans (bot.connected /
+# bot.needsPairing), NOT the status STRING. A logged-out session waiting for a QR
+# reports status "connecting" (SCAN_QR), never "disconnected" — grepping for
+# "disconnected" (as an earlier version did) meant the "human must re-scan"
+# alarm essentially never fired. needsPairing is set server-side precisely when a
+# human must act, so transient "connecting" during an automatic reconnect does
+# NOT trigger a false-positive failure email.
 #
 # IMPORTANT: this targets the Railway production deployment. LMTM-OS migrated
 # off Render on 2026-06-22; Render is now suspended. Do not repoint this at
@@ -68,25 +75,31 @@ jobs:
           echo "HTTP $HTTP_CODE"
           cat /tmp/wa-health.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health.json || true
 
-          if [ "$HTTP_CODE" = "503" ]; then
-            echo "::warning::WA bot reports unhealthy (503) - will trigger keepalive"
-            echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
-          elif [ "$HTTP_CODE" = "200" ]; then
-            if grep -q '"reachable":\s*false' /tmp/wa-health.json 2>/dev/null; then
-              echo "::warning::OpenWA unreachable from LMTM-OS - will trigger keepalive"
-              echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
-            elif grep -q '"status":\s*"disconnected"' /tmp/wa-health.json 2>/dev/null; then
-              echo "::warning::WA bot session disconnected - will trigger keepalive"
-              echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
-            fi
-          elif [ "$HTTP_CODE" = "404" ]; then
-            echo "::warning::public-health endpoint not available yet (older deploy)"
-            echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
-          fi
+          # Parse the health booleans with python (robust vs grepping JSON).
+          # needs_reconnect when: 503, OpenWA unreachable, or the bot isn't
+          # connected. `connected` defaults to true only on parse failure so an
+          # older deploy without the field doesn't spam reconnects.
+          NEEDS=$(python3 - "$HTTP_CODE" <<'PY'
+import json, sys
+code = sys.argv[1]
+if code == "503":
+    print("true"); sys.exit()
+if code != "200":
+    print("false"); sys.exit()
+try:
+    h = json.load(open("/tmp/wa-health.json"))
+except Exception:
+    print("false"); sys.exit()
+openwa = h.get("openwa", {})
+bot = h.get("bot", {})
+if openwa.get("configured") and openwa.get("reachable") is False:
+    print("true"); sys.exit()
+# connected defaults True when the field is absent (older deploy) to avoid churn
+print("false" if bot.get("connected", True) else "true")
+PY
+)
+          echo "needs_reconnect=$NEEDS" >> "$GITHUB_OUTPUT"
+          [ "$NEEDS" = "true" ] && echo "::warning::WA bot not connected / OpenWA unreachable - will trigger keepalive" || true
 
       - name: Trigger keepalive if needed
         id: reconnect
@@ -105,7 +118,26 @@ jobs:
           curl -sS "$LMTM_BASE_URL/api/wa-bot/public-health" --max-time 30 -o /tmp/wa-health-recheck.json || true
           cat /tmp/wa-health-recheck.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health-recheck.json || true
 
-          if grep -q '"status":\s*"disconnected"' /tmp/wa-health-recheck.json 2>/dev/null; then
-            echo "::error::WhatsApp session is still disconnected after a silent reconnect attempt. This means the session was logged out (not just a cold sidecar) and needs a HUMAN to open the WhatsApp panel and scan a fresh QR — it cannot self-heal. Open the panel's WhatsApp section and re-pair."
+          # Only fail when the bot explicitly needs a human to scan a QR
+          # (needsPairing). A bot still "connecting" right after keepalive is an
+          # automatic reconnect in progress — NOT a human-action state — so we
+          # don't fail on it and spam false-positive emails.
+          RESULT=$(python3 - <<'PY'
+import json
+try:
+    bot = json.load(open("/tmp/wa-health-recheck.json")).get("bot", {})
+except Exception:
+    print("unknown"); raise SystemExit
+if bot.get("needsPairing"):
+    print("needs_pairing")
+elif bot.get("connected"):
+    print("connected")
+else:
+    print("reconnecting")
+PY
+)
+          echo "post-reconnect state: $RESULT"
+          if [ "$RESULT" = "needs_pairing" ]; then
+            echo "::error::WhatsApp session is logged out and needs a HUMAN to open the WhatsApp panel and scan a fresh QR — it cannot self-heal. Open the panel's WhatsApp section and re-pair."
             exit 1
           fi

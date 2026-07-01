@@ -35,6 +35,7 @@ export interface GrowthOverview {
     activeClients: number;
     spend30d: number;
     leads30d: number;
+    spendCurrency: string | null;
     issuesDoneThisWeek: number;
   };
   spendTrend: GrowthSpendPoint[];

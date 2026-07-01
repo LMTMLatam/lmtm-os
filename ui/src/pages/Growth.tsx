@@ -14,13 +14,17 @@ import { growthApi, type GrowthSpendPoint, type GrowthThroughputPoint } from "..
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { statusBadge, statusBadgeDefault } from "@/lib/status-colors";
 import { TrendingUp, Building2, DollarSign, Filter, CheckCircle2, Lightbulb } from "lucide-react";
 
-function fmtMoney(n: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+// Spend is a cross-client sum, only meaningful in a single currency; the server
+// sends the shared currency (or null if clients bill in mixed currencies).
+function fmtMoney(n: number, currency: string | null): string {
+  if (!currency) return `${new Intl.NumberFormat("es-AR").format(Math.round(n))} (multi-moneda)`;
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
 }
 function fmtInt(n: number): string {
-  return new Intl.NumberFormat("en-US").format(Math.round(n));
+  return new Intl.NumberFormat("es-AR").format(Math.round(n));
 }
 
 function Kpi({ label, value, icon: Icon }: { label: string; value: string; icon: typeof DollarSign }) {
@@ -32,7 +36,7 @@ function Kpi({ label, value, icon: Icon }: { label: string; value: string; icon:
   );
 }
 
-function BarRow({ points, metric, color }: { points: GrowthSpendPoint[]; metric: "spend" | "leads"; color: string }) {
+function BarRow({ points, metric, color, currency }: { points: GrowthSpendPoint[]; metric: "spend" | "leads"; color: string; currency: string | null }) {
   if (points.length === 0) return <div className="h-14 flex items-center justify-center text-xs text-muted-foreground">Sin datos</div>;
   const max = Math.max(...points.map((p) => p[metric]), 1);
   return (
@@ -42,7 +46,7 @@ function BarRow({ points, metric, color }: { points: GrowthSpendPoint[]; metric:
         const pct = max > 0 ? (v / max) * 100 : 0;
         return (
           <div key={i} className={`flex-1 rounded-sm ${v > 0 ? color : "bg-muted/40"}`} style={{ height: `${Math.max(pct, 2)}%` }}
-            title={`${p.date}: ${metric === "spend" ? fmtMoney(v) : fmtInt(v)}`} />
+            title={`${p.date}: ${metric === "spend" ? fmtMoney(v, currency) : fmtInt(v)}`} />
         );
       })}
     </div>
@@ -64,21 +68,15 @@ function ThroughputChart({ points }: { points: GrowthThroughputPoint[] }) {
   );
 }
 
-const statusColor: Record<string, string> = {
-  todo: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
-  backlog: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
-  in_progress: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
-  in_review: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  blocked: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
-  done: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  cancelled: "bg-zinc-500/10 text-zinc-500 line-through",
-};
+const statusColor = (status: string): string => statusBadge[status] ?? statusBadgeDefault;
 
 export function Growth() {
   const { setBreadcrumbs } = useBreadcrumbs();
   useEffect(() => { setBreadcrumbs([{ label: "Growth" }]); }, [setBreadcrumbs]);
 
-  const { data, isLoading } = useQuery({ queryKey: ["growth", "overview"], queryFn: () => growthApi.overview() });
+  // Data changes at most daily (ads sync) / hourly (issues); a 10-min staleTime
+  // avoids re-running the 6-query aggregate on every window refocus.
+  const { data, isLoading } = useQuery({ queryKey: ["growth", "overview"], queryFn: () => growthApi.overview(), staleTime: 10 * 60_000 });
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -97,7 +95,7 @@ export function Growth() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Kpi label="Clientes activos" value={fmtInt(data.kpis.activeClients)} icon={Building2} />
-            <Kpi label="Pauta 30d (agregado)" value={fmtMoney(data.kpis.spend30d)} icon={DollarSign} />
+            <Kpi label="Pauta 30d (agregado)" value={fmtMoney(data.kpis.spend30d, data.kpis.spendCurrency)} icon={DollarSign} />
             <Kpi label="Leads 30d (agregado)" value={fmtInt(data.kpis.leads30d)} icon={Filter} />
             <Kpi label="Issues cerrados (últ. semana)" value={fmtInt(data.kpis.issuesDoneThisWeek)} icon={CheckCircle2} />
           </div>
@@ -107,11 +105,11 @@ export function Growth() {
             <div className="grid grid-cols-2 gap-6">
               <div>
                 <p className="text-[11px] text-muted-foreground mb-1">Spend</p>
-                <BarRow points={data.spendTrend} metric="spend" color="bg-blue-500" />
+                <BarRow points={data.spendTrend} metric="spend" color="bg-blue-500" currency={data.kpis.spendCurrency} />
               </div>
               <div>
                 <p className="text-[11px] text-muted-foreground mb-1">Leads</p>
-                <BarRow points={data.spendTrend} metric="leads" color="bg-emerald-500" />
+                <BarRow points={data.spendTrend} metric="leads" color="bg-emerald-500" currency={data.kpis.spendCurrency} />
               </div>
             </div>
           </Card>
@@ -136,7 +134,7 @@ export function Growth() {
                 {data.roundtables.map((rt) => (
                   <Card key={rt.id} className="p-4">
                     <div className="flex items-center gap-2 flex-wrap mb-2">
-                      <Badge className={`text-[10px] px-1.5 py-0 ${statusColor[rt.status] ?? ""}`}>{rt.status}</Badge>
+                      <Badge className={`text-[10px] px-1.5 py-0 ${statusColor(rt.status)}`}>{rt.status}</Badge>
                       <Link to={`/issues/${rt.id}`} className="text-sm font-medium hover:underline">{rt.category}</Link>
                       <span className="text-[10px] text-muted-foreground ml-auto">{new Date(rt.createdAt).toLocaleDateString("es-AR")}</span>
                     </div>
@@ -146,7 +144,7 @@ export function Growth() {
                       <div className="space-y-1 pl-1">
                         {rt.proposals.map((p) => (
                           <Link key={p.id} to={`/issues/${p.id}`} className="flex items-center gap-2 text-sm hover:bg-muted/50 rounded px-1.5 py-1 -mx-1.5">
-                            <Badge className={`text-[10px] px-1.5 py-0 shrink-0 ${statusColor[p.status] ?? ""}`}>{p.status}</Badge>
+                            <Badge className={`text-[10px] px-1.5 py-0 shrink-0 ${statusColor(p.status)}`}>{p.status}</Badge>
                             {p.identifier && <span className="text-[10px] text-muted-foreground shrink-0">{p.identifier}</span>}
                             <span className="truncate">{p.title}</span>
                           </Link>

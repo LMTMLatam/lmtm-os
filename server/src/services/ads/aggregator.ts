@@ -322,17 +322,23 @@ function resolvePlatform(opts: SyncOptions): AdsPlatform {
 async function syncAudience(db: Db, opts: SyncOptions): Promise<number> {
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
   if (connection.platform !== "meta") return 0;
+  // The snapshot is keyed by client and /audience filters by clientId, so an
+  // unmapped account has nowhere to land — skip it (also avoids unbounded
+  // NULL-client rows that the unique index can never dedupe: Postgres treats
+  // NULLs as distinct).
+  if (!mapping.clientId) return 0;
   if (!mapping.pageId && !mapping.adAccountId) return 0;
   const rows = await fetchMetaAudience(connection, mapping, opts.since, opts.until);
-  // Replace this connection's snapshot for the client (scoped so a second ad
-  // account for the same client doesn't wipe the first one's rows).
-  if (mapping.clientId) {
-    await db.delete(audienceDemographics).where(and(
-      eq(audienceDemographics.clientId, mapping.clientId),
-      eq(audienceDemographics.connectionId, connection.id),
-    ));
-  }
+  // Don't wipe a good snapshot on a transient fetch failure: fetchMetaAudience
+  // swallows Graph errors and returns [], so an empty result is indistinguishable
+  // from "Meta is down". Only replace when we actually have fresh data.
   if (rows.length === 0) return 0;
+  // Replace this connection's snapshot for the client (scoped by connection so a
+  // second ad account for the same client doesn't wipe the first one's rows).
+  await db.delete(audienceDemographics).where(and(
+    eq(audienceDemographics.clientId, mapping.clientId),
+    eq(audienceDemographics.connectionId, connection.id),
+  ));
   const since = opts.since.toISOString().slice(0, 10);
   const until = opts.until.toISOString().slice(0, 10);
   await db.insert(audienceDemographics).values(rows.map((r) => ({
@@ -352,7 +358,7 @@ async function syncAudience(db: Db, opts: SyncOptions): Promise<number> {
     periodUntil: until,
     syncedAt: new Date(),
   }))).onConflictDoUpdate({
-    target: [audienceDemographics.clientId, audienceDemographics.dimension, audienceDemographics.dimKey],
+    target: [audienceDemographics.clientId, audienceDemographics.connectionId, audienceDemographics.dimension, audienceDemographics.dimKey],
     set: {
       impressions: sql`excluded.impressions`,
       clicks: sql`excluded.clicks`,

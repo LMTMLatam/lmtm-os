@@ -185,24 +185,42 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
     const computed = await generateClientAlerts(db, client.id);
     if (computed.length === 0) continue;
 
-    // Only skip a metric if it was already SENT (delivered) in the last 24h —
-    // NOT merely inserted. A metric stuck at "pending" (WhatsApp send failed,
-    // e.g. gateway down) is retried every cycle instead of being silently
-    // swallowed forever: previously any row within 24h — sent or not — blocked
-    // a retry, so a gateway outage meant those alerts NEVER went out even
-    // after the gateway came back (the real 3+ day gap that motivated this).
+    // Suppress a metric only if it was already delivered (sent) OR
+    // human-acknowledged in the last 24h — so we re-alert at most once a day and
+    // never clobber a row an operator already triaged.
+    //
+    // For retries we reuse EVERY still-pending row for the metric regardless of
+    // age: a "pending" row is one whose WhatsApp send previously failed (gateway
+    // down). The old code both (a) filtered the lookup to the last 24h, so a
+    // pending row older than a day fell out of the window → a duplicate was
+    // inserted each day of an outage and the stale rows never flipped to sent
+    // (permanently penalizing the client's score), and (b) treated "acknowledged"
+    // as retryable → re-sent + clobbered human triage state.
     const since24h = new Date(Date.now() - 24 * 3600 * 1000);
     const existing = await db
-      .select({ id: adsAlerts.id, metric: adsAlerts.metric, status: adsAlerts.status })
+      .select({ id: adsAlerts.id, metric: adsAlerts.metric, status: adsAlerts.status, createdAt: adsAlerts.createdAt })
       .from(adsAlerts)
-      .where(and(eq(adsAlerts.clientId, client.id), gte(adsAlerts.createdAt, since24h)));
-    const sentMetrics = new Set(existing.filter((r) => r.status === "sent").map((r) => r.metric));
-    const pendingIdByMetric = new Map(existing.filter((r) => r.status !== "sent").map((r) => [r.metric, r.id]));
+      .where(and(
+        eq(adsAlerts.clientId, client.id),
+        inArray(adsAlerts.status, ["pending", "sent", "acknowledged"]),
+      ));
+    const handledMetrics = new Set(
+      existing
+        .filter((r) => (r.status === "sent" || r.status === "acknowledged") && r.createdAt >= since24h)
+        .map((r) => r.metric),
+    );
+    const pendingByMetric = new Map<string, string[]>();
+    for (const r of existing) {
+      if (r.status !== "pending" || !r.metric) continue;
+      const arr = pendingByMetric.get(r.metric) ?? [];
+      arr.push(r.id);
+      pendingByMetric.set(r.metric, arr);
+    }
 
-    const fresh = computed.filter((a) => !sentMetrics.has(a.metric));
+    const fresh = computed.filter((a) => !handledMetrics.has(a.metric));
     if (fresh.length === 0) continue;
 
-    const toInsert = fresh.filter((a) => !pendingIdByMetric.has(a.metric));
+    const toInsert = fresh.filter((a) => !pendingByMetric.has(a.metric));
     let insertedIds: string[] = [];
     if (toInsert.length > 0) {
       const inserted = await db.insert(adsAlerts).values(toInsert.map((a) => ({
@@ -220,7 +238,9 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
       }))).returning({ id: adsAlerts.id });
       insertedIds = inserted.map((r) => r.id);
     }
-    const retryIds = fresh.filter((a) => pendingIdByMetric.has(a.metric)).map((a) => pendingIdByMetric.get(a.metric)!);
+    // Every pending row for a metric we're about to (re)send — clears historical
+    // duplicates too, not just one per metric.
+    const retryIds = fresh.flatMap((a) => pendingByMetric.get(a.metric) ?? []);
     const coveredIds = [...insertedIds, ...retryIds];
 
     // Deliver to the agency's internal number (all clients' alerts → same number).
@@ -239,7 +259,11 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
         alertsSent += fresh.length;
         clientsNotified += 1;
         if (coveredIds.length > 0) {
-          await db.update(adsAlerts).set({ status: "sent" }).where(inArray(adsAlerts.id, coveredIds)).catch(() => {});
+          // This update is what stops the retry loop; if it fails the same
+          // alert re-sends every cycle, so surface the failure instead of
+          // swallowing it silently.
+          await db.update(adsAlerts).set({ status: "sent" }).where(inArray(adsAlerts.id, coveredIds))
+            .catch((e) => console.warn(`[client-alerts] failed to mark ${coveredIds.length} alerts sent for ${client.name}:`, e));
         }
       }
     }

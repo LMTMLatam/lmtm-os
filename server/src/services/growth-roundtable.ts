@@ -57,18 +57,17 @@ const FOCUS_AREAS: FocusArea[] = [
   },
 ];
 
-function isoWeekKey(d: Date): string {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+// Single ISO-week source: both the dedup key and the focus rotation derive from
+// the same {year, week} so they can never tick over on different days (the old
+// weekNumber used a non-ISO Jan-1 count that diverged from isoWeekKey around
+// year boundaries, letting a focus area repeat or get skipped).
+function isoWeek(d: Date): { year: number; week: number } {
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const dayNum = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
-function weekNumber(d: Date): number {
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { year: date.getUTCFullYear(), week };
 }
 
 /** Create this week's growth roundtable issue and invite the relevant specialists. */
@@ -89,7 +88,7 @@ export async function runGrowthRoundtable(db: Db): Promise<{ created: boolean; i
   )).limit(1);
   if (recent) return { created: false };
 
-  const focus = FOCUS_AREAS[weekNumber(new Date()) % FOCUS_AREAS.length];
+  const focus = FOCUS_AREAS[isoWeek(new Date()).week % FOCUS_AREAS.length];
   const roster = await db.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.companyId, company.id));
   const specialists = roster.filter((a) => focus.specialistPattern.test(a.name));
 
@@ -120,14 +119,14 @@ export async function runGrowthRoundtable(db: Db): Promise<{ created: boolean; i
   const created = await issueService(db).create(company.id, {
     title: `[MESA REDONDA] ${focus.label}`.slice(0, 200),
     description,
-    status: "todo" as never,
-    priority: "medium" as never,
+    status: "todo",
+    priority: "medium",
     clientId: null,
-    originKind: "manual" as never,
+    originKind: "manual",
     createdByAgentId: null,
     ...(pabloId ? { assigneeAgentId: pabloId } : {}),
-  } as never);
-  const issueId = String((created as Record<string, unknown>).id ?? "");
+  });
+  const issueId = String(created.id ?? "");
   if (!issueId) return { created: false };
 
   const heartbeat = heartbeatService(db);
@@ -145,17 +144,24 @@ export async function runGrowthRoundtable(db: Db): Promise<{ created: boolean; i
 }
 
 let roundtableTimer: ReturnType<typeof setInterval> | null = null;
-let lastRoundtableWeek = "";
+
+// Argentina is UTC-3 year-round (no DST), so derive the local day-of-week from a
+// fixed offset instead of getDay() — the server runs in UTC (Railway), where
+// getDay() would flip to "Monday" on Sunday 21:00 ART.
+const ART_OFFSET_MS = 3 * 3600 * 1000;
+function argentinaDayOfWeek(now: Date): number {
+  return new Date(now.getTime() - ART_OFFSET_MS).getUTCDay();
+}
 
 export function initGrowthRoundtable(db: Db): void {
   if (roundtableTimer) return;
-  const ROUNDTABLE_DOW = Number(process.env.LMTM_ROUNDTABLE_DOW ?? 1); // Monday
+  const ROUNDTABLE_DOW = Number(process.env.LMTM_ROUNDTABLE_DOW ?? 1); // Monday, ART
   const tick = async () => {
-    const now = new Date();
-    if (now.getDay() !== ROUNDTABLE_DOW) return;
-    const week = isoWeekKey(now);
-    if (week === lastRoundtableWeek) return;
-    lastRoundtableWeek = week;
+    if (argentinaDayOfWeek(new Date()) !== ROUNDTABLE_DOW) return;
+    // No in-memory week guard: runGrowthRoundtable's own DB idempotency check
+    // (a non-cancelled [MESA REDONDA] issue in the last 6 days) already handles
+    // duplicate ticks, restarts, and manual triggers — and, unlike a pre-set
+    // in-memory flag, it retries on the next tick if a run fails.
     await runGrowthRoundtable(db)
       .then((r) => console.log(`[growth-roundtable] created: ${r.created} (${r.issueId ?? "n/a"})`))
       .catch((e) => console.warn("[growth-roundtable] failed:", e));

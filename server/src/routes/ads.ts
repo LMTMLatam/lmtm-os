@@ -165,6 +165,18 @@ export function adsRoutes(db: Db): Router {
     next();
   });
 
+  // Auth boundary for the agency-ops surface. /growth/* (overview panel data,
+  // manual roundtable trigger) and /ops/* (manual alert sweep) expose or mutate
+  // agency-wide data and fire real WhatsApp sends + LLM calls, so they must
+  // never be anonymous. The scheduler drives the real cadence; these routes are
+  // dashboard/operator conveniences only.
+  const requireActor = (req: Request, _res: Response, next: () => void) => {
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    next();
+  };
+  router.use("/growth", requireActor);
+  router.use("/ops", requireActor);
+
   // ---- Connections ----
 
   router.get("/integrations/connections", async (req, res) => {
@@ -1854,10 +1866,18 @@ export function adsRoutes(db: Db): Router {
           spend: audienceDemographics.spend,
           leads: audienceDemographics.leads,
           reach: audienceDemographics.reach,
+          periodSince: audienceDemographics.periodSince,
+          periodUntil: audienceDemographics.periodUntil,
         })
         .from(audienceDemographics)
         .where(eq(audienceDemographics.clientId, client.id));
       if (demo.length > 0) {
+        // The snapshot covers the last sync's window, NOT the caller's since/until
+        // (it's a current-state snapshot, not a time-range query). Report the
+        // snapshot's real period so the UI doesn't mislabel it with the request
+        // window it didn't actually apply.
+        const periodSince = demo.map((d) => d.periodSince).filter(Boolean).sort()[0] ?? null;
+        const periodUntil = demo.map((d) => d.periodUntil).filter(Boolean).sort().at(-1) ?? null;
         const pick = (dim: string) =>
           demo
             .filter((d) => d.dimension === dim)
@@ -1881,7 +1901,8 @@ export function adsRoutes(db: Db): Router {
             .sort((a, b) => b.impressions - a.impressions);
         return res.json({
           client: { id: client.id, slug: client.slug, name: client.name, currency: client.currency },
-          since, until,
+          since: periodSince ?? since,
+          until: periodUntil ?? until,
           source: "demographics",
           age: pick("age"),
           gender: pick("gender"),
@@ -1890,9 +1911,9 @@ export function adsRoutes(db: Db): Router {
         });
       }
 
-      // We don't have a dedicated demographics table; aggregate from
-      // ads_insights.raw where Meta sometimes stores age/gender breakdowns.
-      // This returns empty arrays when nothing matches — the UI handles it.
+      // Legacy fallback for clients whose demographics snapshot hasn't synced
+      // yet: aggregate from ads_insights.raw where Meta sometimes stores
+      // age/gender breakdowns. Returns empty arrays when nothing matches.
       const rows = await db
         .select({
           raw: adsInsights.raw,
@@ -2624,34 +2645,50 @@ export function adsRoutes(db: Db): Router {
   // real child issues via issues.parentId, not text-matched).
   router.get("/growth/overview", async (_req, res) => {
     try {
-      const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+      const since30 = defaultSince();
       const since56 = new Date(Date.now() - 56 * 86_400_000);
 
-      const [activeClientsRow] = await db.select({ n: sql<number>`count(*)::int` })
-        .from(clients).where(eq(clients.status, "active"));
-
-      const spendRows = await db
-        .select({
+      // Independent reads — run concurrently (5 round-trips → 1).
+      const [
+        [activeClientsRow],
+        currencyRows,
+        spendRows,
+        createdRows,
+        doneRows,
+        roundtables,
+      ] = await Promise.all([
+        db.select({ n: sql<number>`count(*)::int` }).from(clients).where(eq(clients.status, "active")),
+        db.selectDistinct({ currency: clients.currency }).from(clients).where(eq(clients.status, "active")),
+        db.select({
           date: adsInsights.date,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-        })
-        .from(adsInsights)
-        .where(gte(adsInsights.date, since30))
-        .groupBy(adsInsights.date)
-        .orderBy(adsInsights.date);
+        }).from(adsInsights).where(gte(adsInsights.date, since30)).groupBy(adsInsights.date).orderBy(adsInsights.date),
+        db.select({
+          week: sql<string>`to_char(date_trunc('week', ${issues.createdAt}), 'YYYY-MM-DD')`,
+          n: sql<number>`count(*)::int`,
+        }).from(issues).where(gte(issues.createdAt, since56)).groupBy(sql`1`).orderBy(sql`1`),
+        db.select({
+          week: sql<string>`to_char(date_trunc('week', ${issues.updatedAt}), 'YYYY-MM-DD')`,
+          n: sql<number>`count(*)::int`,
+        }).from(issues).where(and(eq(issues.status, "done"), gte(issues.updatedAt, since56))).groupBy(sql`1`).orderBy(sql`1`),
+        db.select({
+          id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, createdAt: issues.createdAt,
+        }).from(issues).where(sql`${issues.title} ilike '[MESA REDONDA]%'`).orderBy(desc(issues.createdAt)).limit(12),
+      ]);
+
+      // Current week's Monday (UTC) — matches Postgres date_trunc('week') bucket
+      // keys (Monday-start), so "this week" lines up with a real bucket instead
+      // of guessing with the last populated one (which could be a quiet week ago).
+      const nowUtc = new Date();
+      const dow = nowUtc.getUTCDay(); // 0=Sun..6=Sat
+      const monday = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate() + (dow === 0 ? -6 : 1 - dow)));
+      const currentWeek = monday.toISOString().slice(0, 10);
+
       const spendTrend = spendRows.map((r) => ({ date: String(r.date), spend: Number(r.spend), leads: Number(r.leads) }));
       const spend30d = spendTrend.reduce((a, r) => a + r.spend, 0);
       const leads30d = spendTrend.reduce((a, r) => a + r.leads, 0);
 
-      const createdRows = await db.select({
-        week: sql<string>`to_char(date_trunc('week', ${issues.createdAt}), 'YYYY-MM-DD')`,
-        n: sql<number>`count(*)::int`,
-      }).from(issues).where(gte(issues.createdAt, since56)).groupBy(sql`1`).orderBy(sql`1`);
-      const doneRows = await db.select({
-        week: sql<string>`to_char(date_trunc('week', ${issues.updatedAt}), 'YYYY-MM-DD')`,
-        n: sql<number>`count(*)::int`,
-      }).from(issues).where(and(eq(issues.status, "done"), gte(issues.updatedAt, since56))).groupBy(sql`1`).orderBy(sql`1`);
       const weekMap = new Map<string, { week: string; created: number; done: number }>();
       for (const r of createdRows) weekMap.set(r.week, { week: r.week, created: Number(r.n), done: 0 });
       for (const r of doneRows) {
@@ -2660,10 +2697,11 @@ export function adsRoutes(db: Db): Router {
         else weekMap.set(r.week, { week: r.week, created: 0, done: Number(r.n) });
       }
       const issuesThroughput = [...weekMap.values()].sort((a, b) => a.week.localeCompare(b.week));
-
-      const roundtables = await db.select({
-        id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, createdAt: issues.createdAt,
-      }).from(issues).where(sql`${issues.title} ilike '[MESA REDONDA]%'`).orderBy(desc(issues.createdAt)).limit(12);
+      // Spend is summed across clients; it's only a meaningful single number if
+      // they all bill in one currency. Report that currency (or null if mixed)
+      // so the UI doesn't mislabel e.g. ARS totals as USD.
+      const currencies = currencyRows.map((r) => r.currency).filter(Boolean);
+      const spendCurrency = currencies.length === 1 ? currencies[0] : null;
 
       const roundtableIds = roundtables.map((r) => r.id);
       const proposalRows = roundtableIds.length ? await db.select({
@@ -2681,7 +2719,8 @@ export function adsRoutes(db: Db): Router {
           activeClients: Number(activeClientsRow?.n ?? 0),
           spend30d,
           leads30d,
-          issuesDoneThisWeek: issuesThroughput.at(-1)?.done ?? 0,
+          spendCurrency,
+          issuesDoneThisWeek: weekMap.get(currentWeek)?.done ?? 0,
         },
         spendTrend,
         issuesThroughput,

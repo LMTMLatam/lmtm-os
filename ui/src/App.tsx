@@ -306,6 +306,12 @@ export function App() {
             <Route path="plugins/:pluginId" element={<PluginSettings />} />
             <Route path="adapters" element={<AdapterManager />} />
           </Route>
+          {/* Unprefixed → company-prefixed redirects. INVARIANT: every top-level
+              board page in boardRoutes() that a link or the Sidebar can point at
+              without a company prefix must have a matching entry here, or it
+              falls through to the ":companyPrefix" catch-all below and renders
+              "Company not found" (the segment gets read as a company prefix).
+              When you add a board page, add it here AND in the Sidebar. */}
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />

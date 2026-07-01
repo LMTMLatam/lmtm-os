@@ -38,6 +38,15 @@ export async function getClientBrain(db: Db, clientId: string) {
     .orderBy(desc(clientMemory.pinned), desc(clientMemory.updatedAt)).limit(100);
 }
 
+/** True if the client already has a memory entry with this key. Use for
+ *  idempotency checks — reliable regardless of how large the brain is (scanning
+ *  the truncated getBrainContext string can miss the entry once the brain grows). */
+export async function hasMemory(db: Db, clientId: string, key: string): Promise<boolean> {
+  const [row] = await db.select({ id: clientMemory.id }).from(clientMemory)
+    .where(and(eq(clientMemory.clientId, clientId), eq(clientMemory.key, key))).limit(1);
+  return !!row;
+}
+
 /** Compact, prompt-ready context string from the client's brain (pinned first). */
 export async function getBrainContext(db: Db, clientId: string, maxChars = 2500): Promise<string> {
   const rows = await getClientBrain(db, clientId);

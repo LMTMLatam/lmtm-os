@@ -10,7 +10,7 @@ import type { Db } from "@paperclipai/db";
 import { competitors, contentIdeas, clients, videoReferences } from "@paperclipai/db";
 import { and, eq, gte } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
-import { getBrainContext, upsertMemory } from "./customer-brain.js";
+import { getBrainContext, upsertMemory, hasMemory } from "./customer-brain.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
 
 /** Formatted block of the client's curated video references (from the team's
@@ -389,9 +389,10 @@ async function readClientPostNames(db: Db, clientId: string): Promise<string[]> 
 export async function reviewClientContentOnce(db: Db, clientId: string): Promise<{ reviewed: boolean }> {
   const companyId = await resolveCompanyId(db, clientId);
   if (!companyId) return { reviewed: false };
-  // Idempotent: skip if we already reviewed this client.
-  const existingBrain = await getBrainContext(db, clientId, 6000).catch(() => "");
-  if (existingBrain.includes(CONTENT_REVIEW_KEY) || existingBrain.includes("Review de contenido")) return { reviewed: false };
+  // Idempotent: skip if we already reviewed this client. Check the memory table
+  // by key directly — scanning the truncated brain context missed the entry once
+  // a client's brain grew past the char cap, re-running the AI review every boot.
+  if (await hasMemory(db, clientId, CONTENT_REVIEW_KEY).catch(() => false)) return { reviewed: false };
 
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { reviewed: false };

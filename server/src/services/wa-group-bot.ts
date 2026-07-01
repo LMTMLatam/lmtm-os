@@ -826,7 +826,14 @@ export async function getWaPublicHealth() {
     },
     bot: {
       status: cachedStatus,
+      // Explicit signals for monitors — grepping the status string is fragile:
+      // a logged-out session waiting for a QR reports "connecting" (SCAN_QR), not
+      // "disconnected", so "connected" and "needsPairing" are the authoritative
+      // health signals the keepalive workflow reads.
+      connected: cachedStatus === "connected",
+      needsPairing: cachedStatus !== "connected" && !!cachedQr, // a human must scan a fresh QR
       connectedPhone: cachedPhone,
+      wasEverConnected,
       autoStartAttempts,
       lastAutoStartAt: lastAutoStartAt?.toISOString() ?? null,
       lastAutoStartError,

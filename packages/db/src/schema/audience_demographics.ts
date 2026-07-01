@@ -29,5 +29,5 @@ export const audienceDemographics = pgTable("audience_demographics", {
 }, (t) => ({
   clientIdx: index("audience_demographics_client_idx").on(t.clientId),
   companyIdx: index("audience_demographics_company_idx").on(t.companyId),
-  uniq: uniqueIndex("audience_demographics_uniq").on(t.clientId, t.dimension, t.dimKey),
+  uniq: uniqueIndex("audience_demographics_uniq").on(t.clientId, t.connectionId, t.dimension, t.dimKey),
 }));
