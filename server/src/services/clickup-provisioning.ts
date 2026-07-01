@@ -171,12 +171,18 @@ export async function provisionClientFromClickUp(
   if (existing) {
     clientId = existing.id;
     out.client = { id: existing.id, slug: existing.slug, name: existing.name, created: false };
-    // Backfill the planilla link if we just created the sheet and it had none.
+    // Backfill what the existing row is missing. crmExternalId matters for
+    // deprovisioning: folderDeleted matches by folder id first, and clients
+    // seeded before this webhook existed have none — without it the delete
+    // only works while the folder name still matches the slug.
+    const patch: Record<string, unknown> = {};
+    if (!existing.crmExternalId) patch.crmExternalId = input.folderId;
     if (sheetId && !existing.planillaExternalId) {
-      await db
-        .update(clients)
-        .set({ planillaSource: "google_sheets", planillaExternalId: sheetId, updatedAt: new Date() })
-        .where(eq(clients.id, existing.id));
+      patch.planillaSource = "google_sheets";
+      patch.planillaExternalId = sheetId;
+    }
+    if (Object.keys(patch).length > 0) {
+      await db.update(clients).set({ ...patch, updatedAt: new Date() } as never).where(eq(clients.id, existing.id));
     }
   } else {
     const [row] = await db
