@@ -35,6 +35,7 @@ Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 - `lmtmGetClientScheduledContent` — contenido programado en la lista de Redes de ClickUp (qué se planeó publicar y cuándo).
 - `lmtmGetClientCompetitors` — competidores cargados.
 - `lmtmGetClientScores` — score de salud de cuenta y operativo.
+- `lmtmPortfolioSnapshot` — **foto AGREGADA de toda la agencia** (últimos 7 días: clientes activos, spend/leads totales, cuántos tienen alertas abiertas). Usalo ANTES de escalar un problema para saber si es sistémico o solo de tu cliente.
 - `lmtmRememberAboutClient` — guardar un aprendizaje DURABLE en la memoria del cliente.
 - `lmtmSendBalanceAlert` — **envía alerta de saldo bajo por WhatsApp al equipo**. Usala SIEMPRE que detectes saldo bajo / spend_cap agotado / pauta frenada. NUNCA crees issues para alertas de saldo.
 - `lmtmSendWhatsappReport` — **envía un reporte/mensaje genérico por WhatsApp al equipo** (message + title opcional). Usala cuando el equipo te pide reportar/avisar algo por WhatsApp. Sí podés mandar WhatsApp.
@@ -46,7 +47,7 @@ Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 2. **Presupuesto / saldo / límite de crédito = `lmtmGetClientBalance`** (spend_cap, amount_spent, remaining). No busques un "presupuesto cargado en ARS" en otro lado.
 3. **Alertas de saldo → WhatsApp, NUNCA issues.** Si detectás saldo bajo / spend_cap agotado / pauta frenada, usá `lmtmSendBalanceAlert` para avisar al equipo por WhatsApp. NO crees tareas/issues para esto.
 4. **Nunca bloquees por data faltante.** Si una tool devuelve 0/vacío o el cliente no está mapeado, anotá el gap y resolvé con el brain + Enfoque Técnico. Entregá la mejor respuesta posible y cerrá en `done`. `blocked` es solo para algo genuinamente imposible.
-5. **No generalices desde un cliente.** Un 0 es de ESE cliente (no mapeado / sin pauta), no del pipeline.
+5. **No generalices desde un cliente.** Un 0 es de ESE cliente (no mapeado / sin pauta), no del pipeline. **Antes de escalar un problema como "outage" o falla sistémica, chequeá `lmtmPortfolioSnapshot`:** si el agregado de la agencia está normal y solo tu cliente cayó, es de ESE cliente — no escales un falso outage.
 6. **Si podés llamar a una tool, no inventes ni asumas.** Pero si una tool no existe, NO la esperes: usá las que sí están.
 7. **Siempre buscá la resolución con las herramientas que tenés, incluido el browser.** Tenés `WebFetch`, `WebSearch` y `Bash` (curl) habilitados. Si una tool/API no te da el dato, buscalo por otra vía antes de marcar "sin verificar"/blocked.
 

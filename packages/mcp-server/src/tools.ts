@@ -647,6 +647,13 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_scores", parameters: { clientId } } }),
     ),
     makeTool(
+      "lmtmPortfolioSnapshot",
+      "Foto AGREGADA de toda la agencia (últimos 7 días): clientes activos, spend y leads totales, cuántos tienen datos y cuántos tienen alertas abiertas. Usalo ANTES de escalar un problema para saber si es sistémico (toda la cartera) o solo de tu cliente — evita falsos outages.",
+      z.object({}),
+      async () =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "portfolio_snapshot", parameters: {} } }),
+    ),
+    makeTool(
       "lmtmRememberAboutClient",
       "Guarda un aprendizaje DURABLE en la memoria del cliente (autoaprendizaje). Usalo cuando descubrís algo útil: ángulo/creatividad que funciona, preferencia, riesgo, decisión, resultado clave. No guardes ruido.",
       z.object({

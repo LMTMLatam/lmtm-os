@@ -2632,6 +2632,13 @@ export function adsRoutes(db: Db): Router {
     res.json(await runGrowthRoundtable(db));
   });
 
+  // POST /growth/roundtable/followup — manual trigger for the monthly
+  // close-the-loop digest (normally fires on the 1st).
+  router.post("/growth/roundtable/followup", async (_req, res) => {
+    const { runRoundtableFollowup } = await import("../services/growth-roundtable.js");
+    res.json(await runRoundtableFollowup(db));
+  });
+
   // POST /ops/alerts/run — manual trigger for the ads-alert sweep (normally
   // runs every 6h). Flushes any alert stuck at "pending" (e.g. from a
   // WhatsApp gateway outage) without waiting for the next cycle.

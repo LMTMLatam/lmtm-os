@@ -109,9 +109,17 @@ export async function getScoreHistory(db: Db, clientId: string, limit = 30) {
 
 let scoreTimer: ReturnType<typeof setInterval> | null = null;
 
+// Score, then act on the result: fresh scores → retention watch so a falling
+// client is flagged the same cycle it drops.
+async function scoreAndWatch(db: Db): Promise<void> {
+  await runClientScores(db).catch((e) => console.warn("[scoring] run failed:", e));
+  const { runRetentionWatch } = await import("./retention-watch.js");
+  await runRetentionWatch(db).catch((e) => console.warn("[retention-watch] run failed:", e));
+}
+
 export function initAccountScoring(db: Db): void {
   if (scoreTimer) return;
-  setTimeout(() => { runClientScores(db).catch((e) => console.warn("[scoring] run failed:", e)); }, 7 * 60 * 1000);
-  scoreTimer = setInterval(() => { runClientScores(db).catch((e) => console.warn("[scoring] run failed:", e)); }, 12 * 3600 * 1000);
-  console.log("[account-scoring] scheduled scoring every 12h");
+  setTimeout(() => { void scoreAndWatch(db); }, 7 * 60 * 1000);
+  scoreTimer = setInterval(() => { void scoreAndWatch(db); }, 12 * 3600 * 1000);
+  console.log("[account-scoring] scheduled scoring + retention watch every 12h");
 }

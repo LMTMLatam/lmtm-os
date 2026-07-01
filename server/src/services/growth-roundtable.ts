@@ -14,8 +14,8 @@
 
 import type { Db } from "@paperclipai/db";
 import { agents, companies, issues } from "@paperclipai/db";
-import { and, eq, gte, ilike, ne } from "drizzle-orm";
-import { aiNarrative } from "./agency-ops.js";
+import { and, desc, eq, gte, ilike, inArray, ne } from "drizzle-orm";
+import { aiNarrative, alertsNumber, sendWhatsAppToNumber } from "./agency-ops.js";
 import { issueService } from "./issues.js";
 import { resolveTriageOwnerId } from "./client-tasks.js";
 import { heartbeatService } from "./heartbeat.js";
@@ -143,7 +143,57 @@ export async function runGrowthRoundtable(db: Db): Promise<{ created: boolean; i
   return { created: true, issueId };
 }
 
+/**
+ * Monthly close-the-loop digest: for the roundtables of the last ~5 weeks, tally
+ * their follow-up proposals (child issues) by status and WhatsApp the team what
+ * actually shipped vs what's stalled — so the roundtable is measured on outcomes,
+ * not just debate.
+ */
+export async function runRoundtableFollowup(db: Db): Promise<{ sent: boolean; roundtables: number; proposals: number }> {
+  const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
+  if (!company) return { sent: false, roundtables: 0, proposals: 0 };
+
+  const since = new Date(Date.now() - 35 * 86_400_000);
+  const rts = await db.select({ id: issues.id }).from(issues).where(and(
+    eq(issues.companyId, company.id),
+    ilike(issues.title, "[MESA REDONDA]%"),
+    ne(issues.status, "cancelled"),
+    gte(issues.createdAt, since),
+  )).orderBy(desc(issues.createdAt));
+  if (rts.length === 0) return { sent: false, roundtables: 0, proposals: 0 };
+
+  const proposals = await db.select({ status: issues.status })
+    .from(issues).where(inArray(issues.parentId, rts.map((r) => r.id)));
+
+  const done = proposals.filter((p) => p.status === "done").length;
+  const inProgress = proposals.filter((p) => p.status === "in_progress" || p.status === "in_review").length;
+  const open = proposals.filter((p) => p.status === "todo" || p.status === "backlog" || p.status === "blocked").length;
+  const cancelled = proposals.filter((p) => p.status === "cancelled").length;
+
+  const team = alertsNumber();
+  if (!team) return { sent: false, roundtables: rts.length, proposals: proposals.length };
+
+  const closing = proposals.length > 0 && done + inProgress === 0
+    ? "⚠️ Ninguna propuesta avanzó — las mesas están quedando en charla. Asignar y ejecutar."
+    : "_LMTM-OS · seguimiento automático de la mesa redonda_";
+  const body = [
+    "*Mesa redonda de growth — seguimiento (últimas 5 semanas)*",
+    "",
+    `${rts.length} mesa(s), ${proposals.length} propuesta(s):`,
+    `✅ Shippeadas: ${done}`,
+    `🔵 En curso: ${inProgress}`,
+    `⚪ Sin arrancar: ${open}`,
+    cancelled ? `✖️ Descartadas: ${cancelled}` : "",
+    "",
+    closing,
+  ].filter(Boolean).join("\n");
+
+  const res = await sendWhatsAppToNumber(team, body).catch(() => ({ ok: false }));
+  return { sent: !!res.ok, roundtables: rts.length, proposals: proposals.length };
+}
+
 let roundtableTimer: ReturnType<typeof setInterval> | null = null;
+let lastFollowupMonth = "";
 
 // Argentina is UTC-3 year-round (no DST), so derive the local day-of-week from a
 // fixed offset instead of getDay() — the server runs in UTC (Railway), where
@@ -157,14 +207,28 @@ export function initGrowthRoundtable(db: Db): void {
   if (roundtableTimer) return;
   const ROUNDTABLE_DOW = Number(process.env.LMTM_ROUNDTABLE_DOW ?? 1); // Monday, ART
   const tick = async () => {
-    if (argentinaDayOfWeek(new Date()) !== ROUNDTABLE_DOW) return;
-    // No in-memory week guard: runGrowthRoundtable's own DB idempotency check
-    // (a non-cancelled [MESA REDONDA] issue in the last 6 days) already handles
-    // duplicate ticks, restarts, and manual triggers — and, unlike a pre-set
-    // in-memory flag, it retries on the next tick if a run fails.
-    await runGrowthRoundtable(db)
-      .then((r) => console.log(`[growth-roundtable] created: ${r.created} (${r.issueId ?? "n/a"})`))
-      .catch((e) => console.warn("[growth-roundtable] failed:", e));
+    const now = new Date();
+    const art = new Date(now.getTime() - ART_OFFSET_MS);
+
+    // Weekly roundtable. No in-memory week guard: runGrowthRoundtable's own DB
+    // idempotency check (a non-cancelled [MESA REDONDA] issue in the last 6 days)
+    // already handles duplicate ticks, restarts, and manual triggers — and,
+    // unlike a pre-set in-memory flag, it retries on the next tick if a run fails.
+    if (argentinaDayOfWeek(now) === ROUNDTABLE_DOW) {
+      await runGrowthRoundtable(db)
+        .then((r) => console.log(`[growth-roundtable] created: ${r.created} (${r.issueId ?? "n/a"})`))
+        .catch((e) => console.warn("[growth-roundtable] failed:", e));
+    }
+
+    // Monthly close-the-loop digest on the 1st (ART). In-memory month guard;
+    // worst case a deploy on the 1st re-sends one WhatsApp — harmless.
+    const monthKey = `${art.getUTCFullYear()}-${art.getUTCMonth()}`;
+    if (art.getUTCDate() === 1 && monthKey !== lastFollowupMonth) {
+      lastFollowupMonth = monthKey;
+      await runRoundtableFollowup(db)
+        .then((r) => console.log(`[growth-roundtable] followup sent=${r.sent} (${r.roundtables} mesas, ${r.proposals} propuestas)`))
+        .catch((e) => console.warn("[growth-roundtable] followup failed:", e));
+    }
   };
   // Boot check a few minutes in (in case today is already the scheduled day
   // and the server restarted after it should have fired), then check every 3h.

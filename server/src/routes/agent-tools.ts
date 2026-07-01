@@ -16,12 +16,12 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings } from "@paperclipai/db";
-import { desc, eq, and, gte, or, inArray } from "drizzle-orm";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts } from "@paperclipai/db";
+import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { getBrainContext, upsertMemory, type MemoryKind } from "../services/customer-brain.js";
-import { aggInsights, sendWhatsAppToNumber, alertsNumber } from "../services/agency-ops.js";
+import { aggInsights, dayStr, sendWhatsAppToNumber, alertsNumber } from "../services/agency-ops.js";
 import { fetchAccountBalances } from "../services/balance-monitor.js";
 import { getRedesScheduledContent } from "../services/clickup-sync.js";
 import { createClientTask } from "../services/client-tasks.js";
@@ -142,6 +142,15 @@ const CORE_TOOLS: ToolDef[] = [
         properties: { clientId: { type: "string" } },
         required: ["clientId"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "portfolio_snapshot",
+      description:
+        "Foto AGREGADA de toda la agencia (últimos 7 días): clientes activos, spend y leads totales, cuántos clientes tienen datos y cuántos tienen alertas abiertas. Usalo ANTES de escalar un problema para distinguir si algo es SISTÉMICO (afecta a toda la cartera) o SOLO de tu cliente — así no escalás un falso outage.",
+      parameters: { type: "object", properties: {} },
     },
   },
   // ── Autoaprendizaje (escritura en la memoria del cliente) ─────────────────
@@ -793,6 +802,28 @@ export function agentToolsRoutes(
           .limit(1);
         if (!row) return reply(true, "(Sin scores calculados todavía para este cliente.)");
         return reply(true, JSON.stringify({ date: row.date, healthScore: row.healthScore, opsScore: row.opsScore }));
+      }
+
+      if (tool === "portfolio_snapshot") {
+        const since7 = dayStr(new Date(Date.now() - 7 * 86_400_000));
+        const [totals] = await db.select({
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}), 0)::int`,
+          clientsWithData: sql<number>`count(distinct ${adsInsights.clientId})::int`,
+        }).from(adsInsights).where(gte(adsInsights.date, since7));
+        const [active] = await db.select({ n: sql<number>`count(*)::int` })
+          .from(clients).where(eq(clients.status, "active"));
+        const [alerting] = await db.select({ n: sql<number>`count(distinct ${adsAlerts.clientId})::int` })
+          .from(adsAlerts).where(inArray(adsAlerts.status, ["pending", "acknowledged"]));
+        return reply(true, JSON.stringify({
+          windowDays: 7,
+          activeClients: Number(active?.n ?? 0),
+          clientsWithAdsData: Number(totals?.clientsWithData ?? 0),
+          totalSpend: Math.round(Number(totals?.spend ?? 0)),
+          totalLeads: Number(totals?.leads ?? 0),
+          clientsWithOpenAlerts: Number(alerting?.n ?? 0),
+          note: "Si tu cliente cayó pero el agregado está estable, el problema es de ESE cliente. Si cayó todo, es sistémico (verificá antes de escalar por cliente).",
+        }));
       }
 
       if (tool === "remember_about_client") {
