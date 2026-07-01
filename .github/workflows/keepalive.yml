@@ -1,23 +1,28 @@
 name: keepalive
 
-# Keep LMTM-OS and its self-hosted OpenWA (sidecar on port 8080) alive.
+# Keep LMTM-OS and its self-hosted OpenWA (sidecar on port 8080) alive, and
+# fail loudly (→ GitHub's default email to watchers) when the WhatsApp
+# session needs a human to re-scan the QR.
 # - pings /api/health on LMTM-OS every 5 minutes
 # - pings /api/wa-bot/public-health on LMTM-OS every 5 minutes
 # - if WA bot reports unhealthy, triggers /api/wa-bot/keepalive to force reconnect
+# - if STILL disconnected after the reconnect attempt, fails the job on purpose
+#   (silent auto-reconnect only works for a warm process; a session that was
+#   logged out needs someone to scan a fresh QR in the WhatsApp panel — this
+#   is the only channel left to say so once the session itself is down)
 # - on hard LMTM-OS failure, exits non-zero so the run is marked failed
 #
-# OpenWA is now a sidecar inside the LMTM-OS container (port 8080),
-# so the /api/wa-bot/public-health endpoint is the single source of
-# truth for both services' health.
-#
-# Schedule rationale: Render starter plan spins down idle services
-# after 15 min, so we keep LMTM-OS warm with a 5-min ping. Same for
-# WhatsApp watcher — the sidecar OpenWA stays alive as long as the
-# container is warm, but we ping every 5 min to make sure.
+# IMPORTANT: this targets the Railway production deployment. LMTM-OS migrated
+# off Render on 2026-06-22; Render is now suspended. Do not repoint this at
+# *.onrender.com again — pointing it at a suspended service makes every run
+# fail for an unrelated reason, which buries the real signal (see history:
+# this workflow silently failed on every run for days after the migration
+# because nobody updated the URL — turning the one automated safety net for
+# "WhatsApp needs reconnecting" into permanent, ignored noise).
 
 on:
   schedule:
-    # Every 5 minutes — keeps Render warm AND triggers reconnect
+    # Every 5 minutes — keeps LMTM-OS warm AND triggers reconnect
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
@@ -29,6 +34,9 @@ on:
 permissions:
   contents: read
 
+env:
+  LMTM_BASE_URL: https://lmtm-os-production.up.railway.app
+
 jobs:
   ping:
     name: LMTM-OS keepalive
@@ -38,10 +46,10 @@ jobs:
       - name: Ping LMTM-OS /api/health
         run: |
           set -e
-          echo "Pinging https://lmtm.onrender.com/api/health"
+          echo "Pinging $LMTM_BASE_URL/api/health"
           HTTP_CODE=$(curl -sS -o /tmp/lmtm-health.json -w "%{http_code}" \
             --max-time 30 \
-            "https://lmtm.onrender.com/api/health" || echo "000")
+            "$LMTM_BASE_URL/api/health" || echo "000")
           echo "HTTP $HTTP_CODE"
           cat /tmp/lmtm-health.json || true
           if [ "$HTTP_CODE" != "200" ]; then
@@ -53,10 +61,10 @@ jobs:
         id: wa_health
         continue-on-error: true
         run: |
-          echo "Pinging https://lmtm.onrender.com/api/wa-bot/public-health"
+          echo "Pinging $LMTM_BASE_URL/api/wa-bot/public-health"
           HTTP_CODE=$(curl -sS -o /tmp/wa-health.json -w "%{http_code}" \
             --max-time 30 \
-            "https://lmtm.onrender.com/api/wa-bot/public-health" || echo "000")
+            "$LMTM_BASE_URL/api/wa-bot/public-health" || echo "000")
           echo "HTTP $HTTP_CODE"
           cat /tmp/wa-health.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health.json || true
 
@@ -66,6 +74,9 @@ jobs:
           elif [ "$HTTP_CODE" = "200" ]; then
             if grep -q '"reachable":\s*false' /tmp/wa-health.json 2>/dev/null; then
               echo "::warning::OpenWA unreachable from LMTM-OS - will trigger keepalive"
+              echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
+            elif grep -q '"status":\s*"disconnected"' /tmp/wa-health.json 2>/dev/null; then
+              echo "::warning::WA bot session disconnected - will trigger keepalive"
               echo "needs_reconnect=true" >> "$GITHUB_OUTPUT"
             else
               echo "needs_reconnect=false" >> "$GITHUB_OUTPUT"
@@ -78,17 +89,23 @@ jobs:
           fi
 
       - name: Trigger keepalive if needed
+        id: reconnect
         if: steps.wa_health.outputs.needs_reconnect == 'true' || github.event.inputs.force_reconnect == 'true'
-        continue-on-error: true
         run: |
-          echo "POSTing https://lmtm.onrender.com/api/wa-bot/keepalive"
+          echo "POSTing $LMTM_BASE_URL/api/wa-bot/keepalive"
           HTTP_CODE=$(curl -sS -o /tmp/keepalive.json -w "%{http_code}" \
             -X POST --max-time 30 \
-            "https://lmtm.onrender.com/api/wa-bot/keepalive" || echo "000")
+            "$LMTM_BASE_URL/api/wa-bot/keepalive" || echo "000")
           echo "HTTP $HTTP_CODE"
           cat /tmp/keepalive.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/keepalive.json || true
 
           sleep 5
           echo "---"
-          echo "Re-checking /api/wa-bot/public-health"
-          curl -sS "https://lmtm.onrender.com/api/wa-bot/public-health" --max-time 30 | python3 -m json.tool 2>/dev/null || true
+          echo "Re-checking $LMTM_BASE_URL/api/wa-bot/public-health"
+          curl -sS "$LMTM_BASE_URL/api/wa-bot/public-health" --max-time 30 -o /tmp/wa-health-recheck.json || true
+          cat /tmp/wa-health-recheck.json 2>/dev/null | python3 -m json.tool 2>/dev/null || cat /tmp/wa-health-recheck.json || true
+
+          if grep -q '"status":\s*"disconnected"' /tmp/wa-health-recheck.json 2>/dev/null; then
+            echo "::error::WhatsApp session is still disconnected after a silent reconnect attempt. This means the session was logged out (not just a cold sidecar) and needs a HUMAN to open the WhatsApp panel and scan a fresh QR — it cannot self-heal. Open the panel's WhatsApp section and re-pair."
+            exit 1
+          fi
