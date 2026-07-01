@@ -71,6 +71,7 @@ const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
 function ClientResourcesPanel({ client }: { client: Client }) {
   const teamId = (client.metadata?.clickupTeamId as string | undefined) || "9013352440";
   const scriptId = client.metadata?.redesScriptId as string | undefined;
+  const produccionSheetId = client.metadata?.produccionSheetId as string | undefined;
   const cards: Array<{ title: string; subtitle: string; icon: typeof FolderKanban; url: string | null; color: string }> = [
     {
       title: "Carpeta ClickUp",
@@ -88,9 +89,9 @@ function ClientResourcesPanel({ client }: { client: Client }) {
     },
     {
       title: "Producción de video",
-      subtitle: "Lista de ClickUp",
+      subtitle: "Sheet de producción",
       icon: Clapperboard,
-      url: client.clickupListVideoId ? `https://app.clickup.com/${teamId}/v/li/${client.clickupListVideoId}` : null,
+      url: produccionSheetId ? `https://docs.google.com/spreadsheets/d/${produccionSheetId}/edit` : null,
       color: "text-amber-600 dark:text-amber-400",
     },
     {
