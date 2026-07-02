@@ -668,6 +668,27 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmRememberTeamLesson",
+      "Guarda una LECCIÓN DE EQUIPO (no de un cliente): limitación del sistema, patrón operativo, error que otros agentes no deberían repetir. Visible para TODOS. Ej: 'el guard de permisos no deja reasignar issues — pedirlo a un humano'.",
+      z.object({
+        area: z.string().min(1).describe("Área corta (ej. 'harness', 'escalation', 'clickup', 'meta', 'whatsapp')"),
+        lesson: z.string().min(1).describe("La lección, autocontenida (1-3 frases), útil para un colega que no vivió el problema"),
+      }),
+      async ({ area, lesson }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "remember_team_lesson", parameters: { area, lesson } },
+        }),
+    ),
+    makeTool(
+      "lmtmGetTeamLessons",
+      "Lecciones de equipo acumuladas (limitaciones del sistema, patrones operativos, errores conocidos). Consultalo ANTES de diagnosticar problemas del sistema, escalar outages, o reintentar algo que quizás otro agente ya descubrió que no funciona.",
+      z.object({ area: z.string().optional() }),
+      async ({ area }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_team_lessons", parameters: { ...(area ? { area } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmGetClientBalance",
       "Saldo REAL de las cuentas de Meta Ads del cliente: spend cap, gastado y lo que queda antes del tope. Para detectar cuentas por frenarse por falta de presupuesto.",
       z.object({ clientId: z.string().min(1) }),

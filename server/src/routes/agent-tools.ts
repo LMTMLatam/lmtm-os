@@ -16,7 +16,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings } from "@paperclipai/db";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
@@ -279,6 +279,31 @@ const CORE_TOOLS: ToolDef[] = [
         },
         required: ["clientId", "key", "content"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remember_team_lesson",
+      description:
+        "Guarda una LECCIÓN DE EQUIPO (no de un cliente puntual): limitaciones del sistema, patrones operativos, errores que otros agentes no deberían repetir. Ej: 'el guard de permisos no deja reasignar issues — pedirlo a un humano', 'antes de escalar un outage, chequear lmtmPortfolioSnapshot'. Visible para TODOS los agentes vía get_team_lessons.",
+      parameters: {
+        type: "object",
+        properties: {
+          area: { type: "string", description: "Área corta de la lección (ej. 'harness', 'escalation', 'clickup', 'meta', 'whatsapp')" },
+          lesson: { type: "string", description: "La lección, clara y autocontenida (1-3 frases). Debe servirle a un colega que no vivió el problema." },
+        },
+        required: ["area", "lesson"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_team_lessons",
+      description:
+        "Lee las lecciones de equipo acumuladas (limitaciones del sistema, patrones operativos, errores conocidos). Consultalo ANTES de diagnosticar problemas del sistema, escalar outages, o intentar operaciones que quizás otro agente ya descubrió que no funcionan.",
+      parameters: { type: "object", properties: { area: { type: "string", description: "Filtrar por área (opcional)" } } },
     },
   },
   // ── Saldo / presupuesto de la cuenta publicitaria ────────────────────────
@@ -835,6 +860,35 @@ export function agentToolsRoutes(
         const companyId = (await resolveCompanyId(db, clientId)) ?? ctx.companyId;
         await upsertMemory(db, { companyId, clientId, kind, key, content, source: `agent:${ctx.agentId}` });
         return reply(true, "Aprendizaje guardado en la memoria del cliente.");
+      }
+
+      // Team-level lessons live in `learnings` (scope "team"), NOT client_memory:
+      // its unique index treats NULL client_id as distinct, so a client-less
+      // memory row could never upsert. learnings' (scope, scopeKey, pattern) key
+      // works and the table already feeds reports/agents.
+      if (tool === "remember_team_lesson") {
+        const area = typeof params.area === "string" ? params.area.trim().toLowerCase().slice(0, 60) : "";
+        const lesson = typeof params.lesson === "string" ? params.lesson.trim().slice(0, 1200) : "";
+        if (!area || !lesson) return reply(false, "Faltan area o lesson.");
+        await db.insert(learnings).values({
+          companyId: ctx.companyId, scope: "team", scopeKey: area, pattern: lesson,
+          evidence: { agentId: ctx.agentId }, metricImpact: "team_ops",
+          confidence: "0.7", occurrences: 1, lastSeenAt: new Date(),
+        }).onConflictDoUpdate({
+          target: [learnings.scope, learnings.scopeKey, learnings.pattern],
+          set: { occurrences: sql`${learnings.occurrences} + 1`, lastSeenAt: new Date() },
+        });
+        return reply(true, "Lección de equipo guardada — visible para todos los agentes.");
+      }
+
+      if (tool === "get_team_lessons") {
+        const area = typeof params.area === "string" ? params.area.trim().toLowerCase() : "";
+        const conds = [eq(learnings.scope, "team")];
+        if (area) conds.push(eq(learnings.scopeKey, area));
+        const rows = await db.select({ area: learnings.scopeKey, lesson: learnings.pattern, occurrences: learnings.occurrences, lastSeenAt: learnings.lastSeenAt })
+          .from(learnings).where(and(...conds)).orderBy(desc(learnings.lastSeenAt)).limit(30);
+        if (rows.length === 0) return reply(true, "Sin lecciones de equipo registradas todavía.");
+        return reply(true, rows.map((r) => `[${r.area}] ${r.lesson} (visto ${r.occurrences}x)`).join("\n"));
       }
 
       // Plugin tool.
