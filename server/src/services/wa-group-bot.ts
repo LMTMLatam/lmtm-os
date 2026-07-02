@@ -1013,6 +1013,19 @@ export async function fetchGatewayGroups(): Promise<Array<{ id: string; name: st
   }
 }
 
+/** Update the WhatsApp profile display name (the "~name" contacts see next to
+ *  the number). One-shot admin action; requires a connected session. */
+export async function setWaProfileName(name: string): Promise<{ ok: boolean; error?: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, error: "name vacío" };
+  try {
+    await owPost(`/api/sessions/${sessionRef}/profile/name`, { name: trimmed });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /**
  * Full group list for the linking UI: merges ALL groups the account belongs to
  * (from the gateway) with the ones we've recorded messages for and any existing

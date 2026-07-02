@@ -395,4 +395,17 @@ app.post("/api/sessions/:id/messages/send-text", async (req, res) => {
   }
 });
 
+// Update the WhatsApp profile display name (the "~name" contacts see).
+app.post("/api/sessions/:id/profile/name", async (req, res) => {
+  const { name } = req.body || {};
+  if (!name || typeof name !== "string") return res.status(400).json({ error: "name required" });
+  if (!session.sock || session.status !== "CONNECTED") return res.status(409).json({ error: "not connected" });
+  try {
+    await session.sock.updateProfileName(name.slice(0, 25));
+    res.json({ data: { ok: true, name: name.slice(0, 25) } });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
 app.listen(PORT, () => log.info(`[wa-gateway] listening on ${PORT} (session=${SESSION_NAME}, dir=${SESSION_DIR})`));

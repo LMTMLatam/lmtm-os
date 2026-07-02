@@ -19,6 +19,7 @@ import {
   getWaPublicHealth,
   tickWaBotKeepalive,
   ensurePairingForUi,
+  setWaProfileName,
 } from "../services/wa-group-bot.js";
 import { execFileSync } from "node:child_process";
 import { unauthorized } from "../errors.js";
@@ -136,6 +137,13 @@ export function waBotRoutes(db: Db) {
     const logout = (req.body as { logout?: boolean } | null)?.logout === true;
     const result = await stopWaBot({ logout });
     res.json(result);
+  });
+
+  // Change the WhatsApp profile display name (the "~name" contacts see).
+  router.post("/profile/name", async (req, res) => {
+    const name = typeof (req.body as { name?: string } | null)?.name === "string" ? (req.body as { name: string }).name : "";
+    const result = await setWaProfileName(name);
+    res.status(result.ok ? 200 : 400).json(result);
   });
 
   router.post("/webhook", async (req, res) => {
