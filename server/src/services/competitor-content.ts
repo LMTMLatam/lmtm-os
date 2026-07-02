@@ -68,6 +68,22 @@ function parseIdeas(raw: string): GeneratedIdea[] {
   }
 }
 
+// Anti-hallucination guard for idea generation. Even with the client's real
+// location present in the brain context, the model has invented places (a
+// "¿Qué zona de Córdoba va con tu estilo de vida?" quiz for SKYGARDEN, a
+// Rosario real-estate firm). Two layers: a hard prompt rule, and the client's
+// operating location (clients.metadata.location) anchored on the Cliente line
+// where it's most salient.
+const GROUNDING_RULE =
+  "REGLA DURA: NUNCA inventes ubicaciones (ciudades, barrios, zonas), precios, nombres de proyectos ni datos del cliente. " +
+  "Usá SOLO lugares y datos que aparezcan explícitamente en el contexto del cliente. " +
+  "Si el contexto no dice dónde opera, NO nombres lugares específicos.";
+
+function clientLine(client: { name: string; industry: string | null; metadata: unknown }): string {
+  const location = ((client.metadata as Record<string, unknown> | null)?.location as string | undefined)?.trim();
+  return `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}${location ? ` — opera en: ${location} (cualquier referencia geográfica debe ser de acá)` : ""}`;
+}
+
 export async function generateContentPlan(db: Db, clientId: string): Promise<{ batchId: string; created: number; ideas: GeneratedIdea[] }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { batchId: "", created: 0, ideas: [] };
@@ -91,12 +107,13 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     '- "posteo": contenido orgánico para redes — idea de post/reel, copy y formato.',
     "Tené en cuenta el Enfoque Técnico del cliente, su memoria, y qué hace la competencia (diferenciate, no copies).",
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
+    GROUNDING_RULE,
     'Respondé SOLO con un array JSON: [{"kind":"pauta"|"posteo","format":"reel|carrusel|imagen|video|story|texto","title":"...","copy":"...","rationale":"por qué / en qué se diferencia de la competencia"}]',
     "Generá 5 ideas de pauta y 5 de posteo (10 en total).",
   ].join("\n");
 
   const user = [
-    `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}`,
+    clientLine(client),
     brain ? `\nContexto del cliente (Enfoque Técnico + memoria):\n${brain}` : "",
     `\nCompetencia:\n${compBlock}`,
     await videoRefsBlock(db, clientId),
@@ -304,11 +321,12 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     "Tené en cuenta el Enfoque Técnico del cliente, su memoria, su rubro/tono y qué hace la competencia (diferenciate, no copies).",
     "Clasificá el objetivo en COMERCIAL (vender/convertir), ENGAGMENT (interacción/comunidad) o CONCEPTO (marca/valores/educativo).",
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
+    GROUNDING_RULE,
     'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"reel|carrusel|post|story|clip corto|video","title":"la idea en una línea","copy":"desarrollo en 2-3 líneas: qué es, por qué encaja con la marca y cómo ejecutarla","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',
   ].join("\n");
   const vids = await videoRefsBlock(db, clientId);
   const user = [
-    `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}`,
+    clientLine(client),
     brain ? `\nContexto del cliente (Enfoque Técnico + memoria):\n${brain}` : "",
     `\nCompetencia:\n${compBlock}`,
     vids,
