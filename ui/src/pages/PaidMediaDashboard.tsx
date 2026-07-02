@@ -449,8 +449,34 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
     }
   };
 
+  const health = ads.accountHealth;
+  const accountHalted = health != null && health.status !== 1;
+  const accountBroke = health != null && health.status === 1 && health.remaining !== null && health.remaining <= 0;
+
   return (
     <div className="space-y-4">
+      {/* Account-health banner: an empty dashboard must EXPLAIN itself. When
+          Meta halted the account (debt/disabled) or the budget cap is spent,
+          zeros are reality — say so instead of looking broken. */}
+      {(accountHalted || accountBroke) && (
+        <Card className="p-4 border-rose-500/40 bg-rose-500/5">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">
+                {accountHalted
+                  ? `La cuenta de Meta está ${health!.statusLabel} — la pauta no entrega.`
+                  : "La cuenta de Meta agotó su presupuesto (spend cap) — la pauta no entrega."}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Por eso este período puede mostrar ceros: no es un error de datos.
+                {health!.remaining !== null && ` Saldo restante: ${health!.currency} ${Math.round(health!.remaining).toLocaleString("es-AR")}.`}
+                {" "}Se resuelve en el Administrador de Anuncios (pago/recarga). Chequeado {new Date(health!.checkedAt).toLocaleDateString("es-AR")}.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
       {/* Sticky toolbar: title + date range + actions */}
       <Card className="p-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">

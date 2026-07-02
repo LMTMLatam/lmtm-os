@@ -289,6 +289,15 @@ export interface ClientAdsAccount {
 
 export interface ClientAdsSummary {
   client: { id: string; slug: string; name: string };
+  /** Daily snapshot from the balance monitor: explains an empty dashboard
+   *  (account halted for debt, out of budget) instead of silent zeros. */
+  accountHealth: {
+    status: number;
+    statusLabel: string;
+    remaining: number | null;
+    currency: string;
+    checkedAt: string;
+  } | null;
   accounts: ClientAdsAccount[];
   campaigns: {
     total: number;

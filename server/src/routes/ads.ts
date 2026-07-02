@@ -1000,10 +1000,14 @@ export function adsRoutes(db: Db): Router {
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
       const clientCondition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
-      const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
+      const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name, metadata: clients.metadata })
         .from(clients).where(clientCondition);
       if (!client) return res.status(404).json({ error: "client not found" });
       debugInfo.step1_client = { id: client.id, name: client.name };
+      // Stamped daily by the balance monitor. Lets the dashboard explain an
+      // empty window (account halted for debt / out of budget) instead of
+      // showing unexplained zeros.
+      const accountHealth = (client.metadata as Record<string, unknown> | null)?.adsAccountHealth ?? null;
 
       // Linked ad accounts (the "what is this client connected to?" map)
       const mappings = await db.select().from(adsAccountMappings).where(eq(adsAccountMappings.clientId, client.id));
@@ -1140,6 +1144,7 @@ export function adsRoutes(db: Db): Router {
 
     res.json({
       client: { id: client.id, slug: client.slug, name: client.name },
+      accountHealth,
       accounts,
       campaigns,
       insights,

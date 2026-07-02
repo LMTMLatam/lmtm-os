@@ -107,9 +107,34 @@ const HALTED_STATUS: Record<number, string> = {
   7: "en revisión de riesgo de pago",
 };
 
+/** Persist each client's ad-account health snapshot in clients.metadata so the
+ *  dashboard can EXPLAIN an empty window ("frenada por deuda", "sin saldo")
+ *  instead of rendering an unexplained wall of zeros — the exact confusion
+ *  SRP caused: 223 active campaigns, empty dashboard, no visible reason. */
+async function stampAccountHealth(db: Db, balances: BalanceInfo[]): Promise<void> {
+  for (const b of balances) {
+    if (!b.clientId) continue;
+    try {
+      const [row] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, b.clientId)).limit(1);
+      const meta = { ...((row?.metadata as Record<string, unknown>) ?? {}) };
+      meta.adsAccountHealth = {
+        status: b.accountStatus,
+        statusLabel: HALTED_STATUS[b.accountStatus] ?? (b.accountStatus === 1 ? "activa" : `status ${b.accountStatus}`),
+        remaining: b.remaining,
+        currency: b.currency,
+        checkedAt: new Date().toISOString(),
+      };
+      await db.update(clients).set({ metadata: meta as never, updatedAt: new Date() }).where(eq(clients.id, b.clientId));
+    } catch (e) {
+      console.warn(`[balance-monitor] stamp health for client ${b.clientId} failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+}
+
 /** Check balances and WhatsApp the team a digest of accounts running low. */
 export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Promise<{ checked: number; low: BalanceInfo[]; pacing: BalanceInfo[]; halted: BalanceInfo[]; delivered: boolean }> {
   const all = await fetchAccountBalances(db, threshold);
+  await stampAccountHealth(db, all);
   const low = all.filter((b) => b.low);
   const halted = all.filter((b) => HALTED_STATUS[b.accountStatus] != null);
   // Pacing: healthy balance now, but at the current burn rate it runs out within
