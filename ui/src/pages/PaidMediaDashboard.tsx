@@ -1156,10 +1156,11 @@ function AudienciaSection({ audience, fmt }: any) {
 // ============================================================
 function LeadsSection({ funnel, fmt }: any) {
   if (!funnel) return <Skeleton className="h-64 w-full" />;
+  // No "Visitas a landing" stage: LMTM doesn't run landing-page campaigns, and
+  // the server value was an estimate (clicks*0.6), not a measured number.
   const stages = [
     { key: "impressions", label: "Impresiones", value: funnel.impressions, color: "bg-blue-500" },
     { key: "clicks", label: "Clics", value: funnel.clicks, color: "bg-violet-500" },
-    { key: "landingVisits", label: "Visitas a landing", value: funnel.landingVisits, color: "bg-amber-500" },
     { key: "leads", label: "Leads", value: funnel.leads, color: "bg-emerald-500" },
     { key: "conversions", label: "Ventas", value: funnel.conversions, color: "bg-rose-500" },
   ];

@@ -35,7 +35,6 @@ import type {
   NormalizedAdCreative,
   NormalizedInsight,
   NormalizedOrganicPost,
-  NormalizedPostMetric,
 } from "../types.js";
 import type { AdsConnection, AdsAccountMapping } from "@paperclipai/db";
 
@@ -413,10 +412,6 @@ export const googleAdsProvider: AdsProvider = {
     // Organic content (Google Business Profile posts) is a separate API
     // with different scopes; we don't ship it as part of Google Ads
     // sync. Return [] until the user explicitly adds GBP support.
-    return [];
-  },
-
-  async fetchPostMetrics(_connection, _post): Promise<NormalizedPostMetric[]> {
     return [];
   },
 

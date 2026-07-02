@@ -267,28 +267,27 @@ async function syncOrganic(db: Db, opts: SyncOptions): Promise<number> {
       raw: p.raw,
     })))
     .onConflictDoNothing({ target: organicPosts.id });
-  // Fetch per-post metrics for the most recent posts.
-  const recent = posts.slice(-20);
-  for (const post of recent) {
-    try {
-      const metrics = await provider.fetchPostMetrics(connection, post);
-      for (const m of metrics) {
-        await db.insert(organicPostInsights)
-          .values({
-            companyId: connection.companyId,
-            postId: post.id,
-            metric: m.metric,
-            value: m.value.toString(),
-            syncedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [organicPostInsights.postId, organicPostInsights.metric],
-            set: { value: m.value.toString(), syncedAt: new Date() },
-          });
-      }
-    } catch {
-      // Best-effort; a failed metrics fetch shouldn't fail the whole organic sync.
-    }
+  // Engagement metrics arrive inline with each post (fetched via the post
+  // object's own fields — Meta deprecated post-level /insights, which is why
+  // the old per-post fetch never populated organic_post_insights). No extra
+  // API calls, so every post gets its metrics, not just the last 20.
+  const rows = posts.flatMap((post) =>
+    (post.metrics ?? []).map((m) => ({
+      companyId: connection.companyId,
+      postId: post.id,
+      metric: m.metric,
+      value: m.value.toString(),
+      syncedAt: new Date(),
+    })),
+  );
+  for (const row of rows) {
+    await db.insert(organicPostInsights)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [organicPostInsights.postId, organicPostInsights.metric],
+        set: { value: row.value, syncedAt: new Date() },
+      })
+      .catch(() => { /* best-effort: one bad metric row must not fail the sync */ });
   }
   return posts.length;
 }

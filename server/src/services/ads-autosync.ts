@@ -9,7 +9,6 @@
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings } from "@paperclipai/db";
 import { adsAggregator } from "./ads/aggregator.js";
-import { syncPagePosts } from "./meta-sync.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -48,6 +47,13 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
       } catch (e) {
         console.warn(`[ads-autosync] audience ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
+      // Organic posts (FB + IG) with inline engagement. Best-effort: mappings
+      // without a pageId (or pages without access) must not fail the ad sync.
+      try {
+        records += await adsAggregator.syncOrganic(db, { ...base, jobName: "organic" });
+      } catch (e) {
+        console.warn(`[ads-autosync] organic ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
       ok++;
     } catch (e) {
       failed++;
@@ -59,18 +65,12 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
     await new Promise((r) => setTimeout(r, 1500));
   }
 
-  // Organic posts (FB + IG) have no other automatic trigger — the dashboard's
-  // on-mount sync was removed, and ads-autosync historically only pulled ad data.
-  // Run the (now rate-limit-resilient) organic sweep once per day too, so every
-  // client's "posteos" stay fresh instead of frozen at their last manual sync.
-  try {
-    const posts = await syncPagePosts(db);
-    records += posts.synced;
-    console.log(`[ads-autosync] organic posts: ${posts.synced} synced, ${posts.errors?.length ?? 0} page error(s)`);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[ads-autosync] organic posts sweep failed: ${msg}`);
-  }
+  // NOTE: the old syncPagePosts sweep (meta-sync.ts) was removed from this
+  // path: it wrote to meta_page_posts / meta_post_insights, tables that don't
+  // exist in prod — every page WITH posts errored, and the ~600 per-post
+  // insight calls burned Meta's app rate-limit budget for nothing. Organic now
+  // syncs per mapping above via adsAggregator.syncOrganic (organic_posts +
+  // organic_post_insights, the tables the dashboard actually reads).
 
   console.log(`[ads-autosync] done: ${ok} ok, ${failed} failed, ${records} records across ${mappings.length} mappings`);
   return { mappings: mappings.length, ok, failed, records, errors };

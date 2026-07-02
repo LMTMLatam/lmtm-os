@@ -28,7 +28,6 @@ import type {
   NormalizedAdCreative,
   NormalizedInsight,
   NormalizedOrganicPost,
-  NormalizedPostMetric,
 } from "../types.js";
 import type { AdsConnection, AdsAccountMapping } from "@paperclipai/db";
 
@@ -372,10 +371,6 @@ export const tiktokAdsProvider: AdsProvider = {
   },
 
   async syncOrganicPosts(_connection, _mapping, _since, _until): Promise<NormalizedOrganicPost[]> {
-    return [];
-  },
-
-  async fetchPostMetrics(_connection, _post): Promise<NormalizedPostMetric[]> {
     return [];
   },
 

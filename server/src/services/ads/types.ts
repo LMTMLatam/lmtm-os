@@ -84,6 +84,11 @@ export interface NormalizedOrganicPost {
   permalinkUrl?: string;
   createdTime?: Date;
   postType?: string;
+  /** Engagement fetched alongside the post (no extra API calls). Meta
+   *  deprecated post-level /insights impressions metrics, so engagement comes
+   *  from the post object's own fields (reactions/comments/shares on FB,
+   *  like_count/comments_count on IG). */
+  metrics?: NormalizedPostMetric[];
   raw: Record<string, unknown>;
 }
 
@@ -184,12 +189,6 @@ export interface AdsProvider {
    * Organic (Meta + LinkedIn). Returns [] for Google / TikTok.
    */
   syncOrganicPosts(connection: AdsConnection, mapping: AdsAccountMapping, since: Date, until: Date): Promise<NormalizedOrganicPost[]>;
-
-  /**
-   * Per-post metrics (impressions, reach, reactions, etc.). Called per
-   * post id after syncOrganicPosts.
-   */
-  fetchPostMetrics(connection: AdsConnection, post: NormalizedOrganicPost): Promise<NormalizedPostMetric[]>;
 
   /**
    * Light health check. Returns false (and a hint) if the token is

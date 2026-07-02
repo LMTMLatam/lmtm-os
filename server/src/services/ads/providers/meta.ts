@@ -15,7 +15,6 @@ import type {
   NormalizedAdCreative,
   NormalizedInsight,
   NormalizedOrganicPost,
-  NormalizedPostMetric,
 } from "../types.js";
 import type { AdsConnection, AdsAccountMapping } from "@paperclipai/db";
 
@@ -449,7 +448,11 @@ export const metaProvider: AdsProvider = {
     }>(
       `/${mapping.adAccountId}/insights`,
       {
-        level: "adset",
+        // level "ad" (not "adset"): at adset level Meta omits ad_id, which left
+        // every ads_insights row with ad_id NULL — the per-ad creatives view
+        // could never join metrics and rendered all zeros. Ad level still
+        // returns adset_id, so the included-adsets filter keeps working.
+        level: "ad",
         time_range: timeRange,
         time_increment: "1",
         fields: "campaign_id,campaign_name,adset_id,ad_id,date_start,impressions,clicks,spend,reach,ctr,cpc,cpm,actions",
@@ -494,14 +497,18 @@ export const metaProvider: AdsProvider = {
     for await (const batch of paginate<{
       id: string; message?: string; story?: string; full_picture?: string;
       permalink_url?: string; created_time?: string; type?: string;
+      shares?: { count?: number };
+      reactions?: { summary?: { total_count?: number } };
+      comments?: { summary?: { total_count?: number } };
     }>(
       `/${pageId}/posts`,
       {
         // `type` is deprecated in Graph API v3.3+ — omit it to avoid a 400.
-        // The DB still records `postType` as the message contains the post
-        // kind in `permalink_url` (photo/video/status), or we can infer it
-        // from the message text on the client side if needed.
-        fields: "id,message,story,full_picture,permalink_url,created_time",
+        // Engagement comes from the post object's own summary fields (no extra
+        // calls): Meta deprecated the post-level /insights impressions metrics,
+        // so the old per-post /insights fetch always 400'd and organic
+        // engagement stayed empty.
+        fields: "id,message,story,full_picture,permalink_url,created_time,shares,reactions.summary(true).limit(0),comments.summary(true).limit(0)",
         since: Math.floor(since.getTime() / 1000).toString(),
         until: Math.floor(until.getTime() / 1000).toString(),
       },
@@ -521,34 +528,71 @@ export const metaProvider: AdsProvider = {
           //   https://facebook.com/PktGlobal/photos/123 → "photo"
           //   https://facebook.com/PktGlobal/videos/123 → "video"
           postType: inferPostType(p.permalink_url, p.full_picture),
+          metrics: [
+            { metric: "post_reactions_by_type_total", value: p.reactions?.summary?.total_count ?? 0 },
+            { metric: "post_comments", value: p.comments?.summary?.total_count ?? 0 },
+            { metric: "post_shares", value: p.shares?.count ?? 0 },
+          ],
           raw: p as Record<string, unknown>,
         });
       }
     }
-    return out;
-  },
 
-  async fetchPostMetrics(connection, post): Promise<NormalizedPostMetric[]> {
-    const metrics = [
-      "post_impressions_unique",
-      "post_impressions",
-      "post_engaged_users",
-      "post_clicks",
-      "post_reactions_by_type_total",
-    ];
-    // Post-level insights also need the page-level access token.
-    const pageToken = await getPageAccessToken(connection.accessToken, post.pageId);
-    const r = await gGet<{ data?: Array<{ name: string; values?: Array<{ value: number }> }> }>(
-      `/${post.id}/insights`,
-      { metric: metrics.join(",") },
-      pageToken,
-    );
-    const result: NormalizedPostMetric[] = [];
-    for (const m of r.data ?? []) {
-      const value = m.values?.[0]?.value ?? 0;
-      result.push({ metric: m.name, value });
+    // Instagram organic media for the IG business account linked to this page.
+    // Most LMTM clients post primarily on Instagram, so a FB-only sweep left
+    // their "página orgánica" section nearly empty. IG media carries its
+    // engagement (like_count/comments_count) directly on the media object.
+    // Stored under the same FB pageId so the client→posts mapping resolves
+    // unchanged. Best-effort: a page without a linked IG business account (or
+    // missing instagram_basic permission) must not fail the FB sweep.
+    try {
+      const igRes = await gGet<{ instagram_business_account?: { id?: string } }>(
+        `/${pageId}`,
+        { fields: "instagram_business_account{id}" },
+        pageToken,
+      );
+      const igId = igRes.instagram_business_account?.id;
+      if (igId) {
+        for await (const media of paginate<{
+          id: string; caption?: string; permalink?: string; timestamp?: string;
+          media_type?: string; media_product_type?: string;
+          thumbnail_url?: string; media_url?: string;
+          like_count?: number; comments_count?: number;
+        }>(
+          `/${igId}/media`,
+          {
+            fields: "id,caption,permalink,timestamp,media_type,media_product_type,thumbnail_url,media_url,like_count,comments_count",
+            since: Math.floor(since.getTime() / 1000).toString(),
+            until: Math.floor(until.getTime() / 1000).toString(),
+          },
+          pageToken,
+        )) {
+          for (const m of media) {
+            out.push({
+              id: m.id,
+              pageId,
+              message: m.caption,
+              fullPicture: m.thumbnail_url ?? m.media_url,
+              permalinkUrl: m.permalink,
+              createdTime: m.timestamp ? new Date(m.timestamp) : undefined,
+              postType:
+                m.media_product_type === "REELS" ? "reel"
+                : m.media_type === "VIDEO" ? "video"
+                : m.media_type === "CAROUSEL_ALBUM" ? "carousel"
+                : "photo",
+              metrics: [
+                { metric: "post_reactions_by_type_total", value: m.like_count ?? 0 },
+                { metric: "post_comments", value: m.comments_count ?? 0 },
+              ],
+              raw: m as Record<string, unknown>,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[meta-organic] IG media for page ${pageId} failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-    return result;
+    return out;
   },
 
   async healthCheck(connection, mapping): Promise<{ ok: boolean; hint?: string }> {

@@ -97,10 +97,21 @@ export async function fetchAccountBalances(
   return out;
 }
 
+// Meta account_status values that mean "delivery is stopped and someone must
+// act": 2 = DISABLED, 3 = UNSETTLED (unpaid balance), 7 = PENDING_RISK_REVIEW.
+// Found the hard way: SRP had 223 ACTIVE campaigns and an empty dashboard for
+// days because the account sat in UNSETTLED and nothing alerted anyone.
+const HALTED_STATUS: Record<number, string> = {
+  2: "deshabilitada por Meta",
+  3: "frenada por deuda (pago pendiente)",
+  7: "en revisión de riesgo de pago",
+};
+
 /** Check balances and WhatsApp the team a digest of accounts running low. */
-export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Promise<{ checked: number; low: BalanceInfo[]; pacing: BalanceInfo[]; delivered: boolean }> {
+export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Promise<{ checked: number; low: BalanceInfo[]; pacing: BalanceInfo[]; halted: BalanceInfo[]; delivered: boolean }> {
   const all = await fetchAccountBalances(db, threshold);
   const low = all.filter((b) => b.low);
+  const halted = all.filter((b) => HALTED_STATUS[b.accountStatus] != null);
   // Pacing: healthy balance now, but at the current burn rate it runs out within
   // PACING_DAYS — a proactive heads-up BEFORE it becomes "low". Excludes accounts
   // already flagged low (that has its own alert).
@@ -109,6 +120,14 @@ export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Pr
   const team = alertsNumber();
   const fmt = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("es-AR")}`;
   const sections: string[] = [];
+  if (halted.length > 0) {
+    const lines = ["*🛑 Cuentas de Meta FRENADAS (no entregan pauta)*", ""];
+    for (const b of halted) {
+      lines.push(`• *${b.clientName}* (${b.account}): ${HALTED_STATUS[b.accountStatus]}.`);
+    }
+    lines.push("", "_El dashboard de estos clientes va a estar en cero hasta resolverlo en el Administrador de Anuncios._");
+    sections.push(lines.join("\n"));
+  }
   if (low.length > 0) {
     const lines = ["*⚠️ Saldo bajo en cuentas de Meta*", ""];
     for (const b of low) {
@@ -130,7 +149,7 @@ export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Pr
     const r = await sendWhatsAppToNumber(team, [...sections, "_LMTM-OS · monitor de saldo_"].join("\n\n"));
     delivered = r.ok;
   }
-  return { checked: all.length, low, pacing, delivered };
+  return { checked: all.length, low, pacing, halted, delivered };
 }
 
 let balanceTimer: ReturnType<typeof setInterval> | null = null;

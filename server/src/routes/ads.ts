@@ -1701,8 +1701,13 @@ export function adsRoutes(db: Db): Router {
         const sp = Number(m.spend);
         const ld = Number(m.leads);
         const raw: any = cr.raw ?? {};
-        const imageUrl: string | null = raw.image_url ?? raw.picture ?? raw.thumbnail_url ?? null;
-        const videoId: string | null = raw.video_id ?? null;
+        // The Meta sync stores the ad row with the creative NESTED (fields=
+        // "...,creative{thumbnail_url,image_url,...}") — the thumbnail lives at
+        // raw.creative.*, not at the top level, which is why every card
+        // rendered imageless. Keep the flat fallbacks for older rows.
+        const creative: any = raw.creative ?? {};
+        const imageUrl: string | null = creative.image_url ?? creative.thumbnail_url ?? raw.image_url ?? raw.picture ?? raw.thumbnail_url ?? null;
+        const videoId: string | null = creative.video_id ?? raw.video_id ?? null;
         return {
           id: cr.id,
           name: cr.name,
