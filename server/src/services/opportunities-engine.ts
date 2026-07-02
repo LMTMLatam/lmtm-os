@@ -28,7 +28,20 @@ export const OPPORTUNITY_AUTOCREATE_THRESHOLD = 70;
 
 interface Draft { kind: string; title: string; rationale: string; suggestedAction: string; priority: number; basis: Record<string, unknown> }
 
-export async function generateClientOpportunities(db: Db, clientId: string): Promise<{ created: number; materialized: number; opportunities: Draft[] }> {
+export async function generateClientOpportunities(
+  db: Db,
+  clientId: string,
+  opts: { nicheRep?: boolean } = {},
+): Promise<{ created: number; materialized: number; opportunities: Draft[] }> {
+  // Niche-derived suggestions ("Priorizar formato X", "Experimento: probar
+  // formato Y") are the SAME for every client in the niche. Materializing them
+  // per client flooded the board with dozens of identical issues, all routed
+  // to the Content agent. Only the niche's representative client (nicheRep,
+  // picked in runAllOpportunities) gets them at issue-creating priority; for
+  // everyone else they stay below OPPORTUNITY_AUTOCREATE_THRESHOLD — visible
+  // in the client's suggestions panel, but no issue. Direct calls (manual
+  // per-client run) default to representative behavior.
+  const isNicheRep = opts.nicheRep !== false;
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { created: 0, materialized: 0, opportunities: [] };
   const companyId = await resolveCompanyId(db, clientId);
@@ -50,7 +63,7 @@ export async function generateClientOpportunities(db: Db, clientId: string): Pro
     if (fmt) drafts.push({
       kind: "content", title: `Priorizar formato "${fmt}"`,
       rationale: formatLearning.pattern, suggestedAction: `Planificar la próxima tanda de contenido en formato "${fmt}".`,
-      priority: 80, basis: { learning: formatLearning.pattern },
+      priority: isNicheRep ? 80 : 65, basis: { learning: formatLearning.pattern },
     });
   }
 
@@ -90,7 +103,7 @@ export async function generateClientOpportunities(db: Db, clientId: string): Pro
       kind: "content", title: `Experimento: probar formato "${ev.format}"`,
       rationale: experiment.pattern,
       suggestedAction: `Producir 2-3 piezas en formato "${ev.format}" y comparar su desempeño contra el contenido habitual del cliente.`,
-      priority: 72, basis: { experiment: true, format: ev.format, sourceNiche: ev.sourceNiche ?? null },
+      priority: isNicheRep ? 72 : 60, basis: { experiment: true, format: ev.format, sourceNiche: ev.sourceNiche ?? null },
     });
   }
 
@@ -295,10 +308,19 @@ export async function listOpportunities(db: Db, clientId: string) {
 
 export async function runAllOpportunities(db: Db): Promise<{ clients: number; materialized: number }> {
   const rows = await activeClients(db);
+  // One representative per niche gets the niche-wide suggestions as real
+  // issues; the rest keep them as panel suggestions only. Deterministic pick
+  // (first by name) so the same client stays the representative across runs —
+  // otherwise the opportunity dedup wouldn't prevent per-run re-creation.
+  const repByNiche = new Map<string, string>();
+  for (const c of [...rows].sort((a, b) => a.name.localeCompare(b.name))) {
+    if (c.industry && !repByNiche.has(c.industry)) repByNiche.set(c.industry, c.id);
+  }
   let done = 0;
   let materialized = 0;
   for (const c of rows) {
-    const r = await generateClientOpportunities(db, c.id).catch(() => ({ created: 0, materialized: 0 }));
+    const nicheRep = c.industry != null && repByNiche.get(c.industry) === c.id;
+    const r = await generateClientOpportunities(db, c.id, { nicheRep }).catch(() => ({ created: 0, materialized: 0 }));
     if (r.created > 0) done += 1;
     materialized += r.materialized ?? 0;
   }
