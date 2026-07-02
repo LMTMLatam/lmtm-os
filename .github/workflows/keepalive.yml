@@ -79,25 +79,31 @@ jobs:
           # needs_reconnect when: 503, OpenWA unreachable, or the bot isn't
           # connected. `connected` defaults to true only on parse failure so an
           # older deploy without the field doesn't spam reconnects.
+          # NOTE: the heredoc body MUST stay indented at the step-script level.
+          # These lines sit inside a YAML block scalar (run: |) — at column 1
+          # they terminate the block and break the whole workflow file, which
+          # kills the cron schedule entirely (this exact mistake left the bot
+          # disconnected for 14h on 2026-07-02). GH strips the common
+          # indentation, so the shell still sees the delimiter at column 1.
           NEEDS=$(python3 - "$HTTP_CODE" <<'PY'
-import json, sys
-code = sys.argv[1]
-if code == "503":
-    print("true"); sys.exit()
-if code != "200":
-    print("false"); sys.exit()
-try:
-    h = json.load(open("/tmp/wa-health.json"))
-except Exception:
-    print("false"); sys.exit()
-openwa = h.get("openwa", {})
-bot = h.get("bot", {})
-if openwa.get("configured") and openwa.get("reachable") is False:
-    print("true"); sys.exit()
-# connected defaults True when the field is absent (older deploy) to avoid churn
-print("false" if bot.get("connected", True) else "true")
-PY
-)
+          import json, sys
+          code = sys.argv[1]
+          if code == "503":
+              print("true"); sys.exit()
+          if code != "200":
+              print("false"); sys.exit()
+          try:
+              h = json.load(open("/tmp/wa-health.json"))
+          except Exception:
+              print("false"); sys.exit()
+          openwa = h.get("openwa", {})
+          bot = h.get("bot", {})
+          if openwa.get("configured") and openwa.get("reachable") is False:
+              print("true"); sys.exit()
+          # connected defaults True when the field is absent (older deploy) to avoid churn
+          print("false" if bot.get("connected", True) else "true")
+          PY
+          )
           echo "needs_reconnect=$NEEDS" >> "$GITHUB_OUTPUT"
           [ "$NEEDS" = "true" ] && echo "::warning::WA bot not connected / OpenWA unreachable - will trigger keepalive" || true
 
@@ -122,20 +128,21 @@ PY
           # (needsPairing). A bot still "connecting" right after keepalive is an
           # automatic reconnect in progress — NOT a human-action state — so we
           # don't fail on it and spam false-positive emails.
+          # Same indentation rule as the heredoc above — never at column 1.
           RESULT=$(python3 - <<'PY'
-import json
-try:
-    bot = json.load(open("/tmp/wa-health-recheck.json")).get("bot", {})
-except Exception:
-    print("unknown"); raise SystemExit
-if bot.get("needsPairing"):
-    print("needs_pairing")
-elif bot.get("connected"):
-    print("connected")
-else:
-    print("reconnecting")
-PY
-)
+          import json
+          try:
+              bot = json.load(open("/tmp/wa-health-recheck.json")).get("bot", {})
+          except Exception:
+              print("unknown"); raise SystemExit
+          if bot.get("needsPairing"):
+              print("needs_pairing")
+          elif bot.get("connected"):
+              print("connected")
+          else:
+              print("reconnecting")
+          PY
+          )
           echo "post-reconnect state: $RESULT"
           if [ "$RESULT" = "needs_pairing" ]; then
             echo "::error::WhatsApp session is logged out and needs a HUMAN to open the WhatsApp panel and scan a fresh QR — it cannot self-heal. Open the panel's WhatsApp section and re-pair."
