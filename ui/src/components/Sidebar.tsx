@@ -20,6 +20,7 @@ import {
   Swords,
   TrendingUp,
   Layers,
+  ClipboardCheck,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
@@ -124,6 +125,7 @@ export function Sidebar() {
           <SidebarNavItem to="/finance" label="Finanzas" icon={Wallet} />
           <SidebarNavItem to="/growth" label="Growth" icon={TrendingUp} />
           <SidebarNavItem to="/niches" label="Nichos" icon={Layers} />
+          <SidebarNavItem to="/readiness" label="Readiness" icon={ClipboardCheck} />
           <SidebarNavItem to="/intelligence" label="Inteligencia" icon={Brain} />
           <SidebarNavItem to="/competitors" label="Competencia" icon={Swords} />
           <SidebarNavItem to="/whatsapp" label="WhatsApp" icon={MessageCircle} />

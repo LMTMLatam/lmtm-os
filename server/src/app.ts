@@ -264,6 +264,12 @@ export async function createApp(
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
   try { initAdsAutoSync(db); } catch (e) { console.warn("[ads-autosync] init failed:", e); }
+  // Content publication monitor: flags planned content that passed its date
+  // without being marked published (closes the idea→published last mile).
+  try {
+    const { initPublicationMonitor } = await import("./services/publication-monitor.js");
+    initPublicationMonitor(db);
+  } catch (e) { console.warn("[publication-monitor] init failed:", e); }
   // Low-balance alerts are now folded into the daily operational audit (one
   // report, not three). The standalone scheduler is left off so the team isn't
   // pinged twice; fetchAccountBalances/runBalanceCheck stay available for the

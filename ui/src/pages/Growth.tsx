@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { growthApi, type GrowthSpendPoint, type GrowthThroughputPoint } from "../api/growth";
+import { AgentEfficiencyCard } from "../components/AgentEfficiencyCard";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -124,6 +125,8 @@ export function Growth() {
             </div>
             <ThroughputChart points={data.issuesThroughput} />
           </Card>
+
+          <AgentEfficiencyCard />
 
           <div>
             <h2 className="font-medium flex items-center gap-2 mb-3"><Lightbulb className="h-4 w-4 text-amber-500" />Ideas de la mesa redonda semanal</h2>

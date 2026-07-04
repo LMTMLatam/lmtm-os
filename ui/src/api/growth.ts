@@ -43,6 +43,13 @@ export interface GrowthOverview {
   roundtables: GrowthRoundtable[];
 }
 
+export interface AgentEfficiency {
+  days: number;
+  totals: { total: number; realRuns: number; maintenanceRuns: number; failedRuns: number; maintenancePct: number; failedPct: number };
+  byAgent: Array<{ agent: string; real: number; maintenance: number; failed: number }>;
+}
+
 export const growthApi = {
   overview: () => api.get<GrowthOverview>("/growth/overview"),
+  agentEfficiency: () => api.get<AgentEfficiency>("/growth/agent-efficiency"),
 };

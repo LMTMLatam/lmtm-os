@@ -2841,6 +2841,114 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // GET /growth/readiness — onboarding/coverage matrix per active client. Makes
+  // the system's own gaps visible (which clients are "dark": no Meta mapping →
+  // empty dashboard, no rubro, no location, missing script/sheet) instead of
+  // discovering them by accident. Pure DB, fast.
+  router.get("/growth/readiness", async (_req, res) => {
+    try {
+      const rows = await db.select({
+        id: clients.id, slug: clients.slug, name: clients.name,
+        industry: clients.industry, metadata: clients.metadata,
+        planillaExternalId: clients.planillaExternalId,
+      }).from(clients).where(eq(clients.status, "active"));
+
+      const mappingRows = await db.select({ clientId: adsAccountMappings.clientId, adAccountId: adsAccountMappings.adAccountId, pageId: adsAccountMappings.pageId })
+        .from(adsAccountMappings);
+      const mapByClient = new Map<string, { adAccount: boolean; page: boolean }>();
+      for (const m of mappingRows) {
+        if (!m.clientId) continue;
+        const e = mapByClient.get(m.clientId) ?? { adAccount: false, page: false };
+        if (m.adAccountId) e.adAccount = true;
+        if (m.pageId) e.page = true;
+        mapByClient.set(m.clientId, e);
+      }
+      const brainRows = await db.select({ clientId: clientMemory.clientId }).from(clientMemory)
+        .where(inArray(clientMemory.kind, ["context", "fact"] as never));
+      const brainSet = new Set(brainRows.map((r) => r.clientId));
+
+      const clientsOut = rows.map((c) => {
+        const meta = (c.metadata as Record<string, unknown> | null) ?? {};
+        const map = mapByClient.get(c.id) ?? { adAccount: false, page: false };
+        const checks = {
+          metaAdAccount: map.adAccount,
+          metaPage: map.page,
+          rubro: c.industry != null,
+          location: typeof meta.location === "string" && !!meta.location,
+          sheetRedes: c.planillaExternalId != null,
+          scriptRedes: typeof meta.redesScriptId === "string",
+          sheetProduccion: typeof meta.produccionSheetId === "string",
+          brain: brainSet.has(c.id),
+        };
+        const missing = Object.entries(checks).filter(([, v]) => !v).map(([k]) => k);
+        // "Dark" = no ad account AND no page → dashboard fully empty, no data.
+        const dark = !checks.metaAdAccount && !checks.metaPage;
+        return { id: c.id, slug: c.slug, name: c.name, industry: c.industry, checks, missing, dark, readyPct: Math.round(((8 - missing.length) / 8) * 100) };
+      }).sort((a, b) => a.readyPct - b.readyPct);
+
+      const totals = { clients: clientsOut.length, dark: clientsOut.filter((c) => c.dark).length } as Record<string, number>;
+      for (const key of ["metaAdAccount", "metaPage", "rubro", "location", "sheetRedes", "scriptRedes", "sheetProduccion", "brain"]) {
+        totals[key] = clientsOut.filter((c) => (c.checks as Record<string, boolean>)[key]).length;
+      }
+      res.json({ totals, clients: clientsOut });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[growth readiness] failed", msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // GET /growth/agent-efficiency — split of agent runs between REAL client work
+  // and self-maintenance (recovery, productivity-review, liveness). Shows
+  // whether the maxTurns fix reduced the recovery cascade and where effort goes.
+  router.get("/growth/agent-efficiency", async (req, res) => {
+    try {
+      const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
+      const since = new Date(Date.now() - days * 86_400_000);
+      const MAINT_KINDS = ["stranded_issue_recovery", "issue_productivity_review", "stale_active_run_evaluation", "harness_liveness_escalation"];
+      const rows = await db.execute(sql`
+        select coalesce(a.name, 'sistema') as agent,
+               case when i.origin_kind = any(${MAINT_KINDS}) then 'maintenance' else 'real' end as bucket,
+               count(*)::int as runs,
+               count(*) filter (where r.status = 'failed')::int as failed
+        from heartbeat_runs r
+        left join issues i on i.id::text = r.context_snapshot->>'issueId'
+        left join agents a on a.id = r.agent_id
+        where r.started_at > ${since}
+        group by 1, 2
+      `);
+      const list = (rows as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? (rows as unknown as Array<Record<string, unknown>>);
+      let realRuns = 0, maintRuns = 0, failedRuns = 0;
+      const byAgent = new Map<string, { agent: string; real: number; maintenance: number; failed: number }>();
+      for (const r of list) {
+        const agent = String(r.agent);
+        const bucket = String(r.bucket);
+        const runs = Number(r.runs);
+        const failed = Number(r.failed);
+        const e = byAgent.get(agent) ?? { agent, real: 0, maintenance: 0, failed: 0 };
+        if (bucket === "maintenance") { e.maintenance += runs; maintRuns += runs; } else { e.real += runs; realRuns += runs; }
+        e.failed += failed; failedRuns += failed;
+        byAgent.set(agent, e);
+      }
+      const total = realRuns + maintRuns;
+      res.json({
+        days,
+        totals: { total, realRuns, maintenanceRuns: maintRuns, failedRuns, maintenancePct: total > 0 ? Math.round((maintRuns / total) * 100) : 0, failedPct: total > 0 ? Math.round((failedRuns / total) * 100) : 0 },
+        byAgent: [...byAgent.values()].sort((a, b) => (b.real + b.maintenance) - (a.real + a.maintenance)),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[agent-efficiency] failed", msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // POST /ops/publication/check — run the overdue-content check + WhatsApp now.
+  router.post("/ops/publication/check", async (_req, res) => {
+    const { runPublicationCheck } = await import("../services/publication-monitor.js");
+    res.json(await runPublicationCheck(db));
+  });
+
   // GET /clients/:id/content-ideas — latest generated ideas (optionally ?kind=).
   router.get("/clients/:id/content-ideas", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
