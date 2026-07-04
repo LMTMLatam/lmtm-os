@@ -16,7 +16,8 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables, issues, agents } from "@paperclipai/db";
+import { isNotNull, ne } from "drizzle-orm";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
@@ -346,6 +347,18 @@ const CORE_TOOLS: ToolDef[] = [
           approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente esta escritura en el issue" },
         },
         required: ["method", "path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_team_status",
+      description:
+        "Qué está haciendo AHORA el resto del equipo: issues en progreso o en review por agente (últimas 24h). Consultalo antes de arrancar un trabajo grande para no duplicar lo que otro colega ya está haciendo, o para saber a quién mencionar. Opcional 'clientId' para ver solo lo de un cliente.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string", description: "Filtrar por cliente (opcional)" } },
       },
     },
   },
@@ -1006,6 +1019,20 @@ export function agentToolsRoutes(
         if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
         if (!r.ok) return reply(false, r.error ?? `CRM error ${r.status}`);
         return reply(true, JSON.stringify(r.data).slice(0, 7000));
+      }
+
+      if (tool === "get_team_status") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const conds = [inArray(issues.status, ["in_progress", "in_review"] as never)];
+        if (clientId) conds.push(eq(issues.clientId, clientId));
+        const rows = await db.select({
+          identifier: issues.identifier, title: issues.title, status: issues.status,
+          agent: agents.name, updatedAt: issues.updatedAt, clientId: issues.clientId,
+        }).from(issues).leftJoin(agents, eq(agents.id, issues.assigneeAgentId))
+          .where(and(...conds)).orderBy(desc(issues.updatedAt)).limit(40);
+        if (rows.length === 0) return reply(true, "Nadie tiene issues en progreso/review ahora mismo.");
+        const lines = rows.map((r) => `${r.agent ?? "(sin asignar)"} — ${r.identifier ?? ""} [${r.status}]: ${(r.title ?? "").slice(0, 60)}`);
+        return reply(true, "Trabajo en curso del equipo:\n" + lines.join("\n"));
       }
 
       if (tool === "pause_ad_entity") {

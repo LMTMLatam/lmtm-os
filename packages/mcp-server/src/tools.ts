@@ -707,6 +707,15 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmGetTeamStatus",
+      "Qué está haciendo AHORA el resto del equipo: issues en progreso/review por agente (24h). Consultalo antes de arrancar un trabajo grande para no duplicar lo que otro ya hace, o para saber a quién mencionar. Opcional 'clientId'.",
+      z.object({ clientId: z.string().optional() }),
+      async ({ clientId }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_team_status", parameters: { ...(clientId ? { clientId } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmPauseAdEntity",
       "PAUSAR una campaña o adset de Meta de un cliente (única acción de escritura sobre pauta). Para gasto sin conversiones, CTR muy bajo o aviso quemando presupuesto. MUEVE plata: proponé en el issue con la justificación y esperá OK humano; recién con aprobación pasá approved=true. El server verifica que la entidad sea de ESE cliente. No hay reanudar/subir presupuesto/crear por acá.",
       z.object({

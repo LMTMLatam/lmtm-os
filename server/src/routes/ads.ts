@@ -2898,6 +2898,42 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // GET /growth/profitability — per-client agent cost (from cost_events joined
+  // through the issue's client) over 30d vs the client's monthly retainer, so
+  // the agency sees which clients cost more in agent time than they pay for.
+  // Margin only shown where a retainer is loaded (clients.monthly_retainer_cents).
+  router.get("/growth/profitability", async (_req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        select c.id, c.name, c.currency, c.monthly_retainer_cents as retainer_cents,
+               coalesce(sum(ce.cost_cents), 0)::bigint as agent_cost_cents,
+               count(distinct ce.id)::int as cost_events
+        from clients c
+        left join issues i on i.client_id = c.id
+        left join cost_events ce on ce.issue_id = i.id and ce.occurred_at >= now() - interval '30 days'
+        where c.status = 'active'
+        group by c.id, c.name, c.currency, c.monthly_retainer_cents
+        order by coalesce(sum(ce.cost_cents),0) desc
+      `);
+      const clients = (rows as unknown as { rows: Array<Record<string, unknown>> }).rows.map((r) => {
+        const retainer = Number(r.retainer_cents ?? 0) / 100;
+        const agentCost = Number(r.agent_cost_cents ?? 0) / 100;
+        return {
+          id: r.id, name: r.name, currency: r.currency,
+          retainer, agentCostUsd: agentCost,
+          margin: retainer > 0 ? retainer - agentCost : null,
+          costEvents: Number(r.cost_events ?? 0),
+        };
+      });
+      const anyRetainer = clients.some((c) => c.retainer > 0);
+      res.json({ clients, retainersLoaded: anyRetainer, note: anyRetainer ? null : "Cargá los retainers (clients.monthly_retainer_cents) para ver margen; por ahora solo se muestra el costo de agentes." });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[profitability] failed", msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
   // GET /growth/agent-efficiency — split of agent runs between REAL client work
   // and self-maintenance (recovery, productivity-review, liveness). Shows
   // whether the maxTurns fix reduced the recovery cascade and where effort goes.
