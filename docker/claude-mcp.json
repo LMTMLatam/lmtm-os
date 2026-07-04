@@ -17,6 +17,13 @@
       "type": "http",
       "url": "https://us2.make.com/mcp/u/9da30dee-be95-4797-a36a-d955ab765b75/stateless"
     },
+    "trends": {
+      "type": "http",
+      "url": "https://api.trendsmcp.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${TRENDS_MCP_API_KEY}"
+      }
+    },
     "google": {
       "command": "/usr/local/bin/node",
       "args": ["--conditions=production", "/app/packages/mcp-servers/google/dist/stdio.js"],
