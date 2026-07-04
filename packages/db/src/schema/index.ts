@@ -64,6 +64,7 @@ export { financeEvents } from "./finance_events.js";
 export { financeEntries } from "./finance_entries.js";
 export { audienceDemographics } from "./audience_demographics.js";
 export { videoReferences } from "./video_references.js";
+export { agentDeliverables } from "./agent_deliverables.js";
 export { approvals } from "./approvals.js";
 export { approvalComments } from "./approval_comments.js";
 export { activityLog } from "./activity_log.js";

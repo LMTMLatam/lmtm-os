@@ -16,7 +16,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables } from "@paperclipai/db";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
@@ -294,6 +294,40 @@ const CORE_TOOLS: ToolDef[] = [
           lesson: { type: "string", description: "La lección, clara y autocontenida (1-3 frases). Debe servirle a un colega que no vivió el problema." },
         },
         required: ["area", "lesson"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_deliverable",
+      description:
+        "Guardá un ENTREGABLE terminado como artefacto reutilizable (no un comentario): un copy final, un spec de campaña listo para lanzar, un reporte, una investigación o un plan. Queda ligado al issue y al cliente, buscable y reutilizable. Usalo cuando termines algo concreto, en vez de dejarlo enterrado en un comentario.",
+      parameters: {
+        type: "object",
+        properties: {
+          issueId: { type: "string", description: "ID o identificador del issue (ej. LMTM-7)" },
+          clientId: { type: "string", description: "ID del cliente (opcional)" },
+          kind: { type: "string", enum: ["copy", "campaign_spec", "report", "research", "plan", "other"], description: "Tipo de entregable" },
+          title: { type: "string", description: "Título corto del entregable" },
+          content: { type: "string", description: "El entregable completo en markdown, autocontenido" },
+          url: { type: "string", description: "Link relacionado (tarea ClickUp, Sheet, etc.) — opcional" },
+        },
+        required: ["kind", "title", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_deliverables",
+      description: "Lista los entregables guardados (por cliente o por issue), para reutilizar trabajo hecho en vez de rehacerlo.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "Filtrar por cliente (opcional)" },
+          issueId: { type: "string", description: "Filtrar por issue (opcional)" },
+        },
       },
     },
   },
@@ -891,6 +925,40 @@ export function agentToolsRoutes(
           set: { occurrences: sql`${learnings.occurrences} + 1`, lastSeenAt: new Date() },
         });
         return reply(true, "Lección de equipo guardada — visible para todos los agentes.");
+      }
+
+      if (tool === "save_deliverable") {
+        const kind = typeof params.kind === "string" ? params.kind : "other";
+        const title = typeof params.title === "string" ? params.title.slice(0, 200) : "";
+        const content = typeof params.content === "string" ? params.content : "";
+        if (!title.trim() || !content.trim()) return reply(false, "Faltan title o content.");
+        // Resolve optional issue (accepts id or LMTM-N identifier) and client.
+        let issueId: string | null = null;
+        if (typeof params.issueId === "string" && params.issueId) {
+          const iss = await issuesSvc.getById(params.issueId).catch(() => null);
+          issueId = iss ? String((iss as Record<string, unknown>).id) : null;
+        }
+        const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        const companyId = clientId ? ((await resolveCompanyId(db, clientId)) ?? ctx.companyId) : ctx.companyId;
+        const [row] = await db.insert(agentDeliverables).values({
+          companyId, issueId, clientId, agentId: ctx.agentId,
+          kind, title, content: content.slice(0, 20000),
+          url: typeof params.url === "string" ? params.url.slice(0, 500) : null,
+        }).returning({ id: agentDeliverables.id });
+        return reply(true, `Entregable guardado (${kind}): "${title}" [id ${row?.id ?? "?"}].`);
+      }
+
+      if (tool === "list_deliverables") {
+        const conds = [eq(agentDeliverables.companyId, ctx.companyId)];
+        if (typeof params.clientId === "string" && params.clientId) conds.push(eq(agentDeliverables.clientId, params.clientId));
+        if (typeof params.issueId === "string" && params.issueId) {
+          const iss = await issuesSvc.getById(params.issueId).catch(() => null);
+          if (iss) conds.push(eq(agentDeliverables.issueId, String((iss as Record<string, unknown>).id)));
+        }
+        const rows = await db.select({ id: agentDeliverables.id, kind: agentDeliverables.kind, title: agentDeliverables.title, url: agentDeliverables.url, createdAt: agentDeliverables.createdAt })
+          .from(agentDeliverables).where(and(...conds)).orderBy(desc(agentDeliverables.createdAt)).limit(30);
+        if (rows.length === 0) return reply(true, "Sin entregables guardados todavía.");
+        return reply(true, rows.map((r) => `[${r.kind}] ${r.title}${r.url ? ` — ${r.url}` : ""} (${r.createdAt.toISOString().slice(0, 10)}, id ${r.id})`).join("\n"));
       }
 
       if (tool === "get_niche_intel") {

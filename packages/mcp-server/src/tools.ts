@@ -668,6 +668,31 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmSaveDeliverable",
+      "Guardá un ENTREGABLE terminado (copy final, spec de campaña, reporte, investigación, plan) como artefacto reutilizable ligado al issue/cliente — no un comentario. Usalo cuando termines algo concreto.",
+      z.object({
+        kind: z.enum(["copy", "campaign_spec", "report", "research", "plan", "other"]),
+        title: z.string().min(1),
+        content: z.string().min(1).describe("El entregable completo en markdown, autocontenido"),
+        issueId: z.string().optional(),
+        clientId: z.string().optional(),
+        url: z.string().optional(),
+      }),
+      async ({ kind, title, content, issueId, clientId, url }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "save_deliverable", parameters: { kind, title, content, ...(issueId ? { issueId } : {}), ...(clientId ? { clientId } : {}), ...(url ? { url } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmListDeliverables",
+      "Lista entregables guardados (por cliente o issue) para reutilizar trabajo hecho en vez de rehacerlo.",
+      z.object({ clientId: z.string().optional(), issueId: z.string().optional() }),
+      async ({ clientId, issueId }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "list_deliverables", parameters: { ...(clientId ? { clientId } : {}), ...(issueId ? { issueId } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmGetNicheIntel",
       "Inteligencia del NICHO/rubro: benchmark CTR/CPL (promedio vs ideal), formato ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Para comparar a tu cliente contra pares y generalizar lo que mejor funciona. Sin 'niche' devuelve el resumen de todos los nichos.",
       z.object({ niche: z.string().optional() }),
