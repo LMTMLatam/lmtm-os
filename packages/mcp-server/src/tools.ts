@@ -693,6 +693,20 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmCrmRequest",
+      "Operar el CRM PROPIO de LMTM (FastAPI, crm.lmtmas.com) vía su API. El server maneja login/token; pasás method + path (relativo a /api) + body. GET y dry-runs libres; escrituras requieren OK humano (approved=true solo tras aprobación explícita en el issue); DELETE/envío de mensajes/cambios de plan/credenciales prohibidos. Leé la skill lmtm-crm-propio.",
+      z.object({
+        method: z.enum(["GET", "POST", "PUT"]),
+        path: z.string().min(1).describe("Path relativo a /api (ej. '/users/', '/pipeline/board')"),
+        body: z.record(z.unknown()).optional(),
+        approved: z.boolean().optional().describe("true SOLO si un humano ya aprobó la escritura"),
+      }),
+      async ({ method, path, body, approved }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "crm_request", parameters: { method, path, ...(body ? { body } : {}), ...(approved ? { approved } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmGetNicheIntel",
       "Inteligencia del NICHO/rubro: benchmark CTR/CPL (promedio vs ideal), formato ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Para comparar a tu cliente contra pares y generalizar lo que mejor funciona. Sin 'niche' devuelve el resumen de todos los nichos.",
       z.object({ niche: z.string().optional() }),

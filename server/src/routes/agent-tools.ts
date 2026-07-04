@@ -334,6 +334,24 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "crm_request",
+      description:
+        "Operar el CRM PROPIO de LMTM (app FastAPI en crm.lmtmas.com) vía su API. El servidor maneja login y token; vos pasás método + path (relativo a /api, ej. '/users/', '/admin/overview') + body. Reglas en código: los GET y dry-runs (test-chat, channels test) son libres; las escrituras (crear usuario/cliente, conectar canal, editar agente IA) requieren OK humano — proponé en el issue y recién con aprobación pasá approved=true; DELETE, envío de mensajes, cambios de plan/suscripción y credenciales están PROHIBIDOS. Leé la skill lmtm-crm-propio antes de operar.",
+      parameters: {
+        type: "object",
+        properties: {
+          method: { type: "string", enum: ["GET", "POST", "PUT"], description: "Método HTTP" },
+          path: { type: "string", description: "Path relativo a /api (ej. '/users/', '/pipeline/board', '/admin/companies')" },
+          body: { type: "object", description: "Body JSON para POST/PUT (opcional)" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente esta escritura en el issue" },
+        },
+        required: ["method", "path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_niche_intel",
       description:
         "Inteligencia del NICHO/rubro: benchmark de CTR/CPL (promedio vs ideal del mejor cuartil), formato de contenido ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Usalo para comparar a tu cliente contra sus pares, cruzar qué funciona en el nicho y generalizar lo que mejor rinde. Sin 'niche' devuelve el resumen de todos los nichos.",
@@ -959,6 +977,17 @@ export function agentToolsRoutes(
           .from(agentDeliverables).where(and(...conds)).orderBy(desc(agentDeliverables.createdAt)).limit(30);
         if (rows.length === 0) return reply(true, "Sin entregables guardados todavía.");
         return reply(true, rows.map((r) => `[${r.kind}] ${r.title}${r.url ? ` — ${r.url}` : ""} (${r.createdAt.toISOString().slice(0, 10)}, id ${r.id})`).join("\n"));
+      }
+
+      if (tool === "crm_request") {
+        const m = typeof params.method === "string" ? params.method : "GET";
+        const path = typeof params.path === "string" ? params.path : "";
+        if (!path) return reply(false, "Falta 'path'.");
+        const { crmRequest } = await import("../services/crm-client.js");
+        const r = await crmRequest(m, path, params.body, { approved: params.approved === true });
+        if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
+        if (!r.ok) return reply(false, r.error ?? `CRM error ${r.status}`);
+        return reply(true, JSON.stringify(r.data).slice(0, 7000));
       }
 
       if (tool === "get_niche_intel") {
