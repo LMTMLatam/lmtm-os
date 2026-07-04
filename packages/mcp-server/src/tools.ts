@@ -707,6 +707,20 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmPauseAdEntity",
+      "PAUSAR una campaña o adset de Meta de un cliente (única acción de escritura sobre pauta). Para gasto sin conversiones, CTR muy bajo o aviso quemando presupuesto. MUEVE plata: proponé en el issue con la justificación y esperá OK humano; recién con aprobación pasá approved=true. El server verifica que la entidad sea de ESE cliente. No hay reanudar/subir presupuesto/crear por acá.",
+      z.object({
+        clientId: z.string().min(1),
+        entityType: z.enum(["campaign", "adset"]),
+        entityId: z.string().min(1),
+        approved: z.boolean().optional().describe("true SOLO tras aprobación humana explícita en el issue"),
+      }),
+      async ({ clientId, entityType, entityId, approved }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "pause_ad_entity", parameters: { clientId, entityType, entityId, ...(approved ? { approved } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmGetNicheIntel",
       "Inteligencia del NICHO/rubro: benchmark CTR/CPL (promedio vs ideal), formato ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Para comparar a tu cliente contra pares y generalizar lo que mejor funciona. Sin 'niche' devuelve el resumen de todos los nichos.",
       z.object({ niche: z.string().optional() }),

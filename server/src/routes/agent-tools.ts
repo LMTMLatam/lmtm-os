@@ -352,6 +352,24 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "pause_ad_entity",
+      description:
+        "PAUSAR una campaña o conjunto de anuncios (adset) de Meta de un cliente — la única acción de escritura sobre pauta. Usala cuando detectes gasto sin conversiones, CTR muy bajo o un aviso quemando presupuesto. MUEVE plata real: proponé la pausa en el issue con la justificación (números concretos) y esperá OK humano; recién con aprobación pasá approved=true. El servidor verifica que la entidad sea de ESE cliente. NO existe reanudar/subir presupuesto/crear por esta vía (eso lo hace un humano).",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          entityType: { type: "string", enum: ["campaign", "adset"], description: "Tipo de entidad a pausar" },
+          entityId: { type: "string", description: "ID de la campaña o adset (tal cual aparece en la data de Meta)" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente esta pausa en el issue" },
+        },
+        required: ["clientId", "entityType", "entityId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_niche_intel",
       description:
         "Inteligencia del NICHO/rubro: benchmark de CTR/CPL (promedio vs ideal del mejor cuartil), formato de contenido ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Usalo para comparar a tu cliente contra sus pares, cruzar qué funciona en el nicho y generalizar lo que mejor rinde. Sin 'niche' devuelve el resumen de todos los nichos.",
@@ -988,6 +1006,18 @@ export function agentToolsRoutes(
         if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
         if (!r.ok) return reply(false, r.error ?? `CRM error ${r.status}`);
         return reply(true, JSON.stringify(r.data).slice(0, 7000));
+      }
+
+      if (tool === "pause_ad_entity") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const entityType = params.entityType === "adset" ? "adset" : "campaign";
+        const entityId = typeof params.entityId === "string" ? params.entityId : "";
+        if (!clientId || !entityId) return reply(false, "Faltan clientId o entityId.");
+        const { pauseAdEntity } = await import("../services/ads-actions.js");
+        const r = await pauseAdEntity(db, { clientId, entityType, entityId, agentId: ctx.agentId, approved: params.approved === true });
+        if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
+        if (!r.ok) return reply(false, r.error ?? "No se pudo pausar.");
+        return reply(true, `Pausado: ${r.entity?.type} "${r.entity?.name}" (${r.entity?.id}). Acción registrada.`);
       }
 
       if (tool === "get_niche_intel") {
