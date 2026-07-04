@@ -32,8 +32,11 @@ No pauses por ruido de un día: mirá una ventana razonable (7-14d) antes de pro
 ## Después de pausar
 
 - La acción queda registrada (ledger propuesta→resultado). Dejá un comentario en el issue:
-  qué pausaste, por qué, y qué esperás que mejore (ej. "el CPL de la campaña debería bajar al
-  reasignar ese presupuesto"). Así después se puede medir si sirvió.
+  qué pausaste, por qué, y qué esperás que mejore.
+- **A los 7 días el sistema MIDE solo si sirvió**: compara el CPL/CTR del cliente la semana
+  antes vs después de la pausa y escribe el veredicto (MEJORÓ / igual / EMPEORÓ) en el brain
+  del cliente (`lmtmGetClientBrain`, memoria `pausa-<id>`). Antes de proponer una pausa parecida
+  a una que ya hiciste, leé el brain: si una pausa anterior EMPEORÓ los números, no la repitas.
 - Si la pausa era para reasignar presupuesto a otra campaña, eso (subir presupuesto) es acción
   humana — dejalo como recomendación, no lo ejecutes.
 

@@ -2898,6 +2898,29 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // POST /ops/action-outcomes/run — force the pause-outcome evaluation now
+  // (normally daily). GET /growth/actions — the ledger with verdicts for the UI.
+  router.post("/ops/action-outcomes/run", async (_req, res) => {
+    const { evaluatePauseOutcomes } = await import("../services/action-outcomes.js");
+    res.json(await evaluatePauseOutcomes(db));
+  });
+  router.get("/growth/actions", async (_req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        select aa.kind, aa.entity_type, aa.entity_id, aa.detail, aa.outcome, aa.created_at,
+               c.name as client_name, a.name as agent_name
+        from agent_actions aa
+        left join clients c on c.id = aa.client_id
+        left join agents a on a.id = aa.agent_id
+        order by aa.created_at desc limit 100
+      `);
+      res.json({ actions: (rows as unknown as { rows: unknown[] }).rows });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
   // GET /growth/profitability — per-client agent cost (from cost_events joined
   // through the issue's client) over 30d vs the client's monthly retainer, so
   // the agency sees which clients cost more in agent time than they pay for.

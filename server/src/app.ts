@@ -324,6 +324,17 @@ export async function createApp(
         console.warn("[script-health] init failed:", e);
       }
     })();
+    // Outcome scorer: 7 days after each executed ad pause, measure whether the
+    // client's numbers actually improved and write the verdict to the brain —
+    // closing the propose→act→measure loop.
+    void (async () => {
+      try {
+        const { initActionOutcomes } = await import("./services/action-outcomes.js");
+        initActionOutcomes(db);
+      } catch (e) {
+        console.warn("[action-outcomes] init failed:", e);
+      }
+    })();
     // Anti-saturation safety net: reap zombie "running" runs that block the
     // global concurrency cap and freeze the queue.
     void (async () => {
