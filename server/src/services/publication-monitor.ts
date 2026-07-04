@@ -7,12 +7,28 @@
 // overdue-unpublished content so nothing silently slips.
 
 import type { Db } from "@paperclipai/db";
-import { clients } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
+import { clients, organicPosts, contentIdeas } from "@paperclipai/db";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { getRedesScheduledContent } from "./clickup-sync.js";
 import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
 
 const DAY = 86_400_000;
+
+/** Onboarding SLA: a client created ≥7 days ago that still has NO scheduled
+ *  content, no published organic post, and no generated idea is stalled — the
+ *  pipeline never started for them. Returns the stalled clients. */
+export async function findStalledOnboarding(db: Db): Promise<Array<{ name: string; ageDays: number }>> {
+  const cutoff = new Date(Date.now() - 7 * DAY);
+  const rows = await db.select({
+    id: clients.id, name: clients.name, createdAt: clients.createdAt,
+    posts: sql<number>`(select count(*) from ${organicPosts} p where p.client_id = ${clients.id})`,
+    ideas: sql<number>`(select count(*) from ${contentIdeas} ci where ci.client_id = ${clients.id})`,
+  }).from(clients).where(and(eq(clients.status, "active"), sql`${clients.createdAt} < ${cutoff}`));
+  return rows
+    .filter((r) => Number(r.posts) === 0 && Number(r.ideas) === 0)
+    .map((r) => ({ name: r.name, ageDays: Math.floor((Date.now() - new Date(r.createdAt).getTime()) / DAY) }))
+    .sort((a, b) => b.ageDays - a.ageDays);
+}
 
 export interface OverdueItem {
   clientName: string;
@@ -25,7 +41,7 @@ export interface OverdueItem {
 /** Find planned content whose date passed but isn't marked published, and
  *  WhatsApp the team a digest. Window: last 7 days (fresh misses only — older
  *  than a week is history, not actionable). */
-export async function runPublicationCheck(db: Db): Promise<{ clients: number; overdue: OverdueItem[]; delivered: boolean }> {
+export async function runPublicationCheck(db: Db): Promise<{ clients: number; overdue: OverdueItem[]; stalledOnboarding: number; delivered: boolean }> {
   const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active"));
   const now = Date.now();
   const overdue: OverdueItem[] = [];
@@ -70,7 +86,19 @@ export async function runPublicationCheck(db: Db): Promise<{ clients: number; ov
     const r = await sendWhatsAppToNumber(team, lines.join("\n"));
     delivered = r.ok;
   }
-  return { clients: rows.length, overdue: actionable, delivered };
+
+  // Onboarding SLA: same daily pass, appended as its own section so a client
+  // whose pipeline never started doesn't sit silent for weeks (SRP, the
+  // dark clients). Only alerts when there's something to say.
+  const stalled = await findStalledOnboarding(db).catch(() => []);
+  if (team && stalled.length > 0) {
+    const lines = ["*🐢 Clientes sin arrancar (>7 días, sin contenido)*", ""];
+    for (const s of stalled.slice(0, 15)) lines.push(`• *${s.name}* — ${s.ageDays}d sin ideas ni posteos`);
+    lines.push("", "_Revisar onboarding: mapear Meta, cargar brain, arrancar el pipeline de contenido._");
+    await sendWhatsAppToNumber(team, lines.join("\n")).catch(() => {});
+  }
+
+  return { clients: rows.length, overdue: actionable, stalledOnboarding: stalled.length, delivered };
 }
 
 let pubTimer: ReturnType<typeof setInterval> | null = null;

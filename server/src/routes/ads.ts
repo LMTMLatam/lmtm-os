@@ -2949,6 +2949,22 @@ export function adsRoutes(db: Db): Router {
     res.json(await runPublicationCheck(db));
   });
 
+  // GET /growth/niches/:niche/sales-kit — commercial one-pager for prospecting
+  // a new client in a niche where LMTM already delivers, grounded in real
+  // benchmarks. Under the /growth auth boundary.
+  router.get("/growth/niches/:niche/sales-kit", async (req, res) => {
+    try {
+      const { generateSalesKit } = await import("../services/sales-kit.js");
+      const kit = await generateSalesKit(db, req.params.niche);
+      if (!kit) return res.status(404).json({ error: "niche sin clientes activos" });
+      res.json(kit);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[sales-kit] failed", msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
   // GET /clients/:id/content-ideas — latest generated ideas (optionally ?kind=).
   router.get("/clients/:id/content-ideas", async (req, res) => {
     const row = await resolveClient(req.params.id, db);

@@ -11,6 +11,14 @@ export interface NicheIntel {
   competitors: Array<{ name: string; clientName: string }>;
 }
 
+export interface SalesKit {
+  niche: string;
+  clientCount: number;
+  winningFormat: string | null;
+  onePager: string;
+}
+
 export const nichesApi = {
   list: () => api.get<{ niches: NicheIntel[] }>("/growth/niches"),
+  salesKit: (niche: string) => api.get<SalesKit>(`/growth/niches/${encodeURIComponent(niche)}/sales-kit`),
 };

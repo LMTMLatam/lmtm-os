@@ -6,21 +6,26 @@
 // Reads the same learning-engine output the agents consume via
 // lmtmGetNicheIntel — one source of truth for humans and agents.
 
-import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { nichesApi, type NicheIntel } from "../api/niches";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, Target, Trophy, FlaskConical, Swords, FileText } from "lucide-react";
+import { Layers, Target, Trophy, FlaskConical, Swords, FileText, Briefcase, Loader2, X } from "lucide-react";
 
 function fmtMoney(n: number): string {
   return `$${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(n)}`;
 }
 
 function NicheCard({ n }: { n: NicheIntel }) {
+  const [kit, setKit] = useState<string | null>(null);
+  const gen = useMutation({
+    mutationFn: () => nichesApi.salesKit(n.niche),
+    onSuccess: (d) => setKit(d.onePager),
+  });
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -28,11 +33,24 @@ function NicheCard({ n }: { n: NicheIntel }) {
         <Badge className="text-[10px] px-1.5 py-0 bg-violet-500/10 text-violet-700 dark:text-violet-300">
           {n.clients.length} cliente{n.clients.length === 1 ? "" : "s"}
         </Badge>
+        <button onClick={() => gen.mutate()} disabled={gen.isPending}
+          className="text-[11px] px-2 py-0.5 rounded-md border border-border hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1">
+          {gen.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Briefcase className="h-3 w-3" />}
+          Kit de venta
+        </button>
         <span className="text-xs text-muted-foreground ml-auto">
           30d: {fmtMoney(n.ads30d.spend)} · {n.ads30d.leads} leads · CTR {(n.ads30d.ctr * 100).toFixed(2)}%
           {n.ads30d.cpl != null && ` · CPL ${fmtMoney(n.ads30d.cpl)}`}
         </span>
       </div>
+
+      {kit && (
+        <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-3 relative">
+          <button onClick={() => setKit(null)} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+          <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-violet-500"><Briefcase className="h-3.5 w-3.5" />One-pager de venta — {n.niche}</div>
+          <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">{kit}</pre>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {n.clients.map((c) => (

@@ -227,6 +227,22 @@ function buildIdeaCustomFields(
 
 /** Create the generated ideas as tasks in the client's "Super Redes Sociales"
  * list, with the LMTM custom fields set. Deduped by task name. */
+// QA gate: keep generic/boilerplate ideas OUT of the client's ClickUp list.
+// The deterministic fallback (when the AI call fails or returns nothing) emits
+// titles like "Anuncio de oferta principal" / "Detrás de escena / proceso" —
+// useless to a content team and it pollutes their board. These stay in the
+// content_ideas DB (marked source=fallback) but never reach ClickUp.
+const BOILERPLATE_TITLE_RE = /anuncio de oferta principal|carrusel de diferenciadores vs competencia|detr[aá]s de escena \/ proceso|tips [uú]tiles del rubro/i;
+function looksBoilerplate(idea: GeneratedIdea): boolean {
+  if (BOILERPLATE_TITLE_RE.test(idea.title)) return true;
+  // A real idea has a concrete title and enough copy to act on.
+  if (idea.title.trim().length < 12) return true;
+  if ((idea.copy ?? "").trim().length < 25) return true;
+  // Placeholder language the fallback/AI leaves when it has nothing specific.
+  if (/completar con la oferta real|placa[s]? con los diferenciales|estructura base/i.test(idea.copy ?? "")) return true;
+  return false;
+}
+
 async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedIdea[]): Promise<void> {
   const token = process.env.CLICKUP_API_TOKEN?.trim();
   if (!token || ideas.length === 0) return;
@@ -235,6 +251,7 @@ async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedI
   if (!ctx) return;
 
   for (const idea of ideas) {
+    if (looksBoilerplate(idea)) continue; // QA gate — don't mirror generic ideas
     const name = idea.title.trim().slice(0, 250);
     if (!name || ctx.have.has(norm(name))) continue; // never duplicate an existing idea
     const customFields = buildIdeaCustomFields(ctx.resolver, idea);
