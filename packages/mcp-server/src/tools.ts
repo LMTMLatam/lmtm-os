@@ -668,6 +668,15 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmGetNicheIntel",
+      "Inteligencia del NICHO/rubro: benchmark CTR/CPL (promedio vs ideal), formato ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Para comparar a tu cliente contra pares y generalizar lo que mejor funciona. Sin 'niche' devuelve el resumen de todos los nichos.",
+      z.object({ niche: z.string().optional() }),
+      async ({ niche }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_niche_intel", parameters: { ...(niche ? { niche } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmRememberTeamLesson",
       "Guarda una LECCIÓN DE EQUIPO (no de un cliente): limitación del sistema, patrón operativo, error que otros agentes no deberían repetir. Visible para TODOS. Ej: 'el guard de permisos no deja reasignar issues — pedirlo a un humano'.",
       z.object({

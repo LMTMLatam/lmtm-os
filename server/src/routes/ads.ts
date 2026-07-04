@@ -31,8 +31,8 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, type AdsAccountMapping } from "@paperclipai/db";
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, learnings, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, type AdsAccountMapping } from "@paperclipai/db";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
@@ -2750,6 +2750,93 @@ export function adsRoutes(db: Db): Router {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[growth overview] failed", msg);
+      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
+    }
+  });
+
+  // GET /growth/niches — per-niche intelligence: aggregated ads performance,
+  // mined benchmark (avg vs best-quartile "ideal"), winning format, suggested
+  // cross-niche experiment, top content and the niche's competitor landscape.
+  // Same data the agents consume via get_niche_intel — one source of truth
+  // (the learning engine) for humans and agents.
+  router.get("/growth/niches", async (_req, res) => {
+    try {
+      const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+      const EXCLUDED = ["interno-test", "agencia-marketing"];
+
+      const clientRows = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
+        .from(clients).where(and(eq(clients.status, "active"), isNotNull(clients.industry)));
+      const byNiche = new Map<string, typeof clientRows>();
+      for (const c of clientRows) {
+        if (!c.industry || EXCLUDED.includes(c.industry)) continue;
+        const arr = byNiche.get(c.industry) ?? [];
+        arr.push(c);
+        byNiche.set(c.industry, arr);
+      }
+
+      const [aggRows, allLearnings, topContentRows, compRows] = await Promise.all([
+        db.select({
+          industry: clients.industry,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        }).from(adsInsights)
+          .innerJoin(clients, eq(adsInsights.clientId, clients.id))
+          .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry)))
+          .groupBy(clients.industry),
+        db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment"])),
+        db.select({
+          industry: clients.industry, clientName: clients.name,
+          title: contentPerformance.title, format: contentPerformance.format,
+          score: contentPerformance.score,
+        }).from(contentPerformance)
+          .innerJoin(clients, eq(contentPerformance.clientId, clients.id))
+          .where(and(eq(clients.status, "active"), isNotNull(clients.industry)))
+          .orderBy(desc(contentPerformance.score)).limit(200),
+        db.select({ industry: clients.industry, name: competitors.name, clientName: clients.name })
+          .from(competitors)
+          .innerJoin(clients, eq(competitors.clientId, clients.id))
+          .where(and(eq(clients.status, "active"), isNotNull(clients.industry))),
+      ]);
+
+      const aggByNiche = new Map(aggRows.map((r) => [r.industry!, r]));
+      const learningByNiche = (scope: string) =>
+        new Map(allLearnings.filter((l) => l.scope === scope).map((l) => [l.scopeKey ?? "", l]));
+      const benchmarks = learningByNiche("niche_benchmark");
+      const formats = learningByNiche("niche");
+      const experiments = learningByNiche("niche_experiment");
+
+      const niches = [...byNiche.entries()].map(([niche, members]) => {
+        const agg = aggByNiche.get(niche);
+        const imp = Number(agg?.impressions ?? 0);
+        const spend = Number(agg?.spend ?? 0);
+        const leads = Number(agg?.leads ?? 0);
+        const bench = benchmarks.get(niche);
+        const fmt = formats.get(niche);
+        const exp = experiments.get(niche);
+        return {
+          niche,
+          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name })),
+          ads30d: {
+            spend, leads,
+            ctr: imp > 0 ? Number(agg!.clicks) / imp : 0,
+            cpl: leads > 0 ? spend / leads : null,
+          },
+          benchmark: bench ? { pattern: bench.pattern, evidence: bench.evidence } : null,
+          winningFormat: fmt ? { pattern: fmt.pattern, evidence: fmt.evidence } : null,
+          experiment: exp ? { pattern: exp.pattern, evidence: exp.evidence } : null,
+          topContent: topContentRows.filter((t) => t.industry === niche).slice(0, 5)
+            .map((t) => ({ title: t.title, format: t.format, score: Number(t.score ?? 0), clientName: t.clientName })),
+          competitors: compRows.filter((c) => c.industry === niche).slice(0, 15)
+            .map((c) => ({ name: c.name, clientName: c.clientName })),
+        };
+      }).sort((a, b) => b.clients.length - a.clients.length);
+
+      res.json({ niches });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[growth niches] failed", msg);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
     }
   });

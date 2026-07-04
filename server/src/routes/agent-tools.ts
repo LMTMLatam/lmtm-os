@@ -16,7 +16,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance } from "@paperclipai/db";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
@@ -294,6 +294,18 @@ const CORE_TOOLS: ToolDef[] = [
           lesson: { type: "string", description: "La lección, clara y autocontenida (1-3 frases). Debe servirle a un colega que no vivió el problema." },
         },
         required: ["area", "lesson"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_niche_intel",
+      description:
+        "Inteligencia del NICHO/rubro: benchmark de CTR/CPL (promedio vs ideal del mejor cuartil), formato de contenido ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Usalo para comparar a tu cliente contra sus pares, cruzar qué funciona en el nicho y generalizar lo que mejor rinde. Sin 'niche' devuelve el resumen de todos los nichos.",
+      parameters: {
+        type: "object",
+        properties: { niche: { type: "string", description: "Rubro (ej. 'inmobiliaria', 'turismo-hoteleria', 'construccion-materiales'). Opcional." } },
       },
     },
   },
@@ -879,6 +891,37 @@ export function agentToolsRoutes(
           set: { occurrences: sql`${learnings.occurrences} + 1`, lastSeenAt: new Date() },
         });
         return reply(true, "Lección de equipo guardada — visible para todos los agentes.");
+      }
+
+      if (tool === "get_niche_intel") {
+        const niche = typeof params.niche === "string" ? params.niche.trim().toLowerCase() : "";
+        const scopes = ["niche", "niche_benchmark", "niche_experiment"];
+        const conds = [inArray(learnings.scope, scopes)];
+        if (niche) conds.push(eq(learnings.scopeKey, niche));
+        const rows = await db.select().from(learnings).where(and(...conds)).orderBy(learnings.scopeKey);
+        if (rows.length === 0) return reply(true, niche ? `Sin inteligencia minada para el nicho "${niche}" todavía (se mina cada 24h; necesita >=2 clientes con pauta).` : "Sin inteligencia de nichos minada todavía.");
+        const lines: string[] = [];
+        const label: Record<string, string> = { niche: "Formato ganador", niche_benchmark: "Benchmark", niche_experiment: "Experimento sugerido" };
+        for (const r of rows) lines.push(`[${r.scopeKey}] ${label[r.scope] ?? r.scope}: ${r.pattern}`);
+        if (niche) {
+          const top = await db.select({ title: contentPerformance.title, format: contentPerformance.format, score: contentPerformance.score, clientName: clients.name })
+            .from(contentPerformance)
+            .innerJoin(clients, eq(contentPerformance.clientId, clients.id))
+            .where(and(eq(clients.status, "active"), eq(clients.industry, niche)))
+            .orderBy(desc(contentPerformance.score)).limit(5);
+          if (top.length) {
+            lines.push("", "Mejor contenido del nicho:");
+            for (const t of top) lines.push(`- "${t.title ?? "(sin título)"}" (${t.format ?? "?"}, score ${Math.round(Number(t.score ?? 0))}) — ${t.clientName}`);
+          }
+          const comps = await db.select({ name: competitors.name, clientName: clients.name })
+            .from(competitors).innerJoin(clients, eq(competitors.clientId, clients.id))
+            .where(and(eq(clients.status, "active"), eq(clients.industry, niche))).limit(15);
+          if (comps.length) {
+            lines.push("", "Competidores del nicho (cargados por los clientes):");
+            for (const c of comps) lines.push(`- ${c.name} (competidor de ${c.clientName})`);
+          }
+        }
+        return reply(true, lines.join("\n").slice(0, 6000));
       }
 
       if (tool === "get_team_lessons") {

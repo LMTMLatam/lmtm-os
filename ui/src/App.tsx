@@ -41,6 +41,7 @@ import { AdsIntegrations } from "./pages/AdsIntegrations";
 import { WhatsApp } from "./pages/WhatsApp";
 import { Intelligence } from "./pages/Intelligence";
 import { Growth } from "./pages/Growth";
+import { Niches } from "./pages/Niches";
 import { Competitors } from "./pages/Competitors";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
@@ -81,6 +82,7 @@ function boardRoutes() {
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />
       <Route path="growth" element={<Growth />} />
+      <Route path="niches" element={<Niches />} />
       <Route path="competitors" element={<Competitors />} />
       <Route path="c/:slug" element={<ClientDashboard />} />
       <Route path="c/:slug/:tab" element={<ClientDashboard />} />
@@ -320,6 +322,7 @@ export function App() {
           <Route path="whatsapp" element={<UnprefixedBoardRedirect />} />
           <Route path="intelligence" element={<UnprefixedBoardRedirect />} />
           <Route path="growth" element={<UnprefixedBoardRedirect />} />
+          <Route path="niches" element={<UnprefixedBoardRedirect />} />
           <Route path="competitors" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
