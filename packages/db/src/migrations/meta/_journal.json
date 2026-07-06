@@ -848,6 +848,13 @@
       "when": 1781800000012,
       "tag": "0120_agent_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1781800000013,
+      "tag": "0121_hooks_trends",
+      "breakpoints": true
     }
   ]
 }

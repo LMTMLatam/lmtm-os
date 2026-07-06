@@ -16,8 +16,8 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables, issues, agents } from "@paperclipai/db";
-import { isNotNull, ne } from "drizzle-orm";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables, hooks, issues, agents, trends } from "@paperclipai/db";
+import { isNotNull, isNull, ne } from "drizzle-orm";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
@@ -295,6 +295,63 @@ const CORE_TOOLS: ToolDef[] = [
           lesson: { type: "string", description: "La lección, clara y autocontenida (1-3 frases). Debe servirle a un colega que no vivió el problema." },
         },
         required: ["area", "lesson"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_hook",
+      description:
+        "Guarda un GANCHO en el Baúl de Ganchos: una primera línea/apertura probada que vale la pena reusar. Fuentes típicas: un post propio que rindió (sourceKind='organico'), un reel de un competidor (sourceKind='competidor', con views si las sabés), una tendencia, o manual. Con clientId queda en el baúl del cliente; sin clientId queda global para todo su nicho.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "El gancho, textual (1-2 frases)" },
+          clientId: { type: "string", description: "Cliente dueño (opcional — sin esto es global del nicho)" },
+          niche: { type: "string", description: "Nicho/rubro al que aplica (ej. 'inmobiliaria')" },
+          sourceKind: { type: "string", enum: ["manual", "organico", "competidor", "tendencia"] },
+          sourceRef: { type: "string", description: "De dónde salió: @creador, URL del reel/post, etc." },
+          format: { type: "string", description: "reel | carrusel | story | estatico" },
+          views: { type: "number", description: "Vistas de la pieza original, si se conocen" },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_hooks",
+      description:
+        "Busca en el Baúl de Ganchos (por cliente y/o nicho y/o texto). Devuelve los mejores primero (pineados, más usados). Usalo antes de escribir un guion/copy para arrancar de un gancho probado en vez de inventar de cero.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "Filtrar por cliente (incluye los globales de su nicho)" },
+          niche: { type: "string", description: "Filtrar por nicho" },
+          q: { type: "string", description: "Texto a buscar dentro del gancho" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_trend",
+      description:
+        "Guarda una TENDENCIA en el panel: una noticia/novedad externa (IA, marketing, plataformas) con potencial de contenido. Etiquetala honesto: 'potencial-de-gancho' solo si de verdad da para un posteo; 'explicativo' si es contexto; 'ignorar' si no sirve. Indicá a qué nichos les sirve.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Título corto de la tendencia" },
+          url: { type: "string", description: "Link a la fuente" },
+          source: { type: "string", description: "Fuente (ej. 'blog Anthropic', 'X')" },
+          tag: { type: "string", enum: ["potencial-de-gancho", "explicativo", "ignorar"] },
+          niches: { type: "array", items: { type: "string" }, description: "Nichos a los que aplica ([] = todos)" },
+          summary: { type: "string", description: "Resumen de 1-2 frases: qué es y por qué sirve para contenido" },
+        },
+        required: ["title"],
       },
     },
   },
@@ -974,6 +1031,60 @@ export function agentToolsRoutes(
           set: { occurrences: sql`${learnings.occurrences} + 1`, lastSeenAt: new Date() },
         });
         return reply(true, "Lección de equipo guardada — visible para todos los agentes.");
+      }
+
+      if (tool === "save_hook") {
+        const text = typeof params.text === "string" ? params.text.trim().slice(0, 600) : "";
+        if (!text) return reply(false, "Falta text (el gancho).");
+        const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        let niche = typeof params.niche === "string" && params.niche.trim() ? params.niche.trim() : null;
+        if (!niche && clientId) {
+          const [c] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
+          niche = c?.industry ?? null;
+        }
+        const [row] = await db.insert(hooks).values({
+          clientId, niche, text,
+          sourceKind: typeof params.sourceKind === "string" ? params.sourceKind : "manual",
+          sourceRef: typeof params.sourceRef === "string" ? params.sourceRef.slice(0, 300) : null,
+          format: typeof params.format === "string" ? params.format.slice(0, 40) : null,
+          views: Number.isFinite(Number(params.views)) && params.views != null ? Number(params.views) : null,
+        }).returning({ id: hooks.id });
+        return reply(true, `Gancho guardado en el baúl [id ${row?.id ?? "?"}]${clientId ? "" : " (global del nicho)"}.`);
+      }
+
+      if (tool === "search_hooks") {
+        const conds = [];
+        const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        if (clientId) {
+          const [c] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
+          conds.push(c?.industry
+            ? or(eq(hooks.clientId, clientId), and(isNull(hooks.clientId), eq(hooks.niche, c.industry)))
+            : eq(hooks.clientId, clientId));
+        }
+        if (typeof params.niche === "string" && params.niche.trim()) conds.push(eq(hooks.niche, params.niche.trim()));
+        if (typeof params.q === "string" && params.q.trim()) conds.push(sql`${hooks.text} ILIKE ${"%" + params.q.trim() + "%"}`);
+        const rows = await db.select().from(hooks).where(conds.length ? and(...conds) : undefined)
+          .orderBy(desc(hooks.pinned), desc(hooks.timesUsed), desc(hooks.createdAt)).limit(40);
+        if (rows.length === 0) return reply(true, "Baúl vacío para ese filtro. Podés cosechar ganchos de posts top o competidores con save_hook.");
+        return reply(true, JSON.stringify(rows.map((h) => ({
+          id: h.id, text: h.text, niche: h.niche, source: h.sourceKind, ref: h.sourceRef,
+          format: h.format, views: h.views, usado: h.timesUsed, pin: h.pinned,
+        }))));
+      }
+
+      if (tool === "save_trend") {
+        const title = typeof params.title === "string" ? params.title.trim().slice(0, 300) : "";
+        if (!title) return reply(false, "Falta title.");
+        await db.insert(trends).values({
+          day: dayStr(new Date()),
+          title,
+          url: typeof params.url === "string" ? params.url.slice(0, 500) : null,
+          source: typeof params.source === "string" ? params.source.slice(0, 120) : null,
+          tag: ["potencial-de-gancho", "explicativo", "ignorar"].includes(params.tag as string) ? (params.tag as string) : "potencial-de-gancho",
+          niches: Array.isArray(params.niches) ? (params.niches as unknown[]).map(String).slice(0, 20) : [],
+          summary: typeof params.summary === "string" ? params.summary.slice(0, 1000) : null,
+        });
+        return reply(true, "Tendencia guardada en el panel.");
       }
 
       if (tool === "save_deliverable") {

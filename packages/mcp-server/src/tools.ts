@@ -668,6 +668,46 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmSaveHook",
+      "Guarda un GANCHO en el Baúl de Ganchos: una apertura/primera línea probada que vale reusar (de un post propio top, un reel de competidor con sus views, una tendencia, o manual). Con clientId va al baúl del cliente; sin clientId queda global para el nicho.",
+      z.object({
+        text: z.string().min(1).describe("El gancho textual (1-2 frases)"),
+        clientId: z.string().optional(),
+        niche: z.string().optional(),
+        sourceKind: z.enum(["manual", "organico", "competidor", "tendencia"]).optional(),
+        sourceRef: z.string().optional().describe("@creador, URL del reel/post, etc."),
+        format: z.string().optional().describe("reel | carrusel | story | estatico"),
+        views: z.number().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "save_hook", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmSearchHooks",
+      "Busca en el Baúl de Ganchos (por cliente y/o nicho y/o texto); devuelve los mejores primero. Usalo ANTES de escribir un guion/copy para arrancar de un gancho probado.",
+      z.object({
+        clientId: z.string().optional(),
+        niche: z.string().optional(),
+        q: z.string().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "search_hooks", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmSaveTrend",
+      "Guarda una TENDENCIA en el panel: noticia/novedad externa con potencial de contenido. Tag honesto: potencial-de-gancho | explicativo | ignorar. Indicá los nichos a los que sirve.",
+      z.object({
+        title: z.string().min(1),
+        url: z.string().optional(),
+        source: z.string().optional(),
+        tag: z.enum(["potencial-de-gancho", "explicativo", "ignorar"]).optional(),
+        niches: z.array(z.string()).optional(),
+        summary: z.string().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "save_trend", parameters: p } }),
+    ),
+    makeTool(
       "lmtmSaveDeliverable",
       "Guardá un ENTREGABLE terminado (copy final, spec de campaña, reporte, investigación, plan) como artefacto reutilizable ligado al issue/cliente — no un comentario. Usalo cuando termines algo concreto.",
       z.object({

@@ -13,10 +13,16 @@ Producís cada formato con estructura concreta, no genérica. Antes de escribir:
 Nunca inventes ubicaciones, precios ni datos (regla de grounding de la agencia).
 
 ## Hooks que frenan el scroll (viral-hooks)
+- **Arrancá por el Baúl de Ganchos**: `lmtmSearchHooks` (por cliente/nicho) antes de inventar —
+  ahí están los ganchos probados de posts propios top y de la competencia, rankeados por uso.
 - Los primeros 3 segundos deciden. Entregá 5-8 hooks por pieza, cada uno de un tipo:
   contradicción ("Dejá de X si querés Y"), pregunta filosa, dato/estadística, error común,
   antes/después, curiosidad ("Nadie te cuenta que…"), urgencia real.
 - Máx 1 línea, lenguaje del cliente (rioplatense), sin clickbait vacío. Marcá cuál probarías primero y por qué.
+- **Cerrá el loop**: si un gancho tuyo o ajeno demostró rendir (post con engagement real arriba
+  del promedio), guardalo con `lmtmSaveHook` (sourceKind=organico/competidor, con views si las
+  sabés) para que todo el equipo lo reuse. Las tendencias del panel (`lmtmSaveTrend`) también
+  son cantera de ganchos.
 
 ## Guion de reel listo para grabar (instagram-reels)
 Entregá: **Hook (0-3s)** · **Desarrollo (3-20s, 2-4 beats con acción visual por beat)** ·

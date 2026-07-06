@@ -21,4 +21,7 @@ export interface SalesKit {
 export const nichesApi = {
   list: () => api.get<{ niches: NicheIntel[] }>("/growth/niches"),
   salesKit: (niche: string) => api.get<SalesKit>(`/growth/niches/${encodeURIComponent(niche)}/sales-kit`),
+  // Rename a niche across all its clients (blank `to` clears it).
+  rename: (from: string, to: string) =>
+    api.post<{ renamed: number; from: string; to: string | null }>("/growth/niches/rename", { from, to }),
 };

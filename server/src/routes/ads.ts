@@ -31,7 +31,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, learnings, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, hooks, learnings, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, trends, type AdsAccountMapping } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -42,8 +42,8 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
-import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent } from "../services/clickup-sync.js";
-import { generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
+import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
+import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
 import { getClientBrain, refreshClientBrain } from "../services/customer-brain.js";
 import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
@@ -813,6 +813,23 @@ export function adsRoutes(db: Db): Router {
     res.status(201).json(row);
   });
 
+  // PATCH /clients/:id — edit a client's niche (industry). Assigning a niche
+  // that no client had yet "creates" it (niches are just the distinct set of
+  // industry values). Empty/blank clears it. idOrSlug like GET /clients/:id.
+  router.patch("/clients/:id", async (req, res) => {
+    const { id: idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
+    const body = req.body ?? {};
+    if (!("industry" in body)) return res.status(400).json({ error: "nothing to update" });
+    const raw = typeof body.industry === "string" ? body.industry.trim() : "";
+    const [row] = await db.update(clients)
+      .set({ industry: raw.length ? raw : null, updatedAt: new Date() })
+      .where(condition).returning();
+    if (!row) return res.status(404).json({ error: "client not found" });
+    res.json(row);
+  });
+
   // GET /api/clients/scores — latest health/ops score per client (bulk, for cards).
   // Registered before /clients/:id so the static path wins over the dynamic one.
   router.get("/clients/scores", async (_req, res) => {
@@ -831,6 +848,68 @@ export function adsRoutes(db: Db): Router {
     const [row] = await db.select().from(clients).where(condition);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(row);
+  });
+
+  // GET /clients/:idOrSlug/content-calendar?month=YYYY-MM — the client's "Redes
+  // Sociales" list as a monthly calendar. Publish date = start_date, networks =
+  // "Plataformas" custom field. Read live from ClickUp, so always in sync.
+  router.get("/clients/:idOrSlug/content-calendar", async (req, res) => {
+    const { idOrSlug } = req.params;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    const [client] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name })
+      .from(clients).where(isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug));
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const monthStr = typeof req.query.month === "string" && /^\d{4}-\d{2}$/.test(req.query.month)
+      ? req.query.month
+      : new Date().toISOString().slice(0, 7);
+    const [y, m] = monthStr.split("-").map(Number);
+    const PAD = 3 * 86400000; // tz padding so month-edge posts aren't dropped
+    const sinceMs = Date.UTC(y, m - 1, 1) - PAD;
+    const untilMs = Date.UTC(y, m, 1) + PAD;
+    try {
+      const items = await getRedesCalendar(db, client.id, sinceMs, untilMs);
+      res.json({ client, month: monthStr, hasRedesList: items !== null, items: items ?? [] });
+    } catch (e) {
+      res.status(502).json({ error: "clickup", detail: (e as Error).message.slice(0, 300) });
+    }
+  });
+
+  // POST /clients/:idOrSlug/content-calendar/compose — Community Manager: crea
+  // el posteo en la lista Redes con las convenciones del calendario (start_date
+  // + Plataformas + Tipo de Contenido). Si no viene copy, lo genera la IA a
+  // partir del gancho/ángulo. El flujo de Make lo publica como cualquier tarea.
+  router.post("/clients/:idOrSlug/content-calendar/compose", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const b = req.body ?? {};
+    const name = typeof b.name === "string" ? b.name.trim().slice(0, 200) : "";
+    const date = typeof b.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? b.date : "";
+    const platforms: string[] = Array.isArray(b.platforms) ? b.platforms.map(String).slice(0, 8) : [];
+    if (!name || !date) return res.status(400).json({ error: "faltan name o date (YYYY-MM-DD)" });
+
+    let copy = typeof b.copy === "string" ? b.copy.trim() : "";
+    const gancho = typeof b.gancho === "string" ? b.gancho.trim() : "";
+    const angulo = typeof b.angulo === "string" ? b.angulo.trim() : "";
+    if (!copy && (gancho || angulo)) {
+      const ai = await aiNarrative(
+        "Sos el community manager de una agencia argentina. Escribí el caption/copy final de un posteo de redes: arrancá con el gancho, desarrollá el ángulo en 2-4 líneas cercanas (voseo, sin humo corporativo), cerrá con un llamado a la acción concreto y 3-5 hashtags relevantes. Devolvé SOLO el caption, listo para pegar.",
+        `Cliente: ${client.name} (rubro: ${client.industry ?? "?"})\nPosteo: ${name}\nFormato: ${typeof b.format === "string" ? b.format : "?"}\nPlataformas: ${platforms.join(", ") || "?"}\nGancho: ${gancho || "(proponelo vos)"}\nÁngulo: ${angulo || "(el natural del posteo)"}`,
+      );
+      copy = ai?.trim() || [gancho, angulo].filter(Boolean).join("\n\n");
+    }
+
+    try {
+      const r = await createRedesPost(db, client.id, {
+        name,
+        description: copy,
+        startDateMs: Date.parse(`${date}T12:00:00-03:00`), // mediodía ART, fecha estable
+        platforms,
+        format: typeof b.format === "string" ? b.format : undefined,
+      });
+      res.status(201).json({ ...r, copy });
+    } catch (e) {
+      res.status(502).json({ error: "clickup", detail: (e as Error).message.slice(0, 300) });
+    }
   });
 
   // ---- Per-client tasks panel ----
@@ -1524,7 +1603,7 @@ export function adsRoutes(db: Db): Router {
   async function resolveClient(idOrSlug: string, db: Db) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
     const cond = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
-    const [c] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name, currency: clients.currency })
+    const [c] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name, currency: clients.currency, industry: clients.industry })
       .from(clients).where(cond);
     return c || null;
   }
@@ -2636,6 +2715,102 @@ export function adsRoutes(db: Db): Router {
     res.status(204).end();
   });
 
+  // ── Baúl de Ganchos ─────────────────────────────────────────────────────────
+  // Reusable hook vault: the client's own hooks + global hooks of its niche.
+
+  router.get("/clients/:id/hooks", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const list = await db.select().from(hooks)
+      .where(or(eq(hooks.clientId, row.id), row.industry ? and(isNull(hooks.clientId), eq(hooks.niche, row.industry)) : sql`false`))
+      .orderBy(desc(hooks.pinned), desc(hooks.timesUsed), desc(hooks.createdAt)).limit(500);
+    res.json({ client: { id: row.id, slug: row.slug, name: row.name }, hooks: list });
+  });
+
+  router.post("/clients/:id/hooks", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const b = req.body ?? {};
+    const text = typeof b.text === "string" ? b.text.trim() : "";
+    if (!text) return res.status(400).json({ error: "missing text" });
+    const [created] = await db.insert(hooks).values({
+      clientId: b.global === true ? null : row.id,
+      niche: typeof b.niche === "string" && b.niche.trim() ? b.niche.trim() : row.industry,
+      text,
+      sourceKind: typeof b.sourceKind === "string" ? b.sourceKind : "manual",
+      sourceRef: typeof b.sourceRef === "string" ? b.sourceRef : null,
+      format: typeof b.format === "string" ? b.format : null,
+      views: Number.isFinite(Number(b.views)) && b.views != null ? Number(b.views) : null,
+    }).returning();
+    res.status(201).json(created);
+  });
+
+  // "Usar este": bumps the counter so the vault ranks proven hooks first.
+  router.post("/hooks/:id/use", async (req, res) => {
+    const [row] = await db.update(hooks)
+      .set({ timesUsed: sql`${hooks.timesUsed} + 1` })
+      .where(eq(hooks.id, req.params.id)).returning();
+    if (!row) return res.status(404).json({ error: "hook not found" });
+    res.json(row);
+  });
+
+  router.patch("/hooks/:id", async (req, res) => {
+    const b = req.body ?? {};
+    const update: Record<string, unknown> = {};
+    for (const k of ["text", "niche", "format", "sourceRef"]) if (typeof b[k] === "string") update[k] = b[k];
+    if (typeof b.pinned === "boolean") update.pinned = b.pinned;
+    if (!Object.keys(update).length) return res.status(400).json({ error: "nothing to update" });
+    const [row] = await db.update(hooks).set(update).where(eq(hooks.id, req.params.id)).returning();
+    if (!row) return res.status(404).json({ error: "hook not found" });
+    res.json(row);
+  });
+
+  router.delete("/hooks/:id", async (req, res) => {
+    await db.delete(hooks).where(eq(hooks.id, req.params.id));
+    res.status(204).end();
+  });
+
+  // ── Tendencias ──────────────────────────────────────────────────────────────
+  // Daily external news mined by the agents, tagged by content potential.
+  // ?niche= filters to trends applicable to that niche (or untagged ones).
+
+  router.get("/growth/trends", async (req, res) => {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
+    const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    let list = await db.select().from(trends).where(gte(trends.day, since))
+      .orderBy(desc(trends.day), desc(trends.createdAt)).limit(300);
+    const niche = typeof req.query.niche === "string" ? req.query.niche.trim() : "";
+    if (niche) list = list.filter((t) => t.niches.length === 0 || t.niches.includes(niche));
+    res.json({ since, trends: list });
+  });
+
+  router.post("/growth/trends", async (req, res) => {
+    const b = req.body ?? {};
+    const title = typeof b.title === "string" ? b.title.trim() : "";
+    if (!title) return res.status(400).json({ error: "missing title" });
+    const [created] = await db.insert(trends).values({
+      day: typeof b.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.day) ? b.day : new Date().toISOString().slice(0, 10),
+      title,
+      url: typeof b.url === "string" ? b.url : null,
+      source: typeof b.source === "string" ? b.source : null,
+      tag: ["potencial-de-gancho", "explicativo", "ignorar"].includes(b.tag) ? b.tag : "potencial-de-gancho",
+      niches: Array.isArray(b.niches) ? b.niches.map(String) : [],
+      summary: typeof b.summary === "string" ? b.summary : null,
+    }).returning();
+    res.status(201).json(created);
+  });
+
+  router.patch("/growth/trends/:id", async (req, res) => {
+    const b = req.body ?? {};
+    const update: Record<string, unknown> = {};
+    if (["potencial-de-gancho", "explicativo", "ignorar"].includes(b.tag)) update.tag = b.tag;
+    if (Array.isArray(b.niches)) update.niches = b.niches.map(String);
+    if (!Object.keys(update).length) return res.status(400).json({ error: "nothing to update" });
+    const [row] = await db.update(trends).set(update).where(eq(trends.id, req.params.id)).returning();
+    if (!row) return res.status(404).json({ error: "trend not found" });
+    res.json(row);
+  });
+
   // POST /clients/:id/content/generate — AI plan split into pauta vs posteo.
   router.post("/clients/:id/content/generate", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
@@ -2843,6 +3018,20 @@ export function adsRoutes(db: Db): Router {
       console.error("[growth niches] failed", msg);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
     }
+  });
+
+  // POST /growth/niches/rename — rename a niche across every client that has it.
+  // This is how you "edit" a niche as an entity: all its clients move together.
+  // Blank `to` clears the niche on those clients. { from, to }.
+  router.post("/growth/niches/rename", async (req, res) => {
+    const from = typeof req.body?.from === "string" ? req.body.from.trim() : "";
+    const toRaw = typeof req.body?.to === "string" ? req.body.to.trim() : "";
+    if (!from) return res.status(400).json({ error: "missing 'from'" });
+    const to = toRaw.length ? toRaw : null;
+    const rows = await db.update(clients)
+      .set({ industry: to, updatedAt: new Date() })
+      .where(eq(clients.industry, from)).returning({ id: clients.id });
+    res.json({ renamed: rows.length, from, to });
   });
 
   // GET /growth/readiness — onboarding/coverage matrix per active client. Makes

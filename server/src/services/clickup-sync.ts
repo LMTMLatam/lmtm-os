@@ -246,6 +246,152 @@ export async function getRedesScheduledContent(
   return out;
 }
 
+// ── Content calendar (Redes) ────────────────────────────────────────────────
+// The publication date is ClickUp's native start_date (LMTM convention), and
+// the target networks live in the "Plataformas" labels custom field. Both are
+// read live per request, so the calendar is always in sync with ClickUp.
+
+export interface RedesCalendarItem {
+  id: string;
+  name: string;
+  status: string;
+  published: boolean;
+  sentToMake: boolean;
+  /** ISO, from start_date. Only tasks with a start_date land on the calendar. */
+  date: string;
+  /** From the "Plataformas" labels custom field (e.g. ["Instagram","Facebook"]). */
+  networks: string[];
+  /** From "Tipo de Contenido", or a reel/carrusel/story tag as fallback. */
+  format: string | null;
+  url: string | null;
+}
+
+const PLATAFORMAS_RE = /plataforma/i;
+const TIPO_CONTENIDO_RE = /tipo\s*de\s*contenido/i;
+const FORMAT_TAG_RE = /reel|carrusel|carousel|story|historia|est[aá]tico|foto|video/i;
+
+interface CuLabelField {
+  name?: string;
+  value?: unknown;
+  type_config?: { options?: Array<{ id?: string; label?: string; name?: string }> };
+}
+
+/** Resolve a ClickUp "labels" custom field value (array of option ids) to its
+ *  human labels using the field's own inline options. */
+function labelsFromField(cf: CuLabelField | undefined): string[] {
+  if (!cf) return [];
+  const byId = new Map((cf.type_config?.options ?? []).map((o) => [o.id, o.label ?? o.name ?? ""]));
+  const val = cf.value;
+  const ids = Array.isArray(val) ? val.map(String) : val != null && val !== "" ? [String(val)] : [];
+  return ids.map((id) => byId.get(id) ?? "").filter(Boolean);
+}
+
+/**
+ * The client's "Redes Sociales" list as a content calendar: one entry per task
+ * that has a start_date within [sinceMs, untilMs], carrying its target networks
+ * and format. Live from ClickUp. Returns null if the client has no Redes list.
+ */
+export async function getRedesCalendar(
+  db: Db,
+  clientId: string,
+  sinceMs: number,
+  untilMs: number,
+): Promise<RedesCalendarItem[] | null> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client?.clickupListRedesId) return null;
+  const r = await cu<{ tasks: Array<{
+    id: string;
+    name: string;
+    status?: { status?: string; type?: string };
+    start_date?: string | null;
+    url?: string | null;
+    tags?: Array<{ name?: string }>;
+    custom_fields?: CuLabelField[];
+  }> }>(
+    `/list/${encodeURIComponent(client.clickupListRedesId)}/task`,
+    { query: { archived: false, include_closed: true, subtasks: false } },
+  );
+  const tasks = r.tasks ?? [];
+  const out: RedesCalendarItem[] = [];
+  for (const t of tasks) {
+    const startMs = Number(t.start_date ?? 0);
+    if (!startMs || startMs < sinceMs || startMs > untilMs) continue;
+    const cfs = t.custom_fields ?? [];
+    const networks = labelsFromField(cfs.find((c) => PLATAFORMAS_RE.test(c.name ?? "")));
+    let format: string | null = labelsFromField(cfs.find((c) => TIPO_CONTENIDO_RE.test(c.name ?? "")))[0] ?? null;
+    if (!format) format = (t.tags ?? []).map((x) => x.name ?? "").find((n) => FORMAT_TAG_RE.test(n)) ?? null;
+    const sName = t.status?.status ?? "sin estado";
+    const published =
+      t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
+    out.push({
+      id: t.id,
+      name: t.name,
+      status: sName,
+      published,
+      sentToMake: (t.tags ?? []).some((tag) => /mandado\s*a\s*make/i.test(tag.name ?? "")),
+      date: new Date(startMs).toISOString(),
+      networks,
+      format,
+      url: t.url ?? null,
+    });
+  }
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
+/**
+ * Create a post task on the client's "Redes Sociales" list with the calendar
+ * conventions filled in: start_date = publish date, "Plataformas" labels =
+ * target networks, "Tipo de Contenido" = format. The Make flow picks it up
+ * from there like any manually-created post.
+ */
+export async function createRedesPost(
+  db: Db,
+  clientId: string,
+  input: { name: string; description?: string; startDateMs: number; platforms: string[]; format?: string },
+): Promise<{ taskId: string; url: string | null; warnings: string[] }> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client?.clickupListRedesId) throw new Error("El cliente no tiene la lista Redes Sociales mapeada.");
+  const listId = client.clickupListRedesId;
+
+  // Resolve the labels fields on this list and map label names → option ids.
+  const fr = await cu<{ fields: Array<{ id: string; name: string; type: string; type_config?: { options?: Array<{ id: string; label?: string; name?: string }> } }> }>(
+    `/list/${encodeURIComponent(listId)}/field`,
+  );
+  const fields = fr.fields ?? [];
+  const customFields: Array<{ id: string; value: string[] }> = [];
+  const warnings: string[] = [];
+  // Not every client list has these fields attached (e.g. RICCI lacks
+  // "Plataformas") — we can't create fields via API, so report what we skipped
+  // instead of failing or silently dropping the networks.
+  const pickOptions = (fieldRe: RegExp, fieldLabel: string, wanted: string[]) => {
+    if (wanted.length === 0) return;
+    const f = fields.find((x) => fieldRe.test(x.name));
+    if (!f) { warnings.push(`la lista no tiene el campo "${fieldLabel}" — agregalo en ClickUp para que el calendario muestre esto`); return; }
+    const ids = wanted
+      .map((w) => f.type_config?.options?.find((o) => (o.label ?? o.name ?? "").trim().toLowerCase() === w.trim().toLowerCase())?.id)
+      .filter((v): v is string => !!v);
+    if (ids.length) customFields.push({ id: f.id, value: ids });
+    if (ids.length < wanted.length) warnings.push(`opciones no encontradas en "${fieldLabel}": ${wanted.length - ids.length}`);
+  };
+  pickOptions(PLATAFORMAS_RE, "Plataformas", input.platforms);
+  if (input.format) pickOptions(TIPO_CONTENIDO_RE, "Tipo de Contenido", [input.format]);
+
+  const r = await cu<{ id: string; url?: string }>(`/list/${encodeURIComponent(listId)}/task`, {
+    method: "POST",
+    body: {
+      name: input.name,
+      description: input.description ?? "",
+      start_date: input.startDateMs,
+      start_date_time: false,
+      due_date: input.startDateMs,
+      due_date_time: false,
+      ...(customFields.length ? { custom_fields: customFields } : {}),
+    },
+  });
+  return { taskId: r.id, url: r.url ?? null, warnings };
+}
+
 /**
  * Create a weekly-report task in the client's ClickUp folder, inside a
  * "📊 Reportes" list (created on first use). Returns the task URL.

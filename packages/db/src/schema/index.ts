@@ -66,6 +66,7 @@ export { audienceDemographics } from "./audience_demographics.js";
 export { videoReferences } from "./video_references.js";
 export { agentDeliverables } from "./agent_deliverables.js";
 export { agentActions } from "./agent_actions.js";
+export { hooks, trends } from "./hooks_trends.js";
 export { approvals } from "./approvals.js";
 export { approvalComments } from "./approval_comments.js";
 export { activityLog } from "./activity_log.js";

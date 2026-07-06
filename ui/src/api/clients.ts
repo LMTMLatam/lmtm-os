@@ -51,6 +51,9 @@ export const clientsApi = {
   get: (idOrSlug: string) => api.get<Client>(`/clients/${idOrSlug}`),
   create: (body: Partial<Client> & { name: string; slug: string }) =>
     api.post<Client>("/clients", body),
+  // Assign/edit a client's niche (industry). Blank string clears it.
+  setNiche: (idOrSlug: string, industry: string) =>
+    api.patch<Client>(`/clients/${idOrSlug}`, { industry }),
   adsSummary: (idOrSlug: string) =>
     api.get<ClientAdsSummary>(`/clients/${idOrSlug}/ads-summary`),
   timeseries: (idOrSlug: string, params?: { since?: string; until?: string }) => {
@@ -137,6 +140,28 @@ export const clientsApi = {
     api.post<{ batchId: string; created: number }>(`/clients/${idOrSlug}/content/generate`, null),
   listContentIdeas: (idOrSlug: string) => api.get<{ ideas: ContentIdea[] }>(`/clients/${idOrSlug}/content-ideas`),
   contentCsvUrl: (idOrSlug: string) => `/api/clients/${idOrSlug}/content-ideas.csv`,
+  // Content calendar from the Redes Sociales list (live from ClickUp)
+  contentCalendar: (idOrSlug: string, month?: string) =>
+    api.get<ContentCalendarResponse>(`/clients/${idOrSlug}/content-calendar${month ? `?month=${month}` : ""}`),
+  composePost: (idOrSlug: string, body: { name: string; date: string; platforms: string[]; format?: string; gancho?: string; angulo?: string; copy?: string }) =>
+    api.post<{ taskId: string; url: string | null; copy: string; warnings: string[] }>(`/clients/${idOrSlug}/content-calendar/compose`, body),
+  // Baúl de Ganchos
+  listHooks: (idOrSlug: string) =>
+    api.get<{ client: { id: string; slug: string; name: string }; hooks: Hook[] }>(`/clients/${idOrSlug}/hooks`),
+  addHook: (idOrSlug: string, body: { text: string; format?: string; sourceKind?: string; sourceRef?: string; views?: number; global?: boolean }) =>
+    api.post<Hook>(`/clients/${idOrSlug}/hooks`, body),
+  useHook: (hookId: string) => api.post<Hook>(`/hooks/${hookId}/use`, null),
+  pinHook: (hookId: string, pinned: boolean) => api.patch<Hook>(`/hooks/${hookId}`, { pinned }),
+  deleteHook: (hookId: string) => api.delete<void>(`/hooks/${hookId}`),
+  // Tendencias (global, filtered by niche)
+  listTrends: (params?: { niche?: string; days?: number }) => {
+    const sp = new URLSearchParams();
+    if (params?.niche) sp.set("niche", params.niche);
+    if (params?.days) sp.set("days", String(params.days));
+    const qs = sp.toString() ? `?${sp.toString()}` : "";
+    return api.get<{ since: string; trends: Trend[] }>(`/growth/trends${qs}`);
+  },
+  setTrendTag: (trendId: string, tag: string) => api.patch<Trend>(`/growth/trends/${trendId}`, { tag }),
   // Per-client tasks panel (issues + scheduled content + posting status + suggestions)
   tasks: (idOrSlug: string) => api.get<ClientTasksResponse>(`/clients/${idOrSlug}/tasks`),
   taskAction: (issueId: string, action: "approve" | "dismiss") =>
@@ -152,6 +177,50 @@ export const clientsApi = {
   removeSheetsMapping: (clientId: string) =>
     api.delete<{ ok: boolean }>(`/clients/${clientId}/sheets`),
 };
+
+export interface Hook {
+  id: string;
+  clientId: string | null; // null = global (niche-level)
+  niche: string | null;
+  text: string;
+  sourceKind: string; // manual | organico | competidor | tendencia
+  sourceRef: string | null;
+  format: string | null;
+  views: number | null;
+  timesUsed: number;
+  pinned: boolean;
+  createdAt: string;
+}
+
+export interface Trend {
+  id: string;
+  day: string; // YYYY-MM-DD
+  title: string;
+  url: string | null;
+  source: string | null;
+  tag: string; // potencial-de-gancho | explicativo | ignorar
+  niches: string[];
+  summary: string | null;
+  createdAt: string;
+}
+
+export interface CalendarItem {
+  id: string;
+  name: string;
+  status: string;
+  published: boolean;
+  sentToMake: boolean;
+  date: string; // ISO, from ClickUp start_date
+  networks: string[]; // from "Plataformas" custom field
+  format: string | null;
+  url: string | null;
+}
+export interface ContentCalendarResponse {
+  client: { id: string; slug: string; name: string };
+  month: string; // YYYY-MM
+  hasRedesList: boolean;
+  items: CalendarItem[];
+}
 
 export interface ClientTask {
   id: string;
