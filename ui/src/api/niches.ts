@@ -1,13 +1,34 @@
 import { api } from "./client";
 
+export interface ClientAds30d {
+  spend: number;
+  leads: number;
+  ctr: number;
+  cpl: number | null;
+  impressions: number;
+}
+
+/** Structured numbers mined into learnings.evidence (niche_benchmark). */
+export interface BenchmarkEvidence {
+  avgCtr?: number;
+  idealCtr?: number;
+  avgCpl?: number;
+  idealCpl?: number;
+  clients?: number;
+  windowDays?: number;
+}
+
 export interface NicheIntel {
   niche: string;
-  clients: Array<{ id: string; slug: string; name: string }>;
+  clients: Array<{ id: string; slug: string; name: string; ads30d: ClientAds30d | null }>;
   ads30d: { spend: number; leads: number; ctr: number; cpl: number | null };
-  benchmark: { pattern: string; evidence: Record<string, unknown> | null } | null;
-  winningFormat: { pattern: string; evidence: Record<string, unknown> | null } | null;
-  winningFormatAds: { pattern: string; evidence: Record<string, unknown> | null } | null;
+  benchmark: { pattern: string; evidence: BenchmarkEvidence | null } | null;
+  winningFormat: { pattern: string; evidence: { topFormat?: string; topAvg?: number; samples?: number } | null } | null;
+  winningFormatAds: { pattern: string; evidence: { ranked?: Array<{ format: string; ctr: number; n: number }> } | null } | null;
   experiment: { pattern: string; evidence: Record<string, unknown> | null } | null;
+  topCampaigns: Array<{ name: string; clientName: string; spend: number; leads: number; ctr: number; cpl: number | null }>;
+  hooks: Array<{ text: string; format: string | null; timesUsed: number }>;
+  trends: Array<{ title: string; tag: string; url: string | null }>;
   topContent: Array<{ title: string | null; format: string | null; score: number; clientName: string }>;
   competitors: Array<{ name: string; clientName: string }>;
 }

@@ -16,10 +16,58 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, Target, Trophy, FlaskConical, Swords, FileText, Briefcase, Loader2, X, Settings2, Check, Pencil, Search } from "lucide-react";
+import { Layers, Trophy, FlaskConical, Swords, Lightbulb, Briefcase, Loader2, X, Settings2, Check, Pencil, Search, TrendingUp, TrendingDown, Minus, Megaphone } from "lucide-react";
 
 function fmtMoney(n: number): string {
   return `$${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(n)}`;
+}
+const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`;
+
+/** Big metric with its achievable target ("ideal" = best quartile of the
+ * niche's own clients) and a green/red delta vs that target. */
+function MetricCard({ label, value, ideal, higherIsBetter, hint }: {
+  label: string; value: string; ideal?: string | null; higherIsBetter?: boolean;
+  hint?: "good" | "bad" | null;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold tracking-tight flex items-center gap-1.5">
+        {value}
+        {hint === "good" && (higherIsBetter ? <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> : <TrendingDown className="h-3.5 w-3.5 text-emerald-500" />)}
+        {hint === "bad" && (higherIsBetter ? <TrendingDown className="h-3.5 w-3.5 text-red-500" /> : <TrendingUp className="h-3.5 w-3.5 text-red-500" />)}
+      </div>
+      {ideal && <div className="text-[11px] text-muted-foreground mt-0.5">meta alcanzable: <span className="font-medium text-foreground/80">{ideal}</span></div>}
+    </div>
+  );
+}
+
+/** Semáforo of one client vs the niche's achievable ideal. */
+function ClientVsIdeal({ c, idealCtr, idealCpl }: {
+  c: NicheIntel["clients"][number]; idealCtr?: number; idealCpl?: number;
+}) {
+  const a = c.ads30d;
+  const ctrOk = a && idealCtr != null ? a.ctr >= idealCtr : null;
+  const cplOk = a?.cpl != null && idealCpl != null ? a.cpl <= idealCpl : null;
+  const dot = (ok: boolean | null) =>
+    ok === null ? <Minus className="h-3 w-3 text-muted-foreground/50" />
+      : ok ? <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
+      : <span className="h-2 w-2 rounded-full bg-red-500 inline-block" />;
+  return (
+    <div className="flex items-center gap-2 text-xs py-1">
+      <Link to={`/c/${c.slug}`} className="w-40 shrink-0 truncate hover:underline" title={c.name}>{c.name}</Link>
+      {a && a.impressions > 0 ? (
+        <>
+          <span className="w-24 text-muted-foreground">{fmtMoney(a.spend)}</span>
+          <span className="w-16 text-muted-foreground">{a.leads} leads</span>
+          <span className="w-24 inline-flex items-center gap-1.5">{dot(ctrOk)} CTR {fmtPct(a.ctr)}</span>
+          <span className="w-28 inline-flex items-center gap-1.5">{dot(cplOk)} {a.cpl != null ? `CPL ${fmtMoney(a.cpl)}` : "sin leads"}</span>
+        </>
+      ) : (
+        <span className="text-muted-foreground/60">sin pauta activa en 30d</span>
+      )}
+    </div>
+  );
 }
 
 function NicheCard({ n }: { n: NicheIntel }) {
@@ -28,22 +76,31 @@ function NicheCard({ n }: { n: NicheIntel }) {
     mutationFn: () => nichesApi.salesKit(n.niche),
     onSuccess: (d) => setKit(d.onePager),
   });
+
+  const ev = n.benchmark?.evidence ?? null;
+  const idealCtr = ev?.idealCtr;
+  const idealCpl = ev?.idealCpl;
+  const fmtOrg = n.winningFormat?.evidence?.topFormat ?? null;
+  const fmtAds = n.winningFormatAds?.evidence?.ranked?.[0] ?? null;
+  const withAds = n.clients.filter((c) => c.ads30d && c.ads30d.impressions > 0);
+  const ideas = [
+    ...n.hooks.map((h) => ({ kind: "gancho" as const, text: h.text, meta: h.format })),
+    ...n.trends.map((t) => ({ kind: "tendencia" as const, text: t.title, meta: t.tag })),
+  ].slice(0, 4);
+
   return (
     <Card className="p-5 space-y-4">
+      {/* ── Header ── */}
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="font-semibold text-base">{n.niche}</h2>
         <Badge className="text-[10px] px-1.5 py-0 bg-violet-500/10 text-violet-700 dark:text-violet-300">
           {n.clients.length} cliente{n.clients.length === 1 ? "" : "s"}
         </Badge>
         <button onClick={() => gen.mutate()} disabled={gen.isPending}
-          className="text-[11px] px-2 py-0.5 rounded-md border border-border hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1">
+          className="text-[11px] px-2 py-0.5 rounded-md border border-border hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1 ml-auto">
           {gen.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Briefcase className="h-3 w-3" />}
           Kit de venta
         </button>
-        <span className="text-xs text-muted-foreground ml-auto">
-          30d: {fmtMoney(n.ads30d.spend)} · {n.ads30d.leads} leads · CTR {(n.ads30d.ctr * 100).toFixed(2)}%
-          {n.ads30d.cpl != null && ` · CPL ${fmtMoney(n.ads30d.cpl)}`}
-        </span>
       </div>
 
       {kit && (
@@ -54,57 +111,98 @@ function NicheCard({ n }: { n: NicheIntel }) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
-        {n.clients.map((c) => (
-          <Link key={c.id} to={`/c/${c.slug}`} className="text-[11px] px-2 py-0.5 rounded-full border border-border hover:bg-muted transition-colors">
-            {c.name}
-          </Link>
-        ))}
+      {/* ── Métricas 30d con meta alcanzable (mejor cuartil del nicho) ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <MetricCard label="Inversión 30d" value={fmtMoney(n.ads30d.spend)} />
+        <MetricCard label="Leads 30d" value={String(n.ads30d.leads)} />
+        <MetricCard label="CTR" value={fmtPct(n.ads30d.ctr)}
+          ideal={idealCtr != null ? fmtPct(idealCtr) : null} higherIsBetter
+          hint={idealCtr != null ? (n.ads30d.ctr >= idealCtr ? "good" : "bad") : null} />
+        <MetricCard label="CPL" value={n.ads30d.cpl != null ? fmtMoney(n.ads30d.cpl) : "—"}
+          ideal={idealCpl != null ? fmtMoney(idealCpl) : null}
+          hint={n.ads30d.cpl != null && idealCpl != null ? (n.ads30d.cpl <= idealCpl ? "good" : "bad") : null} />
       </div>
 
-      <div className="grid md:grid-cols-3 gap-3">
-        <div className="rounded-md border border-border p-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><Target className="h-3.5 w-3.5 text-blue-500" />Benchmark del nicho</div>
-          <p className="text-xs text-muted-foreground leading-relaxed">{n.benchmark?.pattern ?? "Sin benchmark todavía — necesita ≥2 clientes con pauta activa."}</p>
+      {/* ── Qué funcionó mejor ── */}
+      <div>
+        <div className="flex items-center gap-1.5 text-xs font-medium mb-2"><Trophy className="h-3.5 w-3.5 text-amber-500" />Qué funcionó mejor</div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {fmtOrg && <Badge className="text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Orgánico: {fmtOrg}</Badge>}
+          {fmtAds && <Badge className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-300">Ads: {fmtAds.format} (CTR {fmtPct(fmtAds.ctr)})</Badge>}
+          {!fmtOrg && !fmtAds && <span className="text-xs text-muted-foreground">Sin datos suficientes todavía — se mina a diario.</span>}
         </div>
-        <div className="rounded-md border border-border p-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><Trophy className="h-3.5 w-3.5 text-amber-500" />Formato ganador</div>
-          <p className="text-xs text-muted-foreground leading-relaxed"><span className="font-medium text-foreground/70">Orgánico:</span> {n.winningFormat?.pattern ?? "sin datos suficientes todavía."}</p>
-          <p className="text-xs text-muted-foreground leading-relaxed mt-1"><span className="font-medium text-foreground/70">Ads:</span> {n.winningFormatAds?.pattern ?? "sin datos suficientes todavía (se mina a diario)."}</p>
-        </div>
-        <div className="rounded-md border border-border p-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><FlaskConical className="h-3.5 w-3.5 text-emerald-500" />Experimento sugerido</div>
-          <p className="text-xs text-muted-foreground leading-relaxed">{n.experiment?.pattern ?? "Nada para testear cruzado por ahora."}</p>
+        {n.topCampaigns.length > 0 && (
+          <div className="space-y-1">
+            {n.topCampaigns.map((c, i) => (
+              <div key={i} className="text-xs flex items-center gap-2">
+                <Megaphone className="h-3 w-3 text-sky-500 shrink-0" />
+                <span className="truncate text-muted-foreground" title={c.name}>{c.name}</span>
+                <span className="text-[10px] text-muted-foreground/70 ml-auto shrink-0">
+                  {c.clientName} · CTR {fmtPct(c.ctr)}{c.cpl != null ? ` · CPL ${fmtMoney(c.cpl)}` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {n.topContent.length > 0 && (
+          <div className="space-y-1 mt-1.5">
+            {n.topContent.slice(0, 3).map((t, i) => (
+              <div key={i} className="text-xs flex items-center gap-2">
+                <Badge className="text-[10px] px-1.5 py-0 shrink-0 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300">{t.format ?? "post"}</Badge>
+                <span className="truncate text-muted-foreground">{t.title ?? "(sin título)"}</span>
+                <span className="text-[10px] text-muted-foreground/70 ml-auto shrink-0">{t.clientName} · {Math.round(t.score)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Ideas para replicar ── */}
+      <div>
+        <div className="flex items-center gap-1.5 text-xs font-medium mb-2"><Lightbulb className="h-3.5 w-3.5 text-yellow-500" />Ideas para replicar</div>
+        <div className="space-y-1">
+          {n.experiment && (
+            <div className="text-xs flex items-start gap-2">
+              <FlaskConical className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
+              <span className="text-muted-foreground leading-relaxed">{n.experiment.pattern}</span>
+            </div>
+          )}
+          {ideas.map((idea, i) => (
+            <div key={i} className="text-xs flex items-start gap-2">
+              <Lightbulb className="h-3 w-3 text-yellow-500 shrink-0 mt-0.5" />
+              <span className="text-muted-foreground leading-relaxed">{idea.text}</span>
+              <Badge className="text-[9px] px-1 py-0 shrink-0 bg-zinc-500/10 text-zinc-500 ml-auto">{idea.kind}{idea.meta ? ` · ${idea.meta}` : ""}</Badge>
+            </div>
+          ))}
+          {!n.experiment && ideas.length === 0 && (
+            <span className="text-xs text-muted-foreground">Todavía sin ganchos ni tendencias para este nicho — los agentes los cargan solos.</span>
+          )}
         </div>
       </div>
 
-      {(n.topContent.length > 0 || n.competitors.length > 0) && (
-        <div className="grid md:grid-cols-2 gap-3">
-          {n.topContent.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><FileText className="h-3.5 w-3.5" />Mejor contenido del nicho</div>
-              <div className="space-y-1">
-                {n.topContent.map((t, i) => (
-                  <div key={i} className="text-xs flex items-center gap-2">
-                    <Badge className="text-[10px] px-1.5 py-0 shrink-0 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300">{t.format ?? "?"}</Badge>
-                    <span className="truncate text-muted-foreground">{t.title ?? "(sin título)"}</span>
-                    <span className="text-[10px] text-muted-foreground/70 ml-auto shrink-0">{t.clientName} · {Math.round(t.score)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {n.competitors.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><Swords className="h-3.5 w-3.5" />Competidores del nicho</div>
-              <div className="flex flex-wrap gap-1">
-                {n.competitors.map((c, i) => (
-                  <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground" title={`Competidor de ${c.clientName}`}>{c.name}</span>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* ── Clientes vs meta del nicho (semáforo) ── */}
+      <div>
+        <div className="text-xs font-medium mb-1.5">
+          Clientes vs meta del nicho
+          {idealCtr != null && <span className="text-muted-foreground font-normal"> — verde = ya alcanza la meta, rojo = hay margen</span>}
         </div>
+        <div className="divide-y divide-border/50">
+          {[...withAds, ...n.clients.filter((c) => !c.ads30d || c.ads30d.impressions === 0)].map((c) => (
+            <ClientVsIdeal key={c.id} c={c} idealCtr={idealCtr ?? undefined} idealCpl={idealCpl ?? undefined} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Competidores (secundario) ── */}
+      {n.competitors.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground inline-flex items-center gap-1.5"><Swords className="h-3 w-3" />Competidores del nicho ({n.competitors.length})</summary>
+          <div className="flex flex-wrap gap-1 mt-2">
+            {n.competitors.map((c, i) => (
+              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground" title={`Competidor de ${c.clientName}`}>{c.name}</span>
+            ))}
+          </div>
+        </details>
       )}
     </Card>
   );

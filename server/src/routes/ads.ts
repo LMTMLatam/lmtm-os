@@ -2994,7 +2994,7 @@ export function adsRoutes(db: Db): Router {
         byNiche.set(c.industry, arr);
       }
 
-      const [aggRows, allLearnings, topContentRows, compRows] = await Promise.all([
+      const [aggRows, perClientRows, campaignRows, hookRows, trendRows, allLearnings, topContentRows, compRows] = await Promise.all([
         db.select({
           industry: clients.industry,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
@@ -3005,6 +3005,35 @@ export function adsRoutes(db: Db): Router {
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
           .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry)))
           .groupBy(clients.industry),
+        // Per-client 30d aggregates — the cross-view: each client vs its
+        // niche's achievable ideal (best quartile), the panel's semáforo.
+        db.select({
+          clientId: adsInsights.clientId,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        }).from(adsInsights)
+          .innerJoin(clients, eq(adsInsights.clientId, clients.id))
+          .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry)))
+          .groupBy(adsInsights.clientId),
+        // Best real campaigns of the niche (30d, min volume) — "qué funcionó".
+        db.select({
+          industry: clients.industry,
+          clientName: clients.name,
+          campaignName: adsInsights.campaignName,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        }).from(adsInsights)
+          .innerJoin(clients, eq(adsInsights.clientId, clients.id))
+          .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+          .groupBy(clients.industry, clients.name, adsInsights.campaignName)
+          .having(sql`sum(${adsInsights.impressions}) >= 500`),
+        // Ideas del baúl y tendencias del nicho (recién sembrados — crecen solos).
+        db.select().from(hooks).where(isNotNull(hooks.niche)).orderBy(desc(hooks.pinned), desc(hooks.timesUsed)).limit(200),
+        db.select().from(trends).orderBy(desc(trends.day)).limit(120),
         db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format"])),
         db.select({
           industry: clients.industry, clientName: clients.name,
@@ -3028,6 +3057,18 @@ export function adsRoutes(db: Db): Router {
       const adsFormats = learningByNiche("niche_ads_format");
       const experiments = learningByNiche("niche_experiment");
 
+      const perClient = new Map(perClientRows.map((r) => {
+        const imp = Number(r.impressions);
+        const spend = Number(r.spend);
+        const leads = Number(r.leads);
+        return [r.clientId, {
+          spend, leads,
+          ctr: imp > 0 ? Number(r.clicks) / imp : 0,
+          cpl: leads > 0 ? spend / leads : null,
+          impressions: imp,
+        }];
+      }));
+
       const niches = [...byNiche.entries()].map(([niche, members]) => {
         const agg = aggByNiche.get(niche);
         const imp = Number(agg?.impressions ?? 0);
@@ -3037,9 +3078,24 @@ export function adsRoutes(db: Db): Router {
         const fmt = formats.get(niche);
         const fmtAds = adsFormats.get(niche);
         const exp = experiments.get(niche);
+        const topCampaigns = campaignRows
+          .filter((c) => c.industry === niche)
+          .map((c) => {
+            const cImp = Number(c.impressions);
+            const cSpend = Number(c.spend);
+            const cLeads = Number(c.leads);
+            return {
+              name: c.campaignName ?? "(sin nombre)", clientName: c.clientName,
+              spend: cSpend, leads: cLeads,
+              ctr: cImp > 0 ? Number(c.clicks) / cImp : 0,
+              cpl: cLeads > 0 ? cSpend / cLeads : null,
+            };
+          })
+          .sort((a, b) => b.ctr - a.ctr)
+          .slice(0, 3);
         return {
           niche,
-          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name })),
+          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name, ads30d: perClient.get(m.id) ?? null })),
           ads30d: {
             spend, leads,
             ctr: imp > 0 ? Number(agg!.clicks) / imp : 0,
@@ -3049,6 +3105,11 @@ export function adsRoutes(db: Db): Router {
           winningFormat: fmt ? { pattern: fmt.pattern, evidence: fmt.evidence } : null,
           winningFormatAds: fmtAds ? { pattern: fmtAds.pattern, evidence: fmtAds.evidence } : null,
           experiment: exp ? { pattern: exp.pattern, evidence: exp.evidence } : null,
+          topCampaigns,
+          hooks: hookRows.filter((h) => h.niche === niche).slice(0, 3)
+            .map((h) => ({ text: h.text, format: h.format, timesUsed: h.timesUsed })),
+          trends: trendRows.filter((t) => t.tag !== "ignorar" && (t.niches ?? []).includes(niche)).slice(0, 3)
+            .map((t) => ({ title: t.title, tag: t.tag, url: t.url })),
           topContent: topContentRows.filter((t) => t.industry === niche).slice(0, 5)
             .map((t) => ({ title: t.title, format: t.format, score: Number(t.score ?? 0), clientName: t.clientName })),
           competitors: compRows.filter((c) => c.industry === niche).slice(0, 15)
