@@ -515,7 +515,11 @@ export function adsRoutes(db: Db): Router {
     if (!body.companyId || !body.connectionId || !body.adAccountId) {
       return res.status(400).json({ error: "missing required fields: companyId, connectionId, adAccountId" });
     }
-    const includedAdsets = Array.isArray(body.includedAdsets) ? body.includedAdsets.filter((x: unknown) => typeof x === "string") : [];
+    // Always include ALL campaigns/adsets of a mapped account — never a subset.
+    // An empty includedAdsets means "all" in the sync filter; forcing it here
+    // (ignoring whatever the UI sent) guarantees a newly-mapped account pulls
+    // every campaign automatically, no manual selection.
+    const includedAdsets: string[] = [];
     const adAccountId = body.adAccountId.startsWith("act_") ? body.adAccountId : `act_${body.adAccountId}`;
     // The unique key is (company_id, ad_account_id) — one mapping per ad account.
     const [existing] = await db
@@ -585,7 +589,7 @@ export function adsRoutes(db: Db): Router {
 
     for (const m of byAccount.values()) {
       const adAccountId = m.adAccountId as string;
-      const includedAdsets = Array.isArray(m.includedAdsets) ? m.includedAdsets.filter((x: unknown) => typeof x === "string") : [];
+      const includedAdsets: string[] = []; // always all campaigns — never a subset
       // Existing mapping for this account (the real unique key), regardless of page.
       const [existing] = await db
         .select()

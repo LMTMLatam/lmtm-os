@@ -198,7 +198,10 @@ export function ConnectAds() {
           pageId,
           clientId: row.clientId ?? undefined,
           label: row.adAccountName,
-          includedAdsets: Array.from(row.includedAdsetIds),
+          // Always all campaigns — the server ignores any subset. Sending [] so
+          // the intent is explicit: a mapped account pulls every campaign, no
+          // manual selection.
+          includedAdsets: [] as string[],
         }));
       if (mappings.length === 0) throw new Error("No hay mappings para guardar");
       // 1) Persist the mappings. This is the part that MUST succeed — it's fast
@@ -621,11 +624,14 @@ function PageRow({
       </div>
       {row.expanded && (
         <div className="border-t border-border bg-muted/30 px-3 py-3">
+          <div className="mb-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            ✓ Se cargan <b>todas</b> las campañas de esta cuenta automáticamente. La selección de abajo es solo informativa — no hace falta elegir nada.
+          </div>
           <div className="mb-2 flex items-center justify-between">
             <div className="text-xs font-medium text-muted-foreground">
               {adsets.length === 0
                 ? "Esta ad account no tiene adsets."
-                : `${adsets.length} adset${adsets.length === 1 ? "" : "s"} disponibles`}
+                : `${adsets.length} adset${adsets.length === 1 ? "" : "s"} en la cuenta`}
             </div>
             {adsets.length > 0 && (
               <button
