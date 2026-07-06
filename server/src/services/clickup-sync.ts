@@ -304,6 +304,7 @@ export async function getRedesCalendar(
     name: string;
     status?: { status?: string; type?: string };
     start_date?: string | null;
+    due_date?: string | null;
     url?: string | null;
     tags?: Array<{ name?: string }>;
     custom_fields?: CuLabelField[];
@@ -314,7 +315,10 @@ export async function getRedesCalendar(
   const tasks = r.tasks ?? [];
   const out: RedesCalendarItem[] = [];
   for (const t of tasks) {
-    const startMs = Number(t.start_date ?? 0);
+    // start_date (Fecha de inicio) = when the post fires to Make — the LMTM
+    // convention. Many teams only set due_date though, so fall back to it:
+    // an empty calendar helps nobody.
+    const startMs = Number(t.start_date ?? 0) || Number(t.due_date ?? 0);
     if (!startMs || startMs < sinceMs || startMs > untilMs) continue;
     const cfs = t.custom_fields ?? [];
     const networks = labelsFromField(cfs.find((c) => PLATAFORMAS_RE.test(c.name ?? "")));

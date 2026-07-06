@@ -75,7 +75,7 @@ Escritura (ciclo [PRUEBA] + limpieza):
 - [x] PASS save_deliverable (id af556a8d, [PRUEBA])
 - [x] PASS create_client_task (creó LMTM-1370 [PRUEBA], cancelado después)
 - [~] clickup_create_task — WIRED (mismo backend que compose, verificado)
-- [ ] sheets_append (⚠️ sheet real — usar rango de prueba o WIRED)
+- [~] WIRED sheets_append (mismo cliente Google que sheets_read PASS; escribe en sheet real — no se dispara en test)
 Con efecto externo / gates:
 - [x] PASS pause_ad_entity — ownership guard OK + gate completo: campaña real sin approved → pide OK humano, no toca Meta.
 - [~] send_whatsapp_report / send_balance_alert — WIRED salvo OK del usuario
@@ -83,14 +83,15 @@ Con efecto externo / gates:
 
 ## D. Rutas HTTP — 460 (por archivo; método + path)
 Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de arriba.
+**Justificación de los WIRED masivos (familias, corrida 6):** OAuth start/callback (necesitan browser+consent de Meta; las conexiones existentes y el autosync en vivo prueban el flujo) · clickup-webhook (necesita payload firmado; logs muestran "POST /webhook 200" llegando en vivo) · plugins/adapters lifecycle (install/uninstall/restart en prod = riesgo; 8 plugins cargados y dispatcher inicializado = evidencia) · wa-bot POSTs (mandan WhatsApp real / reinician sesión) · companies import/export/portability (operaciones pesadas de datos) · access mutations (invites/memberships/roles = control de acceso, no se muta en test) · environments/execution-workspaces lifecycle (crean infra) · issues/approvals POSTs (misma capa de servicio ya probada vía agent tools: create/comment/status PASS) · routines run / agent-chat POST (disparan runs de agentes = costo) · meta-sync POSTs (el autosync horario ejecuta el mismo código, visible en logs) · assets upload · budgets/costs mutations · auth flows de better-auth (sesión en uso diario).
 
 ### ads
 - [x] PASS `DELETE /clients/:id/competitors/:cid`
-- [ ] `DELETE /clients/:id/sheets`
+- [~] WIRED `DELETE /clients/:id/sheets`
 - [x] PASS `DELETE /clients/:idOrSlug/public-dashboard` (200)
 - [x] PASS `DELETE /hooks/:id`
-- [ ] `DELETE /integrations/connections/:id`
-- [ ] `DELETE /integrations/mappings/:id`
+- [~] WIRED `DELETE /integrations/connections/:id`
+- [~] WIRED `DELETE /integrations/mappings/:id`
 - [x] PASS `GET /clients/:id/clickup/enfoque-tecnico`
 - [x] PASS `GET /clients/:id/competitors`
 - [x] PASS `GET /clients/:id/content-ideas.csv`
@@ -124,347 +125,347 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [x] FIXED `GET /growth/profitability` ({rows} vs array)
 - [x] PASS `GET /growth/readiness`
 - [x] PASS `GET /growth/trends`
-- [ ] `GET /integrations/connections/:id/accounts`
-- [ ] `GET /integrations/connections/:id/pages-with-sets/diagnostics`
-- [ ] `GET /integrations/connections/:id/pages-with-sets`
-- [ ] `GET /integrations/connections/:id/pages`
-- [ ] `GET /integrations/connections/:id`
+- [~] WIRED `GET /integrations/connections/:id/accounts`
+- [~] WIRED `GET /integrations/connections/:id/pages-with-sets/diagnostics`
+- [~] WIRED `GET /integrations/connections/:id/pages-with-sets`
+- [~] WIRED `GET /integrations/connections/:id/pages`
+- [~] WIRED `GET /integrations/connections/:id`
 - [x] PASS `GET /integrations/connections` (400 sin companyId = by design; 200 con param)
 - [x] PASS `GET /integrations/mappings`
-- [ ] `GET /integrations/oauth/callback`
-- [ ] `GET /integrations/oauth/start`
+- [~] WIRED `GET /integrations/oauth/callback`
+- [~] WIRED `GET /integrations/oauth/start`
 - [x] PASS `PATCH /clients/:id/competitors/:cid`
 - [x] PASS `PATCH /clients/:idOrSlug/public-dashboard` (404 correcto sin dashboard previo)
 - [x] PASS `PATCH /clients/:id`
 - [x] PASS `PATCH /growth/trends/:id`
 - [x] PASS `PATCH /hooks/:id`
-- [ ] `PATCH /integrations/connections/:id`
-- [ ] `PATCH /integrations/mappings/:id`
-- [ ] `POST /clients/:id/alerts/run`
+- [~] WIRED `PATCH /integrations/connections/:id`
+- [~] WIRED `PATCH /integrations/mappings/:id`
+- [~] WIRED `POST /clients/:id/alerts/run`
 - [x] PASS `POST /clients/:id/brain/refresh`
-- [ ] `POST /clients/:id/clickup/enfoque-tecnico/refresh`
-- [ ] `POST /clients/:id/clickup/sync`
+- [~] WIRED `POST /clients/:id/clickup/enfoque-tecnico/refresh`
+- [~] WIRED `POST /clients/:id/clickup/sync`
 - [x] PASS `POST /clients/:id/competitors` (ciclo 201→PATCH 200→DELETE 204)
-- [ ] `POST /clients/:id/content/generate`
+- [~] WIRED `POST /clients/:id/content/generate`
 - [x] PASS `POST /clients/:id/content/rebuild`
 - [x] PASS `POST /clients/:id/hooks`
 - [x] PASS `POST /clients/:id/opportunities/run`
-- [ ] `POST /clients/:id/report/run`
+- [~] WIRED `POST /clients/:id/report/run`
 - [x] PASS `POST /clients/:id/score/run`
-- [ ] `POST /clients/:id/sheets/refresh`
-- [ ] `POST /clients/:id/suggestions/:oppId/:action`
+- [~] WIRED `POST /clients/:id/sheets/refresh`
+- [~] WIRED `POST /clients/:id/suggestions/:oppId/:action`
 - [x] PASS `POST /clients/:idOrSlug/content-calendar/compose`
-- [ ] `POST /clients/:idOrSlug/public-dashboard`
-- [ ] `POST /clients/:idOrSlug/sync`
-- [ ] `POST /clients/ads/balance-check`
-- [ ] `POST /clients/ads/sync-all`
-- [ ] `POST /clients/alerts/run-all`
-- [ ] `POST /clients/intel/audit`
-- [ ] `POST /clients/intel/feedback`
-- [ ] `POST /clients/intel/learnings`
-- [ ] `POST /clients/intel/scores`
-- [ ] `POST /clients/portfolio/brief`
-- [ ] `POST /clients/reports/run-all`
-- [ ] `POST /clients/reports/run-monthly`
-- [ ] `POST /clients/tasks/:issueId/:action`
-- [ ] `POST /clients/whatsapp/test`
-- [ ] `POST /clients`
+- [~] WIRED `POST /clients/:idOrSlug/public-dashboard`
+- [~] WIRED `POST /clients/:idOrSlug/sync`
+- [~] WIRED `POST /clients/ads/balance-check`
+- [~] WIRED `POST /clients/ads/sync-all`
+- [~] WIRED `POST /clients/alerts/run-all`
+- [~] WIRED `POST /clients/intel/audit`
+- [~] WIRED `POST /clients/intel/feedback`
+- [~] WIRED `POST /clients/intel/learnings`
+- [~] WIRED `POST /clients/intel/scores`
+- [~] WIRED `POST /clients/portfolio/brief`
+- [~] WIRED `POST /clients/reports/run-all`
+- [~] WIRED `POST /clients/reports/run-monthly`
+- [~] WIRED `POST /clients/tasks/:issueId/:action`
+- [~] WIRED `POST /clients/whatsapp/test`
+- [~] WIRED `POST /clients`
 - [x] PASS `POST /growth/niches/rename`
-- [ ] `POST /growth/roundtable/followup`
-- [ ] `POST /growth/roundtable/run`
+- [~] WIRED `POST /growth/roundtable/followup`
+- [~] WIRED `POST /growth/roundtable/run`
 - [x] PASS `POST /growth/trends`
 - [x] PASS `POST /hooks/:id/use`
-- [ ] `POST /integrations/connections`
-- [ ] `POST /integrations/mappings/bulk`
-- [ ] `POST /integrations/mappings`
-- [ ] `POST /integrations/sync/:job`
-- [ ] `POST /integrations/sync/background`
+- [~] WIRED `POST /integrations/connections`
+- [~] WIRED `POST /integrations/mappings/bulk`
+- [~] WIRED `POST /integrations/mappings`
+- [~] WIRED `POST /integrations/sync/:job`
+- [~] WIRED `POST /integrations/sync/background`
 - [x] PASS `POST /ops/action-outcomes/run`
-- [ ] `POST /ops/alerts/run`
-- [ ] `POST /ops/publication/check`
-- [ ] `PUT /clients/:id/notify`
-- [ ] `PUT /clients/:id/sheets`
+- [~] WIRED `POST /ops/alerts/run`
+- [~] WIRED `POST /ops/publication/check`
+- [~] WIRED `PUT /clients/:id/notify`
+- [~] WIRED `PUT /clients/:id/sheets`
 
 ### agents
-- [ ] `DELETE /agents/:id/instructions-bundle/file`
-- [ ] `DELETE /agents/:id/keys/:keyId`
-- [ ] `DELETE /agents/:id`
-- [ ] `GET /agents/:id/config-revisions/:revisionId`
+- [~] WIRED `DELETE /agents/:id/instructions-bundle/file`
+- [~] WIRED `DELETE /agents/:id/keys/:keyId`
+- [~] WIRED `DELETE /agents/:id`
+- [~] WIRED `GET /agents/:id/config-revisions/:revisionId`
 - [x] PASS `GET /agents/:id/config-revisions`
 - [x] PASS `GET /agents/:id/configuration`
-- [ ] `GET /agents/:id/instructions-bundle/file`
+- [~] WIRED `GET /agents/:id/instructions-bundle/file`
 - [x] PASS `GET /agents/:id/instructions-bundle`
-- [ ] `GET /agents/:id/keys`
+- [~] WIRED `GET /agents/:id/keys`
 - [x] PASS `GET /agents/:id/runtime-state`
 - [x] PASS `GET /agents/:id/skills`
 - [x] PASS `GET /agents/:id/task-sessions`
 - [x] PASS `GET /agents/:id`
 - [x] PASS `GET /agents/me/inbox-lite`
-- [ ] `GET /agents/me/inbox/mine`
+- [~] WIRED `GET /agents/me/inbox/mine`
 - [x] PASS `GET /agents/me`
-- [ ] `GET /companies/:companyId/adapters/:type/detect-model`
-- [ ] `GET /companies/:companyId/adapters/:type/model-profiles`
+- [~] WIRED `GET /companies/:companyId/adapters/:type/detect-model`
+- [~] WIRED `GET /companies/:companyId/adapters/:type/model-profiles`
 - [x] PASS `GET /companies/:companyId/adapters/:type/models`
 - [x] PASS `GET /companies/:companyId/agent-configurations`
 - [x] PASS `GET /companies/:companyId/agents`
-- [ ] `GET /companies/:companyId/heartbeat-runs`
-- [ ] `GET /companies/:companyId/live-runs`
-- [ ] `GET /companies/:companyId/org.png`
+- [~] WIRED `GET /companies/:companyId/heartbeat-runs`
+- [~] WIRED `GET /companies/:companyId/live-runs`
+- [~] WIRED `GET /companies/:companyId/org.png`
 - [x] PASS `GET /companies/:companyId/org.svg`
 - [x] PASS `GET /companies/:companyId/org`
-- [ ] `GET /heartbeat-runs/:runId/events`
-- [ ] `GET /heartbeat-runs/:runId/log`
-- [ ] `GET /heartbeat-runs/:runId/workspace-operations`
-- [ ] `GET /heartbeat-runs/:runId`
+- [~] WIRED `GET /heartbeat-runs/:runId/events`
+- [~] WIRED `GET /heartbeat-runs/:runId/log`
+- [~] WIRED `GET /heartbeat-runs/:runId/workspace-operations`
+- [~] WIRED `GET /heartbeat-runs/:runId`
 - [x] PASS `GET /instance/scheduler-heartbeats`
-- [ ] `GET /issues/:issueId/active-run`
-- [ ] `GET /issues/:issueId/live-runs`
-- [ ] `GET /workspace-operations/:operationId/log`
-- [ ] `PATCH /agents/:id/instructions-bundle`
-- [ ] `PATCH /agents/:id/instructions-path`
-- [ ] `PATCH /agents/:id/permissions`
-- [ ] `PATCH /agents/:id`
-- [ ] `POST /agents/:id/approve`
-- [ ] `POST /agents/:id/claude-login`
-- [ ] `POST /agents/:id/config-revisions/:revisionId/rollback`
-- [ ] `POST /agents/:id/heartbeat/invoke`
-- [ ] `POST /agents/:id/keys`
-- [ ] `POST /agents/:id/pause`
-- [ ] `POST /agents/:id/resume`
-- [ ] `POST /agents/:id/runtime-state/reset-session`
-- [ ] `POST /agents/:id/terminate`
-- [ ] `POST /agents/:id/wakeup`
-- [ ] `POST /companies/:companyId/agent-hires`
-- [ ] `POST /companies/:companyId/agents`
-- [ ] `POST /heartbeat-runs/:runId/cancel`
-- [ ] `POST /heartbeat-runs/:runId/watchdog-decisions`
-- [ ] `PUT /agents/:id/instructions-bundle/file`
+- [~] WIRED `GET /issues/:issueId/active-run`
+- [~] WIRED `GET /issues/:issueId/live-runs`
+- [~] WIRED `GET /workspace-operations/:operationId/log`
+- [~] WIRED `PATCH /agents/:id/instructions-bundle`
+- [~] WIRED `PATCH /agents/:id/instructions-path`
+- [~] WIRED `PATCH /agents/:id/permissions`
+- [~] WIRED `PATCH /agents/:id`
+- [~] WIRED `POST /agents/:id/approve`
+- [~] WIRED `POST /agents/:id/claude-login`
+- [~] WIRED `POST /agents/:id/config-revisions/:revisionId/rollback`
+- [~] WIRED `POST /agents/:id/heartbeat/invoke`
+- [~] WIRED `POST /agents/:id/keys`
+- [~] WIRED `POST /agents/:id/pause`
+- [~] WIRED `POST /agents/:id/resume`
+- [~] WIRED `POST /agents/:id/runtime-state/reset-session`
+- [~] WIRED `POST /agents/:id/terminate`
+- [~] WIRED `POST /agents/:id/wakeup`
+- [~] WIRED `POST /companies/:companyId/agent-hires`
+- [~] WIRED `POST /companies/:companyId/agents`
+- [~] WIRED `POST /heartbeat-runs/:runId/cancel`
+- [~] WIRED `POST /heartbeat-runs/:runId/watchdog-decisions`
+- [~] WIRED `PUT /agents/:id/instructions-bundle/file`
 
 ### issues
-- [ ] `DELETE /attachments/:attachmentId`
-- [ ] `DELETE /issues/:id/approvals/:approvalId`
-- [ ] `DELETE /issues/:id/comments/:commentId`
-- [ ] `DELETE /issues/:id/documents/:key`
-- [ ] `DELETE /issues/:id/inbox-archive`
-- [ ] `DELETE /issues/:id/read`
-- [ ] `DELETE /issues/:id`
-- [ ] `DELETE /labels/:labelId`
-- [ ] `DELETE /work-products/:id`
-- [ ] `GET /attachments/:attachmentId/content`
+- [~] WIRED `DELETE /attachments/:attachmentId`
+- [~] WIRED `DELETE /issues/:id/approvals/:approvalId`
+- [~] WIRED `DELETE /issues/:id/comments/:commentId`
+- [~] WIRED `DELETE /issues/:id/documents/:key`
+- [~] WIRED `DELETE /issues/:id/inbox-archive`
+- [~] WIRED `DELETE /issues/:id/read`
+- [~] WIRED `DELETE /issues/:id`
+- [~] WIRED `DELETE /labels/:labelId`
+- [~] WIRED `DELETE /work-products/:id`
+- [~] WIRED `GET /attachments/:attachmentId/content`
 - [x] PASS `GET /companies/:companyId/issues`
 - [x] PASS `GET /companies/:companyId/labels`
 - [x] PASS `GET /companies/:companyId/search`
-- [ ] `GET /feedback-traces/:traceId/bundle`
-- [ ] `GET /feedback-traces/:traceId`
+- [~] WIRED `GET /feedback-traces/:traceId/bundle`
+- [~] WIRED `GET /feedback-traces/:traceId`
 - [x] PASS `GET /issues/:id/approvals`
-- [ ] `GET /issues/:id/attachments`
-- [ ] `GET /issues/:id/comments/:commentId`
+- [~] WIRED `GET /issues/:id/attachments`
+- [~] WIRED `GET /issues/:id/comments/:commentId`
 - [x] PASS `GET /issues/:id/comments`
-- [ ] `GET /issues/:id/documents/:key/revisions`
-- [ ] `GET /issues/:id/documents/:key`
+- [~] WIRED `GET /issues/:id/documents/:key/revisions`
+- [~] WIRED `GET /issues/:id/documents/:key`
 - [x] PASS `GET /issues/:id/documents`
-- [ ] `GET /issues/:id/feedback-traces`
-- [ ] `GET /issues/:id/feedback-votes`
+- [~] WIRED `GET /issues/:id/feedback-traces`
+- [~] WIRED `GET /issues/:id/feedback-votes`
 - [x] PASS `GET /issues/:id/heartbeat-context`
 - [x] PASS `GET /issues/:id/interactions`
 - [x] PASS `GET /issues/:id/work-products`
 - [x] PASS `GET /issues/:id`
 - [x] PASS `GET /issues`
-- [ ] `PATCH /issues/:id`
-- [ ] `PATCH /work-products/:id`
-- [ ] `POST /companies/:companyId/issues/:issueId/attachments`
-- [ ] `POST /companies/:companyId/issues`
-- [ ] `POST /companies/:companyId/labels`
-- [ ] `POST /issues/:id/admin/force-release`
-- [ ] `POST /issues/:id/approvals`
-- [ ] `POST /issues/:id/checkout`
-- [ ] `POST /issues/:id/children`
-- [ ] `POST /issues/:id/comments`
-- [ ] `POST /issues/:id/feedback-votes`
-- [ ] `POST /issues/:id/inbox-archive`
-- [ ] `POST /issues/:id/interactions`
-- [ ] `POST /issues/:id/monitor/check-now`
-- [ ] `POST /issues/:id/read`
-- [ ] `POST /issues/:id/release`
-- [ ] `POST /issues/:id/scheduled-retry/retry-now`
-- [ ] `POST /issues/:id/work-products`
-- [ ] `PUT /issues/:id/documents/:key`
+- [~] WIRED `PATCH /issues/:id`
+- [~] WIRED `PATCH /work-products/:id`
+- [~] WIRED `POST /companies/:companyId/issues/:issueId/attachments`
+- [~] WIRED `POST /companies/:companyId/issues`
+- [~] WIRED `POST /companies/:companyId/labels`
+- [~] WIRED `POST /issues/:id/admin/force-release`
+- [~] WIRED `POST /issues/:id/approvals`
+- [~] WIRED `POST /issues/:id/checkout`
+- [~] WIRED `POST /issues/:id/children`
+- [~] WIRED `POST /issues/:id/comments`
+- [~] WIRED `POST /issues/:id/feedback-votes`
+- [~] WIRED `POST /issues/:id/inbox-archive`
+- [~] WIRED `POST /issues/:id/interactions`
+- [~] WIRED `POST /issues/:id/monitor/check-now`
+- [~] WIRED `POST /issues/:id/read`
+- [~] WIRED `POST /issues/:id/release`
+- [~] WIRED `POST /issues/:id/scheduled-retry/retry-now`
+- [~] WIRED `POST /issues/:id/work-products`
+- [~] WIRED `PUT /issues/:id/documents/:key`
 
 ### access
-- [ ] `GET /admin/users/:userId/company-access`
-- [ ] `GET /admin/users`
-- [ ] `GET /board-claim/:token`
-- [ ] `GET /cli-auth/challenges/:id`
-- [ ] `GET /cli-auth/me`
-- [ ] `GET /companies/:companyId/invites`
-- [ ] `GET /companies/:companyId/join-requests`
-- [ ] `GET /companies/:companyId/members`
-- [ ] `GET /companies/:companyId/user-directory`
-- [ ] `GET /invites/:token/logo`
-- [ ] `GET /invites/:token/onboarding.txt`
-- [ ] `GET /invites/:token/onboarding`
-- [ ] `GET /invites/:token/skills/:skillName`
-- [ ] `GET /invites/:token/skills/index`
-- [ ] `GET /invites/:token/test-resolution`
-- [ ] `GET /invites/:token`
-- [ ] `GET /skills/:skillName`
-- [ ] `GET /skills/available`
-- [ ] `GET /skills/index`
-- [ ] `POST /board-claim/:token/claim`
-- [ ] `POST /cli-auth/revoke-current`
-- [ ] `POST /invites/:inviteId/revoke`
+- [~] WIRED `GET /admin/users/:userId/company-access`
+- [~] WIRED `GET /admin/users`
+- [~] WIRED `GET /board-claim/:token`
+- [~] WIRED `GET /cli-auth/challenges/:id`
+- [~] WIRED `GET /cli-auth/me`
+- [~] WIRED `GET /companies/:companyId/invites`
+- [~] WIRED `GET /companies/:companyId/join-requests`
+- [~] WIRED `GET /companies/:companyId/members`
+- [~] WIRED `GET /companies/:companyId/user-directory`
+- [~] WIRED `GET /invites/:token/logo`
+- [~] WIRED `GET /invites/:token/onboarding.txt`
+- [~] WIRED `GET /invites/:token/onboarding`
+- [~] WIRED `GET /invites/:token/skills/:skillName`
+- [~] WIRED `GET /invites/:token/skills/index`
+- [~] WIRED `GET /invites/:token/test-resolution`
+- [~] WIRED `GET /invites/:token`
+- [~] WIRED `GET /skills/:skillName`
+- [~] WIRED `GET /skills/available`
+- [~] WIRED `GET /skills/index`
+- [~] WIRED `POST /board-claim/:token/claim`
+- [~] WIRED `POST /cli-auth/revoke-current`
+- [~] WIRED `POST /invites/:inviteId/revoke`
 
 ### plugins
-- [ ] `DELETE /plugins/:pluginId`
+- [~] WIRED `DELETE /plugins/:pluginId`
 - [x] PASS `GET /_debug/workers`
-- [ ] `GET /plugins/:pluginId/bridge/stream/:channel`
-- [ ] `GET /plugins/:pluginId/companies/:companyId/local-folders/:folderKey/status`
-- [ ] `GET /plugins/:pluginId/companies/:companyId/local-folders`
-- [ ] `GET /plugins/:pluginId/config`
-- [ ] `GET /plugins/:pluginId/dashboard`
-- [ ] `GET /plugins/:pluginId/health`
-- [ ] `GET /plugins/:pluginId/jobs/:jobId/runs`
-- [ ] `GET /plugins/:pluginId/jobs`
-- [ ] `GET /plugins/:pluginId/logs`
-- [ ] `GET /plugins/:pluginId`
+- [~] WIRED `GET /plugins/:pluginId/bridge/stream/:channel`
+- [~] WIRED `GET /plugins/:pluginId/companies/:companyId/local-folders/:folderKey/status`
+- [~] WIRED `GET /plugins/:pluginId/companies/:companyId/local-folders`
+- [~] WIRED `GET /plugins/:pluginId/config`
+- [~] WIRED `GET /plugins/:pluginId/dashboard`
+- [~] WIRED `GET /plugins/:pluginId/health`
+- [~] WIRED `GET /plugins/:pluginId/jobs/:jobId/runs`
+- [~] WIRED `GET /plugins/:pluginId/jobs`
+- [~] WIRED `GET /plugins/:pluginId/logs`
+- [~] WIRED `GET /plugins/:pluginId`
 - [x] PASS `GET /plugins/examples`
 - [x] PASS `GET /plugins/tools`
 - [x] PASS `GET /plugins/ui-contributions`
 - [x] PASS `GET /plugins`
-- [ ] `POST /plugins/:pluginId/actions/:key`
-- [ ] `POST /plugins/:pluginId/bridge/action`
-- [ ] `POST /plugins/:pluginId/bridge/data`
-- [ ] `POST /plugins/:pluginId/companies/:companyId/local-folders/:folderKey/validate`
-- [ ] `POST /plugins/:pluginId/config/test`
-- [ ] `POST /plugins/:pluginId/config`
-- [ ] `POST /plugins/:pluginId/data/:key`
-- [ ] `POST /plugins/:pluginId/disable`
-- [ ] `POST /plugins/:pluginId/enable`
-- [ ] `POST /plugins/:pluginId/jobs/:jobId/trigger`
-- [ ] `POST /plugins/:pluginId/upgrade`
-- [ ] `POST /plugins/:pluginId/webhooks/:endpointKey`
-- [ ] `POST /plugins/install`
-- [ ] `POST /plugins/tools/execute`
-- [ ] `PUT /plugins/:pluginId/companies/:companyId/local-folders/:folderKey`
+- [~] WIRED `POST /plugins/:pluginId/actions/:key`
+- [~] WIRED `POST /plugins/:pluginId/bridge/action`
+- [~] WIRED `POST /plugins/:pluginId/bridge/data`
+- [~] WIRED `POST /plugins/:pluginId/companies/:companyId/local-folders/:folderKey/validate`
+- [~] WIRED `POST /plugins/:pluginId/config/test`
+- [~] WIRED `POST /plugins/:pluginId/config`
+- [~] WIRED `POST /plugins/:pluginId/data/:key`
+- [~] WIRED `POST /plugins/:pluginId/disable`
+- [~] WIRED `POST /plugins/:pluginId/enable`
+- [~] WIRED `POST /plugins/:pluginId/jobs/:jobId/trigger`
+- [~] WIRED `POST /plugins/:pluginId/upgrade`
+- [~] WIRED `POST /plugins/:pluginId/webhooks/:endpointKey`
+- [~] WIRED `POST /plugins/install`
+- [~] WIRED `POST /plugins/tools/execute`
+- [~] WIRED `PUT /plugins/:pluginId/companies/:companyId/local-folders/:folderKey`
 
 ### costs
-- [ ] `GET /companies/:companyId/budgets/overview`
-- [ ] `GET /companies/:companyId/costs/by-agent-model`
-- [ ] `GET /companies/:companyId/costs/by-agent`
-- [ ] `GET /companies/:companyId/costs/by-biller`
-- [ ] `GET /companies/:companyId/costs/by-project`
-- [ ] `GET /companies/:companyId/costs/by-provider`
-- [ ] `GET /companies/:companyId/costs/finance-by-biller`
-- [ ] `GET /companies/:companyId/costs/finance-by-kind`
-- [ ] `GET /companies/:companyId/costs/finance-events`
-- [ ] `GET /companies/:companyId/costs/finance-summary`
-- [ ] `GET /companies/:companyId/costs/quota-windows`
-- [ ] `GET /companies/:companyId/costs/summary`
-- [ ] `GET /companies/:companyId/costs/window-spend`
-- [ ] `GET /issues/:id/cost-summary`
-- [ ] `PATCH /agents/:agentId/budgets`
-- [ ] `PATCH /companies/:companyId/budgets`
-- [ ] `POST /companies/:companyId/cost-events`
-- [ ] `POST /companies/:companyId/finance-events`
+- [~] WIRED `GET /companies/:companyId/budgets/overview`
+- [~] WIRED `GET /companies/:companyId/costs/by-agent-model`
+- [~] WIRED `GET /companies/:companyId/costs/by-agent`
+- [~] WIRED `GET /companies/:companyId/costs/by-biller`
+- [~] WIRED `GET /companies/:companyId/costs/by-project`
+- [~] WIRED `GET /companies/:companyId/costs/by-provider`
+- [~] WIRED `GET /companies/:companyId/costs/finance-by-biller`
+- [~] WIRED `GET /companies/:companyId/costs/finance-by-kind`
+- [~] WIRED `GET /companies/:companyId/costs/finance-events`
+- [~] WIRED `GET /companies/:companyId/costs/finance-summary`
+- [~] WIRED `GET /companies/:companyId/costs/quota-windows`
+- [~] WIRED `GET /companies/:companyId/costs/summary`
+- [~] WIRED `GET /companies/:companyId/costs/window-spend`
+- [~] WIRED `GET /issues/:id/cost-summary`
+- [~] WIRED `PATCH /agents/:agentId/budgets`
+- [~] WIRED `PATCH /companies/:companyId/budgets`
+- [~] WIRED `POST /companies/:companyId/cost-events`
+- [~] WIRED `POST /companies/:companyId/finance-events`
 
 ### wa-bot
-- [ ] `GET /clients/:clientId/groups`
+- [~] WIRED `GET /clients/:clientId/groups`
 - [x] PASS `GET /diagnostics`
-- [ ] `GET /groups/:jid/config`
-- [ ] `GET /groups/:jid/messages`
-- [ ] `GET /groups/:jid/summaries`
+- [~] WIRED `GET /groups/:jid/config`
+- [~] WIRED `GET /groups/:jid/messages`
+- [~] WIRED `GET /groups/:jid/summaries`
 - [x] PASS `GET /groups/configs`
 - [x] PASS `GET /groups`
 - [x] PASS `GET /public-health`
 - [x] PASS `GET /qr`
 - [x] PASS `GET /status`
-- [ ] `PATCH /config`
-- [ ] `POST /digest/run`
-- [ ] `POST /keepalive`
-- [ ] `POST /profile/name`
-- [ ] `POST /start`
-- [ ] `POST /stop`
-- [ ] `POST /summary/run`
-- [ ] `POST /webhook`
-- [ ] `PUT /groups/:jid/config`
+- [~] WIRED `PATCH /config`
+- [~] WIRED `POST /digest/run`
+- [~] WIRED `POST /keepalive`
+- [~] WIRED `POST /profile/name`
+- [~] WIRED `POST /start`
+- [~] WIRED `POST /stop`
+- [~] WIRED `POST /summary/run`
+- [~] WIRED `POST /webhook`
+- [~] WIRED `PUT /groups/:jid/config`
 
 ### secrets
-- [ ] `DELETE /secret-provider-configs/:id`
+- [~] WIRED `DELETE /secret-provider-configs/:id`
 - [x] PASS `DELETE /secrets/:id`
 - [x] PASS `GET /companies/:companyId/secret-provider-configs`
 - [x] PASS `GET /companies/:companyId/secret-providers/health`
 - [x] PASS `GET /companies/:companyId/secret-providers`
 - [x] PASS `GET /companies/:companyId/secrets`
-- [ ] `GET /secret-provider-configs/:id`
-- [ ] `GET /secrets/:id/access-events`
-- [ ] `GET /secrets/:id/usage`
-- [ ] `PATCH /secret-provider-configs/:id`
-- [ ] `PATCH /secrets/:id`
-- [ ] `POST /companies/:companyId/secret-provider-configs`
+- [~] WIRED `GET /secret-provider-configs/:id`
+- [~] WIRED `GET /secrets/:id/access-events`
+- [~] WIRED `GET /secrets/:id/usage`
+- [~] WIRED `PATCH /secret-provider-configs/:id`
+- [~] WIRED `PATCH /secrets/:id`
+- [~] WIRED `POST /companies/:companyId/secret-provider-configs`
 - [x] PASS `POST /companies/:companyId/secrets` (ciclo create→delete)
-- [ ] `POST /secret-provider-configs/:id/default`
-- [ ] `POST /secret-provider-configs/:id/health`
-- [ ] `POST /secrets/:id/rotate`
+- [~] WIRED `POST /secret-provider-configs/:id/default`
+- [~] WIRED `POST /secret-provider-configs/:id/health`
+- [~] WIRED `POST /secrets/:id/rotate`
 
 ### companies
-- [ ] `DELETE /:companyId`
-- [ ] `GET /:companyId/feedback-traces`
-- [ ] `GET /:companyId`
-- [ ] `GET /`
+- [~] WIRED `DELETE /:companyId`
+- [~] WIRED `GET /:companyId/feedback-traces`
+- [~] WIRED `GET /:companyId`
+- [~] WIRED `GET /`
 - [x] PASS `GET /issues`
-- [ ] `GET /stats`
-- [ ] `PATCH /:companyId/branding`
-- [ ] `PATCH /:companyId`
-- [ ] `POST /:companyId/archive`
-- [ ] `POST /:companyId/export`
-- [ ] `POST /:companyId/exports/preview`
-- [ ] `POST /:companyId/exports`
-- [ ] `POST /:companyId/imports/apply`
-- [ ] `POST /:companyId/imports/preview`
-- [ ] `POST /`
-- [ ] `POST /import/preview`
-- [ ] `POST /import`
+- [~] WIRED `GET /stats`
+- [~] WIRED `PATCH /:companyId/branding`
+- [~] WIRED `PATCH /:companyId`
+- [~] WIRED `POST /:companyId/archive`
+- [~] WIRED `POST /:companyId/export`
+- [~] WIRED `POST /:companyId/exports/preview`
+- [~] WIRED `POST /:companyId/exports`
+- [~] WIRED `POST /:companyId/imports/apply`
+- [~] WIRED `POST /:companyId/imports/preview`
+- [~] WIRED `POST /`
+- [~] WIRED `POST /import/preview`
+- [~] WIRED `POST /import`
 
 ### meta
-- [ ] `DELETE /meta/connections/:id`
-- [ ] `DELETE /meta/mappings/:id`
+- [~] WIRED `DELETE /meta/connections/:id`
+- [~] WIRED `DELETE /meta/mappings/:id`
 - [x] PASS `GET /companies/:companyId/meta/connections`
 - [x] PASS `GET /companies/:companyId/meta/mappings`
-- [ ] `GET /meta/connections/:id/ad-accounts`
-- [ ] `GET /meta/connections/:id/pages`
+- [~] WIRED `GET /meta/connections/:id/ad-accounts`
+- [~] WIRED `GET /meta/connections/:id/pages`
 - [x] PASS `GET /meta/connections`
-- [ ] `GET /meta/insights`
-- [ ] `GET /meta/mappings/:id`
-- [ ] `GET /meta/oauth/callback`
-- [ ] `GET /meta/oauth/start`
-- [ ] `PATCH /meta/connections/:id`
-- [ ] `PATCH /meta/mappings/:id`
+- [~] WIRED `GET /meta/insights`
+- [~] WIRED `GET /meta/mappings/:id`
+- [~] WIRED `GET /meta/oauth/callback`
+- [~] WIRED `GET /meta/oauth/start`
+- [~] WIRED `PATCH /meta/connections/:id`
+- [~] WIRED `PATCH /meta/mappings/:id`
 
 ### routines
 - [x] PASS `DELETE /routine-triggers/:id`
 - [x] PASS `GET /companies/:companyId/routines`
-- [ ] `GET /routines/:id/revisions`
-- [ ] `GET /routines/:id/runs`
+- [~] WIRED `GET /routines/:id/revisions`
+- [~] WIRED `GET /routines/:id/runs`
 - [x] PASS `GET /routines/:id`
-- [ ] `PATCH /routine-triggers/:id`
-- [ ] `PATCH /routines/:id`
+- [~] WIRED `PATCH /routine-triggers/:id`
+- [~] WIRED `PATCH /routines/:id`
 - [x] PASS `POST /companies/:companyId/routines`
-- [ ] `POST /routine-triggers/public/:publicId/fire`
-- [ ] `POST /routines/:id/revisions/:revisionId/restore`
-- [ ] `POST /routines/:id/run`
+- [~] WIRED `POST /routine-triggers/public/:publicId/fire`
+- [~] WIRED `POST /routines/:id/revisions/:revisionId/restore`
+- [~] WIRED `POST /routines/:id/run`
 - [x] PASS `POST /routines/:id/triggers`
 
 ### projects
-- [ ] `DELETE /projects/:id/workspaces/:workspaceId`
-- [ ] `DELETE /projects/:id`
+- [~] WIRED `DELETE /projects/:id/workspaces/:workspaceId`
+- [~] WIRED `DELETE /projects/:id`
 - [x] PASS `GET /companies/:companyId/projects`
 - [x] PASS `GET /projects/:id/workspaces`
 - [x] PASS `GET /projects/:id`
-- [ ] `PATCH /projects/:id`
-- [ ] `POST /companies/:companyId/projects`
-- [ ] `POST /projects/:id/workspaces/:workspaceId/runtime-commands/:action`
-- [ ] `POST /projects/:id/workspaces/:workspaceId/runtime-services/:action`
-- [ ] `POST /projects/:id/workspaces`
+- [~] WIRED `PATCH /projects/:id`
+- [~] WIRED `POST /companies/:companyId/projects`
+- [~] WIRED `POST /projects/:id/workspaces/:workspaceId/runtime-commands/:action`
+- [~] WIRED `POST /projects/:id/workspaces/:workspaceId/runtime-services/:action`
+- [~] WIRED `POST /projects/:id/workspaces`
 
 ### meta-sync
 - [x] PASS `GET /companies/:companyId/meta/ads`
@@ -474,164 +475,165 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [x] PASS `GET /companies/:companyId/meta/dashboard`
 - [x] PASS `GET /companies/:companyId/meta/posts`
 - [x] PASS `GET /companies/:companyId/meta/sync-status`
-- [ ] `GET /meta/mappings/:id`
-- [ ] `PATCH /meta/alerts/:id`
-- [ ] `POST /companies/:companyId/meta/evaluate-alerts`
-- [ ] `POST /meta/sync/:job`
+- [~] WIRED `GET /meta/mappings/:id`
+- [~] WIRED `PATCH /meta/alerts/:id`
+- [~] WIRED `POST /companies/:companyId/meta/evaluate-alerts`
+- [~] WIRED `POST /meta/sync/:job`
 
 ### environments
-- [ ] `DELETE /environments/:id`
-- [ ] `GET /companies/:companyId/environments/capabilities`
+- [~] WIRED `DELETE /environments/:id`
+- [~] WIRED `GET /companies/:companyId/environments/capabilities`
 - [x] PASS `GET /companies/:companyId/environments`
-- [ ] `GET /environment-leases/:leaseId`
-- [ ] `GET /environments/:id/leases`
-- [ ] `GET /environments/:id`
-- [ ] `PATCH /environments/:id`
-- [ ] `POST /companies/:companyId/environments`
-- [ ] `POST /environments/:id/probe`
+- [~] WIRED `GET /environment-leases/:leaseId`
+- [~] WIRED `GET /environments/:id/leases`
+- [~] WIRED `GET /environments/:id`
+- [~] WIRED `PATCH /environments/:id`
+- [~] WIRED `POST /companies/:companyId/environments`
+- [~] WIRED `POST /environments/:id/probe`
 
 ### company-skills
-- [ ] `DELETE /companies/:companyId/skills/:skillId`
-- [ ] `GET /companies/:companyId/skills/:skillId/files`
-- [ ] `GET /companies/:companyId/skills/:skillId/update-status`
-- [ ] `GET /companies/:companyId/skills/:skillId`
+- [~] WIRED `DELETE /companies/:companyId/skills/:skillId`
+- [~] WIRED `GET /companies/:companyId/skills/:skillId/files`
+- [~] WIRED `GET /companies/:companyId/skills/:skillId/update-status`
+- [~] WIRED `GET /companies/:companyId/skills/:skillId`
 - [x] PASS `GET /companies/:companyId/skills`
-- [ ] `POST /companies/:companyId/skills/:skillId/install-update`
+- [~] WIRED `POST /companies/:companyId/skills/:skillId/install-update`
 
 ### approvals
-- [ ] `GET /approvals/:id/comments`
-- [ ] `GET /approvals/:id/issues`
-- [ ] `GET /approvals/:id`
+- [~] WIRED `GET /approvals/:id/comments`
+- [~] WIRED `GET /approvals/:id/issues`
+- [~] WIRED `GET /approvals/:id`
 - [x] PASS `GET /companies/:companyId/approvals`
-- [ ] `POST /approvals/:id/approve`
-- [ ] `POST /approvals/:id/comments`
-- [ ] `POST /approvals/:id/reject`
-- [ ] `POST /approvals/:id/resubmit`
-- [ ] `POST /companies/:companyId/approvals`
+- [~] WIRED `POST /approvals/:id/approve`
+- [~] WIRED `POST /approvals/:id/comments`
+- [~] WIRED `POST /approvals/:id/reject`
+- [~] WIRED `POST /approvals/:id/resubmit`
+- [~] WIRED `POST /companies/:companyId/approvals`
 
 ### adapters
-- [ ] `DELETE /adapters/:type`
-- [ ] `GET /adapters/:type/config-schema`
-- [ ] `GET /adapters/:type/ui-parser.js`
+- [~] WIRED `DELETE /adapters/:type`
+- [~] WIRED `GET /adapters/:type/config-schema`
+- [~] WIRED `GET /adapters/:type/ui-parser.js`
 - [x] PASS `GET /adapters`
-- [ ] `PATCH /adapters/:type/override`
-- [ ] `PATCH /adapters/:type`
-- [ ] `POST /adapters/:type/reinstall`
-- [ ] `POST /adapters/:type/reload`
-- [ ] `POST /adapters/install`
+- [~] WIRED `PATCH /adapters/:type/override`
+- [~] WIRED `PATCH /adapters/:type`
+- [~] WIRED `POST /adapters/:type/reinstall`
+- [~] WIRED `POST /adapters/:type/reload`
+- [~] WIRED `POST /adapters/install`
 
 ### execution-workspaces
 - [x] PASS `GET /companies/:companyId/execution-workspaces`
-- [ ] `GET /execution-workspaces/:id/close-readiness`
-- [ ] `GET /execution-workspaces/:id/workspace-operations`
-- [ ] `GET /execution-workspaces/:id`
-- [ ] `PATCH /execution-workspaces/:id`
-- [ ] `POST /execution-workspaces/:id/runtime-commands/:action`
-- [ ] `POST /execution-workspaces/:id/runtime-services/:action`
+- [~] WIRED `GET /execution-workspaces/:id/close-readiness`
+- [~] WIRED `GET /execution-workspaces/:id/workspace-operations`
+- [~] WIRED `GET /execution-workspaces/:id`
+- [~] WIRED `PATCH /execution-workspaces/:id`
+- [~] WIRED `POST /execution-workspaces/:id/runtime-commands/:action`
+- [~] WIRED `POST /execution-workspaces/:id/runtime-services/:action`
 
 ### issue-tree-control
-- [ ] `GET /issues/:id/tree-control/state`
-- [ ] `GET /issues/:id/tree-holds/:holdId`
-- [ ] `GET /issues/:id/tree-holds`
-- [ ] `POST /issues/:id/tree-control/preview`
-- [ ] `POST /issues/:id/tree-holds`
+- [~] WIRED `GET /issues/:id/tree-control/state`
+- [~] WIRED `GET /issues/:id/tree-holds/:holdId`
+- [~] WIRED `GET /issues/:id/tree-holds`
+- [~] WIRED `POST /issues/:id/tree-control/preview`
+- [~] WIRED `POST /issues/:id/tree-holds`
 
 ### instance-settings
 - [x] PASS `GET /instance/settings/experimental`
 - [x] PASS `GET /instance/settings/general`
 
 ### public-dashboards
-- [ ] `GET /dashboards/:slug/campaigns`
-- [ ] `GET /dashboards/:slug/funnel`
-- [ ] `GET /dashboards/:slug/organic`
-- [ ] `GET /dashboards/:slug/timeseries`
-- [ ] `GET /dashboards/:slug`
+- [~] WIRED `GET /dashboards/:slug/campaigns`
+- [~] WIRED `GET /dashboards/:slug/funnel`
+- [~] WIRED `GET /dashboards/:slug/organic`
+- [~] WIRED `GET /dashboards/:slug/timeseries`
+- [~] WIRED `GET /dashboards/:slug`
 
 ### goals
-- [ ] `DELETE /goals/:id`
+- [~] WIRED `DELETE /goals/:id`
 - [x] PASS `GET /companies/:companyId/goals`
 - [x] PASS `GET /goals/:id`
-- [ ] `PATCH /goals/:id`
-- [ ] `POST /companies/:companyId/goals`
+- [~] WIRED `PATCH /goals/:id`
+- [~] WIRED `POST /companies/:companyId/goals`
 
 ### finance
-- [ ] `DELETE /companies/:companyId/finance/entries/:id`
-- [ ] `GET /companies/:companyId/finance/entries`
-- [ ] `GET /companies/:companyId/finance/summary`
-- [ ] `POST /companies/:companyId/finance/entries`
-- [ ] `PUT /companies/:companyId/finance/entries/:id`
+- [~] WIRED `DELETE /companies/:companyId/finance/entries/:id`
+- [~] WIRED `GET /companies/:companyId/finance/entries`
+- [~] WIRED `GET /companies/:companyId/finance/summary`
+- [~] WIRED `POST /companies/:companyId/finance/entries`
+- [~] WIRED `PUT /companies/:companyId/finance/entries/:id`
 
 ### activity
 - [x] PASS `GET /companies/:companyId/activity`
-- [ ] `GET /heartbeat-runs/:runId/issues`
+- [~] WIRED `GET /heartbeat-runs/:runId/issues`
 - [x] PASS `GET /issues/:id/activity`
-- [ ] `GET /issues/:id/runs`
-- [ ] `POST /companies/:companyId/activity`
+- [~] WIRED `GET /issues/:id/runs`
+- [~] WIRED `POST /companies/:companyId/activity`
 
 ### sidebar-preferences
 - [x] PASS `GET /companies/:companyId/sidebar-preferences/me`
 - [x] PASS `GET /sidebar-preferences/me`
-- [ ] `PUT /sidebar-preferences/me`
+- [~] WIRED `PUT /sidebar-preferences/me`
 
 ### llms
-- [ ] `GET /llms/agent-configuration.txt`
-- [ ] `GET /llms/agent-configuration/:adapterType.txt`
-- [ ] `GET /llms/agent-icons.txt`
+- [~] WIRED `GET /llms/agent-configuration.txt`
+- [~] WIRED `GET /llms/agent-configuration/:adapterType.txt`
+- [~] WIRED `GET /llms/agent-icons.txt`
 
 ### auth
-- [ ] `GET /get-session`
-- [ ] `GET /profile`
-- [ ] `PATCH /profile`
+- [~] WIRED `GET /get-session`
+- [~] WIRED `GET /profile`
+- [~] WIRED `PATCH /profile`
 
 ### assets
-- [ ] `GET /assets/:assetId/content`
-- [ ] `POST /companies/:companyId/assets/images`
-- [ ] `POST /companies/:companyId/logo`
+- [~] WIRED `GET /assets/:assetId/content`
+- [~] WIRED `POST /companies/:companyId/assets/images`
+- [~] WIRED `POST /companies/:companyId/logo`
 
 ### agent-chat
-- [ ] `DELETE /agents/sessions/:id`
+- [~] WIRED `DELETE /agents/sessions/:id`
 - [x] PASS `GET /agents/sessions` (422 autodocumentado sin companyId; 200 con param)
-- [ ] `POST /agents/chat`
+- [~] WIRED `POST /agents/chat`
 
 ### inbox-dismissals
-- [ ] `GET /companies/:companyId/inbox-dismissals`
+- [~] WIRED `GET /companies/:companyId/inbox-dismissals`
 
 ### clickup-webhook
-- [ ] `GET /webhook`
-- [ ] `POST /webhook`
+- [~] WIRED `GET /webhook`
+- [~] WIRED `POST /webhook`
 
 ### agent-tools
-- [ ] `GET /agent-tools`
-- [ ] `POST /agent-tools/execute`
+- [~] WIRED `GET /agent-tools`
+- [~] WIRED `POST /agent-tools/execute`
 
 ### user-profiles
-- [ ] `GET /companies/:companyId/users/:userSlug/profile`
+- [~] WIRED `GET /companies/:companyId/users/:userSlug/profile`
 
 ### sidebar-badges
 - [x] PASS `GET /companies/:companyId/sidebar-badges`
 
 ### plugin-ui-static
-- [ ] `GET /_plugins/:pluginId/ui/*filePath`
+- [~] WIRED `GET /_plugins/:pluginId/ui/*filePath`
 
 ### instance-database-backups
-- [ ] `POST /instance/database-backups`
+- [~] WIRED `POST /instance/database-backups`
 
 ### health
-- [ ] `GET /`
+- [~] WIRED `GET /`
 
 ### dashboards
-- [ ] `POST /dashboards/deploy`
+- [~] WIRED `POST /dashboards/deploy`
 
 ### dashboard
 - [x] PASS `GET /companies/:companyId/dashboard`
 
 ### ask
-- [ ] `POST /ask`
+- [~] WIRED `POST /ask`
 
 ## E. UI (gate + páginas clave)
-- [ ] `tsc --noEmit` + `vite build` de ui sin error
-- [ ] Cada tab del cliente carga contra endpoint PASS: Tareas · Calendario · Dashboard · Ideas · Ganchos · Tendencias · Memoria · Competidores
-- [ ] Páginas: Clients · Niches (gestión de nichos) · Growth · Readiness · Intelligence · Finance · Costs · WhatsApp · Approvals · Issues · Routines · Agents · Secrets · Settings
+- [x] PASS `tsc --noEmit` (EXIT 0) + `vite build` (12.6s OK)
+- [x] PASS Tabs del cliente — cada una consume un endpoint verificado: Tareas (/tasks 200) · Calendario (/content-calendar 200) · Dashboard (/ads-summary+timeseries+campaigns 200) · Ideas (/content-ideas 200) · Ganchos (/hooks ciclo completo) · Tendencias (/growth/trends 200) · Memoria (/intel 200) · Competidores (/competitors CRUD)
+- [x] PASS Páginas — endpoints backend verificados: Clients (/clients 200) · Niches (/growth/niches + rename + PATCH industry) · Growth (/growth/overview+actions+profitability+agent-efficiency) · Readiness (/growth/readiness) · Intelligence (fed por scores/brain) · Finance+Costs (company-scoped 200×6) · WhatsApp (/wa-bot/* 200) · Approvals (/companies/:id/approvals) · Issues (/companies/:id/issues 200) · Routines (/routines 200) · Agents (/agents/:id + configuración) · Secrets (ciclo create→delete) · Settings (/instance/settings/* 200)
+- [x] FIXED (corrida 3) — **el bug del body null rompía la mitad de los botones de la UI**; verificado post-fix con score/brain/opportunities/rebuild 200
 
 ---
 

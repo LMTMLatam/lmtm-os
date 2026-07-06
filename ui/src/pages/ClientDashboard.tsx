@@ -435,9 +435,14 @@ function ComposePost({ client, onCreated }: { client: Client; onCreated: () => v
 
 function CalendarTab({ client }: { client: Client }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  // Auto-sync: fresh read on tab enter + window focus, and re-read every 60s
+  // while open. No manual sync button — ClickUp is the source of truth.
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["content-calendar", client.slug, month],
     queryFn: () => clientsApi.contentCalendar(client.slug, month),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
   const items = data?.items ?? [];
 
@@ -478,11 +483,9 @@ function CalendarTab({ client }: { client: Client }) {
           <button onClick={() => shiftMonth(1)} className="p-1.5 rounded-md border border-border hover:bg-muted" title="Mes siguiente"><ChevronRight className="h-4 w-4" /></button>
         </div>
         <button onClick={() => setMonth(new Date().toISOString().slice(0, 7))} className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted">Hoy</button>
-        <button onClick={() => refetch()} disabled={isFetching} className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1">
-          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} /> Sincronizar
-        </button>
         <ComposePost client={client} onCreated={() => refetch()} />
-        <span className="text-xs text-muted-foreground ml-auto">
+        <span className="text-xs text-muted-foreground ml-auto inline-flex items-center gap-1.5">
+          {isFetching && <span title="Sincronizando con ClickUp…"><RefreshCw className="h-3 w-3 animate-spin" /></span>}
           {items.length} post{items.length === 1 ? "" : "s"} con fecha · {withNet} con red
         </span>
       </div>
@@ -1296,24 +1299,8 @@ function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSum
   const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
   const fmtPct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
-  // ---- Sync mutation ----
-  const firstAccount = ads.accounts[0];
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const resp = await clientsApi.syncAds(
-        firstAccount.connectionId,
-        firstAccount.mappingId,
-        "all",
-        since,
-        until,
-      );
-      return resp;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.clients.campaigns(client.slug, since, until) });
-      qc.invalidateQueries({ queryKey: queryKeys.clients.adsSummary(client.slug) });
-    },
-  });
+  // (El sync manual se eliminó: el autosync del server sincroniza Meta cada
+  // hora solo; la UI solo lee.)
 
   // ---- Search + sort ----
   const filteredCampaigns = useMemo(() => {
@@ -1366,18 +1353,6 @@ function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSum
             <DateInput label="Desde" value={since} onChange={setSince} max={until} />
             <DateInput label="Hasta" value={until} onChange={setUntil} min={since} max={defaultUntil} />
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => syncMutation.mutate()}
-                disabled={syncMutation.isPending}
-              >
-                {syncMutation.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5 mr-1.5" />
-                )}
-                Sincronizar
-              </Button>
               <a href={csvHref} target="_blank" rel="noreferrer noopener">
                 <Button size="sm" variant="outline">
                   <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -1387,20 +1362,6 @@ function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSum
             </div>
           </div>
         </div>
-        {syncMutation.isSuccess && (
-          <div className="mt-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Sincronización completa: {syncMutation.data.totalRecords} registros actualizados
-            (campaigns: {syncMutation.data.results.find((r) => r.job === "campaigns")?.recordsSynced ?? 0},
-            insights: {syncMutation.data.results.find((r) => r.job === "insights")?.recordsSynced ?? 0})
-          </div>
-        )}
-        {syncMutation.isError && (
-          <div className="mt-3 text-xs text-destructive flex items-center gap-1.5">
-            <AlertCircle className="h-3.5 w-3.5" />
-            Error al sincronizar: {(syncMutation.error as Error).message}
-          </div>
-        )}
       </Card>
 
       {/* Linked accounts (compact) */}
@@ -1514,7 +1475,7 @@ function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSum
             <Megaphone className="h-5 w-5 mx-auto text-muted-foreground" />
             <p className="text-sm font-medium mt-2">No hay campañas sincronizadas</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-              Haz clic en <b>Sincronizar</b> para traer las campañas de los ad accounts conectados.
+              La sincronización con Meta corre sola cada hora. Si la cuenta se mapeó recién, en unos minutos aparecen las campañas.
             </p>
           </div>
         ) : (
