@@ -150,6 +150,12 @@ type RuntimeSkillEntryOptions = {
 };
 
 const skillInventoryRefreshPromises = new Map<string, Promise<void>>();
+// TTL for the inventory rescan. Without it every skills list/detail request
+// re-ran ensureBundledSkills + prune (~40s of mostly-synchronous fs work),
+// which starved the event loop — two concurrent skills requests were enough
+// to make the whole server unresponsive (health included). Twice, in prod.
+const skillInventoryRefreshedAt = new Map<string, number>();
+const SKILL_INVENTORY_TTL_MS = 5 * 60_000;
 
 function selectCompanySkillColumns() {
   return {
@@ -1610,6 +1616,8 @@ export function companySkillService(db: Db) {
   }
 
   async function ensureSkillInventoryCurrent(companyId: string) {
+    const lastRefreshed = skillInventoryRefreshedAt.get(companyId);
+    if (lastRefreshed && Date.now() - lastRefreshed < SKILL_INVENTORY_TTL_MS) return;
     const existingRefresh = skillInventoryRefreshPromises.get(companyId);
     if (existingRefresh) {
       await existingRefresh;
@@ -1627,6 +1635,7 @@ export function companySkillService(db: Db) {
       }
       await ensureBundledSkills(companyId);
       await pruneMissingLocalPathSkills(companyId);
+      skillInventoryRefreshedAt.set(companyId, Date.now());
     })();
 
     skillInventoryRefreshPromises.set(companyId, refreshPromise);

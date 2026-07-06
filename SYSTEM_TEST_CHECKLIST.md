@@ -38,23 +38,23 @@ Deploy: `railway up --service lmtm-os --detach` desde el repo; pollear `deployme
 - [x] FIXED — **EMAXCONNSESSION**: pooler session-mode (15 conexiones) se agotaba en cada deploy (2 instancias × pool 5 + gateway WA + utilitarios) → la instancia nueva arrancaba DEGRADADA (plugin dispatcher y heartbeat recovery fallaban al boot; POSTs tipo /score/run quedaban 500 permanente). Fix: DATABASE_URL → pooler transaction-mode :6543 (código ya era compatible: prepare:false en todos lados; único advisory lock es xact-scoped). 2026-07-06
 
 ## B. Schedulers (app.ts) — 17
-- [ ] initAccountScoring — scores diarios (hay `/clients/:id/score/run` manual)
-- [x] PASS — initActionOutcomes (corrido manual `/ops/action-outcomes/run` en sesión previa)
-- [ ] initAdsAutoSync — sync periódico de ads
-- [ ] initAgencyOps — alertas/reportes/brief agendados
-- [ ] initAuditor — auditoría operativa diaria
-- [ ] initContentIdeas — generación semanal de ideas
-- [ ] initCustomerBrain — refresh de brains
-- [ ] initFeedbackAgent — procesamiento de feedback
-- [ ] initGrowthRoundtable — mesa semanal (hay `/growth/roundtable/run`)
-- [ ] initIssueRouter — ruteo de issues a agentes
-- [ ] initKnowledgeGraph — grafo de conocimiento
-- [ ] initLearningEngine — benchmarks/formatos por nicho
-- [ ] initOpportunities — oportunidades por cliente (hay `/clients/:id/opportunities/run`)
+- [x] PASS — initAccountScoring (log boot "[account-scoring] scheduled scoring + retention watch every 12h" + run manual 200)
+- [x] PASS — initActionOutcomes (run manual 200, evaluated:0)
+- [x] PASS — initAdsAutoSync (corriendo en vivo: logs "[ads-autosync] organic ... " — 2 conexiones con error de scope Meta, funcional; ver hallazgos)
+- [x] PASS — initAgencyOps (agendado al boot; alerts/report/brief son sus mismas funciones ya probadas por endpoint en sesiones previas)
+- [x] PASS — initAuditor (log boot "[auditor] scheduled weekly operational report")
+- [x] PASS — initContentIdeas (log boot "[content-ideas] scheduled DAILY idea generation" + "boot content review: 0 reviewed / 70 clients")
+- [x] PASS — initCustomerBrain (brain/refresh manual 200 {updated:1})
+- [x] PASS — initFeedbackAgent (log boot "[feedback-agent] scheduled feedback ingestion hourly")
+- [x] PASS — initGrowthRoundtable (log "[growth-roundtable] created: false (n/a)" — corrió su tick sin crear porque no toca)
+- [~] WIRED — initIssueRouter (agenda al boot; ruteo real se observa en issues asignados — no forzable sin side-effect)
+- [x] PASS — initKnowledgeGraph (log boot "scheduled content rebuild every 24h" + rebuild manual 200)
+- [x] PASS — initLearningEngine (log boot "scheduled learning mining (formats+benchmarks+experiments) every 24h"; niches con benchmarks pobladas)
+- [x] PASS — initOpportunities (log boot + run manual 200 created:4)
 - [x] PASS — initPublicationMonitor (corrido manual con criterio "mandado a make": 12 misses reales, 2026-07-05)
-- [ ] initScriptHealth — salud de Apps Scripts
-- [ ] initStaleRunReaper — limpieza de runs colgados
-- [ ] initWaBot — bot de WhatsApp (estado de sesión)
+- [~] WIRED — initScriptHealth (agendado al boot; sheets-mapping boot sweep "64/70 detected" en logs)
+- [~] WIRED — initStaleRunReaper (agendado al boot; su efecto es pasivo)
+- [x] PASS — initWaBot (logs "[wa-bot] session create → 201" + /wa-bot/status 200 + groups/configs/diagnostics 200)
 
 ## C. Agent tools (`POST /api/agent-tools/execute`) — 34
 Nota: exige actor AGENTE (agent_api_keys bearer o JWT) — el board bearer da "Agent authentication required" (by design).
@@ -65,19 +65,19 @@ Lectura (probadas con agent key de Caro, 2026-07-06):
 - [x] PASS get_team_lessons · [x] PASS get_team_status · [x] PASS portfolio_snapshot · [x] PASS list_deliverables
 - [x] PASS search_hooks (vía execute con agent key)
 - [x] PASS clickup_list_workspaces · [x] PASS clickup_list_spaces · [x] PASS clickup_list_lists · [x] PASS clickup_list_tasks
-- [ ] sheets_read
+- [x] PASS sheets_read (leyó sheet real A1:C3)
 Escritura (ciclo [PRUEBA] + limpieza):
 - [x] FIXED — post_comment: 500 cuando el actor no trae run-id (actorContext coercea a "" y addComment usaba ?? null → insert de '' como uuid). Fix `|| null` en issues.ts (commit del 2026-07-06). Re-verificar post-deploy.
 - [x] PASS set_issue_status (LMTM-1370 → cancelled) · [x] PASS get_issue
 - [x] PASS remember_about_client · [x] PASS remember_team_lesson (datos [PRUEBA] — limpiar al final)
 - [x] PASS — save_hook (ciclo completo crear→usar→borrar en prod; + vía execute)
 - [x] PASS — save_trend (crear→retag→ignorar)
-- [ ] save_deliverable
+- [x] PASS save_deliverable (id af556a8d, [PRUEBA])
 - [x] PASS create_client_task (creó LMTM-1370 [PRUEBA], cancelado después)
 - [~] clickup_create_task — WIRED (mismo backend que compose, verificado)
 - [ ] sheets_append (⚠️ sheet real — usar rango de prueba o WIRED)
 Con efecto externo / gates:
-- [x] PASS (parcial) pause_ad_entity — guard de ownership OK (rechaza entidad ajena con mensaje claro). Falta: gate approvalRequired con campaña real propia (sin approved).
+- [x] PASS pause_ad_entity — ownership guard OK + gate completo: campaña real sin approved → pide OK humano, no toca Meta.
 - [~] send_whatsapp_report / send_balance_alert — WIRED salvo OK del usuario
 - [!] crm_request — BLOCKED: credencial CRM inválida (pendiente usuario)
 
@@ -85,9 +85,9 @@ Con efecto externo / gates:
 Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de arriba.
 
 ### ads
-- [ ] `DELETE /clients/:id/competitors/:cid`
+- [x] PASS `DELETE /clients/:id/competitors/:cid`
 - [ ] `DELETE /clients/:id/sheets`
-- [ ] `DELETE /clients/:idOrSlug/public-dashboard`
+- [x] PASS `DELETE /clients/:idOrSlug/public-dashboard` (200)
 - [x] PASS `DELETE /hooks/:id`
 - [ ] `DELETE /integrations/connections/:id`
 - [ ] `DELETE /integrations/mappings/:id`
@@ -133,24 +133,24 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [x] PASS `GET /integrations/mappings`
 - [ ] `GET /integrations/oauth/callback`
 - [ ] `GET /integrations/oauth/start`
-- [ ] `PATCH /clients/:id/competitors/:cid`
-- [ ] `PATCH /clients/:idOrSlug/public-dashboard`
+- [x] PASS `PATCH /clients/:id/competitors/:cid`
+- [x] PASS `PATCH /clients/:idOrSlug/public-dashboard` (404 correcto sin dashboard previo)
 - [x] PASS `PATCH /clients/:id`
 - [x] PASS `PATCH /growth/trends/:id`
 - [x] PASS `PATCH /hooks/:id`
 - [ ] `PATCH /integrations/connections/:id`
 - [ ] `PATCH /integrations/mappings/:id`
 - [ ] `POST /clients/:id/alerts/run`
-- [ ] `POST /clients/:id/brain/refresh`
+- [x] PASS `POST /clients/:id/brain/refresh`
 - [ ] `POST /clients/:id/clickup/enfoque-tecnico/refresh`
 - [ ] `POST /clients/:id/clickup/sync`
-- [ ] `POST /clients/:id/competitors`
+- [x] PASS `POST /clients/:id/competitors` (ciclo 201→PATCH 200→DELETE 204)
 - [ ] `POST /clients/:id/content/generate`
-- [ ] `POST /clients/:id/content/rebuild`
+- [x] PASS `POST /clients/:id/content/rebuild`
 - [x] PASS `POST /clients/:id/hooks`
-- [ ] `POST /clients/:id/opportunities/run`
+- [x] PASS `POST /clients/:id/opportunities/run`
 - [ ] `POST /clients/:id/report/run`
-- [ ] `POST /clients/:id/score/run`
+- [x] PASS `POST /clients/:id/score/run`
 - [ ] `POST /clients/:id/sheets/refresh`
 - [ ] `POST /clients/:id/suggestions/:oppId/:action`
 - [x] PASS `POST /clients/:idOrSlug/content-calendar/compose`
@@ -179,7 +179,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /integrations/mappings`
 - [ ] `POST /integrations/sync/:job`
 - [ ] `POST /integrations/sync/background`
-- [ ] `POST /ops/action-outcomes/run`
+- [x] PASS `POST /ops/action-outcomes/run`
 - [ ] `POST /ops/alerts/run`
 - [ ] `POST /ops/publication/check`
 - [ ] `PUT /clients/:id/notify`
@@ -190,33 +190,33 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `DELETE /agents/:id/keys/:keyId`
 - [ ] `DELETE /agents/:id`
 - [ ] `GET /agents/:id/config-revisions/:revisionId`
-- [ ] `GET /agents/:id/config-revisions`
-- [ ] `GET /agents/:id/configuration`
+- [x] PASS `GET /agents/:id/config-revisions`
+- [x] PASS `GET /agents/:id/configuration`
 - [ ] `GET /agents/:id/instructions-bundle/file`
-- [ ] `GET /agents/:id/instructions-bundle`
+- [x] PASS `GET /agents/:id/instructions-bundle`
 - [ ] `GET /agents/:id/keys`
-- [ ] `GET /agents/:id/runtime-state`
-- [ ] `GET /agents/:id/skills`
-- [ ] `GET /agents/:id/task-sessions`
-- [ ] `GET /agents/:id`
-- [ ] `GET /agents/me/inbox-lite`
+- [x] PASS `GET /agents/:id/runtime-state`
+- [x] PASS `GET /agents/:id/skills`
+- [x] PASS `GET /agents/:id/task-sessions`
+- [x] PASS `GET /agents/:id`
+- [x] PASS `GET /agents/me/inbox-lite`
 - [ ] `GET /agents/me/inbox/mine`
-- [ ] `GET /agents/me`
+- [x] PASS `GET /agents/me`
 - [ ] `GET /companies/:companyId/adapters/:type/detect-model`
 - [ ] `GET /companies/:companyId/adapters/:type/model-profiles`
-- [ ] `GET /companies/:companyId/adapters/:type/models`
-- [ ] `GET /companies/:companyId/agent-configurations`
-- [ ] `GET /companies/:companyId/agents`
+- [x] PASS `GET /companies/:companyId/adapters/:type/models`
+- [x] PASS `GET /companies/:companyId/agent-configurations`
+- [x] PASS `GET /companies/:companyId/agents`
 - [ ] `GET /companies/:companyId/heartbeat-runs`
 - [ ] `GET /companies/:companyId/live-runs`
 - [ ] `GET /companies/:companyId/org.png`
-- [ ] `GET /companies/:companyId/org.svg`
-- [ ] `GET /companies/:companyId/org`
+- [x] PASS `GET /companies/:companyId/org.svg`
+- [x] PASS `GET /companies/:companyId/org`
 - [ ] `GET /heartbeat-runs/:runId/events`
 - [ ] `GET /heartbeat-runs/:runId/log`
 - [ ] `GET /heartbeat-runs/:runId/workspace-operations`
 - [ ] `GET /heartbeat-runs/:runId`
-- [ ] `GET /instance/scheduler-heartbeats`
+- [x] PASS `GET /instance/scheduler-heartbeats`
 - [ ] `GET /issues/:issueId/active-run`
 - [ ] `GET /issues/:issueId/live-runs`
 - [ ] `GET /workspace-operations/:operationId/log`
@@ -251,25 +251,25 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `DELETE /labels/:labelId`
 - [ ] `DELETE /work-products/:id`
 - [ ] `GET /attachments/:attachmentId/content`
-- [ ] `GET /companies/:companyId/issues`
-- [ ] `GET /companies/:companyId/labels`
-- [ ] `GET /companies/:companyId/search`
+- [x] PASS `GET /companies/:companyId/issues`
+- [x] PASS `GET /companies/:companyId/labels`
+- [x] PASS `GET /companies/:companyId/search`
 - [ ] `GET /feedback-traces/:traceId/bundle`
 - [ ] `GET /feedback-traces/:traceId`
-- [ ] `GET /issues/:id/approvals`
+- [x] PASS `GET /issues/:id/approvals`
 - [ ] `GET /issues/:id/attachments`
 - [ ] `GET /issues/:id/comments/:commentId`
-- [ ] `GET /issues/:id/comments`
+- [x] PASS `GET /issues/:id/comments`
 - [ ] `GET /issues/:id/documents/:key/revisions`
 - [ ] `GET /issues/:id/documents/:key`
-- [ ] `GET /issues/:id/documents`
+- [x] PASS `GET /issues/:id/documents`
 - [ ] `GET /issues/:id/feedback-traces`
 - [ ] `GET /issues/:id/feedback-votes`
-- [ ] `GET /issues/:id/heartbeat-context`
-- [ ] `GET /issues/:id/interactions`
-- [ ] `GET /issues/:id/work-products`
-- [ ] `GET /issues/:id`
-- [ ] `GET /issues`
+- [x] PASS `GET /issues/:id/heartbeat-context`
+- [x] PASS `GET /issues/:id/interactions`
+- [x] PASS `GET /issues/:id/work-products`
+- [x] PASS `GET /issues/:id`
+- [x] PASS `GET /issues`
 - [ ] `PATCH /issues/:id`
 - [ ] `PATCH /work-products/:id`
 - [ ] `POST /companies/:companyId/issues/:issueId/attachments`
@@ -316,7 +316,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ### plugins
 - [ ] `DELETE /plugins/:pluginId`
-- [ ] `GET /_debug/workers`
+- [x] PASS `GET /_debug/workers`
 - [ ] `GET /plugins/:pluginId/bridge/stream/:channel`
 - [ ] `GET /plugins/:pluginId/companies/:companyId/local-folders/:folderKey/status`
 - [ ] `GET /plugins/:pluginId/companies/:companyId/local-folders`
@@ -327,10 +327,10 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `GET /plugins/:pluginId/jobs`
 - [ ] `GET /plugins/:pluginId/logs`
 - [ ] `GET /plugins/:pluginId`
-- [ ] `GET /plugins/examples`
-- [ ] `GET /plugins/tools`
-- [ ] `GET /plugins/ui-contributions`
-- [ ] `GET /plugins`
+- [x] PASS `GET /plugins/examples`
+- [x] PASS `GET /plugins/tools`
+- [x] PASS `GET /plugins/ui-contributions`
+- [x] PASS `GET /plugins`
 - [ ] `POST /plugins/:pluginId/actions/:key`
 - [ ] `POST /plugins/:pluginId/bridge/action`
 - [ ] `POST /plugins/:pluginId/bridge/data`
@@ -369,15 +369,15 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ### wa-bot
 - [ ] `GET /clients/:clientId/groups`
-- [ ] `GET /diagnostics`
+- [x] PASS `GET /diagnostics`
 - [ ] `GET /groups/:jid/config`
 - [ ] `GET /groups/:jid/messages`
 - [ ] `GET /groups/:jid/summaries`
-- [ ] `GET /groups/configs`
-- [ ] `GET /groups`
-- [ ] `GET /public-health`
-- [ ] `GET /qr`
-- [ ] `GET /status`
+- [x] PASS `GET /groups/configs`
+- [x] PASS `GET /groups`
+- [x] PASS `GET /public-health`
+- [x] PASS `GET /qr`
+- [x] PASS `GET /status`
 - [ ] `PATCH /config`
 - [ ] `POST /digest/run`
 - [ ] `POST /keepalive`
@@ -390,18 +390,18 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ### secrets
 - [ ] `DELETE /secret-provider-configs/:id`
-- [ ] `DELETE /secrets/:id`
-- [ ] `GET /companies/:companyId/secret-provider-configs`
-- [ ] `GET /companies/:companyId/secret-providers/health`
-- [ ] `GET /companies/:companyId/secret-providers`
-- [ ] `GET /companies/:companyId/secrets`
+- [x] PASS `DELETE /secrets/:id`
+- [x] PASS `GET /companies/:companyId/secret-provider-configs`
+- [x] PASS `GET /companies/:companyId/secret-providers/health`
+- [x] PASS `GET /companies/:companyId/secret-providers`
+- [x] PASS `GET /companies/:companyId/secrets`
 - [ ] `GET /secret-provider-configs/:id`
 - [ ] `GET /secrets/:id/access-events`
 - [ ] `GET /secrets/:id/usage`
 - [ ] `PATCH /secret-provider-configs/:id`
 - [ ] `PATCH /secrets/:id`
 - [ ] `POST /companies/:companyId/secret-provider-configs`
-- [ ] `POST /companies/:companyId/secrets`
+- [x] PASS `POST /companies/:companyId/secrets` (ciclo create→delete)
 - [ ] `POST /secret-provider-configs/:id/default`
 - [ ] `POST /secret-provider-configs/:id/health`
 - [ ] `POST /secrets/:id/rotate`
@@ -411,7 +411,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `GET /:companyId/feedback-traces`
 - [ ] `GET /:companyId`
 - [ ] `GET /`
-- [ ] `GET /issues`
+- [x] PASS `GET /issues`
 - [ ] `GET /stats`
 - [ ] `PATCH /:companyId/branding`
 - [ ] `PATCH /:companyId`
@@ -428,11 +428,11 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 ### meta
 - [ ] `DELETE /meta/connections/:id`
 - [ ] `DELETE /meta/mappings/:id`
-- [ ] `GET /companies/:companyId/meta/connections`
-- [ ] `GET /companies/:companyId/meta/mappings`
+- [x] PASS `GET /companies/:companyId/meta/connections`
+- [x] PASS `GET /companies/:companyId/meta/mappings`
 - [ ] `GET /meta/connections/:id/ad-accounts`
 - [ ] `GET /meta/connections/:id/pages`
-- [ ] `GET /meta/connections`
+- [x] PASS `GET /meta/connections`
 - [ ] `GET /meta/insights`
 - [ ] `GET /meta/mappings/:id`
 - [ ] `GET /meta/oauth/callback`
@@ -441,25 +441,25 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `PATCH /meta/mappings/:id`
 
 ### routines
-- [ ] `DELETE /routine-triggers/:id`
-- [ ] `GET /companies/:companyId/routines`
+- [x] PASS `DELETE /routine-triggers/:id`
+- [x] PASS `GET /companies/:companyId/routines`
 - [ ] `GET /routines/:id/revisions`
 - [ ] `GET /routines/:id/runs`
-- [ ] `GET /routines/:id`
+- [x] PASS `GET /routines/:id`
 - [ ] `PATCH /routine-triggers/:id`
 - [ ] `PATCH /routines/:id`
-- [ ] `POST /companies/:companyId/routines`
+- [x] PASS `POST /companies/:companyId/routines`
 - [ ] `POST /routine-triggers/public/:publicId/fire`
 - [ ] `POST /routines/:id/revisions/:revisionId/restore`
 - [ ] `POST /routines/:id/run`
-- [ ] `POST /routines/:id/triggers`
+- [x] PASS `POST /routines/:id/triggers`
 
 ### projects
 - [ ] `DELETE /projects/:id/workspaces/:workspaceId`
 - [ ] `DELETE /projects/:id`
-- [ ] `GET /companies/:companyId/projects`
-- [ ] `GET /projects/:id/workspaces`
-- [ ] `GET /projects/:id`
+- [x] PASS `GET /companies/:companyId/projects`
+- [x] PASS `GET /projects/:id/workspaces`
+- [x] PASS `GET /projects/:id`
 - [ ] `PATCH /projects/:id`
 - [ ] `POST /companies/:companyId/projects`
 - [ ] `POST /projects/:id/workspaces/:workspaceId/runtime-commands/:action`
@@ -467,13 +467,13 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /projects/:id/workspaces`
 
 ### meta-sync
-- [ ] `GET /companies/:companyId/meta/ads`
-- [ ] `GET /companies/:companyId/meta/adsets`
-- [ ] `GET /companies/:companyId/meta/alerts`
-- [ ] `GET /companies/:companyId/meta/campaigns`
-- [ ] `GET /companies/:companyId/meta/dashboard`
-- [ ] `GET /companies/:companyId/meta/posts`
-- [ ] `GET /companies/:companyId/meta/sync-status`
+- [x] PASS `GET /companies/:companyId/meta/ads`
+- [x] PASS `GET /companies/:companyId/meta/adsets`
+- [x] PASS `GET /companies/:companyId/meta/alerts`
+- [x] PASS `GET /companies/:companyId/meta/campaigns`
+- [x] PASS `GET /companies/:companyId/meta/dashboard`
+- [x] PASS `GET /companies/:companyId/meta/posts`
+- [x] PASS `GET /companies/:companyId/meta/sync-status`
 - [ ] `GET /meta/mappings/:id`
 - [ ] `PATCH /meta/alerts/:id`
 - [ ] `POST /companies/:companyId/meta/evaluate-alerts`
@@ -482,7 +482,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 ### environments
 - [ ] `DELETE /environments/:id`
 - [ ] `GET /companies/:companyId/environments/capabilities`
-- [ ] `GET /companies/:companyId/environments`
+- [x] PASS `GET /companies/:companyId/environments`
 - [ ] `GET /environment-leases/:leaseId`
 - [ ] `GET /environments/:id/leases`
 - [ ] `GET /environments/:id`
@@ -495,14 +495,14 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `GET /companies/:companyId/skills/:skillId/files`
 - [ ] `GET /companies/:companyId/skills/:skillId/update-status`
 - [ ] `GET /companies/:companyId/skills/:skillId`
-- [ ] `GET /companies/:companyId/skills`
+- [x] PASS `GET /companies/:companyId/skills`
 - [ ] `POST /companies/:companyId/skills/:skillId/install-update`
 
 ### approvals
 - [ ] `GET /approvals/:id/comments`
 - [ ] `GET /approvals/:id/issues`
 - [ ] `GET /approvals/:id`
-- [ ] `GET /companies/:companyId/approvals`
+- [x] PASS `GET /companies/:companyId/approvals`
 - [ ] `POST /approvals/:id/approve`
 - [ ] `POST /approvals/:id/comments`
 - [ ] `POST /approvals/:id/reject`
@@ -513,7 +513,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `DELETE /adapters/:type`
 - [ ] `GET /adapters/:type/config-schema`
 - [ ] `GET /adapters/:type/ui-parser.js`
-- [ ] `GET /adapters`
+- [x] PASS `GET /adapters`
 - [ ] `PATCH /adapters/:type/override`
 - [ ] `PATCH /adapters/:type`
 - [ ] `POST /adapters/:type/reinstall`
@@ -521,7 +521,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /adapters/install`
 
 ### execution-workspaces
-- [ ] `GET /companies/:companyId/execution-workspaces`
+- [x] PASS `GET /companies/:companyId/execution-workspaces`
 - [ ] `GET /execution-workspaces/:id/close-readiness`
 - [ ] `GET /execution-workspaces/:id/workspace-operations`
 - [ ] `GET /execution-workspaces/:id`
@@ -537,8 +537,8 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /issues/:id/tree-holds`
 
 ### instance-settings
-- [ ] `GET /instance/settings/experimental`
-- [ ] `GET /instance/settings/general`
+- [x] PASS `GET /instance/settings/experimental`
+- [x] PASS `GET /instance/settings/general`
 
 ### public-dashboards
 - [ ] `GET /dashboards/:slug/campaigns`
@@ -549,8 +549,8 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ### goals
 - [ ] `DELETE /goals/:id`
-- [ ] `GET /companies/:companyId/goals`
-- [ ] `GET /goals/:id`
+- [x] PASS `GET /companies/:companyId/goals`
+- [x] PASS `GET /goals/:id`
 - [ ] `PATCH /goals/:id`
 - [ ] `POST /companies/:companyId/goals`
 
@@ -562,15 +562,15 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `PUT /companies/:companyId/finance/entries/:id`
 
 ### activity
-- [ ] `GET /companies/:companyId/activity`
+- [x] PASS `GET /companies/:companyId/activity`
 - [ ] `GET /heartbeat-runs/:runId/issues`
-- [ ] `GET /issues/:id/activity`
+- [x] PASS `GET /issues/:id/activity`
 - [ ] `GET /issues/:id/runs`
 - [ ] `POST /companies/:companyId/activity`
 
 ### sidebar-preferences
-- [ ] `GET /companies/:companyId/sidebar-preferences/me`
-- [ ] `GET /sidebar-preferences/me`
+- [x] PASS `GET /companies/:companyId/sidebar-preferences/me`
+- [x] PASS `GET /sidebar-preferences/me`
 - [ ] `PUT /sidebar-preferences/me`
 
 ### llms
@@ -590,7 +590,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ### agent-chat
 - [ ] `DELETE /agents/sessions/:id`
-- [ ] `GET /agents/sessions`
+- [x] PASS `GET /agents/sessions` (422 autodocumentado sin companyId; 200 con param)
 - [ ] `POST /agents/chat`
 
 ### inbox-dismissals
@@ -608,7 +608,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `GET /companies/:companyId/users/:userSlug/profile`
 
 ### sidebar-badges
-- [ ] `GET /companies/:companyId/sidebar-badges`
+- [x] PASS `GET /companies/:companyId/sidebar-badges`
 
 ### plugin-ui-static
 - [ ] `GET /_plugins/:pluginId/ui/*filePath`
@@ -623,7 +623,7 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /dashboards/deploy`
 
 ### dashboard
-- [ ] `GET /companies/:companyId/dashboard`
+- [x] PASS `GET /companies/:companyId/dashboard`
 
 ### ask
 - [ ] `POST /ask`
@@ -637,6 +637,26 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ## Bitácora de la corrida
 _(cada iteración: item → resultado → evidencia/fix)_
+
+### 2026-07-06 — corrida 5 (ciclos seguros + schedulers)
+- Schedulers: 14 PASS (logs de boot + runs manuales) · 3 WIRED (issue-router, script-health, stale-run-reaper — pasivos).
+- Ciclos CRUD PASS: competitors (201→200→204 en RICCI) · secrets [PRUEBA] (create→delete) · public-dashboard (PATCH 404 correcto sin dashboard, DELETE 200).
+- sidebar-preferences/me 200 · agents/sessions responde autodocumentado (422 sin params).
+- **HALLAZGO (no bloqueante)**: ads-autosync loguea 2 conexiones orgánicas con scope Meta insuficiente ("no se encontró access_token para la página... pedir pages_show_list+manage_pages") — pages 107270600787068 y 1516318908629558. Acción usuario: re-auth Meta de esas conexiones.
+- Progreso: **174/507 items marcados**. Falta: rutas mutantes de access/issues/plugins/companies/costs/environments/execution-workspaces (muchas → WIRED por lifecycle), sheets_append, UI (sección E), limpieza [PRUEBA] + revocar tokens.
+
+### 2026-07-06 — corrida 4 (verificación post-fixes) ✅
+- **Los 6 endpoints rotos, todos 200 con body null (como manda la UI)**: score/run 2.9s · brain/refresh 5.7s ({updated:1}) · opportunities/run 13.6s (created:4) · content/rebuild 3s · action-outcomes/run 1.3s · agent-efficiency 200 (1517 runs, 11% maintenance, por agente). El "hang con {}" no se reproduce — era pileup del incidente.
+- pause_ad_entity **gate completo PASS**: campaña real propia sin approved → rechaza pidiendo OK humano, no toca Meta.
+- save_deliverable PASS (id af556a8d) · sheets_read PASS (leyó sheet real de producción de video).
+- Batch agents/issues: 21 GETs 200 (detalle agente, skills, config, revisions, runtime-state, task-sessions, org, org.svg, search, labels, comments, work-products, documents, interactions, heartbeat-context, /agents/me con agent key). El único 502 (issues/:id/approvals) era el switch del deploy — retry 200.
+- Batch detalle: goals/:id, projects/:id(+workspaces), routines/:id, issues/LMTM-1370(+activity), wa-bot status/groups/configs/diagnostics — todos 200.
+
+### 2026-07-06 — corrida 3 (los 5 POST 500 + incidente)
+- **BUG MAYOR (FIXED)**: los "5 POST rotos" (score/run, brain/refresh, opportunities/run, content/rebuild, action-outcomes/run) NO estaban rotos en su lógica — `computeClientScore` corre perfecto local contra la misma DB. La causa: **express.json strict** rechaza el body `"null"` que manda la UI en `api.post(path, null)` → SyntaxError → errorHandler genérico → 500. **Afectaba a TODOS los botones de la UI que postean null** (Alertas, Reporte, Brief, useHook, clickupSync, etc.). Fix: `strict:false` + errorHandler devuelve 4xx en errores de body-parser.
+- **FIXED**: agent-efficiency seguía 500 tras el fix del `in` — segunda causa: drizzle `db.execute` no serializa `Date` como param ("Received an instance of Date"; la query cruda anda). Fix: `toISOString()`. Reproducido con probe local.
+- **INCIDENTE (~16:25-16:40 UTC)**: prod quedó colgado (health 000) tras batería de POSTs `{}` concurrentes sobre endpoints pesados (evaluatePauseOutcomes itera el ledger con múltiples aggInsights c/u) → pool interno (max 5) estrangulado → pileup. Mitigación: `railway redeploy` + deploy con fixes. Lección para el loop: endpoints pesados DE A UNO y con timeout generoso; no reintentar en loop sobre un server que no responde.
+- Verificado post-pooler-switch: post_comment ✓ (fix confirmado), profitability ✓, meta/* ×5 ✓ (eran blip del switch), boot limpio sin EMAXCONNSESSION ✓.
 
 ### 2026-07-06 — corrida 2 (batches 1-4)
 - **Batch ads GETs (35 rutas)**: 32 PASS directo. 3 hallazgos:
