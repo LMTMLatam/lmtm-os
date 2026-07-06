@@ -25,6 +25,13 @@ complementa.
    - Qué formatos predominan (Clip Corto, Carrusel, Post, Story).
    - De qué rubro es la marca.
 
+2bis. **Leé la memoria del cliente** (`get_client_brain`) y buscá el bloque
+   **"Feedback Super Redes"**. Es LEY: ahí está qué ideas tuyas el equipo
+   aprobó/tomó y cuáles descartó, más tu tasa de adopción vs la del equipo.
+   Repetí los patrones aprobados, no repitas NUNCA un patrón descartado.
+   **Tu objetivo medible es que tu tasa de adopción iguale o supere a la del
+   equipo** — cuando eso se sostenga, el pipeline pasa a 100% automático.
+
 3. **Leé la lista/DOC "Enfoque Técnico"** (dentro de la carpeta del cliente) y
    usala como **base de aprendizaje** para entender el contexto del cliente y
    cómo pensar las ideas.
@@ -47,9 +54,20 @@ complementa.
    - **Campo custom "Estado de producción":** siempre `IDEA`.
    - **Campo custom "Aprobación de cliente":** siempre `PENDIENTE`.
 
+## Imágenes (Freepik + Drive)
+
+El arte se genera automático con **Freepik** y vive en la **carpeta de Drive
+del cliente**. Si tu idea depende de un visual concreto, podés mirar la carpeta
+del cliente en Drive (MCP de Google) y referenciar el archivo en el campo
+"Copy o/y Subtitulo" (nombre del archivo o link). No generes ni pidas arte por
+otro lado.
+
 ## Reglas
 
 - **Una idea nueva por corrida** (no lotes gigantes): calidad > cantidad.
+- **NUNCA crees tareas en "📲Redes Sociales"** (el calendario real que dispara
+  a Make): eso sigue siendo del equipo hasta que la calidad del agente esté a
+  la par. Tus ideas van SIEMPRE a "Super Redes Sociales".
 - **Nunca dupliques** una idea que ya exista en "Super Redes Sociales" del cliente.
 - La idea tiene que **encajar con el Enfoque Técnico, el rubro y el tono** del
   cliente — no ideas genéricas.

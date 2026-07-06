@@ -3318,6 +3318,16 @@ export function adsRoutes(db: Db): Router {
     res.json(await runLearningPass(db));
   });
 
+  // POST /ops/content/feedback/run — Super Redes feedback pass now (what the
+  // team approved/discarded of the agent ideas → pinned client memory). Body
+  // {clientId} limits it to one client; empty body sweeps all active clients.
+  router.post("/ops/content/feedback/run", async (req, res) => {
+    const { runSuperRedesFeedback, sweepSuperRedesFeedback } = await import("../services/competitor-content.js");
+    const clientId = (req.body as { clientId?: string } | null)?.clientId;
+    if (clientId) return res.json(await runSuperRedesFeedback(db, clientId));
+    res.json(await sweepSuperRedesFeedback(db));
+  });
+
   return router;
 }
 

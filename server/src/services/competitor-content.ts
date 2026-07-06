@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import { competitors, contentIdeas, clients, videoReferences } from "@paperclipai/db";
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
 import { getBrainContext, upsertMemory, hasMemory } from "./customer-brain.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
@@ -108,6 +108,7 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     "Tené en cuenta el Enfoque Técnico del cliente, su memoria, y qué hace la competencia (diferenciate, no copies).",
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
     GROUNDING_RULE,
+    "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
     'Respondé SOLO con un array JSON: [{"kind":"pauta"|"posteo","format":"reel|carrusel|imagen|video|story|texto","title":"...","copy":"...","rationale":"por qué / en qué se diferencia de la competencia"}]',
     "Generá 5 ideas de pauta y 5 de posteo (10 en total).",
   ].join("\n");
@@ -339,6 +340,7 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     "Clasificá el objetivo en COMERCIAL (vender/convertir), ENGAGMENT (interacción/comunidad) o CONCEPTO (marca/valores/educativo).",
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
     GROUNDING_RULE,
+    "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
     'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"reel|carrusel|post|story|clip corto|video","title":"la idea en una línea","copy":"desarrollo en 2-3 líneas: qué es, por qué encaja con la marca y cómo ejecutarla","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',
   ].join("\n");
   const vids = await videoRefsBlock(db, clientId);
@@ -386,6 +388,148 @@ export async function sweepDailyIdeas(db: Db): Promise<{ clients: number; create
     await new Promise((res) => setTimeout(res, 1500));
   }
   return { clients: rows.length, created };
+}
+
+// ── Feedback loop: learn from what the team does with the agent's ideas ──────
+//
+// Reads each client's "Super Redes Sociales" list and compares the fate of the
+// ideas we created (tag idea-lmtm-os) against the team's own posts: what got
+// APROBADO / moved past IDEA vs what sat pending or was deleted. The distilled
+// result is pinned to the client's brain so the next generation round produces
+// MORE of what the team adopts and less of what dies — the ramp toward agent
+// posts as good as the team's, and eventually a fully automatic pipeline.
+
+const FEEDBACK_KEY = "super-redes-feedback";
+const OUR_TAG = "idea-lmtm-os";
+
+type SrCustomField = {
+  name?: string;
+  type?: string;
+  value?: unknown;
+  type_config?: { options?: Array<{ id: string; name?: string; label?: string; orderindex?: number }> };
+};
+
+/** Label of a drop_down custom field VALUE (ClickUp returns the option's
+ * orderindex or id depending on the endpoint — accept both). */
+function dropdownLabel(f: SrCustomField | undefined): string | null {
+  if (!f || f.value == null) return null;
+  const opt = (f.type_config?.options ?? []).find((o) => o.id === f.value || o.orderindex === f.value);
+  return (opt?.name ?? opt?.label ?? "").trim() || null;
+}
+
+type SrTask = { name: string; ours: boolean; aprobacion: string | null; estado: string | null; objetivo: string | null };
+
+async function readSuperRedesTasks(db: Db, clientId: string): Promise<SrTask[] | null> {
+  const token = process.env.CLICKUP_API_TOKEN?.trim();
+  if (!token) return null;
+  const H = { Authorization: token, "Content-Type": "application/json" };
+  const [client] = await db.select({ folderId: clients.clickupFolderId }).from(clients).where(eq(clients.id, clientId));
+  if (!client?.folderId) return null;
+  const lists = (await (await fetch(`${CU_API}/folder/${client.folderId}/list?archived=false`, { headers: H })).json()) as {
+    lists?: Array<{ id: string; name: string }>;
+  };
+  const list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
+  if (!list) return null;
+  const r = (await (await fetch(`${CU_API}/list/${list.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
+    tasks?: Array<{ name?: string; tags?: Array<{ name?: string }>; custom_fields?: SrCustomField[] }>;
+  };
+  return (r.tasks ?? [])
+    .map((t) => {
+      const cfs = t.custom_fields ?? [];
+      const byName = (n: string) => cfs.find((c) => norm(c.name ?? "") === norm(n));
+      return {
+        name: (t.name ?? "").trim(),
+        ours: (t.tags ?? []).some((tg) => norm(tg.name ?? "") === OUR_TAG),
+        aprobacion: dropdownLabel(byName("Aprobación de cliente")),
+        estado: dropdownLabel(byName("Estado de producción")),
+        objetivo: dropdownLabel(byName("Objetivo de contenido")),
+      };
+    })
+    .filter((t) => t.name);
+}
+
+const isApproved = (t: SrTask) => /aprobad/i.test(t.aprobacion ?? "");
+// "Taken" = the team engaged with it: client review, or produced past IDEA.
+const isTaken = (t: SrTask) => isApproved(t) || /revisi/i.test(t.aprobacion ?? "") || (!!t.estado && !/^idea$/i.test(t.estado));
+
+/**
+ * Close the loop for ONE client: tally what happened to the agent's ideas in
+ * Super Redes, distill the pattern with AI, and pin it to the client's brain
+ * (key super-redes-feedback). Overwrites the previous snapshot — idempotent.
+ */
+export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{ updated: boolean }> {
+  const companyId = await resolveCompanyId(db, clientId);
+  if (!companyId) return { updated: false };
+  const tasks = await readSuperRedesTasks(db, clientId).catch(() => null);
+  if (!tasks) return { updated: false };
+  const ours = tasks.filter((t) => t.ours);
+  const team = tasks.filter((t) => !t.ours);
+  if (ours.length === 0) return { updated: false };
+
+  // Ideas we generated ≥3 days ago that no longer exist in the list were
+  // deleted (or renamed) by the team — the strongest negative signal we get.
+  const have = new Set(tasks.map((t) => norm(t.name)));
+  const cutoff = new Date(Date.now() - 3 * 86_400_000);
+  const past = await db
+    .select({ title: contentIdeas.title, copy: contentIdeas.copy })
+    .from(contentIdeas)
+    .where(and(eq(contentIdeas.clientId, clientId), lte(contentIdeas.createdAt, cutoff)));
+  const discarded = past
+    .filter((p) => !looksBoilerplate({ kind: "posteo", title: p.title, copy: p.copy ?? undefined }))
+    .filter((p) => !have.has(norm(p.title)))
+    .map((p) => p.title);
+
+  const approved = ours.filter(isApproved);
+  const taken = ours.filter((t) => isTaken(t) && !isApproved(t));
+  const pending = ours.length - approved.length - taken.length;
+  const teamTaken = team.filter(isTaken);
+  const ourRate = Math.round(((approved.length + taken.length) / ours.length) * 100);
+  const teamRate = team.length ? Math.round((teamTaken.length / team.length) * 100) : 0;
+
+  // Distill only when there's real signal — otherwise just store the tallies.
+  let bullets = "";
+  if (approved.length + taken.length + discarded.length > 0) {
+    const system = [
+      "Sos el editor de contenido de LMTM. Analizás qué pasó con ideas de posteo generadas por agentes IA en el ClickUp de un cliente, para que la próxima tanda sea mejor.",
+      "Compará: (a) ideas del agente que el equipo aprobó o tomó en producción, (b) ideas del agente descartadas (borradas) o ignoradas, (c) posteos propios del equipo — el estándar a igualar o superar.",
+      "Devolvé máximo 6 bullets accionables en español rioplatense: patrones de tema/ángulo/objetivo/formato que SÍ adopta el equipo, y qué evitar. Concreto, sin relleno — esto se inyecta como memoria para la próxima generación de ideas.",
+    ].join("\n");
+    const fmt = (ts: SrTask[]) => ts.slice(0, 25).map((t) => `- ${t.name}${t.objetivo ? ` [${t.objetivo}]` : ""}`).join("\n");
+    const user = [
+      `Aprobadas/tomadas del agente (${approved.length + taken.length}):\n${fmt([...approved, ...taken]) || "(ninguna)"}`,
+      `\nDescartadas o ignoradas del agente (${discarded.length + pending}):\n${[...discarded.slice(0, 15).map((n) => `- ${n} (borrada)`), ...fmt(ours.filter((t) => !isTaken(t)) as SrTask[]).split("\n").filter(Boolean).slice(0, 10)].join("\n") || "(ninguna)"}`,
+      `\nPosteos del equipo tomados/aprobados (referencia de calidad, ${teamTaken.length}):\n${fmt(teamTaken) || "(sin posteos del equipo)"}`,
+    ].join("\n");
+    bullets = (await aiNarrative(system, user).catch(() => null))?.trim() ?? "";
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const content = [
+    `Feedback Super Redes (auto, ${today}) — destino de las ideas del agente en la lista "Super Redes Sociales":`,
+    `- Ideas del agente: ${ours.length} en la lista → ${approved.length} aprobadas, ${taken.length} tomadas (revisión/producción), ${pending} pendientes. Descartadas por el equipo (borradas/renombradas): ${discarded.length}.`,
+    `- Tasa de adopción: agente ${ourRate}% vs equipo ${teamRate}%. Meta: igualar o superar al equipo de forma sostenida — ahí el pipeline pasa a 100% automático.`,
+    bullets ? `\n${bullets}` : "",
+  ].filter(Boolean).join("\n");
+
+  await upsertMemory(db, {
+    companyId, clientId, kind: "context", key: FEEDBACK_KEY,
+    content, source: "super-redes-feedback", pinned: true,
+  });
+  return { updated: true };
+}
+
+/** Daily feedback pass across all active clients (paced, best-effort). */
+export async function sweepSuperRedesFeedback(db: Db): Promise<{ clients: number; updated: number }> {
+  const rows = await activeClients(db);
+  let updated = 0;
+  for (const c of rows) {
+    try {
+      const r = await runSuperRedesFeedback(db, c.id);
+      if (r.updated) updated += 1;
+    } catch { /* best-effort per client */ }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  return { clients: rows.length, updated };
 }
 
 const CONTENT_REVIEW_KEY = "content-review-posts";
@@ -481,6 +625,11 @@ export function initContentIdeas(db: Db): void {
         return { clients: 0, reviewed: 0 };
       });
       console.log(`[content-ideas] boot content review: ${rev.reviewed} reviewed / ${rev.clients} clients`);
+      const fb = await sweepSuperRedesFeedback(db).catch((e) => {
+        console.warn("[content-ideas] boot feedback sweep failed:", e);
+        return { clients: 0, updated: 0 };
+      });
+      console.log(`[content-ideas] boot feedback sweep: ${fb.updated} updated / ${fb.clients} clients`);
       const day = await sweepDailyIdeas(db).catch((e) => {
         console.warn("[content-ideas] boot daily sweep failed:", e);
         return { clients: 0, created: 0 };
@@ -494,6 +643,10 @@ export function initContentIdeas(db: Db): void {
     const day = new Date().toISOString().slice(0, 10);
     if (day === lastContentDay) return;
     lastContentDay = day;
+    // Feedback first, so today's ideas are generated with yesterday's lessons.
+    await sweepSuperRedesFeedback(db)
+      .then((r) => console.log(`[content-ideas] feedback sweep: ${r.updated} updated / ${r.clients} clients`))
+      .catch((e) => console.warn("[content-ideas] feedback sweep failed:", e));
     await sweepDailyIdeas(db)
       .then((r) => console.log(`[content-ideas] daily sweep: ${r.created} created / ${r.clients} clients`))
       .catch((e) => console.warn("[content-ideas] daily sweep failed:", e));
