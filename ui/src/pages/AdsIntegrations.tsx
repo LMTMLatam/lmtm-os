@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, Loader2, Plug, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { adsApi, type AdsConnection, type AdsPlatform } from "../api/ads";
 import { secretsApi } from "../api/secrets";
 import { useCompany } from "../context/CompanyContext";
@@ -132,19 +132,36 @@ function ConnectionRow({
           </p>
         ) : null}
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => onDisconnect(connection.id)}
-        disabled={isDisconnecting}
-      >
-        {isDisconnecting ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Trash2 className="h-3.5 w-3.5" />
+      <div className="flex items-center gap-2 shrink-0">
+        {connection.platform === "meta" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Relanza el OAuth de Meta: el callback REFRESCA el token de la
+              // conexión existente (con los scopes nuevos) sin tocar mappings.
+              window.location.href = `/api/meta/oauth/start?companyId=${connection.companyId}&label=${encodeURIComponent(connection.label ?? "Meta Ads")}`;
+            }}
+            title="Re-autorizar con Meta (renueva token y scopes sin perder mapeos)"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span className="ml-1.5">Reconectar</span>
+          </Button>
         )}
-        <span className="ml-1.5">Disconnect</span>
-      </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onDisconnect(connection.id)}
+          disabled={isDisconnecting}
+        >
+          {isDisconnecting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+          <span className="ml-1.5">Disconnect</span>
+        </Button>
+      </div>
     </div>
   );
 }

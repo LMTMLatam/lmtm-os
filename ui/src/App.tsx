@@ -86,6 +86,9 @@ function boardRoutes() {
       <Route path="niches" element={<Niches />} />
       <Route path="readiness" element={<Readiness />} />
       <Route path="competitors" element={<Competitors />} />
+      {/* También existe top-level; acá cubre los links con prefijo de company
+          (ej. el redirect del OAuth de Meta a /lmtm/connect-ads). */}
+      <Route path="connect-ads" element={<ConnectAds />} />
       <Route path="c/:slug" element={<ClientDashboard />} />
       <Route path="c/:slug/:tab" element={<ClientDashboard />} />
       <Route path="company/settings" element={<CompanySettings />} />
