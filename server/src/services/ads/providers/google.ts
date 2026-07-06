@@ -38,7 +38,11 @@ import type {
 } from "../types.js";
 import type { AdsConnection, AdsAccountMapping } from "@paperclipai/db";
 
-const API_VERSION = "v17";
+// Google sunsets each Ads API version ~1 year after release. A dead version
+// returns 404 HTML (not JSON) on every call. Probe live versions with:
+//   curl -o /dev/null -w "%{http_code}" https://googleads.googleapis.com/vNN/customers:listAccessibleCustomers
+// (401 = alive, 404 = sunset) and bump this. v17 died mid-2026.
+const API_VERSION = "v22";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API_BASE = `https://googleads.googleapis.com/${API_VERSION}`;
 
