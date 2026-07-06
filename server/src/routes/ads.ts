@@ -45,7 +45,7 @@ import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
 import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
-import { getClientBrain, refreshClientBrain } from "../services/customer-brain.js";
+import { getClientBrain, refreshClientBrain, upsertMemory } from "../services/customer-brain.js";
 import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
 import { autoDetectClientSheet, setClientSheet, clearClientSheet } from "../services/sheets-mapping.js";
 import { listFeedback, ingestFeedback } from "../services/feedback-agent.js";
@@ -848,6 +848,27 @@ export function adsRoutes(db: Db): Router {
     const [row] = await db.select().from(clients).where(condition);
     if (!row) return res.status(404).json({ error: "client not found" });
     res.json(row);
+  });
+
+  // POST /clients/:id/brain/note — banco de información: el equipo carga
+  // contexto durable del cliente a mano (novedades, stock, catálogos, docs,
+  // "cosas que quieren reventar") directo al brain que leen los agentes.
+  router.post("/clients/:id/brain/note", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const b = req.body ?? {};
+    const content = typeof b.content === "string" ? b.content.trim().slice(0, 4000) : "";
+    if (!content) return res.status(400).json({ error: "missing content" });
+    const KINDS = ["context", "fact", "preference", "event", "risk"];
+    const kind = KINDS.includes(b.kind) ? b.kind : "context";
+    const key = (typeof b.key === "string" && b.key.trim()
+      ? b.key.trim()
+      : content.slice(0, 40).toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, "-").replace(/^-|-$/g, ""))
+      .slice(0, 120);
+    const companyId = (await resolveCompanyId(db, row.id)) ?? undefined;
+    if (!companyId) return res.status(500).json({ error: "company not resolved" });
+    await upsertMemory(db, { companyId, clientId: row.id, kind, key, content, source: "panel" });
+    res.status(201).json({ ok: true, kind, key });
   });
 
   // GET /clients/:idOrSlug/content-calendar?month=YYYY-MM — the client's "Redes

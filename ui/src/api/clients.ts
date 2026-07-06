@@ -128,6 +128,9 @@ export const clientsApi = {
   intel: (idOrSlug: string) => api.get<ClientIntel>(`/clients/${idOrSlug}/intel`),
   runScore: (idOrSlug: string) => api.post<{ healthScore: number; opsScore: number; components: Record<string, unknown> }>(`/clients/${idOrSlug}/score/run`, null),
   refreshBrain: (idOrSlug: string) => api.post<{ updated: number }>(`/clients/${idOrSlug}/brain/refresh`, null),
+  // Banco de información: carga manual de contexto al brain del cliente
+  addBrainNote: (idOrSlug: string, body: { content: string; kind?: string; key?: string }) =>
+    api.post<{ ok: boolean; kind: string; key: string }>(`/clients/${idOrSlug}/brain/note`, body),
   runOpportunities: (idOrSlug: string) => api.post<{ created: number; materialized: number }>(`/clients/${idOrSlug}/opportunities/run`, null),
   rebuildContent: (idOrSlug: string) => api.post<{ items: number }>(`/clients/${idOrSlug}/content/rebuild`, null),
   // Competitors + content (pauta vs posteo)

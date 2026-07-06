@@ -811,6 +811,44 @@ function IdeasTab({ client }: { client: Client }) {
 
 // ── Memoria ─────────────────────────────────────────────────────────────────
 // The living client brain: Enfoque Técnico + durable learnings the agents save.
+// Banco de información: manual context entry into the client brain (novedades,
+// stock, catálogos, docs) — the agents read this before working the client.
+function AddBrainNote({ client, onSaved }: { client: Client; onSaved: () => void }) {
+  const [content, setContent] = useState("");
+  const [kind, setKind] = useState("context");
+  const [msg, setMsg] = useState<string | null>(null);
+  const add = useMutation({
+    mutationFn: () => clientsApi.addBrainNote(client.slug, { content: content.trim(), kind }),
+    onSuccess: () => { setContent(""); setMsg("Guardado — los agentes ya lo ven ✓"); onSaved(); setTimeout(() => setMsg(null), 4000); },
+    onError: (e) => setMsg((e as Error).message),
+  });
+  return (
+    <Card className="p-3 space-y-2">
+      <p className="text-xs font-medium">Banco de información — agregá contexto que los agentes deben saber</p>
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder="Novedades, lista de productos en stock, cosas que el cliente quiere reventar, links a catálogos/manuales, datos de la empresa…"
+        className="w-full h-20 rounded-md border border-border bg-transparent px-2 py-1.5 text-sm resize-y focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+      />
+      <div className="flex items-center gap-2">
+        <select value={kind} onChange={(e) => setKind(e.target.value)}
+          className="h-8 rounded-md border border-border bg-transparent px-2 text-xs">
+          <option value="context">Contexto / novedad</option>
+          <option value="fact">Dato de la empresa</option>
+          <option value="preference">Preferencia del cliente</option>
+          <option value="event">Evento / lanzamiento</option>
+          <option value="risk">Riesgo / cuidado</option>
+        </select>
+        <Button size="sm" className="h-8" disabled={!content.trim() || add.isPending} onClick={() => add.mutate()}>
+          {add.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />} Guardar en la memoria
+        </Button>
+        {msg && <span className="text-[11px] text-muted-foreground">{msg}</span>}
+      </div>
+    </Card>
+  );
+}
+
 function MemoriaTab({ client }: { client: Client }) {
   const qc = useQueryClient();
   const intelQuery = useQuery({
@@ -840,6 +878,8 @@ function MemoriaTab({ client }: { client: Client }) {
           </Button>
         </div>
       </div>
+
+      <AddBrainNote client={client} onSaved={() => qc.invalidateQueries({ queryKey: ["client", client.slug, "intel"] })} />
 
       {intel?.score && (
         <div className="flex gap-2">
