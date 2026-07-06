@@ -8,8 +8,8 @@
 // POST ${OPENWA_URL}/api/sessions/${SESSION}/messages/send-text { chatId, text }.
 
 import type { Db } from "@paperclipai/db";
-import { adsInsights, adsAlerts, clients } from "@paperclipai/db";
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { adsCampaigns, adsInsights, adsAlerts, clients } from "@paperclipai/db";
+import { and, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { createClientReportTask, getRedesPostStats, getEnfoqueTecnicoContext } from "./clickup-sync.js";
 
 const SESSION = process.env.WA_AUTOMATE_SESSION_ID || "lmtm";
@@ -159,6 +159,25 @@ export async function generateClientAlerts(db: Db, clientId: string): Promise<Co
       currentValue: Number((fatigue.recentCtr * 100).toFixed(2)), thresholdValue: Number((fatigue.priorCtr * 100).toFixed(2)),
       description: `El aviso ${fatigue.label} bajó su CTR de ${(fatigue.priorCtr * 100).toFixed(2)}% a ${(fatigue.recentCtr * 100).toFixed(2)}% (−${Math.round((1 - fatigue.recentCtr / fatigue.priorCtr) * 100)}%) y sigue gastando.`,
       recommendation: "Refrescar la creatividad de ese aviso (nuevo hook/formato/ángulo) o pausarlo y redistribuir el presupuesto.",
+    });
+  }
+
+  // Campaign about to end: heads-up 4 days out (renew/extend decision time)
+  // that turns critical at 2 days. Objetivo ClickUp "4 y 2 días antes de que
+  // finalice una campaña". Only ACTIVE campaigns with a synced stop_time.
+  const endingRows = await db.select({ name: adsCampaigns.name, stopTime: adsCampaigns.stopTime, status: adsCampaigns.status })
+    .from(adsCampaigns)
+    .where(and(eq(adsCampaigns.clientId, clientId), isNotNull(adsCampaigns.stopTime)));
+  for (const c of endingRows) {
+    if ((c.status ?? "").toUpperCase() !== "ACTIVE" || !c.stopTime) continue;
+    const daysLeft = Math.ceil((new Date(c.stopTime).getTime() - today.getTime()) / 86400000);
+    if (daysLeft < 0 || daysLeft > 4) continue;
+    alerts.push({
+      severity: daysLeft <= 2 ? "critical" : "warn",
+      title: `Campaña finaliza en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`,
+      metric: "campaignEnd", currentValue: daysLeft, thresholdValue: 4,
+      description: `La campaña "${c.name}" termina el ${new Date(c.stopTime).toLocaleDateString("es-AR")}.`,
+      recommendation: "Decidir con el cliente: renovar/extender la campaña, o preparar la siguiente para no cortar la entrega.",
     });
   }
 
