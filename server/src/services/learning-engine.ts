@@ -7,7 +7,7 @@
 // and agent context.
 
 import type { Db } from "@paperclipai/db";
-import { contentPerformance, clients, learnings, companies, adsInsights } from "@paperclipai/db";
+import { adsCreatives, contentPerformance, clients, learnings, companies, adsInsights } from "@paperclipai/db";
 import { and, eq, gte, isNotNull, notInArray, sql } from "drizzle-orm";
 import { num } from "./intel-common.js";
 
@@ -67,6 +67,84 @@ export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
 const NON_BENCHMARK_NICHES = ["agencia-marketing", "interno-test", "general"];
 
 /**
+ * Winning AD format per niche (video vs imagen), by CTR over the last 30 days.
+ * Complements the organic winning format ("Formato ganador tenemos que hacerlo
+ * en orgánico y ads"). Scope "niche_ads_format", replaced wholesale each pass
+ * (live snapshot, same semantics as benchmarks).
+ */
+export async function mineAdsWinningFormats(db: Db): Promise<{ formats: number }> {
+  const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
+  if (!company) return { formats: 0 };
+  const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  // Creative id → format. The media shape lives inside `raw` (Meta payload):
+  // video_id → video; image_url/picture/thumbnail → imagen (same extraction
+  // the /creatives endpoint uses).
+  const creatives = await db.select({
+    id: adsCreatives.id, clientId: adsCreatives.clientId, raw: adsCreatives.raw,
+  }).from(adsCreatives);
+  if (creatives.length === 0) return { formats: 0 };
+  const clientRows = await db.select({ id: clients.id, industry: clients.industry, status: clients.status }).from(clients);
+  const nicheOf = new Map(clientRows.filter((c) => c.status === "active" && c.industry && !NON_BENCHMARK_NICHES.includes(c.industry)).map((c) => [c.id, c.industry!]));
+
+  const metrics = await db.select({
+    adId: adsInsights.adId,
+    impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+    clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+  }).from(adsInsights)
+    .where(and(gte(adsInsights.date, since), isNotNull(adsInsights.adId)))
+    .groupBy(adsInsights.adId);
+  const byAd = new Map(metrics.map((m) => [m.adId!, m]));
+
+  // Aggregate impressions/clicks by (niche, format).
+  const agg = new Map<string, { niche: string; format: string; imp: number; clk: number; n: number }>();
+  for (const cr of creatives) {
+    const niche = cr.clientId ? nicheOf.get(cr.clientId) : null;
+    if (!niche) continue;
+    const m = byAd.get(cr.id);
+    if (!m || m.impressions < 500) continue; // too little signal per creative
+    const raw = (cr.raw ?? {}) as Record<string, unknown>;
+    const creative = (raw.creative ?? {}) as Record<string, unknown>;
+    // The reliable signal is object_story_spec: video ads carry video_data,
+    // image ads link_data/photo_data. thumbnail_url exists for BOTH (video ads
+    // have thumbnails too), so it can't discriminate.
+    const spec = (creative.object_story_spec ?? {}) as Record<string, unknown>;
+    const hasVideo = Boolean(spec.video_data ?? creative.video_id ?? raw.video_id);
+    const hasImage = Boolean(spec.link_data ?? spec.photo_data ?? creative.image_url ?? raw.image_url ?? raw.picture);
+    const format = hasVideo ? "video" : hasImage ? "imagen" : "otro";
+    const key = `${niche}|${format}`;
+    const e = agg.get(key) ?? { niche, format, imp: 0, clk: 0, n: 0 };
+    e.imp += m.impressions; e.clk += m.clicks; e.n += 1;
+    agg.set(key, e);
+  }
+  const byNiche = new Map<string, Array<{ format: string; ctr: number; n: number; imp: number }>>();
+  for (const e of agg.values()) {
+    const arr = byNiche.get(e.niche) ?? [];
+    arr.push({ format: e.format, ctr: e.imp > 0 ? e.clk / e.imp : 0, n: e.n, imp: e.imp });
+    byNiche.set(e.niche, arr);
+  }
+
+  await db.delete(learnings).where(eq(learnings.scope, "niche_ads_format"));
+  let count = 0;
+  for (const [niche, formats] of byNiche) {
+    const ranked = formats.filter((f) => f.n >= 3).sort((a, b) => b.ctr - a.ctr);
+    if (ranked.length < 2) continue; // needs a real comparison, not a single format
+    const top = ranked[0];
+    const rest = ranked.slice(1);
+    const restCtr = rest.reduce((a, f) => a + f.ctr, 0) / rest.length;
+    const pattern = `En ads de "${niche}" (30d), el formato "${top.format}" rinde mejor: CTR ${(top.ctr * 100).toFixed(2)}% vs ${(restCtr * 100).toFixed(2)}% del resto (${top.n} anuncios). Qué hacer: priorizar "${top.format}" en las próximas creatividades del rubro.`;
+    await db.insert(learnings).values({
+      companyId: company.id, scope: "niche_ads_format", scopeKey: niche, pattern,
+      evidence: { ranked: ranked.slice(0, 4), windowDays: 30 },
+      metricImpact: "ads_ctr", confidence: String(Math.min(0.9, 0.4 + top.n * 0.05)),
+      occurrences: top.n, lastSeenAt: new Date(),
+    });
+    count += 1;
+  }
+  return { formats: count };
+}
+
+/**
  * Per-niche ads benchmarks: average and best-quartile CTR/CPL across the
  * niche's clients over the last 30 days. The best quartile is the "achievable
  * ideal" — a target proven by peers in the same vertical, not an invented
@@ -124,7 +202,11 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
     const idealCtr = avg(topQ(ctrs));
     const avgCpl = cpls.length ? avg(cpls) : null;
     const idealCpl = cpls.length ? avg(topQ(cpls)) : null;
-    const pattern = `Benchmark de "${niche}" (30d, ${entries.length} clientes): CTR prom. ${(avgCtr * 100).toFixed(2)}% / ideal (mejor cuartil) ${(idealCtr * 100).toFixed(2)}%${avgCpl != null ? `; CPL prom. $${Math.round(avgCpl)} / ideal $${Math.round(idealCpl!)}` : ""}.`;
+    // Two layers: the numbers, then a plain-language read + what to do with it
+    // (pedido del usuario: "que me dé un detalle para alguien no experto").
+    const pattern = `Benchmark de "${niche}" (30d, ${entries.length} clientes): CTR prom. ${(avgCtr * 100).toFixed(2)}% / ideal (mejor cuartil) ${(idealCtr * 100).toFixed(2)}%${avgCpl != null ? `; CPL prom. $${Math.round(avgCpl)} / ideal $${Math.round(idealCpl!)}` : ""}. ` +
+      `En criollo: de cada 1.000 personas que ven un anuncio de este rubro, ~${Math.round(avgCtr * 1000)} hacen clic (los mejores logran ~${Math.round(idealCtr * 1000)})${avgCpl != null ? `, y cada consulta cuesta ~$${Math.round(avgCpl)} (los mejores la consiguen a ~$${Math.round(idealCpl!)})` : ""}. ` +
+      `Qué hacer: cliente por debajo del promedio → cambiar creatividad/segmentación ya; entre promedio e ideal → copiar el formato ganador del rubro; en el ideal → escalar presupuesto.`;
     await db.insert(learnings).values({
       companyId: company.id, scope: "niche_benchmark", scopeKey: niche, pattern,
       evidence: { avgCtr, idealCtr, avgCpl, idealCpl, clients: entries.length, windowDays: 30 },
@@ -200,11 +282,12 @@ export async function learningsForNiche(db: Db, niche: string | null) {
 
 /** Full mining pass: formats → benchmarks → experiments (experiments read the
  *  freshly-mined format learnings, so order matters). */
-export async function runLearningPass(db: Db): Promise<{ learnings: number; benchmarks: number; experiments: number }> {
+export async function runLearningPass(db: Db): Promise<{ learnings: number; benchmarks: number; experiments: number; adsFormats: number }> {
   const l = await mineLearnings(db).catch((e) => { console.warn("[learning] formats failed:", e); return { learnings: 0 }; });
   const b = await mineAdsBenchmarks(db).catch((e) => { console.warn("[learning] benchmarks failed:", e); return { benchmarks: 0 }; });
+  const f = await mineAdsWinningFormats(db).catch((e) => { console.warn("[learning] ads formats failed:", e); return { formats: 0 }; });
   const x = await mineExperiments(db).catch((e) => { console.warn("[learning] experiments failed:", e); return { experiments: 0 }; });
-  return { ...l, ...b, ...x };
+  return { ...l, ...b, adsFormats: f.formats, ...x };
 }
 
 let learnTimer: ReturnType<typeof setInterval> | null = null;

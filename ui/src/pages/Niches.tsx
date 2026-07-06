@@ -69,7 +69,8 @@ function NicheCard({ n }: { n: NicheIntel }) {
         </div>
         <div className="rounded-md border border-border p-3">
           <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><Trophy className="h-3.5 w-3.5 text-amber-500" />Formato ganador</div>
-          <p className="text-xs text-muted-foreground leading-relaxed">{n.winningFormat?.pattern ?? "Sin datos de contenido suficientes todavía."}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed"><span className="font-medium text-foreground/70">Orgánico:</span> {n.winningFormat?.pattern ?? "sin datos suficientes todavía."}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed mt-1"><span className="font-medium text-foreground/70">Ads:</span> {n.winningFormatAds?.pattern ?? "sin datos suficientes todavía (se mina a diario)."}</p>
         </div>
         <div className="rounded-md border border-border p-3">
           <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5"><FlaskConical className="h-3.5 w-3.5 text-emerald-500" />Experimento sugerido</div>

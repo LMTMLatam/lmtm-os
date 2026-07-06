@@ -6,6 +6,7 @@ export interface NicheIntel {
   ads30d: { spend: number; leads: number; ctr: number; cpl: number | null };
   benchmark: { pattern: string; evidence: Record<string, unknown> | null } | null;
   winningFormat: { pattern: string; evidence: Record<string, unknown> | null } | null;
+  winningFormatAds: { pattern: string; evidence: Record<string, unknown> | null } | null;
   experiment: { pattern: string; evidence: Record<string, unknown> | null } | null;
   topContent: Array<{ title: string | null; format: string | null; score: number; clientName: string }>;
   competitors: Array<{ name: string; clientName: string }>;

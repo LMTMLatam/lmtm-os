@@ -635,10 +635,48 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [x] PASS Páginas — endpoints backend verificados: Clients (/clients 200) · Niches (/growth/niches + rename + PATCH industry) · Growth (/growth/overview+actions+profitability+agent-efficiency) · Readiness (/growth/readiness) · Intelligence (fed por scores/brain) · Finance+Costs (company-scoped 200×6) · WhatsApp (/wa-bot/* 200) · Approvals (/companies/:id/approvals) · Issues (/companies/:id/issues 200) · Routines (/routines 200) · Agents (/agents/:id + configuración) · Secrets (ciclo create→delete) · Settings (/instance/settings/* 200)
 - [x] FIXED (corrida 3) — **el bug del body null rompía la mitad de los botones de la UI**; verificado post-fix con score/brain/opportunities/rebuild 200
 
+
+## F. Objetivos ClickUp (lista 901324852721 "BOTS y sus estructuras" — 65 tareas, agregados 2026-07-06)
+Mapeo honesto: qué ya cubre el sistema, qué se hace en este loop, qué es proyecto aparte.
+
+**Ya cubierto por el sistema (verificado en este test):**
+- [x] PASS Alertas de no movimiento en redes + contrastar planificado vs publicado → publication monitor (criterio "mandado a make") + reporte diario de redes reales
+- [x] PASS Check de post en todas las cuentas + avisar si no hay movimiento → mismo monitor + sync orgánico
+- [x] PASS Clientes activos vs muertos → clients.status (active/paused/offboarded/churned) + filtro en /clients
+- [x] PASS Tablero de gastos e ingresos → Finance + Costs (probados 200)
+- [x] PASS Costo en el tablero: dónde impacta → /growth/profitability (costo de agentes vs retainer por cliente; arreglado hoy) + Costs by-agent/by-provider
+- [x] PASS Tablero de competidores administrable → tab Competidores con CRUD (ciclo verificado hoy)
+- [x] PASS Efemérides contempladas → efemerides.ts alimenta auditor + opportunities
+- [x] PASS Nuevas pautas de Meta se activan solas → auto-include-all-campaigns (mapeo trae TODAS las campañas siempre) + autosync horario
+- [x] PASS Tablero general de control → Dashboard + Growth overview + DashboardLive
+- [~] PARCIAL Banco de información de contexto por cliente → brain (kinds context/fact) + Enfoque Técnico + deliverables; falta UI dedicada de carga de catálogos/stock
+- [~] PARCIAL Aprender de devoluciones de WhatsApp → feedback-agent ingesta horaria; el loop de aprendizaje fino es iterativo
+- [~] PARCIAL Panel de gastos Meta+Google → Meta sí (balances+costs); Google Ads no integrado aún
+- [~] PARCIAL Mejor contenido del nicho con competidores rankeando → topContent propio ya rankea; los reels de competidores entran al Baúl de Ganchos con views vía rutina semanal de Carlos (desde el domingo)
+
+**Quick wins a ejecutar en este loop:**
+- [ ] Benchmark del nicho "para no expertos": que el texto explique qué significa y QUÉ HACER, en criollo
+- [ ] Formato ganador también en ADS (hoy el learning engine lo mina solo de orgánico)
+- [ ] Alerta 4 y 2 días antes de que finalice una campaña (si el dato end_time está sincronizado)
+
+**Proyectos aparte (no caben en el loop de testing — necesitan definición/infra propia):**
+- [!] BOTS WhatsApp (Charlott/botpress, recaptación, bot inmobiliario N8N, asistente de grupos) → proyecto nuevo; además Charlott.ai venció (ver memoria dominio)
+- [!] Facturación n8n por planilla + tablero quién necesita factura + envío de monto por msj → proyecto + necesita ARCA/certificado (bloqueado, memoria billing)
+- [!] CRM BOT tablero sin acceso del agente → bloqueado por credencial CRM inválida
+- [!] Integrar Google Ads / My Business / master de fechas por sheet / tablero inmobiliario fusionado → integraciones nuevas, decidir prioridad con el usuario
+- [!] Super Redes: incorporar ideas de Competencia y Contenido → decisión de producto (recomendación: sí, como fuente del Baúl de Ganchos)
+
 ---
 
 ## Bitácora de la corrida
 _(cada iteración: item → resultado → evidencia/fix)_
+
+### 2026-07-06 — corrida 6 (objetivos ClickUp + calendario + incidente 6543)
+- **Calendario arreglado** (pedido usuario): fecha = start_date con fallback a due_date (la mayoría de las listas solo cargan due_date → salía vacío); botón "Sincronizar" ELIMINADO del calendario y de Campañas (el autosync server-side corre solo); auto-refresh al entrar/foco/60s. Pendiente verificación post-recovery.
+- **Fix skills TTL verificado**: /companies/:id/skills 2.5s (era 40s y tumbó prod 2 veces).
+- **Quick wins de objetivos**: benchmark de nicho ahora en criollo con "qué hacer"; formato ganador en ADS (mineAdsWinningFormats, scope niche_ads_format, card Nichos muestra Orgánico+Ads); POST /ops/learning/run. Sección F agregada con el mapeo de los 65 objetivos.
+- **INCIDENTE 2 (17:13-17:2x)**: el deploy del calendario entró en CRASH LOOP — boot muere a ~3s con "canceling statement due to statement timeout" en el pooler :6543 (3 boots previos OK, después determinístico). El healthcheck de Railway no lo detecta porque el wrapper contesta con fallback-proxy. **Mitigación: DATABASE_URL revertido a :5432.** Deuda abierta: el problema original de EMAXCONNSESSION en deploys vuelve; opciones: PGPOOL_MAX=3 o configurar statement_timeout del rol para 6543.
+- **HALLAZGO adicional**: el fallback-proxy del wrapper hace que Railway marque SUCCESS deploys cuyo server real está muerto — el healthcheck debería pegarle a /api/health del server real.
 
 ### 2026-07-06 — corrida 5 (ciclos seguros + schedulers)
 - Schedulers: 14 PASS (logs de boot + runs manuales) · 3 WIRED (issue-router, script-health, stale-run-reaper — pasivos).

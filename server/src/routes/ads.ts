@@ -2964,7 +2964,7 @@ export function adsRoutes(db: Db): Router {
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
           .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry)))
           .groupBy(clients.industry),
-        db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment"])),
+        db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format"])),
         db.select({
           industry: clients.industry, clientName: clients.name,
           title: contentPerformance.title, format: contentPerformance.format,
@@ -2984,6 +2984,7 @@ export function adsRoutes(db: Db): Router {
         new Map(allLearnings.filter((l) => l.scope === scope).map((l) => [l.scopeKey ?? "", l]));
       const benchmarks = learningByNiche("niche_benchmark");
       const formats = learningByNiche("niche");
+      const adsFormats = learningByNiche("niche_ads_format");
       const experiments = learningByNiche("niche_experiment");
 
       const niches = [...byNiche.entries()].map(([niche, members]) => {
@@ -2993,6 +2994,7 @@ export function adsRoutes(db: Db): Router {
         const leads = Number(agg?.leads ?? 0);
         const bench = benchmarks.get(niche);
         const fmt = formats.get(niche);
+        const fmtAds = adsFormats.get(niche);
         const exp = experiments.get(niche);
         return {
           niche,
@@ -3004,6 +3006,7 @@ export function adsRoutes(db: Db): Router {
           },
           benchmark: bench ? { pattern: bench.pattern, evidence: bench.evidence } : null,
           winningFormat: fmt ? { pattern: fmt.pattern, evidence: fmt.evidence } : null,
+          winningFormatAds: fmtAds ? { pattern: fmtAds.pattern, evidence: fmtAds.evidence } : null,
           experiment: exp ? { pattern: exp.pattern, evidence: exp.evidence } : null,
           topContent: topContentRows.filter((t) => t.industry === niche).slice(0, 5)
             .map((t) => ({ title: t.title, format: t.format, score: Number(t.score ?? 0), clientName: t.clientName })),
@@ -3271,6 +3274,13 @@ export function adsRoutes(db: Db): Router {
   router.post("/clients/intel/audit", async (_req, res) => { res.json(await runOperationalAudit(db)); });
   router.post("/clients/intel/feedback", async (_req, res) => { res.json(await ingestFeedback(db)); });
   router.post("/clients/intel/learnings", async (_req, res) => { res.json(await mineLearnings(db)); });
+
+  // POST /ops/learning/run — full mining pass now (formats orgánico+ads,
+  // benchmarks, experiments) sin esperar el ciclo de 24h.
+  router.post("/ops/learning/run", async (_req, res) => {
+    const { runLearningPass } = await import("../services/learning-engine.js");
+    res.json(await runLearningPass(db));
+  });
 
   return router;
 }
