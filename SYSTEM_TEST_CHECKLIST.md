@@ -655,9 +655,9 @@ Mapeo honesto: qué ya cubre el sistema, qué se hace en este loop, qué es proy
 - [~] PARCIAL Mejor contenido del nicho con competidores rankeando → topContent propio ya rankea; los reels de competidores entran al Baúl de Ganchos con views vía rutina semanal de Carlos (desde el domingo)
 
 **Quick wins a ejecutar en este loop:**
-- [ ] Benchmark del nicho "para no expertos": que el texto explique qué significa y QUÉ HACER, en criollo
-- [ ] Formato ganador también en ADS (hoy el learning engine lo mina solo de orgánico)
-- [ ] Alerta 4 y 2 días antes de que finalice una campaña (si el dato end_time está sincronizado)
+- [x] FIXED Benchmark del nicho "para no expertos" — el pattern ahora incluye "En criollo: de cada 1.000 personas…" + "Qué hacer:" (learning-engine, deployado y verificado con /ops/learning/run)
+- [x] FIXED Formato ganador en ADS — mineAdsWinningFormats (video/imagen por object_story_spec, CTR 30d); verificado en prod: inmobiliaria imagen 4.10% vs 2.00%, automotor 2.05% vs 0.95%; visible en card Nichos (Orgánico + Ads)
+- [x] FIXED Alerta fin de campaña — campañas ACTIVE con stop_time ≤4 días alertan (warn 4-3d, critical ≤2d) en generateClientAlerts; entra al ciclo diario existente (deploy final)
 
 **Proyectos aparte (no caben en el loop de testing — necesitan definición/infra propia):**
 - [!] BOTS WhatsApp (Charlott/botpress, recaptación, bot inmobiliario N8N, asistente de grupos) → proyecto nuevo; además Charlott.ai venció (ver memoria dominio)
@@ -670,6 +670,13 @@ Mapeo honesto: qué ya cubre el sistema, qué se hace en este loop, qué es proy
 
 ## Bitácora de la corrida
 _(cada iteración: item → resultado → evidencia/fix)_
+
+### 2026-07-06 — corrida 7 (CIERRE) ✅
+- **Calendario verificado en prod**: dunod 0→4 posts (fallback due_date), hotel-lescano 10 intactos. distrillantas/workera en 0 = sus tareas NO tienen fecha en ClickUp (carga de datos del equipo, no bug). Botón Sincronizar eliminado; auto-refresh entrar/foco/60s.
+- **Formato ads verificado**: fix de inferencia (object_story_spec.video_data vs link_data — thumbnail no discrimina) → `adsFormats:2`: inmobiliaria imagen CTR 4.10% vs 2.00%, automotor 2.05% vs 0.95%. Visible en Nichos.
+- **Alerta fin de campaña** deployada (warn 4-3d, critical ≤2d, stopTime sincronizado) — entra al ciclo diario.
+- **Limpieza completa**: hooks:1, trends:1, deliverables:1, memoria:1, lecciones:1 [PRUEBA] borrados; board key + agent key revocados; 8 scripts temporales eliminados.
+- **LOOP COMPLETO: 511+ items marcados, 0 pendientes** (BLOCKED/WIRED documentados con justificación).
 
 ### 2026-07-06 — corrida 6 (objetivos ClickUp + calendario + incidente 6543)
 - **Calendario arreglado** (pedido usuario): fecha = start_date con fallback a due_date (la mayoría de las listas solo cargan due_date → salía vacío); botón "Sincronizar" ELIMINADO del calendario y de Campañas (el autosync server-side corre solo); auto-refresh al entrar/foco/60s. Pendiente verificación post-recovery.
