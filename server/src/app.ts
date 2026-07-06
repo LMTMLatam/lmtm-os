@@ -162,6 +162,11 @@ export async function createApp(
   app.use(express.json({
     // Company import/export payloads can inline full portable packages.
     limit: "10mb",
+    // strict:false — the UI posts `null` bodies on action buttons
+    // (api.post(path, null) → the literal string "null"). Strict mode rejects
+    // any non-object/array root, which turned every one of those buttons into
+    // a 500. Handlers already do `req.body ?? {}`.
+    strict: false,
     verify: (req, _res, buf) => {
       (req as unknown as { rawBody: Buffer }).rawBody = buf;
     },

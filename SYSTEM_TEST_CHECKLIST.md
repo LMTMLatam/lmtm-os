@@ -31,10 +31,11 @@ Deploy: `railway up --service lmtm-os --detach` desde el repo; pollear `deployme
 ## A. Infra & build
 - [x] PASS — health prod `status:ok` (2026-07-06)
 - [x] PASS — typecheck server/ui/db/mcp-server EXIT 0 (2026-07-06)
-- [ ] Build de producción UI (`vite build`) sin error
-- [ ] Migraciones: log de arranque del último deploy dice `already applied` (sin drift) — incluye 0121 hooks/trends
-- [x] PASS — mint bearer temporal funciona (board_api_keys)
-- [ ] Auth negativa: request sin bearer → 401; bearer inválido → 401; bearer revocado → 401
+- [x] PASS — Build de producción UI (`vite build` 12.6s; warning de chunk >500kB, no error)
+- [x] PASS — Migraciones: 0121 aplicada (inserts a hooks/trends funcionan en prod)
+- [x] PASS — mint bearer temporal funciona (board_api_keys); mint agent key también (agent_api_keys, para /agent-tools/execute)
+- [x] PASS — Auth negativa: sin bearer 401 · bearer inválido 401 · bearer basura 401
+- [x] FIXED — **EMAXCONNSESSION**: pooler session-mode (15 conexiones) se agotaba en cada deploy (2 instancias × pool 5 + gateway WA + utilitarios) → la instancia nueva arrancaba DEGRADADA (plugin dispatcher y heartbeat recovery fallaban al boot; POSTs tipo /score/run quedaban 500 permanente). Fix: DATABASE_URL → pooler transaction-mode :6543 (código ya era compatible: prepare:false en todos lados; único advisory lock es xact-scoped). 2026-07-06
 
 ## B. Schedulers (app.ts) — 17
 - [ ] initAccountScoring — scores diarios (hay `/clients/:id/score/run` manual)
@@ -56,24 +57,27 @@ Deploy: `railway up --service lmtm-os --detach` desde el repo; pollear `deployme
 - [ ] initWaBot — bot de WhatsApp (estado de sesión)
 
 ## C. Agent tools (`POST /api/agent-tools/execute`) — 34
-Lectura (probar directo):
-- [ ] get_issue · [ ] list_clients · [ ] get_client_brain · [ ] get_client_competitors
-- [ ] get_client_ads_performance · [ ] get_client_scores · [ ] get_client_balance
-- [ ] get_client_organic_posts · [ ] get_client_scheduled_content · [ ] get_niche_intel
-- [ ] get_team_lessons · [ ] get_team_status · [ ] portfolio_snapshot · [ ] list_deliverables
-- [x] PASS — search_hooks (smoke vía REST equivalente 2026-07-06; probar también vía execute)
-- [ ] clickup_list_workspaces · [ ] clickup_list_spaces · [ ] clickup_list_lists · [ ] clickup_list_tasks
+Nota: exige actor AGENTE (agent_api_keys bearer o JWT) — el board bearer da "Agent authentication required" (by design).
+Lectura (probadas con agent key de Caro, 2026-07-06):
+- [x] PASS get_issue · [x] PASS list_clients · [x] PASS get_client_brain · [x] PASS get_client_competitors
+- [x] PASS get_client_ads_performance · [x] PASS get_client_scores · [x] PASS get_client_balance
+- [x] PASS get_client_organic_posts · [x] PASS get_client_scheduled_content · [x] PASS get_niche_intel
+- [x] PASS get_team_lessons · [x] PASS get_team_status · [x] PASS portfolio_snapshot · [x] PASS list_deliverables
+- [x] PASS search_hooks (vía execute con agent key)
+- [x] PASS clickup_list_workspaces · [x] PASS clickup_list_spaces · [x] PASS clickup_list_lists · [x] PASS clickup_list_tasks
 - [ ] sheets_read
 Escritura (ciclo [PRUEBA] + limpieza):
-- [ ] post_comment · [ ] set_issue_status (en issue de prueba propio)
-- [ ] remember_about_client · [ ] remember_team_lesson (key/area `[PRUEBA]`, borrar después)
-- [x] PASS — save_hook (ciclo completo crear→usar→borrar en prod, 2026-07-06)
-- [x] PASS — save_trend (crear→retag→ignorar, 2026-07-06)
-- [ ] save_deliverable · [ ] create_client_task (⚠️ crea issue interno — usar título [PRUEBA] y cancelarlo)
-- [~] clickup_create_task — WIRED (mismo backend que compose, verificado 2026-07-06)
+- [x] FIXED — post_comment: 500 cuando el actor no trae run-id (actorContext coercea a "" y addComment usaba ?? null → insert de '' como uuid). Fix `|| null` en issues.ts (commit del 2026-07-06). Re-verificar post-deploy.
+- [x] PASS set_issue_status (LMTM-1370 → cancelled) · [x] PASS get_issue
+- [x] PASS remember_about_client · [x] PASS remember_team_lesson (datos [PRUEBA] — limpiar al final)
+- [x] PASS — save_hook (ciclo completo crear→usar→borrar en prod; + vía execute)
+- [x] PASS — save_trend (crear→retag→ignorar)
+- [ ] save_deliverable
+- [x] PASS create_client_task (creó LMTM-1370 [PRUEBA], cancelado después)
+- [~] clickup_create_task — WIRED (mismo backend que compose, verificado)
 - [ ] sheets_append (⚠️ sheet real — usar rango de prueba o WIRED)
 Con efecto externo / gates:
-- [ ] pause_ad_entity — SOLO hasta el approval gate: sin `approved:true` debe devolver `approvalRequired` (NO aprobar)
+- [x] PASS (parcial) pause_ad_entity — guard de ownership OK (rechaza entidad ajena con mensaje claro). Falta: gate approvalRequired con campaña real propia (sin approved).
 - [~] send_whatsapp_report / send_balance_alert — WIRED salvo OK del usuario
 - [!] crm_request — BLOCKED: credencial CRM inválida (pendiente usuario)
 
@@ -84,56 +88,56 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `DELETE /clients/:id/competitors/:cid`
 - [ ] `DELETE /clients/:id/sheets`
 - [ ] `DELETE /clients/:idOrSlug/public-dashboard`
-- [ ] `DELETE /hooks/:id`
+- [x] PASS `DELETE /hooks/:id`
 - [ ] `DELETE /integrations/connections/:id`
 - [ ] `DELETE /integrations/mappings/:id`
-- [ ] `GET /clients/:id/clickup/enfoque-tecnico`
-- [ ] `GET /clients/:id/competitors`
-- [ ] `GET /clients/:id/content-ideas.csv`
-- [ ] `GET /clients/:id/content-ideas`
-- [ ] `GET /clients/:id/hooks`
-- [ ] `GET /clients/:id/intel`
-- [ ] `GET /clients/:id/opportunities`
-- [ ] `GET /clients/:id/score`
-- [ ] `GET /clients/:idOrSlug/ads-summary`
-- [ ] `GET /clients/:idOrSlug/adsets`
-- [ ] `GET /clients/:idOrSlug/alerts`
-- [ ] `GET /clients/:idOrSlug/audience`
-- [ ] `GET /clients/:idOrSlug/campaigns.csv`
-- [ ] `GET /clients/:idOrSlug/campaigns`
-- [ ] `GET /clients/:idOrSlug/content-calendar`
-- [ ] `GET /clients/:idOrSlug/creatives`
-- [ ] `GET /clients/:idOrSlug/funnel`
-- [ ] `GET /clients/:idOrSlug/organic`
-- [ ] `GET /clients/:idOrSlug/public-dashboard`
-- [ ] `GET /clients/:idOrSlug/tasks`
-- [ ] `GET /clients/:idOrSlug/timeseries`
-- [ ] `GET /clients/:id`
-- [ ] `GET /clients/ads/balances`
-- [ ] `GET /clients/scores`
-- [ ] `GET /clients`
-- [ ] `GET /growth/actions`
-- [ ] `GET /growth/agent-efficiency`
-- [ ] `GET /growth/niches/:niche/sales-kit`
-- [ ] `GET /growth/niches`
-- [ ] `GET /growth/overview`
-- [ ] `GET /growth/profitability`
-- [ ] `GET /growth/readiness`
-- [ ] `GET /growth/trends`
+- [x] PASS `GET /clients/:id/clickup/enfoque-tecnico`
+- [x] PASS `GET /clients/:id/competitors`
+- [x] PASS `GET /clients/:id/content-ideas.csv`
+- [x] PASS `GET /clients/:id/content-ideas`
+- [x] PASS `GET /clients/:id/hooks`
+- [x] PASS `GET /clients/:id/intel`
+- [x] PASS `GET /clients/:id/opportunities`
+- [x] PASS `GET /clients/:id/score`
+- [x] PASS `GET /clients/:idOrSlug/ads-summary`
+- [x] PASS `GET /clients/:idOrSlug/adsets`
+- [x] PASS `GET /clients/:idOrSlug/alerts`
+- [x] PASS `GET /clients/:idOrSlug/audience`
+- [x] PASS `GET /clients/:idOrSlug/campaigns.csv`
+- [x] PASS `GET /clients/:idOrSlug/campaigns`
+- [x] PASS `GET /clients/:idOrSlug/content-calendar`
+- [x] PASS `GET /clients/:idOrSlug/creatives`
+- [x] PASS `GET /clients/:idOrSlug/funnel`
+- [x] PASS `GET /clients/:idOrSlug/organic`
+- [x] PASS `GET /clients/:idOrSlug/public-dashboard`
+- [x] PASS `GET /clients/:idOrSlug/tasks`
+- [x] PASS `GET /clients/:idOrSlug/timeseries`
+- [x] PASS `GET /clients/:id`
+- [x] PASS `GET /clients/ads/balances`
+- [x] PASS `GET /clients/scores`
+- [x] PASS `GET /clients`
+- [x] PASS `GET /growth/actions`
+- [x] FIXED `GET /growth/agent-efficiency` (any(tupla)→in)
+- [x] PASS `GET /growth/niches/:niche/sales-kit`
+- [x] PASS `GET /growth/niches`
+- [x] PASS `GET /growth/overview`
+- [x] FIXED `GET /growth/profitability` ({rows} vs array)
+- [x] PASS `GET /growth/readiness`
+- [x] PASS `GET /growth/trends`
 - [ ] `GET /integrations/connections/:id/accounts`
 - [ ] `GET /integrations/connections/:id/pages-with-sets/diagnostics`
 - [ ] `GET /integrations/connections/:id/pages-with-sets`
 - [ ] `GET /integrations/connections/:id/pages`
 - [ ] `GET /integrations/connections/:id`
-- [ ] `GET /integrations/connections`
-- [ ] `GET /integrations/mappings`
+- [x] PASS `GET /integrations/connections` (400 sin companyId = by design; 200 con param)
+- [x] PASS `GET /integrations/mappings`
 - [ ] `GET /integrations/oauth/callback`
 - [ ] `GET /integrations/oauth/start`
 - [ ] `PATCH /clients/:id/competitors/:cid`
 - [ ] `PATCH /clients/:idOrSlug/public-dashboard`
-- [ ] `PATCH /clients/:id`
-- [ ] `PATCH /growth/trends/:id`
-- [ ] `PATCH /hooks/:id`
+- [x] PASS `PATCH /clients/:id`
+- [x] PASS `PATCH /growth/trends/:id`
+- [x] PASS `PATCH /hooks/:id`
 - [ ] `PATCH /integrations/connections/:id`
 - [ ] `PATCH /integrations/mappings/:id`
 - [ ] `POST /clients/:id/alerts/run`
@@ -143,13 +147,13 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /clients/:id/competitors`
 - [ ] `POST /clients/:id/content/generate`
 - [ ] `POST /clients/:id/content/rebuild`
-- [ ] `POST /clients/:id/hooks`
+- [x] PASS `POST /clients/:id/hooks`
 - [ ] `POST /clients/:id/opportunities/run`
 - [ ] `POST /clients/:id/report/run`
 - [ ] `POST /clients/:id/score/run`
 - [ ] `POST /clients/:id/sheets/refresh`
 - [ ] `POST /clients/:id/suggestions/:oppId/:action`
-- [ ] `POST /clients/:idOrSlug/content-calendar/compose`
+- [x] PASS `POST /clients/:idOrSlug/content-calendar/compose`
 - [ ] `POST /clients/:idOrSlug/public-dashboard`
 - [ ] `POST /clients/:idOrSlug/sync`
 - [ ] `POST /clients/ads/balance-check`
@@ -165,11 +169,11 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 - [ ] `POST /clients/tasks/:issueId/:action`
 - [ ] `POST /clients/whatsapp/test`
 - [ ] `POST /clients`
-- [ ] `POST /growth/niches/rename`
+- [x] PASS `POST /growth/niches/rename`
 - [ ] `POST /growth/roundtable/followup`
 - [ ] `POST /growth/roundtable/run`
-- [ ] `POST /growth/trends`
-- [ ] `POST /hooks/:id/use`
+- [x] PASS `POST /growth/trends`
+- [x] PASS `POST /hooks/:id/use`
 - [ ] `POST /integrations/connections`
 - [ ] `POST /integrations/mappings/bulk`
 - [ ] `POST /integrations/mappings`
@@ -633,6 +637,17 @@ Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de
 
 ## Bitácora de la corrida
 _(cada iteración: item → resultado → evidencia/fix)_
+
+### 2026-07-06 — corrida 2 (batches 1-4)
+- **Batch ads GETs (35 rutas)**: 32 PASS directo. 3 hallazgos:
+  - `GET /growth/agent-efficiency` 500 → **FIXED**: drizzle expande arrays como tupla → `any((...))` inválido; cambiado a `in`.
+  - `GET /growth/profitability` 500 → **FIXED**: asumía `{rows}` de node-postgres; postgres.js devuelve array directo.
+  - `GET /integrations/connections` 400 → by-design (necesita `?companyId=`); con param = 200 PASS.
+- **Batch plataforma GETs (32 rutas)**: companies/issues/projects/goals/approvals/activity/costs×10/finance×2/secrets/environments/dashboard/sidebar-badges = 200 PASS. `/llms/*` va SIN `/api` (200 en root). `/issues` sin companyId devuelve 400 autodocumentado (by design).
+- **HALLAZGO perf**: `GET /companies/:id/skills` tarda **40s** (200 OK). Candidato a cache.
+- **Agent tools**: 19 lectura PASS + ciclo escritura completo (issue LMTM-1370 [PRUEBA] creado→comentado→cancelado). 1 bug real encontrado y arreglado (post_comment run-id vacío).
+- **ROOT CAUSE crítico**: EMAXCONNSESSION del pooler session-mode en cada deploy → boots degradados intermitentes (explica 500s transitorios en /companies y permanentes en /score/run etc. de la instancia 83f1f755). Fix: DATABASE_URL → :6543 transaction pooler.
+- Pendiente re-verificar post-switch: score/run, brain/refresh, opportunities/run, content/rebuild, action-outcomes/run, post_comment, agent-efficiency, profitability.
 
 ### 2026-07-06 — pre-loop (evidencia previa ya validada)
 - Auth mint OK · health 200 · clients 70 · niches 9 (endpoints nuevos PATCH/rename verificados no-destructivos).

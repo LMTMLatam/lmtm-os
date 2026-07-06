@@ -3158,7 +3158,9 @@ export function adsRoutes(db: Db): Router {
   router.get("/growth/agent-efficiency", async (req, res) => {
     try {
       const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
-      const since = new Date(Date.now() - days * 86_400_000);
+      // ISO string, not Date: drizzle's execute + postgres.js can't serialize a
+      // Date param ("must be of type string... Received an instance of Date").
+      const since = new Date(Date.now() - days * 86_400_000).toISOString();
       const MAINT_KINDS = ["stranded_issue_recovery", "issue_productivity_review", "stale_active_run_evaluation", "harness_liveness_escalation"];
       const rows = await db.execute(sql`
         select coalesce(a.name, 'sistema') as agent,

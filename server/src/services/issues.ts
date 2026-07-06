@@ -3880,10 +3880,13 @@ export function issueService(db: Db) {
         .values({
           companyId: issue.companyId,
           issueId,
-          authorAgentId: actor.agentId ?? null,
-          authorUserId: actor.userId ?? null,
+          // `||` (not `??`): an actor with an EMPTY-STRING id (e.g. an agent
+          // tool call without the x-paperclip-run-id header) must land as
+          // NULL, not '' — postgres rejects '' as a uuid and the insert dies.
+          authorAgentId: actor.agentId || null,
+          authorUserId: actor.userId || null,
           authorType,
-          createdByRunId: actor.runId ?? null,
+          createdByRunId: actor.runId || null,
           body: redactedBody,
           presentation,
           metadata,

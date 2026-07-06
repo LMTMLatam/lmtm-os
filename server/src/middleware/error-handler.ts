@@ -61,6 +61,14 @@ export function errorHandler(
     return;
   }
 
+  // body-parser errors (malformed JSON, payload too large) carry a 4xx
+  // statusCode — answer with it instead of a misleading generic 500.
+  const bpStatus = (err as { statusCode?: number; status?: number })?.statusCode ?? (err as { status?: number })?.status;
+  if (err instanceof SyntaxError && typeof bpStatus === "number" && bpStatus >= 400 && bpStatus < 500) {
+    res.status(bpStatus).json({ error: `Invalid request body: ${(err as Error).message.slice(0, 200)}` });
+    return;
+  }
+
   const rootError = err instanceof Error ? err : new Error(String(err));
   attachErrorContext(
     req,
