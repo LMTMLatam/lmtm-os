@@ -22,6 +22,7 @@ import {
 } from "@paperclipai/db";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "./registry.js";
+import { withFreshAccessToken } from "./token-refresh.js";
 import { fetchMetaAudience } from "./providers/meta.js";
 import type { AdsPlatform } from "./types.js";
 
@@ -301,7 +302,9 @@ async function loadConnectionAndMapping(
   if (!connection) throw new Error(`ads connection ${connectionId} not found`);
   const mapping = await db.query.adsAccountMappings.findFirst({ where: eq(adsAccountMappings.id, mappingId) });
   if (!mapping) throw new Error(`ads account mapping ${mappingId} not found`);
-  return [connection, mapping];
+  // Google access tokens expire in ~1h; refresh here so every sync path below
+  // works with a live credential (no-op for Meta and friends).
+  return [await withFreshAccessToken(db, connection), mapping];
 }
 
 function resolvePlatform(opts: SyncOptions): AdsPlatform {

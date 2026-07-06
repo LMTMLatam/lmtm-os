@@ -41,6 +41,7 @@ import { logActivity } from "../services/activity-log.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
+import { withFreshAccessToken } from "../services/ads/token-refresh.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
 import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
@@ -273,11 +274,12 @@ export function adsRoutes(db: Db): Router {
   });
 
   router.get("/integrations/connections/:id/accounts", async (req, res) => {
-    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
-    if (!conn) return res.status(404).json({ error: "connection not found" });
-    if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
-    const provider = getAdsProvider(conn.platform);
+    const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!row) return res.status(404).json({ error: "connection not found" });
+    if (!isKnownAdsPlatform(row.platform)) return res.status(400).json({ error: `unsupported platform: ${row.platform}` });
+    const provider = getAdsProvider(row.platform);
     try {
+      const conn = await withFreshAccessToken(db, row);
       const accounts = await provider.listAdAccounts(conn.accessToken);
       res.json({ accounts });
     } catch (err) {
@@ -286,11 +288,12 @@ export function adsRoutes(db: Db): Router {
   });
 
   router.get("/integrations/connections/:id/pages", async (req, res) => {
-    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
-    if (!conn) return res.status(404).json({ error: "connection not found" });
-    if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
-    const provider = getAdsProvider(conn.platform);
+    const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!row) return res.status(404).json({ error: "connection not found" });
+    if (!isKnownAdsPlatform(row.platform)) return res.status(400).json({ error: `unsupported platform: ${row.platform}` });
+    const provider = getAdsProvider(row.platform);
     try {
+      const conn = await withFreshAccessToken(db, row);
       const pages = await provider.listPages(conn.accessToken);
       res.json({ pages });
     } catch (err) {
@@ -303,10 +306,11 @@ export function adsRoutes(db: Db): Router {
   // and the ad sets under each ad account. The UI uses this to let the
   // user pick a subset of ad sets per (page, ad_account, client) mapping.
   router.get("/integrations/connections/:id/pages-with-sets", async (req, res) => {
-    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
-    if (!conn) return res.status(404).json({ error: "connection not found" });
-    if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
-    const provider = getAdsProvider(conn.platform);
+    const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!row) return res.status(404).json({ error: "connection not found" });
+    if (!isKnownAdsPlatform(row.platform)) return res.status(400).json({ error: `unsupported platform: ${row.platform}` });
+    const provider = getAdsProvider(row.platform);
+    const conn = await withFreshAccessToken(db, row);
 
     // ---- Cache layer ----
     // Building this payload hits the Meta Graph API ~50+ times (every Business
@@ -446,10 +450,11 @@ export function adsRoutes(db: Db): Router {
   // so the user can see exactly which ad accounts failed and why.
   // GET /api/ads/connections/:id/pages-with-sets/diagnostics
   router.get("/integrations/connections/:id/pages-with-sets/diagnostics", async (req, res) => {
-    const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
-    if (!conn) return res.status(404).json({ error: "connection not found" });
-    if (!isKnownAdsPlatform(conn.platform)) return res.status(400).json({ error: `unsupported platform: ${conn.platform}` });
-    const provider = getAdsProvider(conn.platform);
+    const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
+    if (!row) return res.status(404).json({ error: "connection not found" });
+    if (!isKnownAdsPlatform(row.platform)) return res.status(400).json({ error: `unsupported platform: ${row.platform}` });
+    const provider = getAdsProvider(row.platform);
+    const conn = await withFreshAccessToken(db, row);
     const out: {
       pages: number;
       adAccounts: number;
