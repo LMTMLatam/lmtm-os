@@ -143,7 +143,9 @@ async function adsApi<T = unknown>(
     throw new Error(`Google Ads ${path} returned non-JSON (${r.status}): ${text.slice(0, 400)}`);
   }
   if (!r.ok) {
-    throw new Error(`Google Ads ${path} → ${r.status}: ${text.slice(0, 400)}`);
+    // Google buries the actionable errorCode (e.g. DEVELOPER_TOKEN_INVALID)
+    // in details[] AFTER a generic message — keep enough of the body to see it.
+    throw new Error(`Google Ads ${path} → ${r.status}: ${text.slice(0, 1200)}`);
   }
   return json;
 }
