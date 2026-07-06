@@ -79,7 +79,7 @@ Escritura (ciclo [PRUEBA] + limpieza):
 Con efecto externo / gates:
 - [x] PASS pause_ad_entity — ownership guard OK + gate completo: campaña real sin approved → pide OK humano, no toca Meta.
 - [~] send_whatsapp_report / send_balance_alert — WIRED salvo OK del usuario
-- [!] crm_request — BLOCKED: credencial CRM inválida (pendiente usuario)
+- [x] PASS crm_request — DESBLOQUEADO 2026-07-06: email correcto era grow@bylmtm.com (no agentes@). Verificado end-to-end: /auth/me → LMTM Admin (perfil super); guard §8 en vivo (DELETE → "prohibido para agentes"). Sugerencia pendiente: crear usuario de servicio limitado (hoy opera con super admin).
 
 ## D. Rutas HTTP — 460 (por archivo; método + path)
 Regla rápida por método: GET directo · POST/PATCH/DELETE según taxonomía de arriba.
@@ -662,7 +662,7 @@ Mapeo honesto: qué ya cubre el sistema, qué se hace en este loop, qué es proy
 **Proyectos aparte (no caben en el loop de testing — necesitan definición/infra propia):**
 - [!] BOTS WhatsApp (Charlott/botpress, recaptación, bot inmobiliario N8N, asistente de grupos) → proyecto nuevo; además Charlott.ai venció (ver memoria dominio)
 - [!] Facturación n8n por planilla + tablero quién necesita factura + envío de monto por msj → proyecto + necesita ARCA/certificado (bloqueado, memoria billing)
-- [!] CRM BOT tablero sin acceso del agente → bloqueado por credencial CRM inválida
+- [!] CRM BOT tablero sin acceso del agente → credencial YA operativa (grow@bylmtm.com); el tablero en sí sigue siendo proyecto a definir
 - [!] Integrar Google Ads / My Business / master de fechas por sheet / tablero inmobiliario fusionado → integraciones nuevas, decidir prioridad con el usuario
 - [!] Super Redes: incorporar ideas de Competencia y Contenido → decisión de producto (recomendación: sí, como fuente del Baúl de Ganchos)
 
@@ -670,6 +670,11 @@ Mapeo honesto: qué ya cubre el sistema, qué se hace en este loop, qué es proy
 
 ## Bitácora de la corrida
 _(cada iteración: item → resultado → evidencia/fix)_
+
+### 2026-07-06 — corrida 8 (post-cierre: CRM + mesa redonda)
+- **CRM DESBLOQUEADO**: el email del usuario de servicio era `grow@bylmtm.com` (no el agentes@ de la doc). CRM_AGENT_EMAIL seteado en Railway; crm_request verificado (/auth/me → LMTM Admin, perfil super) y guard §8 en vivo (DELETE rechazado). Ana/Esteban operativos. Nota: paths como /companies o /users/me dan 404 — usar los paths reales de la doc del CRM.
+- **Mesa LMTM-1342 destrabada**: Pablo escaló porque ni PM ni CMO tienen tasks:assign; asigné por API LMTM-1344→Nicolas, 1345→Caro, 1346→Esteban, 1347→Dario (verificado assigneeAgentId ×4). Decisión pendiente del usuario: dar tasks:assign a Pablo/Luna.
+- Keys temporales revocadas y scripts eliminados.
 
 ### 2026-07-06 — corrida 7 (CIERRE) ✅
 - **Calendario verificado en prod**: dunod 0→4 posts (fallback due_date), hotel-lescano 10 intactos. distrillantas/workera en 0 = sus tareas NO tienen fecha en ClickUp (carga de datos del equipo, no bug). Botón Sincronizar eliminado; auto-refresh entrar/foco/60s.
