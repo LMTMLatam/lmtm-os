@@ -665,6 +665,7 @@ Mapeo honesto: qué ya cubre el sistema, qué se hace en este loop, qué es proy
 - [!] CRM BOT tablero sin acceso del agente → credencial YA operativa (grow@bylmtm.com); el tablero en sí sigue siendo proyecto a definir
 - [!] Integrar Google Ads / My Business / master de fechas por sheet / tablero inmobiliario fusionado → integraciones nuevas, decidir prioridad con el usuario
 - [!] Super Redes: incorporar ideas de Competencia y Contenido → decisión de producto (recomendación: sí, como fuente del Baúl de Ganchos)
+- [!] Higgsfield (edición/creación de video por agentes) → pedido del usuario 2026-07-06: en el futuro, designar producción de video a los agentes vía Higgsfield. Requiere: cuenta/API key de Higgsfield + tool wrapper (patrón crm_request) + skill de producción. Anotado, sin empezar.
 
 ---
 
