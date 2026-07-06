@@ -26,6 +26,8 @@ export interface NicheIntel {
   winningFormat: { pattern: string; evidence: { topFormat?: string; topAvg?: number; samples?: number } | null } | null;
   winningFormatAds: { pattern: string; evidence: { ranked?: Array<{ format: string; ctr: number; n: number }> } | null } | null;
   experiment: { pattern: string; evidence: Record<string, unknown> | null } | null;
+  /** Plan de acción minado a diario: qué hacer con cada cliente del nicho + ideas de IA. */
+  actions: Array<{ priority: 1 | 2 | 3; action: string; clientSlug?: string | null; kind: "accion" | "idea" }>;
   topCampaigns: Array<{ name: string; clientName: string; spend: number; leads: number; ctr: number; cpl: number | null }>;
   hooks: Array<{ text: string; format: string | null; timesUsed: number }>;
   trends: Array<{ title: string; tag: string; url: string | null }>;

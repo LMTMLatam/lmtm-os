@@ -3034,7 +3034,7 @@ export function adsRoutes(db: Db): Router {
         // Ideas del baúl y tendencias del nicho (recién sembrados — crecen solos).
         db.select().from(hooks).where(isNotNull(hooks.niche)).orderBy(desc(hooks.pinned), desc(hooks.timesUsed)).limit(200),
         db.select().from(trends).orderBy(desc(trends.day)).limit(120),
-        db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format"])),
+        db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format", "niche_actions"])),
         db.select({
           industry: clients.industry, clientName: clients.name,
           title: contentPerformance.title, format: contentPerformance.format,
@@ -3056,6 +3056,7 @@ export function adsRoutes(db: Db): Router {
       const formats = learningByNiche("niche");
       const adsFormats = learningByNiche("niche_ads_format");
       const experiments = learningByNiche("niche_experiment");
+      const actionPlans = learningByNiche("niche_actions");
 
       const perClient = new Map(perClientRows.map((r) => {
         const imp = Number(r.impressions);
@@ -3105,6 +3106,7 @@ export function adsRoutes(db: Db): Router {
           winningFormat: fmt ? { pattern: fmt.pattern, evidence: fmt.evidence } : null,
           winningFormatAds: fmtAds ? { pattern: fmtAds.pattern, evidence: fmtAds.evidence } : null,
           experiment: exp ? { pattern: exp.pattern, evidence: exp.evidence } : null,
+          actions: ((actionPlans.get(niche)?.evidence as { actions?: unknown[] } | null)?.actions ?? []),
           topCampaigns,
           hooks: hookRows.filter((h) => h.niche === niche).slice(0, 3)
             .map((h) => ({ text: h.text, format: h.format, timesUsed: h.timesUsed })),

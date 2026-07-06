@@ -273,6 +273,160 @@ export async function mineExperiments(db: Db): Promise<{ experiments: number }> 
   return { experiments: count };
 }
 
+/**
+ * Plan de acción por nicho (scope "niche_actions"): cruza el benchmark recién
+ * minado con los números de CADA cliente y las mejores campañas reales, y baja
+ * acciones concretas — subir CTR / bajar CPL replicando lo que ya funciona,
+ * escalar a los que rinden arriba de la meta, activar pauta en los que no
+ * tienen — más 2 ideas creativas de IA sobre esos mismos datos. Es lo que el
+ * panel /niches muestra como "Acciones a tomar" y los agentes leen como plan.
+ */
+export type NicheAction = { priority: 1 | 2 | 3; action: string; clientSlug?: string | null; kind: "accion" | "idea" };
+
+export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
+  const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
+  if (!company) return { actions: 0 };
+  const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  // Every active client with a niche (with or without pauta), plus 30d numbers.
+  const clientRows = await db
+    .select({ id: clients.id, slug: clients.slug, name: clients.name, industry: clients.industry })
+    .from(clients)
+    .where(and(eq(clients.status, "active"), isNotNull(clients.industry), notInArray(clients.industry, NON_BENCHMARK_NICHES)));
+  const insightRows = await db
+    .select({
+      clientId: adsInsights.clientId,
+      spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
+      impressions: sql<number>`coalesce(sum(${adsInsights.impressions}), 0)::int`,
+      clicks: sql<number>`coalesce(sum(${adsInsights.clicks}), 0)::int`,
+      leads: sql<number>`coalesce(sum(${adsInsights.leads}), 0)::int`,
+    })
+    .from(adsInsights)
+    .where(gte(adsInsights.date, since))
+    .groupBy(adsInsights.clientId);
+  const campaignRows = await db
+    .select({
+      industry: clients.industry,
+      clientName: clients.name,
+      campaignName: adsInsights.campaignName,
+      impressions: sql<number>`coalesce(sum(${adsInsights.impressions}), 0)::int`,
+      clicks: sql<number>`coalesce(sum(${adsInsights.clicks}), 0)::int`,
+    })
+    .from(adsInsights)
+    .innerJoin(clients, eq(adsInsights.clientId, clients.id))
+    .where(and(gte(adsInsights.date, since), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+    .groupBy(clients.industry, clients.name, adsInsights.campaignName)
+    .having(sql`sum(${adsInsights.impressions}) >= 500`);
+
+  // Fresh learnings from this same pass (order in runLearningPass matters).
+  const mined = await db.select().from(learnings).where(notInArray(learnings.scope, ["global"]));
+  const evOf = (scope: string, niche: string) =>
+    (mined.find((l) => l.scope === scope && l.scopeKey === niche)?.evidence ?? null) as Record<string, unknown> | null;
+
+  const perClient = new Map(insightRows.map((r) => [r.clientId, r]));
+  const byNiche = new Map<string, typeof clientRows>();
+  for (const c of clientRows) {
+    const arr = byNiche.get(c.industry!) ?? [];
+    arr.push(c);
+    byNiche.set(c.industry!, arr);
+  }
+
+  await db.delete(learnings).where(eq(learnings.scope, "niche_actions"));
+
+  let count = 0;
+  for (const [niche, members] of byNiche) {
+    const bench = evOf("niche_benchmark", niche) as { avgCtr?: number; idealCtr?: number; avgCpl?: number; idealCpl?: number } | null;
+    if (!bench?.idealCtr) continue; // sin benchmark no hay meta contra la cual accionar
+    const fmtAds = (evOf("niche_ads_format", niche) as { ranked?: Array<{ format: string; ctr: number }> } | null)?.ranked?.[0] ?? null;
+    const topCampaign = campaignRows
+      .filter((c) => c.industry === niche && Number(c.impressions) > 0)
+      .map((c) => ({ name: c.campaignName!, clientName: c.clientName, ctr: Number(c.clicks) / Number(c.impressions) }))
+      .sort((a, b) => b.ctr - a.ctr)[0] ?? null;
+
+    const actions: NicheAction[] = [];
+    const sinPauta: string[] = [];
+    for (const m of members) {
+      const a = perClient.get(m.id);
+      const imp = Number(a?.impressions ?? 0);
+      if (imp < 500) { sinPauta.push(m.name); continue; }
+      const ctr = Number(a!.clicks) / imp;
+      const spend = Number(a!.spend);
+      const leads = Number(a!.leads);
+      const cpl = leads > 0 ? spend / leads : null;
+      const replicar = [
+        fmtAds ? `pasar la pauta a formato "${fmtAds.format}" (CTR ${(fmtAds.ctr * 100).toFixed(2)}% en el nicho)` : "",
+        topCampaign && topCampaign.clientName !== m.name ? `replicar la estructura de "${topCampaign.name}" (${topCampaign.clientName}, CTR ${(topCampaign.ctr * 100).toFixed(2)}%)` : "",
+      ].filter(Boolean).join(" y ");
+      if (ctr < bench.idealCtr * 0.9) {
+        actions.push({
+          priority: bench.avgCtr != null && ctr < bench.avgCtr ? 1 : 2,
+          action: `Subir el CTR de ${m.name}: ${(ctr * 100).toFixed(2)}% hoy vs meta ${(bench.idealCtr * 100).toFixed(2)}%${replicar ? ` — ${replicar}` : ""}.`,
+          clientSlug: m.slug, kind: "accion",
+        });
+      } else if (cpl != null && bench.idealCpl != null && cpl > bench.idealCpl * 1.2) {
+        actions.push({
+          priority: bench.avgCpl != null && cpl > bench.avgCpl ? 1 : 2,
+          action: `Bajar el CPL de ${m.name}: $${Math.round(cpl)} hoy vs meta $${Math.round(bench.idealCpl)} — revisar segmentación y oferta; sus pares del nicho lo consiguen.`,
+          clientSlug: m.slug, kind: "accion",
+        });
+      } else {
+        actions.push({
+          priority: 2,
+          action: `Escalar presupuesto de ${m.name}: ya rinde en la meta del nicho (CTR ${(ctr * 100).toFixed(2)}%${cpl != null ? `, CPL $${Math.round(cpl)}` : ""}) — subir inversión gradual manteniendo la creatividad.`,
+          clientSlug: m.slug, kind: "accion",
+        });
+      }
+    }
+    if (sinPauta.length > 0) {
+      actions.push({
+        priority: 3,
+        action: `Activar pauta en ${sinPauta.slice(0, 4).join(", ")}${sinPauta.length > 4 ? ` (+${sinPauta.length - 4})` : ""}: el nicho tiene meta clara (CTR ${(bench.idealCtr * 100).toFixed(2)}%${bench.idealCpl != null ? `, CPL $${Math.round(bench.idealCpl)}` : ""}) — proponer plan de medios.`,
+        kind: "accion",
+      });
+    }
+
+    // 2 ideas creativas de IA sobre los mismos datos (best-effort — si el
+    // modelo no está, el plan determinístico queda igual de útil).
+    try {
+      const { aiNarrative } = await import("./agency-ops.js");
+      const raw = await aiNarrative(
+        [
+          "Sos estratega creativo de LMTM (agencia de marketing latam). Con los datos reales del rubro, proponé exactamente 2 ideas creativas ACCIONABLES para mejorar resultados de los clientes del rubro (ángulos de campaña, ofertas, formatos, hooks).",
+          "Cada idea en UNA línea concreta y ejecutable, español rioplatense, sin relleno ni genéricos. Respondé SOLO un array JSON de 2 strings.",
+        ].join("\n"),
+        [
+          `Rubro: ${niche} (${members.length} clientes).`,
+          `Benchmark 30d: CTR prom ${((bench.avgCtr ?? 0) * 100).toFixed(2)}% / meta ${(bench.idealCtr * 100).toFixed(2)}%${bench.idealCpl != null ? `; CPL meta $${Math.round(bench.idealCpl)}` : ""}.`,
+          fmtAds ? `Formato que gana en ads: ${fmtAds.format} (CTR ${(fmtAds.ctr * 100).toFixed(2)}%).` : "",
+          topCampaign ? `Mejor campaña real: "${topCampaign.name}" de ${topCampaign.clientName} (CTR ${(topCampaign.ctr * 100).toFixed(2)}%).` : "",
+        ].filter(Boolean).join("\n"),
+      );
+      const s = raw?.indexOf("[") ?? -1, e = raw?.lastIndexOf("]") ?? -1;
+      if (raw && s !== -1 && e > s) {
+        const parsed = JSON.parse(raw.slice(s, e + 1)) as unknown[];
+        for (const idea of parsed.slice(0, 2)) {
+          if (typeof idea === "string" && idea.trim().length > 15) actions.push({ priority: 3, action: idea.trim(), kind: "idea" });
+        }
+      }
+    } catch { /* ideas de IA son opcionales */ }
+
+    if (actions.length === 0) continue;
+    actions.sort((a, b) => a.priority - b.priority);
+    const urgent = actions.filter((a) => a.priority === 1).length;
+    const pattern = `Plan de acción de "${niche}" (30d): ${actions.length} acciones${urgent ? `, ${urgent} urgente${urgent === 1 ? "" : "s"}` : ""}.`;
+    await db.insert(learnings).values({
+      companyId: company.id, scope: "niche_actions", scopeKey: niche, pattern,
+      evidence: { actions: actions.slice(0, 8), windowDays: 30 },
+      metricImpact: "ads_benchmark", confidence: "0.7", occurrences: actions.length, lastSeenAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [learnings.scope, learnings.scopeKey, learnings.pattern],
+      set: { evidence: { actions: actions.slice(0, 8), windowDays: 30 }, occurrences: actions.length, lastSeenAt: new Date() },
+    });
+    count += 1;
+  }
+  return { actions: count };
+}
+
 /** Learnings relevant to a niche (for opportunities / reports). */
 export async function learningsForNiche(db: Db, niche: string | null) {
   const rows = await db.select().from(learnings).limit(200);
@@ -282,12 +436,14 @@ export async function learningsForNiche(db: Db, niche: string | null) {
 
 /** Full mining pass: formats → benchmarks → experiments (experiments read the
  *  freshly-mined format learnings, so order matters). */
-export async function runLearningPass(db: Db): Promise<{ learnings: number; benchmarks: number; experiments: number; adsFormats: number }> {
+export async function runLearningPass(db: Db): Promise<{ learnings: number; benchmarks: number; experiments: number; adsFormats: number; actions: number }> {
   const l = await mineLearnings(db).catch((e) => { console.warn("[learning] formats failed:", e); return { learnings: 0 }; });
   const b = await mineAdsBenchmarks(db).catch((e) => { console.warn("[learning] benchmarks failed:", e); return { benchmarks: 0 }; });
   const f = await mineAdsWinningFormats(db).catch((e) => { console.warn("[learning] ads formats failed:", e); return { formats: 0 }; });
   const x = await mineExperiments(db).catch((e) => { console.warn("[learning] experiments failed:", e); return { experiments: 0 }; });
-  return { ...l, ...b, adsFormats: f.formats, ...x };
+  // Actions read everything mined above — always last.
+  const a = await mineNicheActions(db).catch((e) => { console.warn("[learning] actions failed:", e); return { actions: 0 }; });
+  return { ...l, ...b, adsFormats: f.formats, ...x, ...a };
 }
 
 let learnTimer: ReturnType<typeof setInterval> | null = null;

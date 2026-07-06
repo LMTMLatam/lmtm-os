@@ -16,7 +16,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, Trophy, FlaskConical, Swords, Lightbulb, Briefcase, Loader2, X, Settings2, Check, Pencil, Search, TrendingUp, TrendingDown, Minus, Megaphone } from "lucide-react";
+import { Layers, Trophy, FlaskConical, Swords, Lightbulb, Briefcase, Loader2, X, Settings2, Check, Pencil, Search, TrendingUp, TrendingDown, Minus, Megaphone, ListChecks, Sparkles } from "lucide-react";
 
 function fmtMoney(n: number): string {
   return `$${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(n)}`;
@@ -122,6 +122,33 @@ function NicheCard({ n }: { n: NicheIntel }) {
           ideal={idealCpl != null ? fmtMoney(idealCpl) : null}
           hint={n.ads30d.cpl != null && idealCpl != null ? (n.ads30d.cpl <= idealCpl ? "good" : "bad") : null} />
       </div>
+
+      {/* ── Acciones a tomar (plan minado a diario) ── */}
+      {n.actions.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 text-xs font-medium mb-2"><ListChecks className="h-3.5 w-3.5 text-violet-500" />Acciones a tomar</div>
+          <div className="space-y-1.5">
+            {n.actions.map((a, i) => (
+              <div key={i} className="text-xs flex items-start gap-2">
+                {a.kind === "idea" ? (
+                  <Badge className="text-[9px] px-1.5 py-0 shrink-0 mt-0.5 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 inline-flex items-center gap-0.5"><Sparkles className="h-2.5 w-2.5" />idea</Badge>
+                ) : (
+                  <Badge className={`text-[9px] px-1.5 py-0 shrink-0 mt-0.5 ${
+                    a.priority === 1 ? "bg-red-500/10 text-red-700 dark:text-red-300"
+                      : a.priority === 2 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                      : "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300"}`}>
+                    {a.priority === 1 ? "urgente" : a.priority === 2 ? "mejora" : "sumar"}
+                  </Badge>
+                )}
+                <span className="text-muted-foreground leading-relaxed">
+                  {a.action}
+                  {a.clientSlug && <Link to={`/c/${a.clientSlug}`} className="ml-1 text-violet-500 hover:underline">ver cliente →</Link>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Qué funcionó mejor ── */}
       <div>
