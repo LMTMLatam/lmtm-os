@@ -185,6 +185,11 @@ export interface ScheduledContentItem {
   name: string;
   status: string;
   published: boolean;
+  /** ClickUp tag "mandado a make": the post WAS dispatched to the Make
+   *  scenario (i.e. it fired). A past-due task WITHOUT this tag is the real
+   *  "never went out" signal; with the tag, any failure lives in Make's
+   *  execution log, not in ClickUp. */
+  sentToMake: boolean;
   plannedDate: string | null; // ISO, when the post is/was scheduled
   url: string | null;
 }
@@ -209,6 +214,7 @@ export async function getRedesScheduledContent(
     due_date?: string | null; start_date?: string | null;
     date_done?: string | null; date_closed?: string | null;
     url?: string | null;
+    tags?: Array<{ name?: string }>;
   }> }>(
     `/list/${encodeURIComponent(client.clickupListRedesId)}/task`,
     { query: { archived: false, include_closed: true, subtasks: false } },
@@ -221,10 +227,12 @@ export async function getRedesScheduledContent(
     const sName = t.status?.status ?? "sin estado";
     const published =
       t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
+    const sentToMake = (t.tags ?? []).some((tag) => /mandado\s*a\s*make/i.test(tag.name ?? ""));
     out.push({
       name: t.name,
       status: sName,
       published,
+      sentToMake,
       plannedDate: planMs ? new Date(planMs).toISOString() : null,
       url: t.url ?? null,
     });
