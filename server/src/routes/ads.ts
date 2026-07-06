@@ -3131,7 +3131,9 @@ export function adsRoutes(db: Db): Router {
         group by c.id, c.name, c.currency, c.monthly_retainer_cents
         order by coalesce(sum(ce.cost_cents),0) desc
       `);
-      const clients = (rows as unknown as { rows: Array<Record<string, unknown>> }).rows.map((r) => {
+      // postgres.js returns the array directly; node-postgres wraps it in {rows}.
+      const list = (rows as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? (rows as unknown as Array<Record<string, unknown>>);
+      const clients = list.map((r) => {
         const retainer = Number(r.retainer_cents ?? 0) / 100;
         const agentCost = Number(r.agent_cost_cents ?? 0) / 100;
         return {
@@ -3160,7 +3162,7 @@ export function adsRoutes(db: Db): Router {
       const MAINT_KINDS = ["stranded_issue_recovery", "issue_productivity_review", "stale_active_run_evaluation", "harness_liveness_escalation"];
       const rows = await db.execute(sql`
         select coalesce(a.name, 'sistema') as agent,
-               case when i.origin_kind = any(${MAINT_KINDS}) then 'maintenance' else 'real' end as bucket,
+               case when i.origin_kind in ${MAINT_KINDS} then 'maintenance' else 'real' end as bucket,
                count(*)::int as runs,
                count(*) filter (where r.status = 'failed')::int as failed
         from heartbeat_runs r
