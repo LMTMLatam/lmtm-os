@@ -519,7 +519,7 @@ function CalendarTab({ client }: { client: Client }) {
                         {posts.slice(0, 4).map((p) => (
                           <a key={p.id} href={p.url ?? undefined} target="_blank" rel="noreferrer noopener"
                             title={`${p.name}${p.format ? ` · ${p.format}` : ""}${p.networks.length ? ` · ${p.networks.join(", ")}` : ""} · ${p.status}`}
-                            className={`block rounded border px-1 py-0.5 hover:brightness-110 transition ${p.published ? "border-emerald-500/40 bg-emerald-500/5" : p.sentToMake ? "border-sky-500/40 bg-sky-500/5" : "border-border bg-muted/40"}`}>
+                            className={`block rounded border px-1 py-0.5 hover:brightness-110 transition ${p.published ? "border-emerald-500/40 bg-emerald-500/5" : "border-border bg-muted/40"}`}>
                             <div className="flex items-center gap-0.5 flex-wrap">
                               {p.networks.length > 0 ? p.networks.map((n) => {
                                 const meta = netMeta(n);
@@ -546,12 +546,11 @@ function CalendarTab({ client }: { client: Client }) {
               return <span key={n} className={`font-bold px-1 py-0.5 rounded border ${m.cls}`}>{m.code} {m.label}</span>;
             })}
             <span className="ml-2">·</span>
-            <span className="px-1.5 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/5">publicado</span>
-            <span className="px-1.5 py-0.5 rounded border border-sky-500/40 bg-sky-500/5">mandado a make</span>
+            <span className="px-1.5 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/5">publicado (etiqueta &quot;mandado a make&quot;)</span>
           </div>
 
           <p className="text-[11px] text-muted-foreground">
-            La fecha sale de <strong>Fecha de inicio</strong> y las redes del campo <strong>Plataformas</strong> en ClickUp. Los posteos sin fecha de inicio no aparecen en el calendario.
+            La fecha sale de <strong>Fecha de inicio</strong> (cuándo se dispara a Make) y las redes del campo <strong>Plataformas</strong> en ClickUp. Un post cuenta como <strong>publicado</strong> cuando tiene la etiqueta <strong>&quot;mandado a make&quot;</strong> (o &quot;enviado a make&quot;). Los posteos sin fecha de inicio no aparecen en el calendario.
           </p>
         </>
       )}

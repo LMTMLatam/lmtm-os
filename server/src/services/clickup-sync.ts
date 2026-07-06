@@ -121,9 +121,10 @@ async function listListsInFolder(folderId: string): Promise<CuList[]> {
 
 /**
  * Analyze the client's "Redes Sociales" ClickUp list for a date window:
- * how many posts were planned (have a due date in range) vs published
- * (task closed/done), and which planned ones were missed (due date passed,
- * not done). Returns null if the client has no Redes Sociales list synced.
+ * how many posts were planned (have a start/due date in range) vs published
+ * (tagged "mandado/enviado a make"), and which planned ones were missed
+ * (start_date passed, no dispatch tag). Returns null if the client has no
+ * Redes Sociales list synced.
  */
 type RedesStats = {
   total: number;
@@ -135,8 +136,14 @@ type RedesStats = {
   hasDates: boolean; // whether any post carries a planned date (due/start)
 };
 
-// Status names (custom, per-client) that mean "published / done".
-const PUBLISHED_RE = /public|hecho|listo|done|complet|aprobad|finaliz|subido|posteado/i;
+// Publication signal: the "mandado a make" / "enviado a make" ClickUp tag.
+// The team applies it when the post fires to the Make scenario (Make does the
+// actual publish), so the tag — not the per-client status names — is the
+// authoritative "this went out" marker. The reference date is start_date:
+// that's when the post is due to fire to Make.
+const SENT_TO_MAKE_RE = /(mandado|enviado)\s*a\s*make/i;
+const hasSentToMakeTag = (tags?: Array<{ name?: string }>): boolean =>
+  (tags ?? []).some((tag) => SENT_TO_MAKE_RE.test(tag.name ?? ""));
 
 export async function getRedesPostStats(
   db: Db,
@@ -149,6 +156,7 @@ export async function getRedesPostStats(
   const r = await cu<{ tasks: Array<{
     name: string;
     status?: { status?: string; type?: string };
+    tags?: Array<{ name?: string }>;
     due_date?: string | null; start_date?: string | null;
     date_updated?: string | null; date_done?: string | null; date_closed?: string | null;
   }> }>(
@@ -165,17 +173,14 @@ export async function getRedesPostStats(
     total += 1;
     const sName = t.status?.status ?? "sin estado";
     byStatus[sName] = (byStatus[sName] ?? 0) + 1;
-    const isPub = t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
+    const isPub = hasSentToMakeTag(t.tags);
 
-    const planMs = Number(t.due_date ?? t.start_date ?? 0);
+    const planMs = Number(t.start_date ?? t.due_date ?? 0);
     if (planMs) hasDates = true;
     if (planMs && planMs >= sinceMs && planMs <= untilMs) {
       plannedThisWeek += 1;
-      if (!isPub && planMs < now) missedNames.push(t.name);
-    }
-    if (isPub) {
-      const pubMs = Number(t.date_done ?? t.date_closed ?? t.date_updated ?? 0);
-      if (pubMs && pubMs >= sinceMs && pubMs <= untilMs) publishedThisWeek += 1;
+      if (isPub) publishedThisWeek += 1;
+      else if (planMs < now) missedNames.push(t.name);
     }
   }
   return { total, byStatus, publishedThisWeek, plannedThisWeek, missed: missedNames.length, missedNames, hasDates };
@@ -184,13 +189,15 @@ export async function getRedesPostStats(
 export interface ScheduledContentItem {
   name: string;
   status: string;
+  /** True when the task carries the "mandado/enviado a make" tag — the
+   *  authoritative publication signal (alias of sentToMake). */
   published: boolean;
-  /** ClickUp tag "mandado a make": the post WAS dispatched to the Make
-   *  scenario (i.e. it fired). A past-due task WITHOUT this tag is the real
-   *  "never went out" signal; with the tag, any failure lives in Make's
-   *  execution log, not in ClickUp. */
+  /** ClickUp tag "mandado a make" / "enviado a make": the post WAS dispatched
+   *  to the Make scenario (i.e. it fired). A task past its start_date WITHOUT
+   *  this tag is the real "never went out" signal; with the tag, any failure
+   *  lives in Make's execution log, not in ClickUp. */
   sentToMake: boolean;
-  plannedDate: string | null; // ISO, when the post is/was scheduled
+  plannedDate: string | null; // ISO, from start_date (when it fires to Make)
   url: string | null;
 }
 
@@ -222,16 +229,14 @@ export async function getRedesScheduledContent(
   const tasks = r.tasks ?? [];
   const out: ScheduledContentItem[] = [];
   for (const t of tasks) {
-    const planMs = Number(t.due_date ?? t.start_date ?? 0);
+    const planMs = Number(t.start_date ?? t.due_date ?? 0);
     if (planMs && (planMs < sinceMs || planMs > untilMs)) continue;
     const sName = t.status?.status ?? "sin estado";
-    const published =
-      t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
-    const sentToMake = (t.tags ?? []).some((tag) => /mandado\s*a\s*make/i.test(tag.name ?? ""));
+    const sentToMake = hasSentToMakeTag(t.tags);
     out.push({
       name: t.name,
       status: sName,
-      published,
+      published: sentToMake,
       sentToMake,
       plannedDate: planMs ? new Date(planMs).toISOString() : null,
       url: t.url ?? null,
@@ -325,14 +330,13 @@ export async function getRedesCalendar(
     let format: string | null = labelsFromField(cfs.find((c) => TIPO_CONTENIDO_RE.test(c.name ?? "")))[0] ?? null;
     if (!format) format = (t.tags ?? []).map((x) => x.name ?? "").find((n) => FORMAT_TAG_RE.test(n)) ?? null;
     const sName = t.status?.status ?? "sin estado";
-    const published =
-      t.status?.type === "done" || t.status?.type === "closed" || PUBLISHED_RE.test(sName);
+    const sentToMake = hasSentToMakeTag(t.tags);
     out.push({
       id: t.id,
       name: t.name,
       status: sName,
-      published,
-      sentToMake: (t.tags ?? []).some((tag) => /mandado\s*a\s*make/i.test(tag.name ?? "")),
+      published: sentToMake,
+      sentToMake,
       date: new Date(startMs).toISOString(),
       networks,
       format,

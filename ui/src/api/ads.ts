@@ -98,6 +98,10 @@ export const adsApi = {
   },
   getConnection: (id: string) =>
     api.get<AdsConnection>(`/integrations/connections/${id}`),
+  // Server-level wiring for Google Workspace / Make / ClickUp (env vars +
+  // agent adapter configs) — complements the per-company secrets.
+  pipelineStatus: () =>
+    api.get<{ google: boolean; make: boolean; clickup: boolean }>(`/integrations/pipeline-status`),
   listAdAccounts: (connectionId: string) =>
     api.get<AdsAdAccountsResponse>(`/integrations/connections/${connectionId}/accounts`),
   listPages: (connectionId: string) =>

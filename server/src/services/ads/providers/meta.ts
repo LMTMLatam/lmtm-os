@@ -72,20 +72,29 @@ async function getPageAccessToken(userToken: string, pageId: string): Promise<st
   const cacheKey = `${userToken.slice(0, 16)}:${pageId}`;
   const cached = pageTokenCache.get(cacheKey);
   if (cached) return cached;
-  const r = await gGet<{ data?: Array<{ id: string; access_token?: string }> }>(
+  // PAGINATE: /me/accounts defaults to 25 results, and the agency admins 50+
+  // pages — a single fetch silently missed everything past the first batch and
+  // looked like a missing scope ("no se encontró access_token") when the token
+  // was fine. Cache every page token seen along the way (free wins).
+  let found: string | null = null;
+  for await (const batch of paginate<{ id: string; access_token?: string }>(
     "/me/accounts",
     { fields: "id,access_token" },
     userToken,
-  );
-  const acct = (r.data ?? []).find((a) => a.id === pageId);
-  if (!acct?.access_token) {
+  )) {
+    for (const acct of batch) {
+      if (acct.access_token) pageTokenCache.set(`${userToken.slice(0, 16)}:${acct.id}`, acct.access_token);
+      if (acct.id === pageId && acct.access_token) found = acct.access_token;
+    }
+    if (found) break;
+  }
+  if (!found) {
     throw new Error(
       `Meta: no se encontró access_token para la página ${pageId} en /me/accounts. ` +
-      `Reconectá Meta pidiendo el scope pages_show_list + manage_pages.`,
+      `La página no está autorizada para el app: reconectá Meta y en la pantalla de permisos incluí esa página.`,
     );
   }
-  pageTokenCache.set(cacheKey, acct.access_token);
-  return acct.access_token;
+  return found;
 }
 
 function unixToDate(unix: string | number | undefined): Date | undefined {

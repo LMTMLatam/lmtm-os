@@ -30,10 +30,9 @@ const PLATFORMS: PlatformDescriptor[] = [
     id: "google",
     name: "Google Ads",
     description:
-      "Read and write Google Ads campaigns, ad groups, and pull performance insights (spend, impressions, CTR, conversions, cost-per-conversion). The plugin is shipped; the OAuth flow will be enabled once a Google Ads developer token + OAuth client are wired.",
+      "Read Google Ads campaigns, ad groups, and pull performance insights (spend, impressions, CTR, conversions, cost-per-conversion). Authorize with the Google account that owns the MCC (453-458-4343) — one authorization brings every client account under the manager.",
     scopes: ["https://www.googleapis.com/auth/adwords"],
-    ready: false,
-    reason: "Plugin built. Awaiting Google Ads developer token + OAuth client (similar to Meta's /api/meta/oauth/start).",
+    ready: true,
   },
   {
     id: "tiktok",
@@ -295,13 +294,22 @@ function PipelineIntegrations({ companyId }: { companyId: string }) {
     enabled: !!companyId,
   });
   const secrets = secretsQuery.data ?? [];
+  // Server-level wiring (env vars / agent configs): these integrations work
+  // globally even without a per-company secret, so count them as connected.
+  const serverQuery = useQuery({
+    queryKey: ["pipeline-status"],
+    queryFn: () => adsApi.pipelineStatus(),
+  });
+  const server = serverQuery.data;
 
   return (
     <div className="flex flex-col gap-4">
       {PIPELINE.map((p) => {
-        const connected = secrets.some(
-          (s) => s.key === p.primaryKey && s.status === "active",
-        );
+        // Secret keys may have been stored lowercase — compare case-insensitively.
+        const connected =
+          secrets.some(
+            (s) => s.key.toLowerCase() === p.primaryKey.toLowerCase() && s.status === "active",
+          ) || Boolean(server?.[p.id as keyof typeof server]);
         return (
           <PipelineCard
             key={p.id}
@@ -460,7 +468,13 @@ export function AdsIntegrations() {
       // page (or our window.message listener picks it up) to see the new row.
       const url = adsApi.metaOAuthStartUrl(selectedCompanyId, "Meta Ads");
       window.open(url, "_blank", "noopener,noreferrer");
+      return;
     }
+    // Generic platforms (google/tiktok/linkedin) share the /integrations OAuth
+    // flow; the server 400s with a clear message if that platform's env vars
+    // aren't wired yet.
+    const url = `/api/integrations/oauth/start?platform=${platform}&companyId=${selectedCompanyId}&label=${encodeURIComponent(platform === "google" ? "Google Ads (MCC LMTM Global)" : `${platform} Ads`)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleDisconnect = (id: string) => {

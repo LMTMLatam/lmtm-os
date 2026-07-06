@@ -192,6 +192,21 @@ export function adsRoutes(db: Db): Router {
     res.json({ connections: rows.map(toPublicConnection) });
   });
 
+  // Server-level wiring status for the pipeline integrations (Google
+  // Workspace, Make, ClickUp). These credentials live in env vars / the
+  // agents' adapter configs — NOT in company secrets — so without this the
+  // Integrations page showed "Connect" for integrations that are already
+  // working. Booleans only; never the values.
+  router.get("/integrations/pipeline-status", async (_req, res) => {
+    const makeRows = await db.execute(sql`select count(*)::int as n from agents where adapter_config::text ilike '%mcp__make%'`) as unknown as Array<{ n: number }> & { rows?: Array<{ n: number }> };
+    const makeAgents = Number((makeRows.rows ?? makeRows)[0]?.n ?? 0);
+    res.json({
+      google: Boolean(process.env.GOOGLE_OAUTH_REFRESH_TOKEN),
+      clickup: Boolean(process.env.CLICKUP_API_TOKEN?.trim()),
+      make: makeAgents > 0,
+    });
+  });
+
   router.get("/integrations/connections/:id", async (req, res) => {
     const [row] = await db.select().from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!row) return res.status(404).json({ error: "connection not found" });

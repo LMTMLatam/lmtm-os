@@ -495,7 +495,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_client_scheduled_content",
       description:
-        "Contenido PROGRAMADO del cliente desde la lista de Redes Sociales de ClickUp dentro de una ventana: qué se planeó publicar, cuándo, su estado y si ya está marcado como publicado. Cruzalo con get_client_organic_posts para ver si el plan se cumple. Devuelve null si el cliente no tiene lista de Redes mapeada.",
+        "Contenido PROGRAMADO del cliente desde la lista de Redes Sociales de ClickUp dentro de una ventana. plannedDate = Fecha de inicio (cuándo se dispara a Make). published/sentToMake = etiqueta 'mandado a make'/'enviado a make' (la ÚNICA señal de que el post salió — NO mirar el status de ClickUp para esto). Cruzalo con get_client_organic_posts para ver si el plan se cumple. Devuelve null si el cliente no tiene lista de Redes mapeada.",
       parameters: {
         type: "object",
         properties: {

@@ -798,6 +798,13 @@ export async function initWaBot(database: Db) {
     }, 2000);
   }
 
+  // Internal keepalive: the GitHub Actions cron that POSTs /keepalive declares
+  // */5 but GitHub throttles scheduled workflows to every 2-4 HOURS in
+  // practice, which left a paired-but-disconnected session down for hours
+  // after each deploy (LMTM-1339). The server watches its own sidecar instead.
+  // Silent restore only (no QR); tick is a no-op while connected.
+  setInterval(() => { void tickWaBotKeepalive().catch(() => {}); }, 2 * 60_000);
+
   scheduleDailyDigest();
 }
 

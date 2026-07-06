@@ -45,30 +45,25 @@ export async function runPublicationCheck(db: Db): Promise<{ clients: number; ov
   const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active"));
   const now = Date.now();
   const overdue: OverdueItem[] = [];
-  const dispatched: OverdueItem[] = []; // sent to Make but not yet marked published
 
   for (const c of rows) {
     // 7 days back → now: only content whose planned date already passed.
     const items = await getRedesScheduledContent(db, c.id, now - 7 * DAY, now).catch(() => null);
     if (!items) continue; // client has no Redes list mapped
     for (const it of items) {
+      // published == "mandado/enviado a make" tag: the post fired to Make.
+      // A post past its start_date WITHOUT the tag never went out — that's
+      // the miss. With the tag, any failure lives in Make's execution log.
       if (it.published || !it.plannedDate) continue;
-      // "mandado a make" tag = the post WAS dispatched (Make fires the actual
-      // publish). Counting those as unpublished flooded the digest with posts
-      // that went out fine — the real misses are the ones past their date with
-      // NO dispatch tag. Dispatched-but-unverified goes to its own bucket so
-      // someone checks whether the Make scenario failed.
       const planned = new Date(it.plannedDate).getTime();
       if (planned >= now) continue; // still in the future — not overdue
-      const item: OverdueItem = {
+      overdue.push({
         clientName: c.name,
         name: it.name,
         status: it.status,
         plannedDate: it.plannedDate,
         daysLate: Math.floor((now - planned) / DAY),
-      };
-      if (it.sentToMake) dispatched.push(item);
-      else overdue.push(item);
+      });
     }
   }
 
@@ -90,22 +85,9 @@ export async function runPublicationCheck(db: Db): Promise<{ clients: number; ov
         lines.push(`  • "${it.name.slice(0, 50)}" — ${it.daysLate}d vencido (${it.status})`);
       }
     }
-    lines.push("", "_Estas piezas NO tienen la etiqueta \"mandado a make\" — el posteo nunca se disparó. Mandarlas a Make o reprogramar._");
+    lines.push("", "_Estas piezas pasaron su fecha de inicio SIN la etiqueta \"mandado a make\" — el posteo nunca se disparó. Mandarlas a Make o reprogramar._");
     const r = await sendWhatsAppToNumber(team, lines.join("\n"));
     delivered = r.ok;
-  }
-
-  // Dispatched-but-stale: sent to Make ≥3 days ago and still not marked
-  // published in ClickUp. Usually the status just wasn't updated, but it can
-  // mean the Make scenario failed silently — worth one look, low noise.
-  const staleDispatched = dispatched.filter((o) => o.daysLate >= 3).sort((a, b) => b.daysLate - a.daysLate);
-  if (team && staleDispatched.length > 0) {
-    const lines = ["*⚙️ Disparados a Make, sin confirmar publicación (≥3 días)*", ""];
-    for (const o of staleDispatched.slice(0, 12)) {
-      lines.push(`• *${o.clientName}*: "${o.name.slice(0, 45)}" — ${o.daysLate}d`);
-    }
-    lines.push("", "_Tienen la etiqueta \"mandado a make\" pero siguen sin estado publicado. Chequear el escenario de Make (¿falló la ejecución?) o marcar el estado en ClickUp._");
-    await sendWhatsAppToNumber(team, lines.join("\n")).catch(() => {});
   }
 
   // Onboarding SLA: same daily pass, appended as its own section so a client
