@@ -275,6 +275,12 @@ export async function createApp(
     const { initPublicationMonitor } = await import("./services/publication-monitor.js");
     initPublicationMonitor(db);
   } catch (e) { console.warn("[publication-monitor] init failed:", e); }
+  // ClickUp folder reconciliation: archive clients whose folder left the
+  // "Clientes" space (moving a folder fires no webhook — only create/delete).
+  try {
+    const { initClickUpReconciliation } = await import("./services/clickup-provisioning.js");
+    initClickUpReconciliation(db);
+  } catch (e) { console.warn("[clickup-reconcile] init failed:", e); }
   // Low-balance alerts are now folded into the daily operational audit (one
   // report, not three). The standalone scheduler is left off so the team isn't
   // pinged twice; fetchAccountBalances/runBalanceCheck stay available for the

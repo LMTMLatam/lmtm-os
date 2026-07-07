@@ -291,3 +291,56 @@ export async function deprovisionClientFromClickUp(
     note: "cliente archivado; Sheet/Script/Make se conservan (baja reversible)",
   };
 }
+
+/**
+ * Reconciliación diaria: el space "Clientes" de ClickUp es la fuente de verdad
+ * de qué clientes están activos en el panel. MOVER una carpeta a otro space
+ * (ej. "Proyecto undido") no dispara ningún webhook — solo folderCreated /
+ * folderDeleted existen — así que los clientes movidos seguían activos
+ * (detectado 2026-07-07: 6 clientes "hundidos" seguían en el panel). Regla:
+ * cliente activo cuyo folder ya NO está en "Clientes" → archived. Solo esa
+ * dirección: reactivar es decisión humana (evita resucitar archivados a mano).
+ * Nunca archiva en masa por un fallo transitorio de la API (lista vacía o
+ * error → no toca nada).
+ */
+export async function reconcileClientsWithClickUp(db: Db): Promise<{ archived: number; names: string[] } | null> {
+  const token = process.env.CLICKUP_API_TOKEN;
+  if (!token) return null;
+  let folderIds: Set<string>;
+  try {
+    const r = await fetch(`${CU_API}/space/${CLIENTES_SPACE_ID}/folder?archived=false`, { headers: { Authorization: token } });
+    if (!r.ok) return null;
+    const json = (await r.json()) as { folders?: Array<{ id: string }> };
+    if (!Array.isArray(json.folders) || json.folders.length === 0) return null; // vacío = sospechoso, no tocar
+    folderIds = new Set(json.folders.map((f) => String(f.id)));
+  } catch {
+    return null;
+  }
+
+  const rows = await db
+    .select({ id: clients.id, name: clients.name, status: clients.status, folderId: clients.clickupFolderId })
+    .from(clients)
+    .where(eq(clients.status, "active"));
+  let archived = 0;
+  const names: string[] = [];
+  for (const c of rows) {
+    if (!c.folderId || folderIds.has(c.folderId)) continue;
+    await db.update(clients).set({ status: "archived", updatedAt: new Date() }).where(eq(clients.id, c.id));
+    console.log(`[clickup-reconcile] archivado: ${c.name} (su folder ya no está en el space Clientes)`);
+    archived += 1;
+    names.push(c.name);
+  }
+  return { archived, names };
+}
+
+let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+export function initClickUpReconciliation(db: Db): void {
+  if (reconcileTimer) return;
+  const run = () =>
+    reconcileClientsWithClickUp(db)
+      .then((r) => { if (r && r.archived > 0) console.log(`[clickup-reconcile] ${r.archived} archivados: ${r.names.join(", ")}`); })
+      .catch((e) => console.warn("[clickup-reconcile] failed:", e));
+  setTimeout(run, 10 * 60 * 1000);
+  reconcileTimer = setInterval(run, 12 * 3600 * 1000);
+  console.log("[clickup-reconcile] scheduled folder reconciliation every 12h");
+}
