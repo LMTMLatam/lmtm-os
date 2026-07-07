@@ -6516,7 +6516,11 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         });
       }
 
-      const shouldRetry = tracksLocalChild && (!!run.processPid || !!run.processGroupId) && (run.processLossRetryCount ?? 0) < 1;
+      // Retry regardless of whether a pid was ever recorded: a run killed by a
+      // redeploy BEFORE its child process spawned (pid null, seconds old) is
+      // the most deserving case — requiring a pid left those dead with no
+      // retry (Bianca 2026-07-06). Still bounded to one retry per run.
+      const shouldRetry = tracksLocalChild && (run.processLossRetryCount ?? 0) < 1;
       const baseMessage = buildProcessLossMessage(run, descendantOnlyCleanup ? { descendantOnly: true } : undefined);
 
       let finalizedRun = await setRunStatus(run.id, "failed", {
