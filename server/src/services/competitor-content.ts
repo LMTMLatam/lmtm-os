@@ -546,7 +546,10 @@ async function readClientPostNames(db: Db, clientId: string): Promise<string[]> 
   const lists = (await (await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, { headers: H })).json()) as {
     lists?: Array<{ id: string; name: string }>;
   };
-  const targets = (lists.lists ?? []).filter((l) => /redes\s*sociales/i.test(l.name)); // matches "Redes Sociales" + "Super Redes Sociales"
+  // "Redes Sociales" + "Super Redes Sociales" + "Producción de video": las
+  // listas donde vive el contexto real del cliente (pedido explícito del
+  // usuario: SIEMPRE tomar contexto de redes Y producción de video).
+  const targets = (lists.lists ?? []).filter((l) => /redes\s*sociales/i.test(l.name) || /produ\S*\s+de\s+v[ií]deos?/i.test(l.name));
   const names: string[] = [];
   for (const l of targets) {
     try {
