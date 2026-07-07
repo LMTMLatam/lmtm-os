@@ -1,0 +1,343 @@
+---
+name: lmtm-ganchos-virales
+displayName: Catálogo de ganchos virales (plantillas)
+description: Catálogo de +300 plantillas de ganchos virales (Cómo, Desafíos, Estéticos, Autoridad, Guías, Storytelling, Listas, Tendencia) para titular posts e ideas de contenido. Elegir por objetivo del post y adaptar SIEMPRE al cliente/nicho — nunca usar el placeholder literal.
+required: false
+---
+
+# Catálogo de ganchos virales
+
+Plantillas probadas para titular posts, reels e ideas de contenido. El gancho es
+la primera línea/frase del post: decide si el usuario se queda o pasa de largo.
+
+## Cómo usarlas
+
+1. **Elegí por objetivo del post**: COMERCIAL → Autoridad/Guías/Comparación;
+   ENGAGEMENT → Desafíos/Estéticos/Storytelling/Listas; CONCEPTO → Storytelling/Autoridad.
+2. **Adaptá SIEMPRE los [placeholders] al cliente y su nicho** — con datos reales
+   del brain (ubicación, producto, diferencial). Nunca publiques el placeholder.
+3. En el Baúl de Ganchos (search_hooks) ya hay versiones adaptadas por nicho —
+   revisalo primero; si creás una adaptación nueva que funciona, guardala con save_hook.
+4. Un gancho por post. No mezcles dos plantillas en un mismo título.
+
+
+## CONSEJOS Y TRUCOS
+- Cómo [Lograr el resultado deseado] en una [Forma única/creativa].
+- Cómo [Lograr el objetivo] en [Plazo].
+- Cómo [Acción] incluso cuando no tienes ganas.
+- Cómo [Dominar una habilidad] sin [Problema común].
+- Cómo entrenar tu [Cerebro/Cuerpo] para [Realizar una tarea difícil].
+- Cómo [Transformar] tu [Aspecto de la Vida] en tan solo [Plazo].
+- Cómo Planificar [Tarea Grande] en [Poco Tiempo].
+- Cómo Conseguir [El Look/Resultado Deseado] Sin [Problema Común].
+- Cómo [Dominar una Habilidad] Usando [Método No Convencional].
+- Cómo [Completé una Tarea] en [Poco Tiempo].
+- Cómo me Entrené para [Superar un Problema Común].
+- Cómo [Logré un Objetivo] Sin [Problema Común].
+- Cómo Planifico [Plazo] de [Actividad de Nicho] en [Menos Tiempo].
+- Cómo [Transformé algo] y tú también puedes.
+- Cómo [Obtuve Resultados] sin [Error Común].
+- Cómo [Logré mi Objetivo] haciendo lo contrario de lo esperado.
+- Cómo evité [Problema Común] como [Experto/Profesional].
+- Cómo convertí [dificultad] en [fortaleza/éxito].
+- [Mes] Desafío de Rejuvenecimiento.
+- [Plazo] Desafío para [Lograr el objetivo].
+- [Tema] Motivación para cuando te sientes [emoción].
+- El Desafío de Reinicio [Mes]: Hagámoslo juntos.
+- Roba mi [Mes] Reinicio mensual (Esa rutina [estética]).
+- [Nicho] Motivación para cuando te sientes [agotado/desmotivado].
+- Una rutina [temporal] que cambió mi [vida/negocios/salud].
+- [Período temporal] Restablecer a [Transformar aspecto de la vida].
+- Desafíate a ti mismo con [hábito diario] durante [período de tiempo].
+- Cómo mantener [nuevo hábito] durante [mes] sin dificultades.
+- [Periodo temporal] Desafío de acumulación de hábitos: pequeños cambios, grandes resultados.
+- Conocer a mi [persona/concepto] [imaginario/ideal] por primera vez.
+- La [marca/producto] que ofrece [comparación con marcas de lujo]
+- Este [producto económico] se siente como [producto de lujo].
+- Si te gusta [una marca de alta gama], te encantará esta [alternativa económica].
+- Lo que me pondría si fuera [Escenario/Personaje ficticio].
+- La estética [de temporada] que debes probar.
+- POV: Te estás convirtiendo en [Esa chica/Tu mejor versión].
+- La tendencia [de moda/belleza/producto] que no esperaba amar.
+- [Marca] vs [Marca] – ¿Cuál gana?
+- Probé [Producto/Desafío en Tendencia] para que tú no tengas que hacerlo.
+- Lo que nadie te cuenta sobre [Nicho/Industria].
+- Lo que me gustaría que más gente supiera sobre [Lucha común].
+- La [Estrategia/Táctica] más ignorada para [Lograr el Objetivo].
+- Lo que hago diferente como [profesión] para [resolver problemas].
+- [Número] Mitos sobre [Nicho] que debes dejar de creer.
+- He trabajado con [Número] clientes: esto es lo que todos tenían en común.
+- Lo que todo [público objetivo] necesita saber sobre [tema]
+- Yo [Profesión] – Así es como manejo [Problema común]
+- El método con respaldo científico para [Lograr el objetivo]
+- He probado [varias estrategias]: esto es lo que realmente funciona.
+
+## HOJA DE GUÍAS Y TRUCOS
+- La guía definitiva de [nicho] para [año/temporada].
+- Mi guía para [Tendencia/Desafío/Evento].
+- Guía para principiantes sobre [Habilidad/Actividad]
+- La única guía que necesitas para [tema de nicho]
+- La guía de [Plazo] para [lograr el objetivo]
+- Guía de una [Profesión/Rol] para [Actividad de Nicho]
+- La guía paso a paso para la [Transformación]
+- Guía de 8 pasos para el resultado deseado.
+- La guía de viaje definitiva de [ciudades/eventos]
+- Una guía de [habilidades específicas] para principiantes absolutos
+- La guía [Mes/Temporada] para [Objetivo o Actividad]
+- Su guía de referencia para [problemas comunes]
+- La guía sin tonterías para [tema de nicho]
+- Una guía [de tiempo] para [dominar una habilidad]
+- La Guía de Supervivencia [de Nicho] para [Situación o Evento]
+- La guía del experto sobre [tema de nicho]
+- Una guía para [Lograr la meta] sin [Lucha en común]
+- La guía [de nicho] para aprovechar al máximo [temporada/evento]
+- Guía del estudiante sobre [habilidades o hábitos de estilo de vida]
+- La guía [de nicho] para obtener resultados sin esfuerzo
+- La guía infalible para [Lograr la meta]
+- Una guía sencilla sobre [temas de nicho]
+- Guía paso a paso para [resolver el problema]
+- Un curso intensivo sobre [habilidades específicas]
+- Tu hoja de ruta [Año] hacia [Objetivo]
+- La guía definitiva de [nicho] para [año]
+- Una hoja de trucos para lograr un objetivo sin esfuerzo
+- Hoja de trucos de [Número] pasos para [Actividad de nicho]
+- La hoja de trucos [de nicho] que querrás guardar
+- [Número] Soluciones rápidas: Hoja de trucos para [Problema común]
+- La única hoja de trucos que necesitas para [Habilidad de nicho]
+- Hoja de trucos para ahorrar tiempo para profesionales y estudiantes ocupados.
+- La hoja de trucos para nichos perezosos para obtener los mejores resultados.
+- Tu hoja de trucos de [plazo] para [objetivo]
+- La hoja de trucos secreta para [Avanzar más rápido]
+- [Número] Atajos: Una hoja de trucos para [Punto problemático]
+- La hoja de trucos [de nicho] que los expertos recomiendan
+- Tu hoja de trucos paso a paso para [Habilidad/Proceso]
+- Hoja de trucos para principiantes sobre [tema de nicho]
+- La hoja de trucos imprescindible para [Industria/Objetivo]
+- La hoja de trucos "Sin esfuerzo" para [Objetivo]
+- La [Nicho] fórmula: una guía práctica para obtener resultados rápidos
+- La hoja de trucos de una página para [Tema complejo]
+- La “Ojalá hubiera tenido esto antes” Hoja de trucos para [Nicho]
+- Tu hoja de trucos para [Resolver problemas comunes]
+- La hoja de trucos definitiva para [Dominar la habilidad]
+- Una hoja de trucos para [nicho] que realmente funciona.
+- La hoja de trucos sin estrés para [Tarea abrumadora].
+- Tu hoja de trucos de [Temporada/Mes] para [Tema de tendencia]
+- Una hoja de trucos para [nicho] que te ahorra horas.
+
+## NARRACIÓN DE HISTORIAS
+- Nunca le he dicho esto a nadie antes, pero [Revelación personal]
+- Hice algo polémico y luego pasó esto…
+- Tenía muchas ganas de mantener esto en secreto, pero tengo que compartirlo: Así es como logré [objetivo]
+- Cuando intentaba [Lograr la meta], [Cosa sorprendente] era mi joya escondida.
+- Solía creer en [Creencia común] hasta que probé [Nuevo método]
+- Ojalá hubiera sabido esto antes: [Lección que lo cambió todo]
+- Pasé [X cantidad de tiempo] cometiendo [error]. Esto es lo que debería haber hecho en su lugar.
+- Nadie me dijo [La impactante verdad sobre el nicho], así que aprendí a las malas.
+- Probé [Tendencia popular] para [Periodo de tiempo] y esto es lo que realmente sucedió.
+- El error que me costó [Resultado Negativo] y cómo lo solucioné.
+- Estaba tan equivocado sobre [concepto erróneo común]: esto es lo que aprendí
+- Seguí el consejo de [Experto de la industria] y fue completamente contraproducente.
+- Pensé que [Creencia] era verdadera hasta que [Experiencia Reveladora] me demostró que estaba equivocado.
+- Solía pensar que [Esfuerzo] era normal, luego descubrí [Solución]
+- Si pudiera volver atrás en el tiempo, me diría esto sobre [Tema de nicho]
+- Nunca pensé que sería la persona que [Objetivo logrado]—Esto es lo que cambió
+- Me dijeron que [Mito] era la única manera de [Objetivo], pero se equivocaron.
+- Pasé [Periodo de tiempo] haciendo [Actividad de nicho] y me arrepiento. Esta es la razón.
+- Fracasé en [Actividad de nicho] durante [Período de tiempo] hasta que aprendí esto
+- Probé [Acceso directo] y fue un desastre. Esto es lo que realmente funciona.
+- Lo único que hice que cambió todo para mi [Objetivo]
+- Estuve cometiendo [Error común] durante años. Luego hice este pequeño ajuste.
+- Esta sola constatación hizo que mi [viaje de nicho] fuera 10 veces más fácil.
+- Ignoré [un consejo] durante años. Gran error.
+- La mentira más grande que creí sobre [Tema de nicho] y cómo me frenó
+- Pensé que [Punto de Dolor] era solo parte del proceso, hasta que aprendí este truco.
+- Ojalá alguien me hubiera dicho esto antes de empezar [Actividad de nicho]
+- Tenía miedo de probar [Cosa] pero resultó ser la mejor decisión que jamás tomé.
+- Esto es lo único que nadie te cuenta sobre [Nicho/Objetivo]
+- Solía pensar que [Creencia] era normal—Luego aprendí la verdad.
+- Ignoré este consejo durante años… Y casi arruinó mi [Objetivo/Progreso]
+- Este pequeño cambio transformó por completo mi [Resultado de nicho]
+- Seguí el camino "tradicional" para [Objetivo] y fracasé... Esto es lo que realmente funcionó.
+- Pensé que [Excusa] era una razón válida para renunciar. Pero me equivoqué.
+- Hice [Algo que no debería haber funcionado]. Y obtuve los mejores resultados de mi vida.
+- El mito más grande sobre [Nicho] que te mantiene estancado.
+- Casi me doy por vencido con [Objetivo] hasta que probé esto.
+- Finalmente descubrí por qué estaba sucediendo [Pain Point] y cambió todo.
+- Nunca entendí cómo la gente [Logró el objetivo]—Hasta que probé esto
+- Todos me dijeron que [Consejo común]... Pero aquí está el por qué hice lo contrario
+- Estuve estancado en [Problema] hasta que me di cuenta de una cosa
+- No podía entender por qué [Lucha] estaba sucediendo... Hasta que hice este cambio
+- Pensé que lo estaba haciendo todo bien, pero luego descubrí [Error]
+- Estuve siguiendo la estrategia equivocada durante años. Luego descubrí lo que realmente funciona.
+- El consejo más subestimado para [Goal] del que nadie habla.
+- Al principio dudé de esta estrategia. Pero luego vi los resultados.
+- Casi me salté este paso, pero resultó ser la clave del [éxito].
+
+## LISTAS
+- 5 [Elementos específicos de un nicho] que me hicieron [Reacción/Experiencia emocional]
+- [Número] [Elementos] a [Acción] en [Periodo de tiempo]
+- Ideas para actividades individuales [de nicho] – [Contexto o gancho]
+- [Número] [Tema] para probar
+- [Tema] para comenzar en [Año/Temporada]
+- [Número] Días de [Tema] para [Mes/Temporada]
+- [Tema] a [Acción] y [Beneficio]
+- [Número] Cambios que realicé en [Transformación/Objetivo]
+- [Soluciones] a tu [problema] que son [ángulo único]
+- [Número] Cosas que hacer en lugar de [mal hábito]
+- [Número] Cosas que hago cada [periodo de tiempo] para [resultado deseado]
+- [Número] [Industria/Nicho] Tendencias a las que realmente debería prestar atención.
+- [Número] Reglas que sigo para [Resultado deseado]
+- [Número] Cosas que realmente mejoraron mi [Aspecto de la vida/Negocio]
+- [Número] Cosas que nadie te cuenta sobre [Tema]
+- [Número] Pasos para [Lograr la Meta] Sin [Lucha Común]
+- [Número] Trucos para hacer que [Proceso] sea más fácil.
+- [Número] Cambios simples que conducen a [Resultado deseado]
+- Los secretos [numéricos] para [objetivo específico de nicho]
+- [Número] [Nicho] Consejos que desearías haber conocido antes
+- [Número] Hábitos que me ayudaron a lograr [Resultado]
+- Los [Número] Pasos Exactos que Tomé para [Lograr la Meta]
+- [Número] Maneras de Mejorar Instantáneamente su [Habilidad/Hábito/Proceso]
+- [Número] Reglas que sigo para mantener la constancia con [Hábito específico de nicho]
+- Las [Número] Prácticas Diarias que me Mantienen en el Camino Hacia [Objetivo]
+- Palabras con las que literalmente me atraganté esta semana.
+- Lecciones aprendidas de [la experiencia]
+- He estudiado más de [Número] [Personas/Asignaturas], las que [Rasgo Deseable] tienen [Comportamientos comunes]
+- Cumplo [edad] esta semana. Esto es lo que me hubiera gustado saber a [menor edad]
+- Pregunté a [Número] expertos sobre [Tema] y esto fue lo que dijeron.
+- Estoy probando los [número] [productos/métodos] principales para que usted no tenga que hacerlo.
+- La lección más difícil que aprendí este año (y cómo lo cambió todo)
+- Cosas que creía a [edad] que resultaron ser completamente erróneas
+- Hice [Acción] durante [X días], esto fue lo que pasó.
+- Si tuviera que empezar de nuevo hoy, esto es exactamente lo que haría diferente
+- Hice este cambio y todo en mi vida mejoró.
+- Dejé de hacer [hábito] y transformó instantáneamente mi [área de la vida]
+- Pensé [creencia], hasta que hice esta cosa.
+- [Gran evento] Acaba de suceder: esto es lo que nadie te cuenta al respecto.
+- Solía pensar que [Mito común] era cierto, hasta que aprendí esto
+- La dura verdad sobre [tema] que nadie quiere admitir
+- Entrevisté a [X] expertos y todos coincidieron en una cosa.
+- He estudiado a [X] personas de alto rendimiento y todas comparten estos [número] hábitos.
+- Las personas más exitosas que conozco nunca hacen estas [Número] cosas
+- He leído [X] libros sobre [tema] y todos dicen lo mismo
+- He trabajado con [X] clientes. Los que [rasgo deseable] hacen esto.
+- Le pregunté a [Número] personas sobre su mayor arrepentimiento... Esto es lo que dijeron.
+- Profesión inesperada] Me enseñó más sobre [Tema] que cualquier otro curso.
+- Las personas que triunfan en [campo] piensan diferente: así es como lo hacen.
+- [Número] Cosas que solo [Expertos/Grupo de nicho] saben sobre [Tema]
+- Comparé [Número] [Productos/Métodos] populares. Esto es lo que realmente funciona.
+- Probé [Tendencia] durante [X días], aquí está la cruda verdad
+- Me entregué por completo a [Tema] durante un mes. Esto es lo que nadie te dice.
+- Seguí la [rutina/consejo] de [persona famosa] durante [X vez]: ¿valió la pena?
+- [Acción] todos los días durante un año. Esto es lo que cambió.
+- Probé todas las [productos/técnicas] para [problema]. Esta es la que realmente funciona.
+- Gasté [X] dólares en [producto/servicio]: ¿valió la pena?
+- Dejé [hábito] por [tiempo]: esto fue lo que pasó.
+- Probé los [Número] [Productos/Métodos] más populares. Aquí está el ganador.
+- Construí [cosa] en [plazo poco realista]. Así es como lo hice.
+- Seguí la forma “de la vieja escuela” de hacer [cosas]... y funcionó mejor de lo que esperaba. Esperado
+- La mayoría de la gente hace [Acción] mal. Aquí te explicamos cómo hacerlo bien.
+- No estás luchando con [problema] por [creencia común]. Aquí está la verdad Razón
+- Por qué [Consejos comunes] en realidad podrían estar frenándote
+- Todos dicen que [algo] importa… pero nadie te cuenta [algo más importante]
+- [Actividad común] No funciona, a menos que hagas esto
+- La gente se centra en [X]. Pero el verdadero secreto es [Y].
+- Pensé que [creencia común] era cierta, hasta que vi esto
+- Las personas más exitosas ignoran [el consejo popular] y hacen esto en su lugar
+- Si estás haciendo [Acción] para [Objetivo], estás perdiendo el tiempo. Haz esto en su lugar.
+- La gente cree que [cosa] importa, pero en realidad se trata de [perspectiva sorprendente]
+- La configuración vs. el resultado final
+- $[Producto de bajo costo] vs. $[Producto de alto costo]
+- La expectativa vs. la realidad de [actividad de nicho]
+- La versión de Pinterest vs. la realidad de la [actividad de nicho]
+- La lucha [de la actividad de nicho] vs. el éxito [de la actividad de nicho]
+- Esto vs. Aquello
+- El esfuerzo vs. el resultado
+- Lo que ves vs. lo que realmente sucede
+- [Fecha] vs [Fecha]
+- Estético vs. Práctico
+- Los consejos que funcionan vs. los consejos que te hacen perder el tiempo
+- Lo que todos hacen vs. lo que DEBERÍAS hacer
+- La opción de moda vs. el clásico atemporal
+- Lo que solía pensar sobre [nicho] vs. lo que sé ahora
+- Antes vs. Después
+- El proceso vs. el producto terminado
+- [Tema] Predicciones para [Año]
+- Mis predicciones [de la industria] para [año]
+- Lo que predigo que sucederá en [industria] en [año]
+- [Año] Será el Año de [Tendencia]. He aquí por qué
+- Lo que viene en [industria] en [año]: Mis predicciones audaces
+- Lo estoy diciendo: estas [Número] tendencias definirán [año]
+- Los mayores cambios que se avecinan en [industria] en [año]
+- Pronóstico [Año]: Esto es lo que viene para [Industria]
+- Si trabajas en [industria], esto es lo que necesitas saber para [año]
+- Mi opinión experta sobre lo que le espera a [industria] en [año]
+- El auge [de la industria] en [año]: qué esperar
+- [Tema] Predicciones para [Año]: ¿Qué está a punto de cambiar?
+- ¿Qué sigue? [Tema] Tendencias para [Año]
+- lo que nadie habla en [industria] durante [año]
+- Informe de tendencias [Año]: El futuro de la [industria]
+- Qué hay de moda y qué no en [industria] para [año]
+- [Año] Cambiará Todo en [Industria]—He Aquí el Porqué
+- El Futuro de [Industria]—Qué Esperar en [Año]
+- [Número] Tendencias que cambiarán el juego para [año] que necesita conocer
+- Las tendencias más sobrevaloradas del [año]... y lo que realmente importa
+- El cambio [industrial] que nadie prevé en [año]
+- [La industria] nunca volverá a ser la misma después de [año]. He aquí por qué
+- Aquí te explicamos por qué. (Emprendimiento)
+- Aquí te explicamos por qué. (Viajes)
+- ¿Todos se equivocan sobre [industria] en [año]? Aquí está la verdad.
+- La burbuja [industrial] está a punto de estallar en [año]: ¿estás preparado?
+- La única tendencia en [industria] que dominará [año]
+- [Año] Será el Fin de [Práctica Popular]. Esto es lo que Sigue
+- Esto es lo que sigue. (Carrera y Negocios)
+- Olvídate de todo lo que sabías sobre [industria]: [año] lo cambia todo.
+- [La industria] tal como la conocemos ha terminado. Esto es lo que viene en [año]
+- [La industria] será irreconocible en [año], y eso es algo bueno.
+- La mayor mentira sobre [industria] que se revelará en [año]
+- Por qué [Tendencia Popular] Fracasará en [Año]
+- [Número] Estadísticas sorprendentes que predicen el futuro de [Industria] en [Año]
+- Los datos no mienten: hacia dónde se dirige [la industria] en [año]
+- Qué dicen los números sobre [industria] en [año]
+- Tendencias vs. Realidad: Lo que los datos realmente muestran sobre [año]
+- La ciencia detrás de los mayores cambios [industriales] en [año]
+- Lo que dicen [expertos/informes] sobre [industria] en [año]
+- Estas métricas [Número] revelan lo que viene en [Año]
+- Olvídese de las predicciones: aquí tiene los datos concretos de [industria] para [año]
+- El 40. [Número]% de [profesionales de la industria] está de acuerdo: este es el futuro de [la industria]
+- Según la historia, esto es lo que probablemente sucederá en [año]
+
+## TEMAS DE TENDENCIA
+- [Rutina/Estrategia] de [Persona famosa] para [Resultado deseado]
+- Cómo vestirse como un [ícono de la moda/celebridad]
+- [Persona influyente] me odiará por exponer [su secreto]
+
+## GANCHOS DE AUTORIDAD
+- No cometas este error o sufrirás consecuencias no deseadas
+- Cosas sin las que no puedo vivir como [papel]
+- Herramientas que me arrepiento de haber comprado como [Profesión/Industria]
+- Cosas que me hubiera gustado saber antes de empezar [industria/trabajo]
+- Las duras lecciones que aprendí después de [X] años en [la industria]
+- Lo que [X] años de [experiencia] me enseñaron sobre [tema]
+- Cosas que nunca volvería a hacer como [profesional/experto]
+- He ayudado a [X] personas con [problema]: esto es lo que funciona siempre
+- Si tuviera que empezar de nuevo en [industria], esto es lo que haría diferente
+- La lección inesperada que lo cambió todo para mí en la industria
+- Cosas que hice mal en [la industria]: no cometas estos errores
+- El consejo que le daría a cualquiera que empieza en [la industria]
+- Duras verdades sobre [la industria] que nadie quiere escuchar
+- Las [X] mejores inversiones que he hecho en mi [carrera/negocio]
+- La herramienta que lo cambió todo para mí [Proceso/Resultados]
+- Si eres una [Profesión], necesitas estas [X] herramientas
+- La [estrategia] que me llevó de [la lucha] al [éxito]
+- Cómo logré [Resultado específico] en [Corto plazo]
+- Si quieres [Lograr tu meta], concéntrate en esta única cosa
+- La estrategia [secreta/subestimada] detrás de mi [éxito]
+- Las [X] lecciones más importantes que he aprendido de [persona exitosa]
+- Probé [X estrategias], solo una funcionó (aquí está cuál)
+- Cómo solucioné mi [problema] en [poco tiempo]
+- Mi método comprobado [paso a paso] para [lograr el objetivo]
+- Las [X] cosas que llevaron mi [habilidad industrial] al siguiente nivel
+- Los [X] cambios que hice que transformaron por completo mis [resultados]
+- Las [X] decisiones más inteligentes que he tomado en mi [carrera/negocio]
+- Cómo obtuve [Resultado impresionante] sin [Lucha común]
+- [X] hábitos que cambiaron por completo mi [éxito/resultados]
