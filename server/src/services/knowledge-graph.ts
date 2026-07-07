@@ -52,9 +52,17 @@ export async function rebuildClientContent(db: Db, clientId: string): Promise<{ 
       return acc;
     }, { impressions: 0, clicks: 0, leads: 0, spend: 0 });
     const ctr = m.impressions > 0 ? (m.clicks / m.impressions) * 100 : 0;
+    // Real media format via object_story_spec (video_data → video, link/photo
+    // → imagen) — same extraction as mineAdsWinningFormats. The old hardcoded
+    // "ad" fallback polluted format learnings ("el formato ad rinde mejor").
+    const raw = (c.raw ?? {}) as Record<string, unknown>;
+    const creative = (raw.creative ?? {}) as Record<string, unknown>;
+    const spec = (creative.object_story_spec ?? {}) as Record<string, unknown>;
+    const hasVideo = Boolean(spec.video_data ?? creative.video_id ?? raw.video_id);
+    const hasImage = Boolean(spec.link_data ?? spec.photo_data ?? creative.image_url ?? raw.image_url ?? raw.picture);
     await upsertContent(db, {
       companyId, clientId, contentRef: c.id, source: "meta",
-      title: c.name?.slice(0, 140) ?? null, format: (c.raw as { format?: string })?.format ?? "ad",
+      title: c.name?.slice(0, 140) ?? null, format: hasVideo ? "video" : hasImage ? "imagen" : "ad",
       tags: tagsFrom(c.name ?? ""), publishedAt: null,
       metrics: { ...m, ctr: Number(ctr.toFixed(2)) }, score: String(m.leads || Number(ctr.toFixed(2))),
     });

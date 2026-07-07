@@ -15,7 +15,12 @@ export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
   if (!company) return { learnings: 0 };
 
-  const cps = await db.select({ clientId: contentPerformance.clientId, format: contentPerformance.format, score: contentPerformance.score }).from(contentPerformance).limit(5000);
+  // ORGANIC only: mixing ad creatives in (score = leads/CTR, always > 0)
+  // against organic posts (engagement, often 0) made "ad" the winning
+  // "format" of every niche — a meaningless learning that only says "paid
+  // beats organic". Ads have their own miner (mineAdsWinningFormats).
+  const cps = await db.select({ clientId: contentPerformance.clientId, format: contentPerformance.format, score: contentPerformance.score })
+    .from(contentPerformance).where(eq(contentPerformance.source, "organic")).limit(5000);
   if (cps.length === 0) return { learnings: 0 };
   const clientRows = await db.select({ id: clients.id, industry: clients.industry }).from(clients);
   const industryOf = new Map(clientRows.map((c) => [c.id, (c.industry ?? "general").toLowerCase()]));
@@ -39,16 +44,21 @@ export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
     byNiche.set(e.niche, arr);
   }
 
+  // Live snapshot: replace the scope wholesale so stale winners (e.g. the old
+  // contaminated "formato ad") don't linger next to the fresh mining.
+  await db.delete(learnings).where(eq(learnings.scope, "niche"));
+
   let count = 0;
   for (const [niche, formats] of byNiche) {
     const ranked = formats.filter((f) => f.n >= 3).sort((a, b) => b.avg - a.avg);
     if (ranked.length < 1) continue;
     const top = ranked[0];
+    if (top.avg <= 0) continue; // no measured engagement anywhere — nothing learned
     const rest = ranked.slice(1);
     const restAvg = rest.length ? rest.reduce((a, f) => a + f.avg, 0) / rest.length : null;
     const pattern = restAvg != null
-      ? `En "${niche}", el formato "${top.format}" rinde mejor (score prom. ${top.avg.toFixed(0)} vs ${restAvg.toFixed(0)} del resto).`
-      : `En "${niche}", el formato "${top.format}" es el de mejor desempeño (score prom. ${top.avg.toFixed(0)}).`;
+      ? `En orgánico de "${niche}", el formato "${top.format}" rinde mejor (score prom. ${top.avg.toFixed(0)} vs ${restAvg.toFixed(0)} del resto).`
+      : `En orgánico de "${niche}", el formato "${top.format}" es el de mejor desempeño (score prom. ${top.avg.toFixed(0)}).`;
     const confidence = Math.min(0.95, 0.4 + top.n * 0.05);
     await db.insert(learnings).values({
       companyId: company.id, scope: "niche", scopeKey: niche, pattern,
