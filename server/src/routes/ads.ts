@@ -3436,6 +3436,13 @@ export function adsRoutes(db: Db): Router {
     res.json(await runLearningPass(db));
   });
 
+  // POST /ops/content/push-ideas/run — backfill: TODAS las ideas de la DB a la
+  // lista Super Redes de cada cliente (dedup por nombre; crea la lista si falta).
+  router.post("/ops/content/push-ideas/run", async (_req, res) => {
+    const { backfillIdeasToSuperRedes } = await import("../services/competitor-content.js");
+    res.json(await backfillIdeasToSuperRedes(db));
+  });
+
   // POST /ops/content/feedback/run — Super Redes feedback pass now (what the
   // team approved/discarded of the agent ideas → pinned client memory). Body
   // {clientId} limits it to one client; empty body sweeps all active clients.

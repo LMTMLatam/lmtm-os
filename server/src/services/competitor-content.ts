@@ -189,7 +189,19 @@ async function resolveSuperRedes(db: Db, clientId: string, H: Record<string, str
   const lists = (await (await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, { headers: H })).json()) as {
     lists?: Array<{ id: string; name: string }>;
   };
-  const list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
+  let list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
+  if (!list) {
+    // TODAS las ideas deben aparecer en Super Redes (pedido explícito del
+    // usuario): si el folder no tiene la lista, la creamos en vez de dropear
+    // las ideas en silencio. Los custom fields no se pueden crear por API —
+    // las tareas salen con nombre+tags y el equipo agrega campos si quiere.
+    try {
+      const created = (await (await fetch(`${CU_API}/folder/${folderId}/list`, {
+        method: "POST", headers: H, body: JSON.stringify({ name: "Super Redes Sociales" }),
+      })).json()) as { id?: string; name?: string };
+      if (created.id) list = { id: created.id, name: created.name ?? "Super Redes Sociales" };
+    } catch { /* sin permisos/red — se reintenta en la próxima pasada */ }
+  }
   if (!list) return null;
   const fieldsRes = (await (await fetch(`${CU_API}/list/${list.id}/field`, { headers: H })).json()) as { fields?: CuField[] };
   const resolver = buildFieldResolver(fieldsRes.fields ?? []);
@@ -530,6 +542,53 @@ export async function sweepSuperRedesFeedback(db: Db): Promise<{ clients: number
     await new Promise((res) => setTimeout(res, 1500));
   }
   return { clients: rows.length, updated };
+}
+
+/**
+ * Backfill: empuja TODAS las ideas guardadas en content_ideas a la lista
+ * Super Redes de cada cliente (pedido explícito: ninguna idea puede quedar
+ * solo en la DB/panel). Deduplica contra las tareas existentes por nombre y
+ * filtra boilerplate — reusa el mismo camino que la generación diaria, así
+ * que también crea la lista si falta.
+ */
+export async function backfillIdeasToSuperRedes(db: Db): Promise<{ clients: number; pushed: number }> {
+  const rows = await activeClients(db);
+  let pushedTotal = 0;
+  for (const c of rows) {
+    try {
+      const stored = await db.select().from(contentIdeas).where(eq(contentIdeas.clientId, c.id));
+      if (stored.length === 0) continue;
+      const ideas: GeneratedIdea[] = stored.map((i) => ({
+        kind: (i.kind === "pauta" ? "pauta" : "posteo"),
+        format: i.format ?? undefined,
+        title: i.title,
+        copy: i.copy ?? undefined,
+        rationale: i.rationale ?? undefined,
+      }));
+      const token = process.env.CLICKUP_API_TOKEN?.trim();
+      if (!token) break;
+      const H = { Authorization: token, "Content-Type": "application/json" };
+      const ctx = await resolveSuperRedes(db, c.id, H);
+      if (!ctx) continue;
+      const before = ctx.have.size;
+      for (const idea of ideas) {
+        if (looksBoilerplate(idea)) continue;
+        const name = idea.title.trim().slice(0, 250);
+        if (!name || ctx.have.has(norm(name))) continue;
+        const customFields = buildIdeaCustomFields(ctx.resolver, idea);
+        const body: Record<string, unknown> = { name, tags: ["idea-lmtm-os"] };
+        if (customFields.length) body.custom_fields = customFields;
+        try {
+          const res = await fetch(`${CU_API}/list/${ctx.listId}/task`, { method: "POST", headers: H, body: JSON.stringify(body) });
+          if (res.ok) ctx.have.add(norm(name));
+        } catch { /* best-effort per idea */ }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      pushedTotal += ctx.have.size - before;
+    } catch { /* best-effort per client */ }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return { clients: rows.length, pushed: pushedTotal };
 }
 
 const CONTENT_REVIEW_KEY = "content-review-posts";
