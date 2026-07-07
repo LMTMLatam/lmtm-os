@@ -353,7 +353,14 @@ export async function runClientAlerts(db: Db): Promise<{ clients: number; alerts
 
 // ── AI narrative (MiniMax) ────────────────────────────────────────────────────
 
-export async function aiNarrative(systemPrompt: string, userContent: string): Promise<string | null> {
+// MiniMax mixes Chinese/Japanese tokens into Spanish output (e.g. 修复, 余额,
+// 素材 mid-sentence) — it contaminated issues, memories and content reviews.
+// Hard rule in every system prompt + one retry when CJK leaks through anyway.
+const CJK_RE = /[぀-ヿ㐀-鿿]/;
+const LANG_RULE =
+  "REGLA DURA DE IDIOMA: respondé únicamente en español. PROHIBIDO cualquier caracter chino, japonés o de alfabetos no latinos — si una palabra te sale en otro idioma, escribila en español.";
+
+async function minimaxOnce(systemPrompt: string, userContent: string): Promise<string | null> {
   const key = process.env.MINIMAX_API_KEY;
   if (!key) return null;
   const baseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimaxi.chat/v1";
@@ -364,7 +371,7 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model,
-        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
+        messages: [{ role: "system", content: `${systemPrompt}\n\n${LANG_RULE}` }, { role: "user", content: userContent }],
         // MiniMax-M3 is a reasoning model: it spends tokens on internal
         // reasoning before the answer, so a low cap leaves `content` empty
         // (finish_reason: length). Give it enough headroom for reasoning + a
@@ -381,6 +388,19 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
   } catch {
     return null;
   }
+}
+
+export async function aiNarrative(systemPrompt: string, userContent: string): Promise<string | null> {
+  const first = await minimaxOnce(systemPrompt, userContent);
+  if (first && CJK_RE.test(first)) {
+    const retry = await minimaxOnce(
+      `${systemPrompt}\n\nTu respuesta anterior contenía caracteres chinos/japoneses — está PROHIBIDO. Reescribí íntegramente en español.`,
+      userContent,
+    );
+    if (retry && !CJK_RE.test(retry)) return retry;
+    return first; // both leaked — better contaminated than empty
+  }
+  return first;
 }
 
 function dashboardLink(slug: string): string {

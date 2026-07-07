@@ -47,15 +47,36 @@ export async function hasMemory(db: Db, clientId: string, key: string): Promise<
   return !!row;
 }
 
-/** Compact, prompt-ready context string from the client's brain (pinned first). */
+/** Compact, prompt-ready context string from the client's brain.
+ *
+ * Priority: pinned → kind (estrategia/hechos antes que alertas) → recency.
+ * Every memory gets a per-line cap so una sola memoria enorme no puede
+ * comerse (ni vaciar) todo el presupuesto: el loop viejo hacía `break` en la
+ * PRIMERA línea que no entraba, y como el "enfoque-tecnico" pinneado mide
+ * hasta 4000 chars, 5 de 6 clientes con enfoque recibían contexto VACÍO en
+ * ideas/reportes/oportunidades (detectado 2026-07-07). */
+const KIND_WEIGHT: Record<string, number> = { context: 0, fact: 1, preference: 2, decision: 3, performance: 4, event: 5, risk: 6 };
+
 export async function getBrainContext(db: Db, clientId: string, maxChars = 2500): Promise<string> {
   const rows = await getClientBrain(db, clientId);
   if (rows.length === 0) return "";
-  const lines = rows.map((r) => `- [${r.kind}] ${r.content}`);
+  const ordered = [...rows].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const kw = (KIND_WEIGHT[a.kind] ?? 9) - (KIND_WEIGHT[b.kind] ?? 9);
+    if (kw !== 0) return kw;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+  // Una línea puede usar hasta ~40% del presupuesto: el enfoque técnico entra
+  // resumido y siguen quedando ~60% para feedback, review, notas y performance.
+  const perLineCap = Math.max(800, Math.floor(maxChars * 0.4));
   let out = "";
-  for (const l of lines) {
-    if (out.length + l.length > maxChars) break;
-    out += (out ? "\n" : "") + l;
+  for (const r of ordered) {
+    const room = maxChars - out.length;
+    if (room < 80) break; // no queda espacio útil
+    let line = `- [${r.kind}] ${r.content}`;
+    const cap = Math.min(perLineCap, room);
+    if (line.length > cap) line = line.slice(0, cap - 1) + "…";
+    out += (out ? "\n" : "") + line;
   }
   return out;
 }

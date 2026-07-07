@@ -887,7 +887,9 @@ export function adsRoutes(db: Db): Router {
       .slice(0, 120);
     const companyId = (await resolveCompanyId(db, row.id)) ?? undefined;
     if (!companyId) return res.status(500).json({ error: "company not resolved" });
-    await upsertMemory(db, { companyId, clientId: row.id, kind, key, content, source: "panel" });
+    // Pinned: una nota cargada a mano por el equipo es conocimiento humano
+    // explícito — siempre debe entrar en el contexto antes que lo derivado.
+    await upsertMemory(db, { companyId, clientId: row.id, kind, key, content, source: "panel", pinned: true });
     res.status(201).json({ ok: true, kind, key });
   });
 
