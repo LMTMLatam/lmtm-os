@@ -3145,6 +3145,19 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // GET /clients/:id/video-references — perfil de videos del cliente: sus
+  // referencias curadas con etiquetas (tipo + concepto). El panel del cliente
+  // las etiqueta; refreshClientBrain deriva el perfil dominante al brain.
+  router.get("/clients/:id/video-references", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    const refs = await db.select({
+      id: videoReferences.id, url: videoReferences.url,
+      categorias: videoReferences.categorias, comentario: videoReferences.comentario,
+    }).from(videoReferences).where(eq(videoReferences.clientId, row.id)).orderBy(desc(videoReferences.createdAt));
+    res.json({ references: refs });
+  });
+
   // PATCH /growth/video-references/:id — etiquetar una referencia de video con
   // el vocabulario del equipo: tipo (Blanda/VSL/Comercial/Engagement) y
   // concepto (Cinemático/UGC/Viral/...). Las etiquetas guían al agente al

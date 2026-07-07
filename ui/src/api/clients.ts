@@ -131,6 +131,11 @@ export const clientsApi = {
   // Banco de información: carga manual de contexto al brain del cliente
   addBrainNote: (idOrSlug: string, body: { content: string; kind?: string; key?: string }) =>
     api.post<{ ok: boolean; kind: string; key: string }>(`/clients/${idOrSlug}/brain/note`, body),
+  // Perfil de videos: referencias curadas del cliente (etiquetables tipo+concepto)
+  videoReferences: (idOrSlug: string) =>
+    api.get<{ references: Array<{ id: string; url: string; categorias: string[]; comentario: string | null }> }>(`/clients/${idOrSlug}/video-references`),
+  tagVideoReference: (refId: string, categorias: string[]) =>
+    api.patch<{ id: string; categorias: string[] }>(`/growth/video-references/${refId}`, { categorias }),
   runOpportunities: (idOrSlug: string) => api.post<{ created: number; materialized: number }>(`/clients/${idOrSlug}/opportunities/run`, null),
   rebuildContent: (idOrSlug: string) => api.post<{ items: number }>(`/clients/${idOrSlug}/content/rebuild`, null),
   // Competitors + content (pauta vs posteo)

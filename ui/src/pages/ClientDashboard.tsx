@@ -848,6 +848,75 @@ function AddBrainNote({ client, onSaved }: { client: Client; onSaved: () => void
   );
 }
 
+// ── Perfil de videos del cliente: referencias etiquetables (tipo + concepto).
+// Etiquetar acá define el perfil que refreshClientBrain pinnea al brain y que
+// los agentes siguen al crear ideas de video en Super Redes.
+const VIDEO_TIPOS = ["Blanda", "VSL", "Comercial", "Engagement"] as const;
+const VIDEO_CONCEPTOS = ["Cinemático", "UGC", "Institucional", "Viral", "Tendencia", "Inspiracional", "Refe edición"] as const;
+
+function VideoProfile({ client }: { client: Client }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["client", client.slug, "video-refs"],
+    queryFn: () => clientsApi.videoReferences(client.slug),
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const refs = data?.references ?? [];
+  const toggle = async (refId: string, current: string[], tag: string) => {
+    const next = current.includes(tag) ? current.filter((c) => c !== tag) : [...current, tag];
+    await clientsApi.tagVideoReference(refId, next);
+    await qc.invalidateQueries({ queryKey: ["client", client.slug, "video-refs"] });
+  };
+  if (refs.length === 0) return null;
+  const STD = [...VIDEO_TIPOS, ...VIDEO_CONCEPTOS] as readonly string[];
+  return (
+    <Card className="p-4 space-y-2">
+      <div className="text-sm font-medium">🎬 Perfil de videos</div>
+      <p className="text-[11px] text-muted-foreground">
+        Etiquetá cada referencia con tipo (Blanda/VSL/Comercial/Engagement) y concepto (Cinemático, UGC…). El perfil dominante se fija solo al brain y guía las ideas de video del agente.
+      </p>
+      <div className="divide-y divide-border/40">
+        {refs.map((r) => (
+          <div key={r.id} className="text-xs py-1.5">
+            <div className="flex items-center gap-2">
+              <a href={r.url} target="_blank" rel="noreferrer noopener" className="truncate text-muted-foreground hover:underline max-w-[18rem]" title={r.comentario ?? r.url}>
+                {r.url.replace(/^https?:\/\/(www\.)?/, "")}
+              </a>
+              <span className="flex flex-wrap gap-1 ml-auto items-center">
+                {r.categorias.map((c) => (
+                  <Badge key={c} className="text-[9px] px-1.5 py-0 bg-violet-500/10 text-violet-700 dark:text-violet-300">{c}</Badge>
+                ))}
+                {r.categorias.length === 0 && <span className="text-[9px] text-amber-500">sin etiquetar</span>}
+                <button onClick={() => setEditingId(editingId === r.id ? null : r.id)} className="text-muted-foreground hover:text-foreground text-[10px] px-1 border border-border rounded">
+                  etiquetar
+                </button>
+              </span>
+            </div>
+            {editingId === r.id && (
+              <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+                <span className="text-[9px] text-muted-foreground">Tipo:</span>
+                {VIDEO_TIPOS.map((t) => (
+                  <button key={t} onClick={() => toggle(r.id, r.categorias, t)}
+                    className={`text-[9px] px-1.5 py-0.5 rounded border ${r.categorias.includes(t) ? "border-violet-500/50 bg-violet-500/15 text-violet-700 dark:text-violet-300" : "border-border text-muted-foreground hover:bg-muted"}`}>{t}</button>
+                ))}
+                <span className="text-[9px] text-muted-foreground ml-1.5">Concepto:</span>
+                {VIDEO_CONCEPTOS.map((t) => (
+                  <button key={t} onClick={() => toggle(r.id, r.categorias, t)}
+                    className={`text-[9px] px-1.5 py-0.5 rounded border ${r.categorias.includes(t) ? "border-sky-500/50 bg-sky-500/15 text-sky-700 dark:text-sky-300" : "border-border text-muted-foreground hover:bg-muted"}`}>{t}</button>
+                ))}
+                {r.categorias.filter((c) => !STD.includes(c)).map((c) => (
+                  <button key={c} onClick={() => toggle(r.id, r.categorias, c)} title="Etiqueta libre (click para quitar)"
+                    className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-500/40 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300">{c} ×</button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function MemoriaTab({ client }: { client: Client }) {
   const qc = useQueryClient();
   const intelQuery = useQuery({
@@ -879,6 +948,8 @@ function MemoriaTab({ client }: { client: Client }) {
       </div>
 
       <AddBrainNote client={client} onSaved={() => qc.invalidateQueries({ queryKey: ["client", client.slug, "intel"] })} />
+
+      <VideoProfile client={client} />
 
       {intel?.score && (
         <div className="flex gap-2">

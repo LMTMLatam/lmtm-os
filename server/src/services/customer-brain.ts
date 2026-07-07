@@ -6,7 +6,7 @@
 // and the opportunities engine.
 
 import type { Db } from "@paperclipai/db";
-import { clientMemory, clients } from "@paperclipai/db";
+import { clientMemory, clients, videoReferences } from "@paperclipai/db";
 import { and, eq, desc } from "drizzle-orm";
 import { aggInsights, dayStr } from "./agency-ops.js";
 import { getEnfoqueTecnicoContext } from "./clickup-sync.js";
@@ -106,6 +106,33 @@ export async function refreshClientBrain(db: Db, clientId: string): Promise<{ up
       updated++;
     }
   } catch { /* no enfoque */ }
+
+  // Perfil de videos derivado de las referencias etiquetadas por el equipo
+  // (tipo: Blanda/VSL/Comercial/Engagement · concepto: Cinemático/UGC/...).
+  // Pinned al brain para que TODA generación de contenido lo respete — es el
+  // eslabón "etiquetás una vez → el agente crea con ese perfil".
+  try {
+    const refs = await db.select({ categorias: videoReferences.categorias })
+      .from(videoReferences).where(eq(videoReferences.clientId, clientId));
+    const tagged = refs.filter((r) => (r.categorias ?? []).length > 0);
+    if (tagged.length > 0) {
+      const TIPOS = new Set(["blanda", "vsl", "comercial", "engagement"]);
+      const counts = new Map<string, number>();
+      for (const r of tagged) for (const c of r.categorias ?? []) {
+        const k = c.trim();
+        if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+      const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+      const tipos = ranked.filter(([k]) => TIPOS.has(k.toLowerCase())).slice(0, 2).map(([k, n]) => `${k} (${n})`);
+      const conceptos = ranked.filter(([k]) => !TIPOS.has(k.toLowerCase())).slice(0, 3).map(([k, n]) => `${k} (${n})`);
+      const content = `Perfil de videos del cliente (derivado de ${tagged.length} referencias etiquetadas por el equipo): ` +
+        `${tipos.length ? `tipo dominante ${tipos.join(", ")}` : "sin tipo dominante todavía"}` +
+        `${conceptos.length ? `; conceptos: ${conceptos.join(", ")}` : ""}. ` +
+        `Las ideas de video para Super Redes deben seguir este perfil (indicar tipo + concepto en el copy).`;
+      await upsertMemory(db, { companyId, clientId, kind: "preference", key: "video-profile", content, source: "video-references", confidence: 0.9, pinned: true });
+      updated++;
+    }
+  } catch { /* sin referencias no hay perfil */ }
 
   // Weekly performance snapshot.
   const today = new Date();
