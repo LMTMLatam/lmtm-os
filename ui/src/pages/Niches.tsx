@@ -10,13 +10,72 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
-import { nichesApi, type NicheIntel } from "../api/niches";
+import { nichesApi, VIDEO_TIPOS, VIDEO_CONCEPTOS, type NicheIntel } from "../api/niches";
 import { clientsApi, type Client } from "../api/clients";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Layers, Trophy, FlaskConical, Swords, Lightbulb, Briefcase, Loader2, X, Settings2, Check, Pencil, Search, TrendingUp, TrendingDown, Minus, Megaphone, ListChecks, Sparkles } from "lucide-react";
+import { Layers, Trophy, FlaskConical, Swords, Lightbulb, Briefcase, Loader2, X, Settings2, Check, Pencil, Search, TrendingUp, TrendingDown, Minus, Megaphone, ListChecks, Sparkles, Film, Tag } from "lucide-react";
+
+/** Una referencia de video con sus etiquetas editables (tipo + concepto).
+ * Click en una etiqueta estándar la agrega/quita; guarda al instante. */
+function VideoRefRow({ nicheKey, r }: { nicheKey: string; r: NicheIntel["videoReferences"][number] }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toggle = async (tag: string) => {
+    const next = r.categorias.includes(tag) ? r.categorias.filter((c) => c !== tag) : [...r.categorias, tag];
+    setSaving(true);
+    try {
+      await nichesApi.tagVideoReference(r.id, next);
+      await qc.invalidateQueries({ queryKey: ["niches"] });
+    } finally { setSaving(false); }
+  };
+  const STD = [...VIDEO_TIPOS, ...VIDEO_CONCEPTOS] as readonly string[];
+  return (
+    <div className="text-xs py-1" key={nicheKey + r.id}>
+      <div className="flex items-center gap-2">
+        <Film className="h-3 w-3 text-violet-400 shrink-0" />
+        <a href={r.url} target="_blank" rel="noreferrer noopener" className="truncate text-muted-foreground hover:underline max-w-[16rem]" title={r.comentario ?? r.url}>{r.url.replace(/^https?:\/\/(www\.)?/, "")}</a>
+        <span className="text-[10px] text-muted-foreground/60 shrink-0">{r.clientName}</span>
+        <span className="flex flex-wrap gap-1 ml-auto items-center">
+          {r.categorias.map((c) => (
+            <Badge key={c} className="text-[9px] px-1.5 py-0 bg-violet-500/10 text-violet-700 dark:text-violet-300">{c}</Badge>
+          ))}
+          {r.categorias.length === 0 && <span className="text-[9px] text-amber-500">sin etiquetar</span>}
+          <button onClick={() => setEditing((v) => !v)} className="text-muted-foreground hover:text-foreground" title="Etiquetar (tipo + concepto)">
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Tag className="h-3 w-3" />}
+          </button>
+        </span>
+      </div>
+      {editing && (
+        <div className="mt-1.5 ml-5 flex flex-wrap gap-1 items-center">
+          <span className="text-[9px] text-muted-foreground mr-0.5">Tipo:</span>
+          {VIDEO_TIPOS.map((t) => (
+            <button key={t} onClick={() => toggle(t)}
+              className={`text-[9px] px-1.5 py-0.5 rounded border transition ${r.categorias.includes(t) ? "border-violet-500/50 bg-violet-500/15 text-violet-700 dark:text-violet-300" : "border-border text-muted-foreground hover:bg-muted"}`}>
+              {t}
+            </button>
+          ))}
+          <span className="text-[9px] text-muted-foreground ml-1.5 mr-0.5">Concepto:</span>
+          {VIDEO_CONCEPTOS.map((t) => (
+            <button key={t} onClick={() => toggle(t)}
+              className={`text-[9px] px-1.5 py-0.5 rounded border transition ${r.categorias.includes(t) ? "border-sky-500/50 bg-sky-500/15 text-sky-700 dark:text-sky-300" : "border-border text-muted-foreground hover:bg-muted"}`}>
+              {t}
+            </button>
+          ))}
+          {r.categorias.filter((c) => !STD.includes(c)).map((c) => (
+            <button key={c} onClick={() => toggle(c)} title="Etiqueta libre (click para quitar)"
+              className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-500/40 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300">
+              {c} ×
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function fmtMoney(n: number): string {
   return `$${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(n)}`;
@@ -219,6 +278,19 @@ function NicheCard({ n }: { n: NicheIntel }) {
           ))}
         </div>
       </div>
+
+      {/* ── Perfil de videos del nicho (referencias etiquetables) ── */}
+      {n.videoReferences.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5">
+            <Film className="h-3.5 w-3.5 text-violet-500" />Perfil de videos del nicho
+            <span className="text-muted-foreground font-normal">— etiquetá tipo (Blanda/VSL/Comercial/Engagement) y concepto (Cinemático, UGC…): guía al agente al crear contenido</span>
+          </div>
+          <div className="divide-y divide-border/40">
+            {n.videoReferences.map((r) => <VideoRefRow key={r.id} nicheKey={n.niche} r={r} />)}
+          </div>
+        </div>
+      )}
 
       {/* ── Competidores (secundario) ── */}
       {n.competitors.length > 0 && (

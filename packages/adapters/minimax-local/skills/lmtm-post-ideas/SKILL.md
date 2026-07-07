@@ -54,6 +54,21 @@ complementa.
    - **Campo custom "Estado de producción":** siempre `IDEA`.
    - **Campo custom "Aprobación de cliente":** siempre `PENDIENTE`.
 
+## Ideas de VIDEO: tipo + concepto (obligatorio)
+
+Cada cliente tiene un **perfil de videos** (referencias curadas por el equipo,
+visibles en el panel /niches y en el brain). Las referencias están etiquetadas con:
+- **Tipo**: `Blanda` (contenido suave/cercano), `VSL` (video sales letter),
+  `Comercial` (venta directa), `Engagement` (interacción/comunidad).
+- **Concepto**: `Cinemático`, `UGC`, `Institucional`, `Viral`, `Tendencia`,
+  `Inspiracional`, `Refe edición`.
+
+Cuando tu idea sea de video: **indicá SIEMPRE el tipo y el concepto** en el campo
+"Copy o/y Subtitulo" (ej: `Tipo: Engagement · Concepto: Cinemático`), eligiendo
+según el perfil de videos del cliente y su nicho — no al azar. Si el cliente no
+tiene referencias, usá las del nicho (get_niche_intel) o proponé el tipo que
+mejor encaje con el objetivo del post.
+
 ## Imágenes (Freepik + Drive)
 
 El arte se genera automático con **Freepik** y vive en la **carpeta de Drive

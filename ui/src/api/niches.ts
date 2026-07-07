@@ -33,7 +33,13 @@ export interface NicheIntel {
   trends: Array<{ title: string; tag: string; url: string | null }>;
   topContent: Array<{ title: string | null; format: string | null; score: number; clientName: string }>;
   competitors: Array<{ name: string; clientName: string }>;
+  /** Perfil de videos del nicho: referencias curadas de sus clientes, etiquetables. */
+  videoReferences: Array<{ id: string; url: string; categorias: string[]; comentario: string | null; clientName: string }>;
 }
+
+/** Vocabulario estándar de etiquetas para referencias de video. */
+export const VIDEO_TIPOS = ["Blanda", "VSL", "Comercial", "Engagement"] as const;
+export const VIDEO_CONCEPTOS = ["Cinemático", "UGC", "Institucional", "Viral", "Tendencia", "Inspiracional", "Refe edición"] as const;
 
 export interface SalesKit {
   niche: string;
@@ -48,4 +54,7 @@ export const nichesApi = {
   // Rename a niche across all its clients (blank `to` clears it).
   rename: (from: string, to: string) =>
     api.post<{ renamed: number; from: string; to: string | null }>("/growth/niches/rename", { from, to }),
+  // Etiquetar una referencia de video (tipo + concepto).
+  tagVideoReference: (id: string, categorias: string[]) =>
+    api.patch<{ id: string; categorias: string[] }>(`/growth/video-references/${id}`, { categorias }),
 };

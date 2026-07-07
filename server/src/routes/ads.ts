@@ -31,7 +31,7 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, hooks, learnings, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, trends, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, hooks, learnings, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, trends, videoReferences, type AdsAccountMapping } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -2996,7 +2996,7 @@ export function adsRoutes(db: Db): Router {
         byNiche.set(c.industry, arr);
       }
 
-      const [aggRows, perClientRows, campaignRows, hookRows, trendRows, allLearnings, topContentRows, compRows] = await Promise.all([
+      const [aggRows, perClientRows, campaignRows, hookRows, trendRows, videoRefRows, allLearnings, topContentRows, compRows] = await Promise.all([
         db.select({
           industry: clients.industry,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
@@ -3036,6 +3036,20 @@ export function adsRoutes(db: Db): Router {
         // Ideas del baúl y tendencias del nicho (recién sembrados — crecen solos).
         db.select().from(hooks).where(isNotNull(hooks.niche)).orderBy(desc(hooks.pinned), desc(hooks.timesUsed)).limit(200),
         db.select().from(trends).orderBy(desc(trends.day)).limit(120),
+        // Perfil de videos: referencias curadas de todos los clientes del nicho,
+        // etiquetables con tipo (Blanda/VSL/Comercial/Engagement) y concepto
+        // (Cinemático/UGC/...). Guían la creación de contenido en Super Redes.
+        db.select({
+          id: videoReferences.id,
+          url: videoReferences.url,
+          categorias: videoReferences.categorias,
+          comentario: videoReferences.comentario,
+          industry: clients.industry,
+          clientName: clients.name,
+        }).from(videoReferences)
+          .innerJoin(clients, eq(videoReferences.clientId, clients.id))
+          .where(and(eq(clients.status, "active"), isNotNull(clients.industry)))
+          .orderBy(desc(videoReferences.createdAt)),
         db.select().from(learnings).where(inArray(learnings.scope, ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format", "niche_actions"])),
         db.select({
           industry: clients.industry, clientName: clients.name,
@@ -3114,6 +3128,8 @@ export function adsRoutes(db: Db): Router {
             .map((h) => ({ text: h.text, format: h.format, timesUsed: h.timesUsed })),
           trends: trendRows.filter((t) => t.tag !== "ignorar" && (t.niches ?? []).includes(niche)).slice(0, 3)
             .map((t) => ({ title: t.title, tag: t.tag, url: t.url })),
+          videoReferences: videoRefRows.filter((v) => v.industry === niche).slice(0, 12)
+            .map((v) => ({ id: v.id, url: v.url, categorias: v.categorias ?? [], comentario: v.comentario, clientName: v.clientName })),
           topContent: topContentRows.filter((t) => t.industry === niche).slice(0, 5)
             .map((t) => ({ title: t.title, format: t.format, score: Number(t.score ?? 0), clientName: t.clientName })),
           competitors: compRows.filter((c) => c.industry === niche).slice(0, 15)
@@ -3127,6 +3143,25 @@ export function adsRoutes(db: Db): Router {
       console.error("[growth niches] failed", msg);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 500) });
     }
+  });
+
+  // PATCH /growth/video-references/:id — etiquetar una referencia de video con
+  // el vocabulario del equipo: tipo (Blanda/VSL/Comercial/Engagement) y
+  // concepto (Cinemático/UGC/Viral/...). Las etiquetas guían al agente al
+  // crear contenido en Super Redes (videoRefsBlock las inyecta al prompt).
+  router.patch("/growth/video-references/:id", async (req, res) => {
+    const raw = (req.body as { categorias?: unknown } | null)?.categorias;
+    if (!Array.isArray(raw)) return res.status(400).json({ error: "categorias (array) requerido" });
+    const categorias = raw
+      .filter((c): c is string => typeof c === "string")
+      .map((c) => c.trim()).filter(Boolean).slice(0, 10)
+      .map((c) => c.slice(0, 40));
+    const [row] = await db.update(videoReferences)
+      .set({ categorias })
+      .where(eq(videoReferences.id, req.params.id))
+      .returning({ id: videoReferences.id, categorias: videoReferences.categorias });
+    if (!row) return res.status(404).json({ error: "referencia no encontrada" });
+    res.json(row);
   });
 
   // POST /growth/niches/rename — rename a niche across every client that has it.

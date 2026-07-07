@@ -27,7 +27,7 @@ async function videoRefsBlock(db: Db, clientId: string): Promise<string> {
     const cats = (r.categorias ?? []).join(", ");
     return `- ${r.url}${cats ? ` [${cats}]` : ""}${r.comentario ? ` — ${r.comentario}` : ""}`;
   });
-  return `\nReferencias de video que le gustan al equipo (usalas como inspiración de formato/edición, no copies literal):\n${lines.join("\n")}`;
+  return `\nPerfil de videos del cliente — referencias curadas por el equipo, etiquetadas con tipo (Blanda/VSL/Comercial/Engagement) y concepto (Cinemático, UGC, Viral…). Usalas como inspiración de formato/edición/tono, no copies literal. Si tu idea es de video, indicá en el copy qué TIPO y CONCEPTO le corresponde (ej: "Engagement · Cinemático") tomando este perfil como guía:\n${lines.join("\n")}`;
 }
 
 export type ContentObjetivo = "COMERCIAL" | "ENGAGMENT" | "CONCEPTO";
