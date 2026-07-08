@@ -78,11 +78,16 @@ async function syncCampaigns(db: Db, opts: SyncOptions): Promise<number> {
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
   const campaigns = await provider.syncCampaigns(connection, mapping, opts.since, opts.until);
   if (campaigns.length === 0) return 0;
-  // Delete existing rows for this connection/adAccount, then insert fresh.
+  // Delete existing rows for this platform/adAccount, then insert fresh.
   // Simpler than per-row upsert in this Drizzle version, and OK for an
   // agency-scale dataset (40 clients * 100s of campaigns each).
+  // NOTA: el scope es (platform, adAccountId) y NO connectionId — si una
+  // conexión se borra/reemplaza, las filas viejas quedan con connection_id
+  // NULL y un delete por conexión no las toca → el insert choca con la PK
+  // (26 mappings fallando en silencio, 2026-07-08). La cuenta identifica
+  // los datos, la conexión es solo el credencial que los trajo.
   await db.delete(adsCampaigns)
-    .where(and(eq(adsCampaigns.connectionId, connection.id), eq(adsCampaigns.adAccountId, mapping.adAccountId)));
+    .where(and(eq(adsCampaigns.platform, connection.platform), eq(adsCampaigns.adAccountId, mapping.adAccountId)));
   await db.insert(adsCampaigns).values(campaigns.map((c) => ({
     id: c.id,
     companyId: connection.companyId,
@@ -122,13 +127,13 @@ async function syncAdsets(db: Db, opts: SyncOptions): Promise<number> {
   if (includeSet) {
     await db.delete(adsAdsets)
       .where(and(
-        eq(adsAdsets.connectionId, connection.id),
+        eq(adsAdsets.platform, connection.platform),
         eq(adsAdsets.adAccountId, mapping.adAccountId),
         inArray(adsAdsets.id, Array.from(includeSet)),
       ));
   } else {
     await db.delete(adsAdsets)
-      .where(and(eq(adsAdsets.connectionId, connection.id), eq(adsAdsets.adAccountId, mapping.adAccountId)));
+      .where(and(eq(adsAdsets.platform, connection.platform), eq(adsAdsets.adAccountId, mapping.adAccountId)));
   }
   await db.insert(adsAdsets).values(adsets.map((a) => ({
     id: a.id,
@@ -154,7 +159,7 @@ async function syncCreatives(db: Db, opts: SyncOptions): Promise<number> {
   const ads = await provider.syncAds(connection, mapping, opts.since, opts.until);
   if (ads.length === 0) return 0;
   await db.delete(adsCreatives)
-    .where(and(eq(adsCreatives.connectionId, connection.id), eq(adsCreatives.adAccountId, mapping.adAccountId)));
+    .where(and(eq(adsCreatives.platform, connection.platform), eq(adsCreatives.adAccountId, mapping.adAccountId)));
   await db.insert(adsCreatives).values(ads.map((a) => ({
     id: a.id,
     companyId: connection.companyId,
@@ -187,12 +192,12 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
     ? allInsights.filter((i) => i.adsetId != null && includeSet.has(i.adsetId))
     : allInsights;
   if (insights.length === 0) return 0;
-  // Idempotent: delete the existing rows for this (connection, adAccount, date range)
+  // Idempotent: delete the existing rows for this (platform, adAccount, date range)
   // then insert fresh. The unique index on ads_insights_uniq would reject duplicates
   // anyway, but deleting-then-inserting is faster than conflict resolution at scale.
+  // Sin connectionId en el scope (ver nota en syncCampaigns).
   await db.delete(adsInsights)
     .where(and(
-      eq(adsInsights.connectionId, connection.id),
       eq(adsInsights.platform, connection.platform),
       eq(adsInsights.adAccountId, mapping.adAccountId),
       gte(adsInsights.date, opts.since.toISOString().slice(0, 10)),
