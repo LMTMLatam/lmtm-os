@@ -6,12 +6,11 @@
 # target provider and applies the fallback. Only pilot agents are repointed here
 # (ANTHROPIC_BASE_URL=http://127.0.0.1:4000); the rest hit MiniMax directly.
 model_list:
-  # Primary: NVIDIA GLM-5.2 (validated: chat + function-calling OK).
-  # [TEST B] temporarily broken model id to prove the MiniMax fallback catches
-  # a primary failure. Reverted to openai/z-ai/glm-5.2 after the test.
+  # Primary: NVIDIA GLM-5.2 (validated end-to-end: chat + function-calling, and
+  # confirmed as the serving backend via the broken-fallback test).
   - model_name: lmtm-glm
     litellm_params:
-      model: openai/z-ai/GLM-BROKEN-TEST
+      model: openai/z-ai/glm-5.2
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY
   # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).
