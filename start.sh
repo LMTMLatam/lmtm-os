@@ -64,7 +64,7 @@ if [ -f /app/litellm-config.yaml ] && [ -x /opt/litellm/bin/litellm ] \
   (
     while true; do
       echo "[litellm] starting at $(date -u)"
-      /opt/litellm/bin/litellm --config /app/litellm-config.yaml --host 127.0.0.1 --port 4000 >> /tmp/litellm.log 2>&1
+      /opt/litellm/bin/litellm --config /app/litellm-config.yaml --host 127.0.0.1 --port 4000 2>&1 | sed 's/^/[litellm] /'
       echo "[litellm] exited rc=$? at $(date -u); restart in 10s" >> /tmp/litellm.log
       sleep 10
     done
