@@ -48,7 +48,11 @@ async function* paginate<T = Record<string, unknown>>(
       // Rate-limit (code 4) and transient 5xx: exponential backoff, up to 5 tries.
       const text = await res.text().catch(() => "");
       const isRateLimit = res.status === 429 || (res.status === 403 && /limit reached|too many/i.test(text));
-      const isTransient = res.status >= 500;
+      // Meta ships its "Service temporarily unavailable" transient (code 2 /
+      // subcode 1504044) as a 400 — and even mislabels it is_transient:false —
+      // so heavy per-ad insight pulls on high-volume accounts silently failed
+      // the whole mapping. Treat that body signal like a 5xx and back off.
+      const isTransient = res.status >= 500 || /"error_subcode"\s*:\s*1504044|temporarily unavailable/i.test(text);
       if ((isRateLimit || isTransient) && retryCount < 5) {
         retryCount++;
         const delayMs = Math.min(60_000, 1000 * Math.pow(2, retryCount));
