@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { metaConnections, metaAdAccountMappings } from "@paperclipai/db";
+import { metaConnections, metaAdAccountMappings, adsAccountMappings } from "@paperclipai/db";
 import { validate } from "../middleware/validate.js";
 import { badRequest, notFound, unauthorized, forbidden } from "../errors.js";
 import { assertAuthenticated, assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -312,6 +312,24 @@ export function metaRoutes(db: Db) {
         })
         .returning({ id: metaConnections.id });
       connectionId = inserted[0]?.id;
+    }
+
+    // Auto-heal: si en algún momento se borró una conexión vieja, sus mappings
+    // quedaron huérfanos (connection_id NULL por el FK) y el sync diario los
+    // SALTEA — los datos del cliente se congelan en silencio y disparan falsas
+    // alarmas (24 clientes el 2026-07-08, caso MAERS). Toda reconexión de Meta
+    // re-adopta los huérfanos de la company.
+    if (connectionId) {
+      try {
+        const adopted = await db
+          .update(adsAccountMappings)
+          .set({ connectionId, updatedAt: new Date() })
+          .where(and(eq(adsAccountMappings.companyId, state.companyId), isNull(adsAccountMappings.connectionId)))
+          .returning({ id: adsAccountMappings.id });
+        if (adopted.length > 0) console.log(`[meta oauth] re-adoptados ${adopted.length} mappings huérfanos a la conexión ${connectionId}`);
+      } catch (e) {
+        console.warn("[meta oauth] re-adopción de mappings falló:", e);
+      }
     }
 
     const panel = panelBase();

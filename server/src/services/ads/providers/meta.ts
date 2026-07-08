@@ -134,7 +134,17 @@ function leadsFromActions(actions: Array<{ action_type?: string; value?: string 
   let total = 0;
   for (const a of actions) {
     if (!a.action_type) continue;
-    if (["lead", "onsite_conversion.lead_grouped", "leadgen_other"].includes(a.action_type)) {
+    // "Leads" = el RESULTADO que optimiza la campaña, no solo formularios.
+    // Muchos clientes corren campañas de mensajes: su resultado en Ads Manager
+    // es "conversaciones iniciadas" (messaging_conversation_started_7d).
+    // Contarlas evita falsas alarmas de "gasto sin conversiones" (MAERS,
+    // 2026-07-08: 7 conversaciones reales reportadas como 0 leads).
+    if ([
+      "lead",
+      "onsite_conversion.lead_grouped",
+      "leadgen_other",
+      "onsite_conversion.messaging_conversation_started_7d",
+    ].includes(a.action_type)) {
       total += intNum(a.value);
     }
   }
