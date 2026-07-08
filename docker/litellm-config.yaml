@@ -1,0 +1,30 @@
+# LiteLLM router sidecar (LMTM-OS).
+# Fronts NVIDIA (free, OpenAI-compatible) as primary with MiniMax (Anthropic-
+# compatible) as automatic fallback, so agents pointed here keep working if the
+# free NVIDIA tier rate-limits or fails. The `claude` CLI (claude_local adapter)
+# hits this proxy's Anthropic /v1/messages endpoint; LiteLLM translates to the
+# target provider and applies the fallback. Only pilot agents are repointed here
+# (ANTHROPIC_BASE_URL=http://127.0.0.1:4000); the rest hit MiniMax directly.
+model_list:
+  # Primary: NVIDIA GLM-5.2 (validated: chat + function-calling OK).
+  - model_name: lmtm-glm
+    litellm_params:
+      model: openai/z-ai/glm-5.2
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+  # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).
+  - model_name: lmtm-minimax
+    litellm_params:
+      model: anthropic/MiniMax-M3
+      api_base: https://api.minimax.io/anthropic
+      api_key: os.environ/MINIMAX_API_KEY
+
+litellm_settings:
+  # If the primary (NVIDIA) errors/times out, retry the request on MiniMax.
+  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}]
+  drop_params: true
+  request_timeout: 600
+  num_retries: 1
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

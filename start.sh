@@ -54,6 +54,26 @@ else
   echo "[wrapper] no wa-gateway present — skipping"
 fi
 
+# ── LiteLLM router sidecar (NVIDIA primary + MiniMax fallback) on :4000 ───────
+# Only pilot agents point ANTHROPIC_BASE_URL at http://127.0.0.1:4000; the rest
+# hit MiniMax directly, so if this sidecar is down only the pilot agents are
+# affected (never the main server). Gated on config + the required secrets.
+if [ -f /app/litellm-config.yaml ] && [ -x /opt/litellm/bin/litellm ] \
+   && [ -n "${NVIDIA_API_KEY:-}" ] && [ -n "${LITELLM_MASTER_KEY:-}" ] \
+   && [ -n "${MINIMAX_API_KEY:-}" ]; then
+  (
+    while true; do
+      echo "[litellm] starting at $(date -u)"
+      /opt/litellm/bin/litellm --config /app/litellm-config.yaml --host 127.0.0.1 --port 4000 >> /tmp/litellm.log 2>&1
+      echo "[litellm] exited rc=$? at $(date -u); restart in 10s" >> /tmp/litellm.log
+      sleep 10
+    done
+  ) &
+  echo "[wrapper] litellm router supervisor started on 127.0.0.1:4000"
+else
+  echo "[wrapper] litellm router disabled (missing config/binary/NVIDIA_API_KEY/LITELLM_MASTER_KEY/MINIMAX_API_KEY)"
+fi
+
 # ── Fallback proxy: only started if the real server exits. ──
 start_proxy() {
   node -e "

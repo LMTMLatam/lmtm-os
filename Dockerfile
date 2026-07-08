@@ -117,6 +117,19 @@ RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund --loglevel=err
 # process env, which the adapter sets per run.
 COPY docker/claude-mcp.json /app/claude-mcp.json
 
+# LiteLLM router sidecar: fronts NVIDIA (free, OpenAI-compatible) as primary with
+# MiniMax (Anthropic-compatible) as automatic fallback for pilot agents that
+# point ANTHROPIC_BASE_URL at http://127.0.0.1:4000 (see docker/litellm-config.yaml
+# + start.sh). Installed in an isolated venv so it never touches the Node
+# toolchain and Debian PEP-668 doesn't block the install.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/* \
+  && python3 -m venv /opt/litellm \
+  && /opt/litellm/bin/pip install --no-cache-dir --upgrade pip \
+  && /opt/litellm/bin/pip install --no-cache-dir 'litellm[proxy]'
+COPY docker/litellm-config.yaml /app/litellm-config.yaml
+
 # Heap cap raised from 380 (a Render 512MB-era value) to 1536: on Railway the
 # container has far more RAM, and once the agent fleet actually runs (14 agents
 # spawning `claude` subprocesses + streaming their logs) the server's own heap
