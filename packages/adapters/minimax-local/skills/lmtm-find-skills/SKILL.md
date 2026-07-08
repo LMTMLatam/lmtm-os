@@ -110,7 +110,7 @@ Después de elegir, dejá un comment en el issue/PR:
 
 ## Naming convention para skills LMTM
 
-- **Knowledge skills** (frontmatter sin `allowed-tools`): `lmtm-<domain>-<concepts>` (ej. `lmtm-sql-patterns`, `lmtm-cold-outreach`)
+- **Knowledge skills** (frontmatter sin `allowed-tools`): `lmtm-<domain>-<concepts>` (ej. `lmtm-sql-patterns`, `lmtm-paid-media-kpi`)
 - **Tooling skills** (con `allowed-tools`): `lmtm-<tool>-usage` (ej. `lmtm-agent-browser-patterns`)
 - **Workflow skills**: `lmtm-<workflow>-workflow` (ej. `lmtm-client-onboarding-workflow`)
 
