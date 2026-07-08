@@ -33,6 +33,7 @@ Guards each client's brand identity. Designs, produces, and reviews visual asset
 - `lmtm-escalation-policy`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

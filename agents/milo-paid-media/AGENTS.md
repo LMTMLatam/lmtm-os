@@ -39,6 +39,7 @@ Owns paid media (Meta + Google) end-to-end. Plans, launches, monitors, optimizes
 - `lmtm-escalation-policy`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

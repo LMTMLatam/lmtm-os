@@ -34,6 +34,7 @@ Owns the top of the funnel: lead research, cold outreach, discovery call prep, a
 - `lmtm-escalation-policy`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

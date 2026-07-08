@@ -31,6 +31,7 @@ Owns organic search: keyword research, content briefs, technical SEO audits, ran
 - `lmtm-escalation-policy`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

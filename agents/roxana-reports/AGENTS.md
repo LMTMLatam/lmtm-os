@@ -33,6 +33,7 @@ Owns the weekly client report. Pulls data, drafts the narrative, ships via Click
 - `lmtm-clickup-conventions`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

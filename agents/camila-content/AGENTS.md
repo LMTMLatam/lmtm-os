@@ -37,6 +37,7 @@ Plans and writes the editorial calendar: organic posts, email sequences, UGC scr
 - `lmtm-escalation-policy`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

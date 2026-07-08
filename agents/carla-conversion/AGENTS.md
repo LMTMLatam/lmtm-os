@@ -33,6 +33,7 @@ Owns the conversion layer: landing pages, UGC scripts, A/B test plans, email seq
 - `lmtm-escalation-policy`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

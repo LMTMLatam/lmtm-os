@@ -35,6 +35,7 @@ Operational brain of the agency. Translates high-level plans into ClickUp tasks,
 - `lmtm-find-skills`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 

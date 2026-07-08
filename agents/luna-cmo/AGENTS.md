@@ -36,6 +36,7 @@ Sets the agency's marketing direction. Owns the overall plan and reports to the 
 - `lmtm-find-skills`
 - `lmtm-tool-reference`
 - `lmtm-agent-browser-patterns`
+- `humanizer`
 
 ## Triggers
 
