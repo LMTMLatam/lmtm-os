@@ -15,7 +15,7 @@ export function MetricCard({ icon: Icon, value, label, description, to, onClick 
   const isClickable = !!(to || onClick);
 
   const inner = (
-    <div className={`h-full px-4 py-4 sm:px-5 sm:py-5 rounded-lg transition-colors${isClickable ? " hover:bg-accent/50 cursor-pointer" : ""}`}>
+    <div className={`h-full px-4 py-4 sm:px-5 sm:py-5 rounded-xl border border-border bg-card transition-all${isClickable ? " hover:border-primary/40 hover:shadow-[0_4px_24px_-8px_color-mix(in_oklch,var(--primary)_35%,transparent)] cursor-pointer" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-2xl sm:text-3xl font-semibold tracking-tight tabular-nums">
@@ -28,7 +28,9 @@ export function MetricCard({ icon: Icon, value, label, description, to, onClick 
             <div className="text-xs text-muted-foreground/70 mt-1.5 hidden sm:block">{description}</div>
           )}
         </div>
-        <Icon className="h-4 w-4 text-muted-foreground/50 shrink-0 mt-1.5" />
+        <span className="shrink-0 rounded-lg bg-primary/10 p-2 mt-0.5">
+          <Icon className="h-4 w-4 text-primary" />
+        </span>
       </div>
     </div>
   );

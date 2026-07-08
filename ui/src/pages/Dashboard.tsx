@@ -19,8 +19,9 @@ import { StatusIcon } from "../components/StatusIcon";
 import { ActivityRow } from "../components/ActivityRow";
 import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
-import { cn, formatCents } from "../lib/utils";
-import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
+import { cn } from "../lib/utils";
+import { Bot, CircleDot, ShieldCheck, LayoutDashboard, PauseCircle, BellRing, Gavel } from "lucide-react";
+import { clientsApi } from "../api/clients";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -82,6 +83,33 @@ export function Dashboard() {
     queryFn: () => accessApi.listUserDirectory(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
+
+  // Alertas abiertas de la cartera de clientes (mismo feed que el grid de Clientes).
+  const { data: clientAlerts } = useQuery({
+    queryKey: ["clients", "alerts-summary"],
+    queryFn: () => clientsApi.alertsSummary(),
+    enabled: !!selectedCompanyId,
+    staleTime: 2 * 60 * 1000,
+  });
+  const alertTotals = useMemo(() => {
+    const vals = Object.values(clientAlerts ?? {});
+    return {
+      clients: vals.length,
+      total: vals.reduce((a, v) => a + v.total, 0),
+      critical: vals.reduce((a, v) => a + v.critical, 0),
+    };
+  }, [clientAlerts]);
+
+  // Lo que espera una DECISIÓN humana: issues en revisión + bloqueados con
+  // atención pedida. Es el trabajo del dueño del tablero, no ruido.
+  const decisionQueue = useMemo(() => {
+    const list = issues ?? [];
+    const inReview = list.filter((i) => i.status === "in_review");
+    const blockedAttention = list.filter((i) => i.status === "blocked" && i.blockerAttention);
+    return [...inReview, ...blockedAttention]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 6);
+  }, [issues]);
 
   const userProfileMap = useMemo(
     () => buildCompanyUserProfileMap(companyMembers?.users),
@@ -237,59 +265,88 @@ export function Dashboard() {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-1 sm:gap-2">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3">
             <MetricCard
               icon={Bot}
               value={data.agents.active + data.agents.running + data.agents.paused + data.agents.error}
-              label="Agents Enabled"
+              label="Agentes"
               to="/agents"
               description={
                 <span>
-                  {data.agents.running} running{", "}
-                  {data.agents.paused} paused{", "}
-                  {data.agents.error} errors
+                  {data.agents.running} corriendo{", "}
+                  {data.agents.paused} pausados{", "}
+                  {data.agents.error} con error
                 </span>
               }
             />
             <MetricCard
               icon={CircleDot}
               value={data.tasks.inProgress}
-              label="Tasks In Progress"
+              label="Tareas en curso"
               to="/issues"
               description={
                 <span>
-                  {data.tasks.open} open{", "}
-                  {data.tasks.blocked} blocked
+                  {data.tasks.open} abiertas{", "}
+                  {data.tasks.blocked} bloqueadas
                 </span>
               }
             />
             <MetricCard
-              icon={DollarSign}
-              value={formatCents(data.costs.monthSpendCents)}
-              label="Month Spend"
-              to="/costs"
+              icon={BellRing}
+              value={alertTotals.total}
+              label="Alertas de clientes"
+              to="/clients"
               description={
                 <span>
-                  {data.costs.monthBudgetCents > 0
-                    ? `${data.costs.monthUtilizationPercent}% of ${formatCents(data.costs.monthBudgetCents)} budget`
-                    : "Unlimited budget"}
+                  {alertTotals.critical > 0
+                    ? `${alertTotals.critical} crítica${alertTotals.critical === 1 ? "" : "s"} · ${alertTotals.clients} cliente${alertTotals.clients === 1 ? "" : "s"}`
+                    : alertTotals.total > 0
+                      ? `${alertTotals.clients} cliente${alertTotals.clients === 1 ? "" : "s"} con avisos`
+                      : "Cartera sin alertas abiertas"}
                 </span>
               }
             />
             <MetricCard
               icon={ShieldCheck}
-              value={data.pendingApprovals + data.budgets.pendingApprovals}
-              label="Pending Approvals"
-              to="/approvals"
+              value={data.pendingApprovals + data.budgets.pendingApprovals + decisionQueue.length}
+              label="Esperan tu decisión"
+              to={data.pendingApprovals + data.budgets.pendingApprovals > 0 ? "/approvals" : "/issues"}
               description={
                 <span>
-                  {data.budgets.pendingApprovals > 0
-                    ? `${data.budgets.pendingApprovals} budget overrides awaiting board review`
-                    : "Awaiting board review"}
+                  {data.pendingApprovals + data.budgets.pendingApprovals} aprobaciones · {decisionQueue.length} issues en revisión/bloqueados
                 </span>
               }
             />
           </div>
+
+          {/* Cola de decisiones: lo que el equipo humano tiene que destrabar HOY. */}
+          {decisionQueue.length > 0 && (
+            <div className="rounded-xl border border-primary/25 bg-[linear-gradient(135deg,color-mix(in_oklch,var(--primary)_8%,transparent),transparent_55%)] p-4">
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="rounded-lg bg-primary/15 p-1.5"><Gavel className="h-3.5 w-3.5 text-primary" /></span>
+                <h3 className="text-sm font-semibold">Necesita tu decisión</h3>
+                <span className="text-xs text-muted-foreground">— en revisión o bloqueado esperando a un humano</span>
+              </div>
+              <div className="divide-y divide-border/60">
+                {decisionQueue.map((issue) => (
+                  <Link
+                    key={issue.id}
+                    to={`/issues/${issue.identifier ?? issue.id}`}
+                    className="flex items-center gap-3 py-2 text-sm no-underline text-inherit hover:bg-accent/40 rounded-md px-2 -mx-2 transition-colors"
+                  >
+                    <StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} />
+                    <span className="font-mono text-xs text-muted-foreground shrink-0">{issue.identifier ?? issue.id.slice(0, 8)}</span>
+                    <span className="truncate flex-1">{issue.title}</span>
+                    {issue.assigneeAgentId && (() => {
+                      const name = agentName(issue.assigneeAgentId);
+                      return name ? <span className="hidden sm:inline-flex shrink-0"><Identity name={name} size="sm" /></span> : null;
+                    })()}
+                    <span className="text-xs text-muted-foreground shrink-0">{timeAgo(issue.updatedAt)}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <ChartCard title="Run Activity" subtitle="Last 14 days">
