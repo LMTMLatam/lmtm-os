@@ -7,27 +7,44 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { competitors, contentIdeas, clients, videoReferences } from "@paperclipai/db";
+import { competitors, contentIdeas, clients, videoReferences, contentPerformance } from "@paperclipai/db";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
+import { getRedesCalendar } from "./clickup-sync.js";
 import { getBrainContext, upsertMemory, hasMemory } from "./customer-brain.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
 
 /** Formatted block of the client's curated video references (from the team's
- * reference sheet) so idea generation can riff on formats the team likes. */
+ * reference sheet) so idea generation can riff on formats the team likes.
+ * Fallback: si el cliente no tiene referencias propias, usa las de su NICHO
+ * (pares de rubro) — así ningún cliente genera "a ciegas". */
 async function videoRefsBlock(db: Db, clientId: string): Promise<string> {
-  const refs = await db
+  let refs = await db
     .select({ url: videoReferences.url, categorias: videoReferences.categorias, comentario: videoReferences.comentario })
     .from(videoReferences)
     .where(eq(videoReferences.clientId, clientId))
     .limit(25)
     .catch(() => []);
+  let origen = "del cliente";
+  if (refs.length === 0) {
+    const [c] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
+    if (c?.industry) {
+      refs = await db
+        .select({ url: videoReferences.url, categorias: videoReferences.categorias, comentario: videoReferences.comentario })
+        .from(videoReferences)
+        .innerJoin(clients, eq(videoReferences.clientId, clients.id))
+        .where(and(eq(clients.industry, c.industry), eq(clients.status, "active")))
+        .limit(12)
+        .catch(() => []);
+      origen = `del NICHO (el cliente no tiene propias)`;
+    }
+  }
   if (refs.length === 0) return "";
   const lines = refs.map((r) => {
     const cats = (r.categorias ?? []).join(", ");
     return `- ${r.url}${cats ? ` [${cats}]` : ""}${r.comentario ? ` — ${r.comentario}` : ""}`;
   });
-  return `\nPerfil de videos del cliente — referencias curadas por el equipo, etiquetadas con tipo (Blanda/VSL/Comercial/Engagement) y concepto (Cinemático, UGC, Viral…). Usalas como inspiración de formato/edición/tono, no copies literal. Si tu idea es de video, indicá en el copy qué TIPO y CONCEPTO le corresponde (ej: "Engagement · Cinemático") tomando este perfil como guía:\n${lines.join("\n")}`;
+  return `\nPerfil de videos ${origen} — referencias curadas por el equipo, etiquetadas con tipo (Blanda/VSL/Comercial/Engagement) y concepto (Cinemático, UGC, Viral…). Usalas como inspiración de formato/edición/tono, no copies literal. Si tu idea es de video, indicá en el copy qué TIPO y CONCEPTO le corresponde (ej: "Engagement · Cinemático") tomando este perfil como guía:\n${lines.join("\n")}`;
 }
 
 export type ContentObjetivo = "COMERCIAL" | "ENGAGMENT" | "CONCEPTO";
@@ -515,11 +532,64 @@ export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{
     bullets = (await aiNarrative(system, user).catch(() => null))?.trim() ?? "";
   }
 
+  // ── Loop de RESULTADOS: idea adoptada → calendario real → publicada →
+  // engagement. Cierra el círculo más allá del gusto del equipo: mide si los
+  // posts nacidos de ideas del agente rinden como los del cliente. El match
+  // idea↔post es por solapamiento de tokens del título y la ventana de
+  // engagement es ±1.5 días de la fecha del post — aproximado y dicho como tal.
+  let resultados = "";
+  try {
+    const adopted = [...approved, ...taken];
+    if (adopted.length > 0) {
+      const tokensOf = (s: string) => new Set(norm(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
+      const titleMatch = (a: string, b: string) => {
+        const ta = tokensOf(a), tb = tokensOf(b);
+        if (ta.size < 2 || tb.size < 2) return false;
+        let inter = 0;
+        for (const w of ta) if (tb.has(w)) inter += 1;
+        return inter / Math.min(ta.size, tb.size) >= 0.6;
+      };
+      const nowMs = Date.now();
+      const cal = (await getRedesCalendar(db, clientId, nowMs - 60 * 86_400_000, nowMs + 30 * 86_400_000).catch(() => null)) ?? [];
+      const matches = adopted
+        .map((idea) => cal.find((it) => titleMatch(idea.name, it.name)))
+        .filter((it): it is NonNullable<typeof it> => !!it);
+      if (matches.length > 0) {
+        const publicadas = matches.filter((m) => m.published);
+        let linea = `- Resultados reales: ${matches.length} de las ${adopted.length} ideas adoptadas llegaron al calendario de Redes; ${publicadas.length} ya publicadas.`;
+        if (publicadas.length > 0) {
+          const cps = await db.select({ score: contentPerformance.score, publishedAt: contentPerformance.publishedAt })
+            .from(contentPerformance)
+            .where(and(eq(contentPerformance.clientId, clientId), eq(contentPerformance.source, "organic")));
+          const scores = cps.map((r) => Number(r.score)).filter((s) => Number.isFinite(s) && s > 0);
+          const avgAll = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+          const ideaScores: number[] = [];
+          for (const m of publicadas) {
+            const t = new Date(m.date).getTime();
+            for (const r of cps) {
+              if (!r.publishedAt) continue;
+              if (Math.abs(new Date(r.publishedAt).getTime() - t) <= 1.5 * 86_400_000) {
+                const s = Number(r.score);
+                if (Number.isFinite(s) && s > 0) ideaScores.push(s);
+              }
+            }
+          }
+          if (ideaScores.length > 0 && avgAll > 0) {
+            const avgIdeas = ideaScores.reduce((a, b) => a + b, 0) / ideaScores.length;
+            linea += ` Engagement de esos posts: ${Math.round(avgIdeas)} vs ${Math.round(avgAll)} promedio del cliente (ventana ±1.5 días, aproximado)${avgIdeas >= avgAll ? " — las ideas del agente rinden igual o mejor: repetir esos ángulos" : " — rinden por debajo del promedio: revisar ángulo/formato de lo que se propone"}.`;
+          }
+        }
+        resultados = linea;
+      }
+    }
+  } catch { /* resultados es best-effort */ }
+
   const today = new Date().toISOString().slice(0, 10);
   const content = [
     `Feedback Super Redes (auto, ${today}) — destino de las ideas del agente en la lista "Super Redes Sociales":`,
     `- Ideas del agente: ${ours.length} en la lista → ${approved.length} aprobadas, ${taken.length} tomadas (revisión/producción), ${pending} pendientes. Descartadas por el equipo (borradas/renombradas): ${discarded.length}.`,
     `- Tasa de adopción: agente ${ourRate}% vs equipo ${teamRate}%. Meta: igualar o superar al equipo de forma sostenida — ahí el pipeline pasa a 100% automático.`,
+    resultados,
     bullets ? `\n${bullets}` : "",
   ].filter(Boolean).join("\n");
 

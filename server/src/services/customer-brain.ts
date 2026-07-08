@@ -111,11 +111,13 @@ export async function refreshClientBrain(db: Db, clientId: string): Promise<{ up
   // (tipo: Blanda/VSL/Comercial/Engagement · concepto: Cinemático/UGC/...).
   // Pinned al brain para que TODA generación de contenido lo respete — es el
   // eslabón "etiquetás una vez → el agente crea con ese perfil".
+  // FALLBACK AL NICHO: si el cliente no tiene referencias propias etiquetadas,
+  // deriva el perfil de las referencias de sus PARES de rubro — así los 56
+  // clientes tienen perfil desde el día uno y se afina al cargar propias.
   try {
-    const refs = await db.select({ categorias: videoReferences.categorias })
-      .from(videoReferences).where(eq(videoReferences.clientId, clientId));
-    const tagged = refs.filter((r) => (r.categorias ?? []).length > 0);
-    if (tagged.length > 0) {
+    const tally = (rows: Array<{ categorias: string[] | null }>) => {
+      const tagged = rows.filter((r) => (r.categorias ?? []).length > 0);
+      if (tagged.length === 0) return null;
       const TIPOS = new Set(["blanda", "vsl", "comercial", "engagement"]);
       const counts = new Map<string, number>();
       for (const r of tagged) for (const c of r.categorias ?? []) {
@@ -123,13 +125,31 @@ export async function refreshClientBrain(db: Db, clientId: string): Promise<{ up
         if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
       }
       const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-      const tipos = ranked.filter(([k]) => TIPOS.has(k.toLowerCase())).slice(0, 2).map(([k, n]) => `${k} (${n})`);
-      const conceptos = ranked.filter(([k]) => !TIPOS.has(k.toLowerCase())).slice(0, 3).map(([k, n]) => `${k} (${n})`);
-      const content = `Perfil de videos del cliente (derivado de ${tagged.length} referencias etiquetadas por el equipo): ` +
-        `${tipos.length ? `tipo dominante ${tipos.join(", ")}` : "sin tipo dominante todavía"}` +
-        `${conceptos.length ? `; conceptos: ${conceptos.join(", ")}` : ""}. ` +
+      return {
+        n: tagged.length,
+        tipos: ranked.filter(([k]) => TIPOS.has(k.toLowerCase())).slice(0, 2).map(([k, n]) => `${k} (${n})`),
+        conceptos: ranked.filter(([k]) => !TIPOS.has(k.toLowerCase())).slice(0, 3).map(([k, n]) => `${k} (${n})`),
+      };
+    };
+
+    const own = tally(await db.select({ categorias: videoReferences.categorias })
+      .from(videoReferences).where(eq(videoReferences.clientId, clientId)));
+    let profile = own;
+    let origen = `derivado de ${own?.n ?? 0} referencias etiquetadas del cliente`;
+    if (!profile && client.industry) {
+      const nicheRows = await db.select({ categorias: videoReferences.categorias })
+        .from(videoReferences)
+        .innerJoin(clients, eq(videoReferences.clientId, clients.id))
+        .where(and(eq(clients.industry, client.industry), eq(clients.status, "active")));
+      profile = tally(nicheRows);
+      origen = `derivado del NICHO "${client.industry}" (${profile?.n ?? 0} referencias de sus pares — el cliente no tiene propias; cargar referencias afina el perfil)`;
+    }
+    if (profile) {
+      const content = `Perfil de videos (${origen}): ` +
+        `${profile.tipos.length ? `tipo dominante ${profile.tipos.join(", ")}` : "sin tipo dominante todavía"}` +
+        `${profile.conceptos.length ? `; conceptos: ${profile.conceptos.join(", ")}` : ""}. ` +
         `Las ideas de video para Super Redes deben seguir este perfil (indicar tipo + concepto en el copy).`;
-      await upsertMemory(db, { companyId, clientId, kind: "preference", key: "video-profile", content, source: "video-references", confidence: 0.9, pinned: true });
+      await upsertMemory(db, { companyId, clientId, kind: "preference", key: "video-profile", content, source: "video-references", confidence: own ? 0.9 : 0.6, pinned: true });
       updated++;
     }
   } catch { /* sin referencias no hay perfil */ }
