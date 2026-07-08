@@ -119,6 +119,9 @@ export const clientsApi = {
     api.put<{ ok: boolean; notifyWhatsapp: string | null }>(`/clients/${idOrSlug}/notify`, { whatsapp }),
   runAlerts: (idOrSlug: string) =>
     api.post<{ client: string; alerts: Array<{ severity: string; title: string; description: string; recommendation: string }>; delivered: boolean; teamConfigured: boolean; deliveryError: string | null }>(`/clients/${idOrSlug}/alerts/run`, null),
+  // Alertas abiertas de toda la cartera, agrupadas por cliente (grid de Clientes).
+  alertsSummary: () =>
+    api.get<Record<string, { total: number; critical: number; warn: number; top: string }>>(`/clients/alerts/summary`),
   runReport: (idOrSlug: string) =>
     api.post<{ client: string; hasData: boolean; created: boolean; url: string | null; error: string | null }>(`/clients/${idOrSlug}/report/run`, null),
   runPortfolioBrief: () =>

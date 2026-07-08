@@ -59,18 +59,36 @@ export function Clients() {
   });
   const scores = scoresQuery.data ?? {};
 
+  const alertsQuery = useQuery({
+    queryKey: ["clients", "alerts-summary"],
+    queryFn: () => clientsApi.alertsSummary(),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
+  const alerts = alertsQuery.data ?? {};
+
   const filtered = useMemo(() => {
-    if (!q.trim()) return clients;
-    const needle = q.toLowerCase();
-    return clients.filter(
-      (c) =>
-        c.name.toLowerCase().includes(needle) ||
-        c.slug.toLowerCase().includes(needle) ||
-        c.legalName?.toLowerCase().includes(needle) ||
-        c.industry?.toLowerCase().includes(needle) ||
-        c.primaryContactName?.toLowerCase().includes(needle),
-    );
-  }, [clients, q]);
+    let list = clients;
+    if (q.trim()) {
+      const needle = q.toLowerCase();
+      list = clients.filter(
+        (c) =>
+          c.name.toLowerCase().includes(needle) ||
+          c.slug.toLowerCase().includes(needle) ||
+          c.legalName?.toLowerCase().includes(needle) ||
+          c.industry?.toLowerCase().includes(needle) ||
+          c.primaryContactName?.toLowerCase().includes(needle),
+      );
+    }
+    // Alertados primero: críticas arriba de todo, después por cantidad de
+    // alertas; el resto conserva el orden original.
+    return [...list].sort((a, b) => {
+      const aa = alerts[a.id], ab = alerts[b.id];
+      const ka = aa ? aa.critical * 1000 + aa.total : 0;
+      const kb = ab ? ab.critical * 1000 + ab.total : 0;
+      return kb - ka;
+    });
+  }, [clients, q, alerts]);
 
   const totalRetainer = useMemo(
     () => clients.reduce((acc, c) => acc + (c.monthlyRetainerCents || 0), 0),
@@ -162,7 +180,7 @@ export function Clients() {
       {query.isSuccess && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((c) => (
-            <ClientCard key={c.id} client={c} score={scores[c.id]} />
+            <ClientCard key={c.id} client={c} score={scores[c.id]} alerts={alerts[c.id]} />
           ))}
         </div>
       )}
@@ -349,9 +367,16 @@ function scoreColor(v: number): string {
   return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
 }
 
-function ClientCard({ client, score }: { client: Client; score?: { health: number; ops: number } }) {
+type AlertSummary = { total: number; critical: number; warn: number; top: string };
+
+function ClientCard({ client, score, alerts }: { client: Client; score?: { health: number; ops: number }; alerts?: AlertSummary }) {
+  const alertTone = alerts
+    ? alerts.critical > 0
+      ? "border-rose-500/50"
+      : "border-amber-500/40"
+    : "";
   return (
-    <Card className="relative p-4 hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer group">
+    <Card className={`relative p-4 hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer group ${alertTone}`}>
       {/* Whole-card access: a stretched link covering the card. Inner
           interactive controls sit above it (relative z-[2]) so they keep
           working without nesting anchors. */}
@@ -364,6 +389,15 @@ function ClientCard({ client, score }: { client: Client; score?: { health: numbe
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-medium text-sm truncate">{client.name}</h3>
+            {alerts && (
+              <Badge
+                className={`text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5 ${alerts.critical > 0 ? "bg-rose-500/15 text-rose-700 dark:text-rose-300" : "bg-amber-500/15 text-amber-700 dark:text-amber-300"}`}
+                title={`${alerts.total} alerta(s) abierta(s)${alerts.critical ? ` · ${alerts.critical} crítica(s)` : ""}`}
+              >
+                <Bell className="h-2.5 w-2.5" />
+                {alerts.total}
+              </Badge>
+            )}
             <Badge className={`text-[10px] px-1.5 py-0 ${STATUS_VARIANT[client.status]}`}>
               {client.status}
             </Badge>
@@ -374,6 +408,14 @@ function ClientCard({ client, score }: { client: Client; score?: { health: numbe
               </>
             )}
           </div>
+          {alerts && (
+            <p
+              className={`text-[11px] mt-0.5 truncate ${alerts.critical > 0 ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400"}`}
+              title={alerts.top}
+            >
+              ⚠ {alerts.top}
+            </p>
+          )}
           {client.legalName && client.legalName !== client.name && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {client.legalName}

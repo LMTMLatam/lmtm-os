@@ -1953,6 +1953,30 @@ export function adsRoutes(db: Db): Router {
   // GET /api/clients/:idOrSlug/alerts
   // Returns: {client, alerts: [{id, severity, title, description, metric, currentValue, thresholdValue, recommendation, entityType, entityId, status, createdAt}]}
   // ============================================================
+  // GET /clients/alerts/summary — alertas ABIERTAS agrupadas por cliente, para
+  // el grid de Clientes (badge por card + orden alertados-primero). Un solo
+  // fetch para toda la cartera. Registrada ANTES de /clients/:idOrSlug/alerts.
+  router.get("/clients/alerts/summary", async (_req, res) => {
+    const rows = await db
+      .select({ clientId: adsAlerts.clientId, severity: adsAlerts.severity, title: adsAlerts.title, createdAt: adsAlerts.createdAt })
+      .from(adsAlerts)
+      .where(and(isNotNull(adsAlerts.clientId), inArray(adsAlerts.status, ["pending", "acknowledged"])))
+      .orderBy(desc(adsAlerts.createdAt))
+      .limit(1000);
+    const out: Record<string, { total: number; critical: number; warn: number; top: string }> = {};
+    for (const r of rows) {
+      const id = r.clientId!;
+      const e = out[id] ?? { total: 0, critical: 0, warn: 0, top: r.title };
+      e.total += 1;
+      if (r.severity === "critical") e.critical += 1;
+      else if (r.severity === "warn") e.warn += 1;
+      // rows llegan por createdAt desc → la primera crítica manda como "top".
+      if (r.severity === "critical" && e.critical === 1) e.top = r.title;
+      out[id] = e;
+    }
+    res.json(out);
+  });
+
   router.get("/clients/:idOrSlug/alerts", async (req, res) => {
     const { idOrSlug } = req.params;
     try {
