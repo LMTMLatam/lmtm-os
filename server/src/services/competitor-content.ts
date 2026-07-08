@@ -469,7 +469,7 @@ const isTaken = (t: SrTask) => isApproved(t) || /revisi/i.test(t.aprobacion ?? "
  * Super Redes, distill the pattern with AI, and pin it to the client's brain
  * (key super-redes-feedback). Overwrites the previous snapshot — idempotent.
  */
-export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{ updated: boolean }> {
+export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{ updated: boolean; pending?: number }> {
   const companyId = await resolveCompanyId(db, clientId);
   if (!companyId) return { updated: false };
   const tasks = await readSuperRedesTasks(db, clientId).catch(() => null);
@@ -527,20 +527,44 @@ export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{
     companyId, clientId, kind: "context", key: FEEDBACK_KEY,
     content, source: "super-redes-feedback", pinned: true,
   });
-  return { updated: true };
+  return { updated: true, pending };
 }
 
-/** Daily feedback pass across all active clients (paced, best-effort). */
-export async function sweepSuperRedesFeedback(db: Db): Promise<{ clients: number; updated: number }> {
+/** Daily feedback pass across all active clients (paced, best-effort).
+ *  Con { digest: true } (los lunes, desde el tick diario) manda además un
+ *  WhatsApp al equipo con las ideas pendientes de revisión — el ritual humano
+ *  del que depende TODO el loop de aprendizaje: sin aprobar/borrar ideas en
+ *  Super Redes, la tasa de adopción no se mueve y el agente no aprende. */
+export async function sweepSuperRedesFeedback(db: Db, opts: { digest?: boolean } = {}): Promise<{ clients: number; updated: number }> {
   const rows = await activeClients(db);
   let updated = 0;
+  const pendientes: Array<{ name: string; pending: number }> = [];
   for (const c of rows) {
     try {
       const r = await runSuperRedesFeedback(db, c.id);
       if (r.updated) updated += 1;
+      if (r.pending && r.pending > 0) pendientes.push({ name: c.name, pending: r.pending });
     } catch { /* best-effort per client */ }
     await new Promise((res) => setTimeout(res, 1500));
   }
+
+  if (opts.digest && pendientes.length > 0) {
+    const { sendWhatsAppToNumber, alertsNumber } = await import("./agency-ops.js");
+    const team = alertsNumber();
+    if (team) {
+      pendientes.sort((a, b) => b.pending - a.pending);
+      const total = pendientes.reduce((a, p) => a + p.pending, 0);
+      const lines = [
+        `*💡 ${total} ideas de agentes esperan revisión en Super Redes*`,
+        "",
+        ...pendientes.slice(0, 15).map((p) => `• *${p.name}*: ${p.pending} pendiente${p.pending === 1 ? "" : "s"}`),
+        "",
+        "_Aprobar (Aprobación de cliente → APROBADO) o borrar las malas. De eso aprende el agente: lo aprobado se repite, lo borrado no vuelve._",
+      ];
+      await sendWhatsAppToNumber(team, lines.join("\n")).catch(() => {});
+    }
+  }
+
   return { clients: rows.length, updated };
 }
 
@@ -706,7 +730,8 @@ export function initContentIdeas(db: Db): void {
     if (day === lastContentDay) return;
     lastContentDay = day;
     // Feedback first, so today's ideas are generated with yesterday's lessons.
-    await sweepSuperRedesFeedback(db)
+    // Lunes: digest de ideas pendientes al equipo (el ritual del que depende el loop).
+    await sweepSuperRedesFeedback(db, { digest: new Date().getDay() === 1 })
       .then((r) => console.log(`[content-ideas] feedback sweep: ${r.updated} updated / ${r.clients} clients`))
       .catch((e) => console.warn("[content-ideas] feedback sweep failed:", e));
     await sweepDailyIdeas(db)
