@@ -43,6 +43,9 @@ complementa.
 
 5. **Creá una tarea nueva en la list "Super Redes Sociales"** del cliente
    (vía MCP de ClickUp) con estos datos:
+   - **Tag `idea-lmtm-os` SIEMPRE (obligatorio)**: así el sistema distingue tus
+     ideas de los posts del equipo y mide tu tasa de adopción (Feedback Super
+     Redes). Sin el tag, tu trabajo no se mide.
    - **Antes de crear, revisá que NO exista ya la misma idea en esa list**
      (buscá por nombre/tema; si ya está, no la dupliques — generá otra).
    - **Nombre de la tarea:** la idea en una sola línea.

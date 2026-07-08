@@ -1585,7 +1585,7 @@ function CampaignsDashboard({ client, ads }: { client: Client; ads: ClientAdsSum
             <Megaphone className="h-5 w-5 mx-auto text-muted-foreground" />
             <p className="text-sm font-medium mt-2">No hay campañas sincronizadas</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-              La sincronización con Meta corre sola cada hora. Si la cuenta se mapeó recién, en unos minutos aparecen las campañas.
+              La sincronización con Meta corre sola una vez por día. Si la cuenta se mapeó recién, los datos aparecen en la próxima pasada (o al día siguiente).
             </p>
           </div>
         ) : (

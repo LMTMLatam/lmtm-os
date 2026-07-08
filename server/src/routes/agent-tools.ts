@@ -442,7 +442,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_niche_intel",
       description:
-        "Inteligencia del NICHO/rubro: benchmark de CTR/CPL (promedio vs ideal del mejor cuartil), formato de contenido ganador, experimento sugerido, mejor contenido y competidores de todos los clientes del rubro. Usalo para comparar a tu cliente contra sus pares, cruzar qué funciona en el nicho y generalizar lo que mejor rinde. Sin 'niche' devuelve el resumen de todos los nichos.",
+        "Inteligencia del NICHO/rubro: benchmark de CTR/CPL (promedio vs meta alcanzable del mejor cuartil), formato ganador en orgánico Y en ads, experimento sugerido, PLAN DE ACCIÓN minado a diario (acciones concretas por cliente: subir CTR, bajar CPL, escalar, activar pauta — con prioridad), mejor contenido y competidores del rubro. Usalo como BASE de todo diagnóstico de pauta o propuesta antes de improvisar. Sin 'niche' devuelve el resumen de todos los nichos.",
       parameters: {
         type: "object",
         properties: { niche: { type: "string", description: "Rubro (ej. 'inmobiliaria', 'turismo-hoteleria', 'construccion-materiales'). Opcional." } },
@@ -1160,14 +1160,22 @@ export function agentToolsRoutes(
 
       if (tool === "get_niche_intel") {
         const niche = typeof params.niche === "string" ? params.niche.trim().toLowerCase() : "";
-        const scopes = ["niche", "niche_benchmark", "niche_experiment"];
+        const scopes = ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format", "niche_actions"];
         const conds = [inArray(learnings.scope, scopes)];
         if (niche) conds.push(eq(learnings.scopeKey, niche));
         const rows = await db.select().from(learnings).where(and(...conds)).orderBy(learnings.scopeKey);
         if (rows.length === 0) return reply(true, niche ? `Sin inteligencia minada para el nicho "${niche}" todavía (se mina cada 24h; necesita >=2 clientes con pauta).` : "Sin inteligencia de nichos minada todavía.");
         const lines: string[] = [];
-        const label: Record<string, string> = { niche: "Formato ganador", niche_benchmark: "Benchmark", niche_experiment: "Experimento sugerido" };
-        for (const r of rows) lines.push(`[${r.scopeKey}] ${label[r.scope] ?? r.scope}: ${r.pattern}`);
+        const label: Record<string, string> = { niche: "Formato ganador orgánico", niche_benchmark: "Benchmark", niche_experiment: "Experimento sugerido", niche_ads_format: "Formato ganador en ads", niche_actions: "Plan de acción" };
+        for (const r of rows) {
+          lines.push(`[${r.scopeKey}] ${label[r.scope] ?? r.scope}: ${r.pattern}`);
+          // El plan de acción vive estructurado en evidence.actions — expandirlo
+          // para que el agente reciba las acciones concretas, no solo el titular.
+          if (r.scope === "niche_actions") {
+            const acts = ((r.evidence as { actions?: Array<{ priority?: number; action?: string; kind?: string }> } | null)?.actions ?? []);
+            for (const a of acts) lines.push(`  ${a.priority === 1 ? "[URGENTE]" : a.priority === 2 ? "[mejora]" : a.kind === "idea" ? "[idea]" : "[sumar]"} ${a.action}`);
+          }
+        }
         if (niche) {
           const top = await db.select({ title: contentPerformance.title, format: contentPerformance.format, score: contentPerformance.score, clientName: clients.name })
             .from(contentPerformance)
@@ -1186,7 +1194,7 @@ export function agentToolsRoutes(
             for (const c of comps) lines.push(`- ${c.name} (competidor de ${c.clientName})`);
           }
         }
-        return reply(true, lines.join("\n").slice(0, 6000));
+        return reply(true, lines.join("\n").slice(0, 9000));
       }
 
       if (tool === "get_team_lessons") {
