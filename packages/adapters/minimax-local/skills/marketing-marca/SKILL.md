@@ -1,3 +1,10 @@
+---
+name: marketing-marca
+displayName: Estrategia de marca
+description: Construcción de marca: posicionamiento, voz, arquetipos, mensajes clave y consistencia visual. Usala para briefs de marca o revisión de identidad.
+required: false
+---
+
 # Analisis de Voz de Marca y Generacion de Guidelines
 
 ## Proposito de la skill

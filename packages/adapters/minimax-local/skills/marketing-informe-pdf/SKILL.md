@@ -1,3 +1,10 @@
+---
+name: marketing-informe-pdf
+displayName: Informe PDF
+description: Generación de informes de marketing en PDF con diseño profesional: estructura, gráficos y export. Usala cuando el entregable es un PDF.
+required: false
+---
+
 # Generador de Informe de Marketing en PDF
 
 ## Proposito de la skill

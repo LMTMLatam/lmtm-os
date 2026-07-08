@@ -78,7 +78,7 @@ Checklist:
 - [ ] **¿El `description` coincide con lo que necesitamos?** Trigger
   claro
 - [ ] **¿Los `allowed-tools` son ejecutables en nuestro env?** Si
-  requiere `Bash(playwright:*)` y Render no tiene playwright, no
+  requiere `Bash(playwright:*)` y el container de Railway no tiene playwright, no
   sirve directo
 - [ ] **¿Tiene skill hermana conflictiva?** Si ya tenemos
   `lmtm-google-trends`, no adoptes `another-google-trends` que

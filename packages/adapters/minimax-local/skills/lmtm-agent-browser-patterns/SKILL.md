@@ -16,7 +16,7 @@ un API no es suficiente: login con 2FA, screenshots, scraping, etc.
 
 **Importante**: la skill upstream de `agent-browser` declara
 `allowed-tools: Bash(agent-browser:*)`, lo cual **no se puede ejecutar
-en Render** porque el CLI no está instalado en el container. Por eso
+en Railway** porque el CLI no está instalado en el container. Por eso
 esta skill es **knowledge-only**: documenta los patrones pero la
 ejecución real la tiene que hacer un humano en su máquina (donde
 tenga `npm i -g agent-browser && agent-browser install`).

@@ -1,3 +1,10 @@
+---
+name: marketing-seo-contenido
+displayName: SEO de contenidos
+description: Estrategia de contenido SEO: keywords, clusters, briefs de artículos y optimización on-page. Usala para planificar o escribir contenido orgánico de búsqueda.
+required: false
+---
+
 # Auditoria SEO de Contenido
 
 ## Proposito de la skill

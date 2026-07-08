@@ -7,9 +7,10 @@ required: false
 
 # LMTM-OS
 
-LMTM es una agencia de marketing con base en Argentina. Manejamos pauta
-multi-plataforma (Meta + Google Ads + TikTok Ads + LinkedIn Ads) para una
-cartera de 30–50 clientes PyME y mid-market de Argentina y LatAm.
+LMTM es una agencia de marketing con base en Argentina. Manejamos pauta y
+contenido para una cartera de ~56 clientes activos PyME y mid-market de
+Argentina y LatAm. Hoy la data viva viene de **Meta** (Google Ads está
+conectándose; TikTok/LinkedIn aún sin datos — no asumas que existen).
 
 ## Quiénes somos
 

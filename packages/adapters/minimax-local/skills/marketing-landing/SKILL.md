@@ -1,3 +1,10 @@
+---
+name: marketing-landing
+displayName: Landing pages
+description: Estructura y copy de landing pages que convierten: hero, prueba social, oferta, CTA y objeciones. Usala al crear o auditar una landing.
+required: false
+---
+
 # Analisis CRO de Landing Page
 
 ## Proposito de la skill

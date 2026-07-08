@@ -32,7 +32,7 @@ Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 - `lmtmGetClientAdsPerformance` — métricas REALES de Meta (spend, impresiones, clicks, leads, reach, CTR, CPL, CPC) en una ventana de días.
 - `lmtmGetClientBalance` — **saldo/presupuesto REAL de la cuenta de Meta**: spend_cap, amount_spent y `remaining` (lo que queda antes del tope). ESTO es el "presupuesto" y el "límite de crédito" del cliente — no existe en ningún otro lado. Si detectás saldo bajo, usá `lmtmSendBalanceAlert` (NO issues).
 - `lmtmGetClientOrganicPosts` — publicaciones orgánicas reales (IG + FB) en las últimas N horas.
-- `lmtmGetClientScheduledContent` — contenido programado en la lista de Redes de ClickUp (qué se planeó publicar y cuándo).
+- `lmtmGetClientScheduledContent` — contenido programado en la lista de Redes de ClickUp. `plannedDate` = Fecha de inicio (cuándo dispara a Make); `published`/`sentToMake` = etiqueta "mandado/enviado a make" (la ÚNICA señal de publicación — NO mirar el status de ClickUp).
 - `lmtmGetClientCompetitors` — competidores cargados.
 - `lmtmGetClientScores` — score de salud de cuenta y operativo.
 - `lmtmPortfolioSnapshot` — **foto AGREGADA de toda la agencia** (últimos 7 días: clientes activos, spend/leads totales, cuántos tienen alertas abiertas). Usalo ANTES de escalar un problema para saber si es sistémico o solo de tu cliente.
@@ -40,6 +40,15 @@ Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 - `lmtmSendBalanceAlert` — **envía alerta de saldo bajo por WhatsApp al equipo**. Usala SIEMPRE que detectes saldo bajo / spend_cap agotado / pauta frenada. NUNCA crees issues para alertas de saldo.
 - `lmtmSendWhatsappReport` — **envía un reporte/mensaje genérico por WhatsApp al equipo** (message + title opcional). Usala cuando el equipo te pide reportar/avisar algo por WhatsApp. Sí podés mandar WhatsApp.
 - `lmtmCreateClientTask` — crear una tarea para un cliente (internas se crean activas; externas quedan para aprobar). **NO la uses para alertas de saldo** — esas van por WhatsApp con `lmtmSendBalanceAlert`.
+
+## Inteligencia de equipo y nichos
+
+- `lmtmGetNicheIntel` — **inteligencia del rubro del cliente**: benchmark (CTR/CPL promedio vs meta alcanzable del mejor cuartil), formato ganador en orgánico y en ads, mejores campañas reales, experimento sugerido y el **plan de acción minado a diario** (subir CTR / bajar CPL / escalar / activar pauta, por cliente). Usalo como base de TODO diagnóstico de pauta en vez de improvisar.
+- `lmtmGetTeamStatus` — qué está haciendo cada agente del equipo ahora.
+- `lmtmGetTeamLessons` / `lmtmRememberTeamLesson` — **lecciones de equipo compartidas** (limitaciones del sistema, patrones, errores a no repetir). Consultá ANTES de diagnosticar problemas raros o escalar; guardá lo que descubras.
+- `lmtmSaveDeliverable` / `lmtmListDeliverables` — entregables reutilizables (copys finales, specs, reportes). Chequeá antes de armar algo de cero.
+- `lmtmSaveHook` / `lmtmSearchHooks` — **Baúl de Ganchos**: ganchos probados por nicho/cliente (hay +50 sembrados del catálogo del equipo — ver skill `lmtm-ganchos-virales`). Buscá antes de titular un post; guardá los que funcionen.
+- `lmtmSaveTrend` — tendencias diarias etiquetadas por nicho (van al panel, NO a WhatsApp).
 
 ## Reglas de oro
 
@@ -134,7 +143,7 @@ Acceso directo a la cuenta `grow@bylmtm.com` (OAuth2). Es la planificación REAL
 
 ## ClickUp (MCP `clickup`) — tareas y listas nativas
 
-Acceso directo a la API de ClickUp (workspace 37303684). Complementa `lmtmGetClientScheduledContent`.
+Acceso directo a la API de ClickUp (workspace LMTM, team_id 9013352440). Complementa `lmtmGetClientScheduledContent`. Convenciones de listas/campos/etiquetas: skill `lmtm-clickup-conventions`.
 - `list_workspaces` / `list_spaces` / `list_folders` / `list_lists` / `list_folderless_lists` — descubrir la jerarquía. Cada space suele ser un cliente.
 - `list_tasks` / `get_task` / `search_tasks` — leer tareas (ej la lista "Redes Sociales").
 - `create_task` / `update_task` / `add_comment` — crear/editar tareas. Usalo para **transcribir** una tarea que no se creó desde el Sheet, o corregir fechas.

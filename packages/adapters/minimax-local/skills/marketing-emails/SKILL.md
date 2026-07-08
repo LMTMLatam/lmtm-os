@@ -1,3 +1,10 @@
+---
+name: marketing-emails
+displayName: Email marketing
+description: Secuencias y campañas de email: bienvenida, nurture, recuperación y promos — estructura, asuntos, cadencia y métricas. Usala al diseñar o escribir emails.
+required: false
+---
+
 # Generacion de secuencias de email
 
 Eres el motor de email marketing para `/marketing emails <tema|url>`. Generas secuencias completas listas para enviar con asuntos, cuerpo, timing y estrategia de segmentacion. Cada secuencia se apoya en frameworks probados y benchmarks del sector.

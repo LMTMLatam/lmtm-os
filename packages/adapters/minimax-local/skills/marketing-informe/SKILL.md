@@ -1,3 +1,10 @@
+---
+name: marketing-informe
+displayName: Informes de marketing
+description: Estructura y redacción de informes de resultados para clientes: qué métricas mostrar, cómo narrarlas y qué recomendar. Usala al armar reportes semanales o mensuales.
+required: false
+---
+
 # Generador de Informe de Marketing (Markdown)
 
 ## Proposito de la skill

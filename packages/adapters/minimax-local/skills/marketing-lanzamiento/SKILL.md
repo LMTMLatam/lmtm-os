@@ -1,3 +1,10 @@
+---
+name: marketing-lanzamiento
+displayName: Lanzamientos
+description: Playbook de lanzamiento de producto/servicio: pre-lanzamiento, oferta, secuencia de contenidos y pauta, y post-lanzamiento. Usala al planificar un lanzamiento.
+required: false
+---
+
 # Generador de Playbook de Lanzamiento
 
 ## Proposito de la skill

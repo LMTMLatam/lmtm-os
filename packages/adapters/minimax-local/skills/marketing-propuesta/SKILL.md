@@ -1,3 +1,10 @@
+---
+name: marketing-propuesta
+displayName: Propuestas comerciales
+description: Estructura y redacción de propuestas comerciales de agencia: diagnóstico, alcance, entregables, pricing y cierre. Usala al cotizar o armar propuestas para prospectos.
+required: false
+---
+
 # Generador de Propuesta para Cliente de Marketing
 
 ## Proposito de la skill
