@@ -13,9 +13,10 @@ model_list:
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY
   # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).
+  # [TEST A] temporarily broken model id to prove NVIDIA primary is the one serving.
   - model_name: lmtm-minimax
     litellm_params:
-      model: anthropic/MiniMax-M3
+      model: anthropic/BROKEN-FALLBACK-TEST
       api_base: https://api.minimax.io/anthropic
       api_key: os.environ/MINIMAX_API_KEY
 
