@@ -192,25 +192,6 @@ const GLOBAL_MAX_CONCURRENT_RUNS = Math.max(
   1,
   Math.floor(Number(process.env.LMTM_GLOBAL_MAX_CONCURRENT_RUNS ?? 3)) || 3,
 );
-// Minimum spacing between consecutive fleet-wide run starts. The MiniMax
-// backend degrades badly under bursts (several runs starting at once), so even
-// within the concurrency cap we pace the starts. Tune via env; set 0 to disable.
-const RUN_START_STAGGER_MS = Math.max(
-  0,
-  Math.floor(Number(process.env.LMTM_RUN_START_STAGGER_MS ?? 4000)),
-);
-// Single fleet-wide start-lock key. withAgentStartLock is keyed per agent and
-// does NOT serialize across agents, so the global-cap check raced (every agent
-// read the same running count and all passed). A constant key gives one global
-// slot so the cap is reserved atomically fleet-wide.
-const GLOBAL_START_LOCK_KEY = "__paperclip_global_start__";
-let lastRunStartAtMs = 0;
-async function staggerBeforeRunStart() {
-  if (RUN_START_STAGGER_MS <= 0) return;
-  const wait = RUN_START_STAGGER_MS - (Date.now() - lastRunStartAtMs);
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  lastRunStartAtMs = Date.now();
-}
 const LIVENESS_BOOKKEEPING_ACTIVITY_ACTIONS = [
   "environment.lease_acquired",
   "environment.lease_released",
@@ -6733,6 +6714,12 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       const runningCount = await countRunningRunsForAgent(agentId);
       const perAgentSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
       if (perAgentSlots <= 0) return [];
+      // Global throttle: never exceed GLOBAL_MAX_CONCURRENT_RUNS across the whole
+      // fleet, so 50 queued issues drain gradually instead of saturating the box.
+      const globalRunning = await countAllRunningRuns();
+      const globalSlots = Math.max(0, GLOBAL_MAX_CONCURRENT_RUNS - globalRunning);
+      if (globalSlots <= 0) return [];
+      const availableSlots = Math.min(perAgentSlots, globalSlots);
 
       const queuedRuns = await db
         .select()
@@ -6778,26 +6765,12 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         return left.createdAt.getTime() - right.createdAt.getTime();
       });
 
-      // Reserve global slots and claim under a SINGLE fleet-wide lock. The
-      // per-agent lock above does not serialize different agents, so the
-      // global-cap check raced: every agent read the same running count, all
-      // passed, and the cap (2) leaked to ~9 concurrent runs that saturated the
-      // MiniMax backend. Recomputing the count and claiming inside one global
-      // lock — plus staggering the starts — keeps the fleet both capped and paced.
-      const claimedRuns = await withAgentStartLock(GLOBAL_START_LOCK_KEY, async () => {
-        const globalRunning = await countAllRunningRuns();
-        const globalSlots = Math.max(0, GLOBAL_MAX_CONCURRENT_RUNS - globalRunning);
-        if (globalSlots <= 0) return [] as Array<typeof heartbeatRuns.$inferSelect>;
-        const availableSlots = Math.min(perAgentSlots, globalSlots);
-        const claimed: Array<typeof heartbeatRuns.$inferSelect> = [];
-        for (const queuedRun of prioritizedRuns) {
-          if (claimed.length >= availableSlots) break;
-          await staggerBeforeRunStart();
-          const claimedRun = await claimQueuedRun(queuedRun);
-          if (claimedRun) claimed.push(claimedRun);
-        }
-        return claimed;
-      });
+      const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
+      for (const queuedRun of prioritizedRuns) {
+        if (claimedRuns.length >= availableSlots) break;
+        const claimed = await claimQueuedRun(queuedRun);
+        if (claimed) claimedRuns.push(claimed);
+      }
       if (claimedRuns.length === 0) return [];
 
       for (const claimedRun of claimedRuns) {
