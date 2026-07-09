@@ -5873,16 +5873,31 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       }
     }
 
+    // Cheap non-transactional pre-check: when the fleet is already at the cap
+    // (the common case while a backlog drains), bail WITHOUT opening a transaction.
+    // A storm of blocking claim-transactions on a backed-up queue serialized on the
+    // advisory lock and held the tiny DB pool (PGPOOL_MAX), which hung /api/health
+    // (HTTP 000, iter4). This fast path sheds that load; the advisory-locked tx
+    // below stays the authoritative atomic gate, so correctness is unchanged.
+    const [preCount] = await db
+      .select({ running: sql<number>`count(*)::int` })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    if ((preCount?.running ?? 0) >= GLOBAL_MAX_CONCURRENT_RUNS) return null;
+
     const claimedAt = new Date();
     // Atomic global concurrency cap. Every start path (tick, wakeup, retry,
     // continuation) funnels through claimQueuedRun, so enforcing the cap HERE —
     // under a DB advisory lock that serializes the count-check + claim fleet-wide
     // — guarantees at most GLOBAL_MAX_CONCURRENT_RUNS runs are ever "running".
-    // Returns null (leaves the run queued for the next tick) when there is no free
-    // slot. This replaces the in-process global lock that death-spiraled: the
-    // advisory lock can't be bypassed by a stale timeout and holds for ~ms.
+    // try-lock (non-blocking): if another claim holds the lock, bail immediately
+    // instead of WAITING while holding a pool connection (the pool-exhaustion cause
+    // above). The run stays queued and the next tick retries it. Fails safe.
     const claimed = await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(${CLAIM_ADVISORY_LOCK_KEY})`);
+      const lockRes = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(${CLAIM_ADVISORY_LOCK_KEY}) AS locked`);
+      const lockRows = (Array.isArray(lockRes) ? lockRes : (lockRes as { rows?: unknown[] })?.rows) ?? [];
+      const gotLock = (lockRows[0] as { locked?: boolean } | undefined)?.locked === true;
+      if (!gotLock) return null;
       const [countRow] = await tx
         .select({ running: sql<number>`count(*)::int` })
         .from(heartbeatRuns)
