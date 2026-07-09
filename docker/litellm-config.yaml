@@ -13,6 +13,14 @@ model_list:
       model: openai/z-ai/glm-5.2
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY
+  # 2nd GLM deployment on a separate free-tier key: LiteLLM load-balances across
+  # both under the same model_name, doubling the free rate-limit budget so the
+  # 4 NVIDIA agents fall back to (slow) MiniMax far less often.
+  - model_name: lmtm-glm
+    litellm_params:
+      model: openai/z-ai/glm-5.2
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY_2
   # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).
   - model_name: lmtm-minimax
     litellm_params:
