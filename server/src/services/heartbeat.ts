@@ -192,6 +192,13 @@ const GLOBAL_MAX_CONCURRENT_RUNS = Math.max(
   1,
   Math.floor(Number(process.env.LMTM_GLOBAL_MAX_CONCURRENT_RUNS ?? 3)) || 3,
 );
+// Fleet-wide advisory-lock key for the atomic concurrency-cap claim. A Postgres
+// advisory lock (NOT an in-process lock) is deliberate: in-process start locks
+// bypass on a 30s stale timeout, which let the cap leak and death-spiraled the
+// box twice (2026-07-09). pg_advisory_xact_lock is held only for the claim tx
+// (count + update, ~ms) and auto-releases on commit/disconnect — no stale bypass,
+// no sleeps, and it fails safe (under-claims rather than spiraling).
+const CLAIM_ADVISORY_LOCK_KEY = 918273465;
 const LIVENESS_BOOKKEEPING_ACTIVITY_ACTIONS = [
   "environment.lease_acquired",
   "environment.lease_released",
@@ -5867,16 +5874,31 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
 
     const claimedAt = new Date();
-    const claimed = await db
-      .update(heartbeatRuns)
-      .set({
-        status: "running",
-        startedAt: run.startedAt ?? claimedAt,
-        updatedAt: claimedAt,
-      })
-      .where(and(eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued")))
-      .returning()
-      .then((rows) => rows[0] ?? null);
+    // Atomic global concurrency cap. Every start path (tick, wakeup, retry,
+    // continuation) funnels through claimQueuedRun, so enforcing the cap HERE —
+    // under a DB advisory lock that serializes the count-check + claim fleet-wide
+    // — guarantees at most GLOBAL_MAX_CONCURRENT_RUNS runs are ever "running".
+    // Returns null (leaves the run queued for the next tick) when there is no free
+    // slot. This replaces the in-process global lock that death-spiraled: the
+    // advisory lock can't be bypassed by a stale timeout and holds for ~ms.
+    const claimed = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${CLAIM_ADVISORY_LOCK_KEY})`);
+      const [countRow] = await tx
+        .select({ running: sql<number>`count(*)::int` })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.status, "running"));
+      if ((countRow?.running ?? 0) >= GLOBAL_MAX_CONCURRENT_RUNS) return null;
+      return await tx
+        .update(heartbeatRuns)
+        .set({
+          status: "running",
+          startedAt: run.startedAt ?? claimedAt,
+          updatedAt: claimedAt,
+        })
+        .where(and(eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued")))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+    });
     if (!claimed) return null;
 
     publishLiveEvent({
