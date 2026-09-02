@@ -28,9 +28,25 @@ export async function withFreshAccessToken(db: Db, connection: AdsConnection): P
         .where(eq(adsConnections.id, connection.id));
     } catch { /* persisting is best-effort; the fresh token still gets used */ }
     return { ...connection, accessToken: set.accessToken };
-  } catch {
-    // Refresh failed (revoked?). Fall through with the stored token — the
-    // API call will surface the real error to the caller.
+  } catch (e) {
+    // El refresh falló (revocado, invalid_grant, app sin verificar…). Antes se
+    // seguía en silencio con el token viejo y el caller recibía un 401 crudo de
+    // searchStream, que NO dice la causa: parecía un problema de permisos de la
+    // cuenta cuando en realidad la conexión entera está muerta y hay que volver
+    // a autorizar. Costó 3 días de sync caído sin que nadie supiera por qué
+    // (18-21/8: 84 syncs fallados, 0 completados).
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.warn(`[ads] no se pudo refrescar el token de ${connection.platform} (${connection.id}): ${motivo.slice(0, 200)}`);
+    try {
+      await db
+        .update(adsConnections)
+        .set({
+          status: "error",
+          lastError: `El refresh token ya no sirve — hay que reconectar la cuenta. Detalle: ${motivo.slice(0, 400)}`,
+          lastCheckAt: new Date(),
+        })
+        .where(eq(adsConnections.id, connection.id));
+    } catch { /* marcar es best-effort */ }
     return connection;
   }
 }
