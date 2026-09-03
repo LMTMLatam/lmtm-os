@@ -7,6 +7,7 @@ export interface ReadinessClient {
   industry: string | null;
   checks: {
     metaAdAccount: boolean;
+    googleAdAccount: boolean;
     metaPage: boolean;
     rubro: boolean;
     location: boolean;

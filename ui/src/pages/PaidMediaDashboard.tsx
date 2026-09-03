@@ -38,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PubvizTheme, StatRow, ComboChart, CumulativeFlow, Donut, FunnelViz } from "@/components/pubviz";
 import {
   LayoutDashboard,
   Wallet,
@@ -181,39 +182,6 @@ export function DateRangePicker({
 // ============================================================
 //   Trend chart (CSS bars, mirrors ActivityCharts pattern)
 // ============================================================
-function TrendChart({
-  series,
-  metric,
-  height = 64,
-  color = "bg-blue-500",
-}: {
-  series: TimeseriesPoint[];
-  metric: keyof TimeseriesPoint;
-  height?: number;
-  color?: string;
-}) {
-  if (series.length === 0) {
-    return <div className="h-16 flex items-center justify-center text-xs text-muted-foreground">Sin datos</div>;
-  }
-  const max = Math.max(...series.map((p) => Number(p[metric] ?? 0)), 1);
-  return (
-    <div className="flex items-end gap-[2px]" style={{ height }}>
-      {series.map((p, i) => {
-        const v = Number(p[metric] ?? 0);
-        const pct = max > 0 ? (v / max) * 100 : 0;
-        return (
-          <div
-            key={i}
-            className={`flex-1 rounded-sm ${v > 0 ? color : "bg-muted/40"} transition-all hover:opacity-80`}
-            style={{ height: `${Math.max(pct, 1.5)}%` }}
-            title={`${p.date}: ${v.toLocaleString("en-US")}`}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 // ============================================================
 //   KPI card with delta and trend chart
 // ============================================================
@@ -227,21 +195,22 @@ function Kpi({
   trend?: { value: number; suffix?: string };
   accent?: "blue" | "green" | "amber" | "rose" | "violet";
 }) {
-  const colors: Record<string, string> = {
-    blue: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-    green: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-    amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    rose: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-    violet: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  const chips: Record<string, string> = {
+    blue: "linear-gradient(135deg, #2a78d6, #4a3aa7)",
+    green: "linear-gradient(135deg, #1baf7a, #0e8a60)",
+    amber: "linear-gradient(135deg, #eda100, #eb6834)",
+    rose: "linear-gradient(135deg, #e87ba4, #d03b6b)",
+    violet: "linear-gradient(135deg, #7c5ce0, #4a3aa7)",
   };
   const trendColor =
     trend == null ? "" : trend.value > 0 ? "text-emerald-600 dark:text-emerald-400" : trend.value < 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground";
   return (
-    <Card className="p-4">
+    <Card className="p-4 relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: chips[accent] }} />
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1 min-w-0 flex-1">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium truncate">{title}</p>
-          <p className="text-2xl font-semibold tabular-nums truncate">{value}</p>
+          <p className="text-2xl font-bold tabular-nums truncate">{value}</p>
           {(sub || trend != null) && (
             <div className="flex items-center gap-1.5 text-xs">
               {trend != null && (
@@ -254,8 +223,8 @@ function Kpi({
             </div>
           )}
         </div>
-        <div className={`shrink-0 rounded-md p-1.5 ${colors[accent]}`}>
-          <Icon className="h-3.5 w-3.5" />
+        <div className="shrink-0 rounded-lg p-2 text-white shadow-sm" style={{ background: chips[accent] }}>
+          <Icon className="h-4 w-4" />
         </div>
       </div>
     </Card>
@@ -275,48 +244,65 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const defaultUntil = useMemo(() => today.toISOString().slice(0, 10), [today]);
 
   const [range, setRange] = useState({ since: defaultSince, until: defaultUntil });
+  // "all" combina Meta + Google; el toggle filtra serie y tablas.
+  const [platform, setPlatform] = useState<"all" | "meta" | "google">("all");
   const [activeSection, setActiveSection] = useState<Section>("resumen");
   const fmt = useFormatters(client.currency);
   const qc = useQueryClient();
 
   // ---- Queries ----
   const tsQuery = useQuery({
-    queryKey: ["dashboard", "timeseries", client.slug, range.since, range.until],
-    queryFn: () => clientsApi.timeseries(client.slug, range),
+    queryKey: ["dashboard", "timeseries", client.slug, range.since, range.until, platform],
+    staleTime: 180_000,
+    queryFn: () => clientsApi.timeseries(client.slug, { ...range, platform: platform === "all" ? undefined : platform }),
+    retry: false,
+  });
+  // Desglose Meta vs Google del rango (dashboard combinado, pedido 23/7).
+  const splitQuery = useQuery({
+    queryKey: ["dashboard", "ads-split", client.slug, range.since, range.until],
+    staleTime: 180_000,
+    queryFn: () => clientsApi.adsSplit(client.slug, range),
     retry: false,
   });
   const adsetsQuery = useQuery({
     queryKey: ["dashboard", "adsets", client.slug, range.since, range.until],
+    staleTime: 180_000,
     queryFn: () => clientsApi.adsets(client.slug, range),
     retry: false,
   });
   const creativesQuery = useQuery({
     queryKey: ["dashboard", "creatives", client.slug, range.since, range.until],
+    staleTime: 180_000,
     queryFn: () => clientsApi.creatives(client.slug, range),
     retry: false,
   });
   const organicQuery = useQuery({
     queryKey: ["dashboard", "organic", client.slug],
+    staleTime: 180_000,
     queryFn: () => clientsApi.organic(client.slug),
     retry: false,
   });
   const alertsQuery = useQuery({
     queryKey: ["dashboard", "alerts", client.slug],
+    staleTime: 180_000,
     queryFn: () => clientsApi.alerts(client.slug),
     retry: false,
   });
   const audienceQuery = useQuery({
     queryKey: ["dashboard", "audience", client.slug, range.since, range.until],
+    staleTime: 180_000,
     queryFn: () => clientsApi.audience(client.slug, range),
     retry: false,
   });
   const funnelQuery = useQuery({
     queryKey: ["dashboard", "funnel", client.slug, range.since, range.until],
+    staleTime: 180_000,
     queryFn: () => clientsApi.funnel(client.slug, range),
     retry: false,
   });
   const campaignsQuery = useQuery({
     queryKey: ["dashboard", "campaigns", client.slug, range.since, range.until],
+    staleTime: 180_000,
     queryFn: () => clientsApi.campaigns(client.slug, range),
     retry: false,
   });
@@ -392,7 +378,10 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const organic = organicQuery.data?.posts ?? [];
   const alerts = alertsQuery.data?.alerts ?? [];
   const audience = audienceQuery.data;
-  const campaigns = campaignsQuery.data?.campaigns ?? [];
+  // Toggle de plataforma: campañas y adsets traen `platform` por fila.
+  const campaignsAll = campaignsQuery.data?.campaigns ?? [];
+  const campaigns = platform === "all" ? campaignsAll : campaignsAll.filter((c) => c.platform === platform);
+  const splitPlatforms = splitQuery.data?.platforms ?? [];
 
   // ---- Top-line KPIs for the resumen ----
   const totalSpend = funnel?.spend ?? 0;
@@ -454,7 +443,8 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const accountBroke = health != null && health.status === 1 && health.remaining !== null && health.remaining <= 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pv">
+      <PubvizTheme />
       {/* Account-health banner: an empty dashboard must EXPLAIN itself. When
           Meta halted the account (debt/disabled) or the budget cap is spent,
           zeros are reality — say so instead of looking broken. */}
@@ -487,6 +477,13 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
             </p>
           </div>
           <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex gap-1">
+              {(["all", "meta", "google"] as const).map((p) => (
+                <button key={p} onClick={() => setPlatform(p)} className={`text-[11px] px-2 py-1 rounded-md border ${platform === p ? "border-emerald-500 text-emerald-600" : "border-border hover:bg-muted text-muted-foreground"}`}>
+                  {p === "all" ? "Todas" : p === "meta" ? "Meta" : "Google"}
+                </button>
+              ))}
+            </div>
             <DateRangePicker since={range.since} until={range.until} defaultUntil={defaultUntil} onChange={setRange} />
             <SyncStatusIndicator
               isPending={syncMutation.isPending}
@@ -504,6 +501,17 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
             <ShareDialog client={client} />
           </div>
         </div>
+        {splitPlatforms.length > 0 && (
+          <div className="flex gap-2 flex-wrap mt-3 pt-3 border-t border-border/60">
+            {splitPlatforms.map((p) => (
+              <button key={p.platform} onClick={() => setPlatform(platform === p.platform ? "all" : (p.platform as "meta" | "google"))}
+                className={`text-[11px] px-2.5 py-1 rounded-md border ${platform === p.platform ? "border-emerald-500" : "border-border"} hover:bg-muted text-left`}>
+                <span className="font-semibold capitalize">{p.platform}</span>
+                <span className="text-muted-foreground"> · {fmt.fmtMoney(p.spend)} · {fmt.fmtInt(p.leads)} leads · CTR {(p.ctr * 100).toFixed(2)}%{p.leads > 0 ? ` · CPL ${fmt.fmtMoney(p.cpl)}` : ""}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Sidebar + content */}
@@ -559,60 +567,74 @@ function ResumenSection({ series, campaigns, totalSpend, totalImpr, totalClicks,
         <Kpi title="Campañas activas" value={fmt.fmtInt(activeCampaigns)} icon={Megaphone} accent="blue" sub={`${campaigns.length} totales`} />
       </div>
 
-      {/* Trend charts */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Charts — misma anatomía que el dashboard público (estilo Weekly Project Health) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Inversión diaria</h3>
-            <Badge variant="outline" className="text-[10px]">Total {fmt.fmtMoney(totalSpend)}</Badge>
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold">Ritmo de inversión</h3>
+            <p className="text-[10px] text-muted-foreground">Inversión por día · media móvil · promedio del período</p>
           </div>
-          {series.length === 0 ? <Skeleton className="h-16 w-full" /> : <TrendChart series={series} metric="spend" color="bg-blue-500" />}
+          {series.length === 0 ? <Skeleton className="h-52 w-full" /> : (
+            <>
+              <StatRow stats={[
+                { label: "Invertido", value: fmt.fmtMoney(totalSpend) },
+                { label: "Promedio diario", value: fmt.fmtMoney(totalSpend / Math.max(series.length, 1), 0) },
+                { label: "Días", value: String(series.length) },
+              ]} />
+              <ComboChart points={series.map((p: any) => ({ date: p.date, value: p.spend }))} color="var(--pv-c1)" fmtValue={(n) => fmt.fmtMoney(n)} labels={{ bars: "Inversión diaria", line: "Media móvil", guide: "Promedio del período" }} />
+            </>
+          )}
         </Card>
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Leads diarios</h3>
-            <Badge variant="outline" className="text-[10px]">Total {fmt.fmtInt(totalLeads)}</Badge>
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold">Generación de leads</h3>
+            <p className="text-[10px] text-muted-foreground">Leads por día · media móvil · promedio del período</p>
           </div>
-          {series.length === 0 ? <Skeleton className="h-16 w-full" /> : <TrendChart series={series} metric="leads" color="bg-emerald-500" />}
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Clics diarios</h3>
-            <Badge variant="outline" className="text-[10px]">Total {fmt.fmtInt(totalClicks)}</Badge>
-          </div>
-          {series.length === 0 ? <Skeleton className="h-16 w-full" /> : <TrendChart series={series} metric="clicks" color="bg-violet-500" />}
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">CTR diario</h3>
-            <Badge variant="outline" className="text-[10px]">Promedio {fmt.fmtPct(ctr, 2)}</Badge>
-          </div>
-          {series.length === 0 ? <Skeleton className="h-16 w-full" /> : <TrendChart series={series} metric="ctr" color="bg-amber-500" />}
+          {series.length === 0 ? <Skeleton className="h-52 w-full" /> : (
+            <>
+              <StatRow stats={[
+                { label: "Leads", value: fmt.fmtInt(totalLeads) },
+                { label: "CPL", value: cpl > 0 ? fmt.fmtMoney(cpl) : "—" },
+                { label: "Mejor día", value: fmt.fmtInt(Math.max(...series.map((p: any) => p.leads), 0)) },
+              ]} />
+              <ComboChart points={series.map((p: any) => ({ date: p.date, value: p.leads }))} color="var(--pv-c3)" fmtValue={(n) => fmt.fmtInt(n)} labels={{ bars: "Leads diarios", line: "Media móvil", guide: "Promedio del período" }} />
+            </>
+          )}
         </Card>
       </div>
+      <Card className="p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold">Flujo acumulado de resultados</h3>
+          <p className="text-[10px] text-muted-foreground">Cómo se fueron sumando leads y ventas a lo largo del período</p>
+        </div>
+        {series.length === 0 ? <Skeleton className="h-52 w-full" /> : (
+          <>
+            <StatRow stats={[
+              { label: "Leads totales", value: fmt.fmtInt(totalLeads) },
+              { label: "Ventas", value: fmt.fmtInt(totalConversions) },
+              { label: "Clics", value: fmt.fmtInt(totalClicks) },
+            ]} />
+            <CumulativeFlow
+              id="pm-flow"
+              fmtValue={(n) => fmt.fmtInt(n)}
+              series={[
+                { label: "Leads", color: "var(--pv-c3)", points: series.map((p: any) => ({ date: p.date, value: p.leads })) },
+                { label: "Ventas", color: "var(--pv-c1)", points: series.map((p: any) => ({ date: p.date, value: p.conversions })) },
+              ]}
+            />
+          </>
+        )}
+      </Card>
 
-      {/* Top campaigns + Top creatives + Worst */}
+      {/* Top campaigns + Worst */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Card className="p-4">
-          <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><Crown className="h-4 w-4 text-amber-500" /> Top 5 campañas por inversión</h3>
-          {topCampaigns.length === 0 ? <p className="text-xs text-muted-foreground">Sin datos</p> : (
-            <div className="space-y-2">
-              {topCampaigns.map((c: any) => {
-                const pct = totalSpend > 0 ? (c.spend / totalSpend) * 100 : 0;
-                return (
-                  <div key={c.id}>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-medium truncate flex-1">{c.name}</span>
-                      <span className="tabular-nums text-muted-foreground ml-2">{fmt.fmtMoney(c.spend)} · {pct.toFixed(0)}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full bg-blue-500" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><Crown className="h-4 w-4 text-amber-500" /> ¿A dónde fue la inversión?</h3>
+          <Donut
+            slices={[...campaigns].sort((a: any, b: any) => b.spend - a.spend).filter((c: any) => c.spend > 0).map((c: any) => ({ label: c.name, value: c.spend }))}
+            fmtValue={(n) => fmt.fmtMoney(n)}
+            centerLabel="invertido"
+          />
         </Card>
         <Card className="p-4">
           <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><Flame className="h-4 w-4 text-rose-500" /> Atención: CPL más alto</h3>
@@ -722,8 +744,24 @@ function PresupuestoSection({ totalSpend, series, campaigns, fmt }: any) {
       )}
 
       <Card className="p-4">
-        <h3 className="text-sm font-medium mb-3">Evolución diaria de gasto</h3>
-        {series.length === 0 ? <Skeleton className="h-16 w-full" /> : <TrendChart series={series} metric="spend" height={80} color="bg-blue-500" />}
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold">Burnup de inversión</h3>
+          <p className="text-[10px] text-muted-foreground">Gasto acumulado del período, día a día</p>
+        </div>
+        {series.length === 0 ? <Skeleton className="h-52 w-full" /> : (
+          <>
+            <StatRow stats={[
+              { label: "Gastado", value: fmt.fmtMoney(totalSpend) },
+              { label: "Promedio diario", value: fmt.fmtMoney(avgDaily, 0) },
+              { label: "Proyección de cierre", value: fmt.fmtMoney(projected, 0), sub: `${daysRemaining} días restantes` },
+            ]} />
+            <CumulativeFlow
+              id="pm-burnup"
+              fmtValue={(n) => fmt.fmtMoney(n)}
+              series={[{ label: "Inversión", color: "var(--pv-c1)", points: series.map((p: any) => ({ date: p.date, value: p.spend })) }]}
+            />
+          </>
+        )}
       </Card>
 
       <Card className="p-4">
@@ -826,7 +864,10 @@ function CampanasSection({ campaigns, fmt, client }: any) {
               <tr><td colSpan={cols.length} className="text-center py-8 text-muted-foreground">Sin campañas</td></tr>
             ) : filtered.map((c: any) => (
               <tr key={c.id} className="border-b hover:bg-foreground/[0.02]">
-                <td className="py-2 px-2 font-medium max-w-[200px] truncate" title={c.name}>{c.name}</td>
+                <td className="py-2 px-2 font-medium max-w-[200px] truncate" title={c.name}>
+                  {c.name}
+                  {c.platform && <span className={`ml-1.5 text-[9px] px-1 py-0.5 rounded align-middle ${c.platform === "google" ? "bg-blue-500/15 text-blue-500" : "bg-indigo-500/15 text-indigo-400"}`}>{c.platform}</span>}
+                </td>
                 <td className="py-2 px-2"><Badge variant="outline" className="text-[10px]">{c.status}</Badge></td>
                 <td className="py-2 px-2 text-muted-foreground">{c.objective ?? "—"}</td>
                 <td className="py-2 px-2 text-right tabular-nums">{fmt.fmtMoney(c.spend)}</td>
@@ -1185,39 +1226,16 @@ function LeadsSection({ funnel, fmt }: any) {
   // No "Visitas a landing" stage: LMTM doesn't run landing-page campaigns, and
   // the server value was an estimate (clicks*0.6), not a measured number.
   const stages = [
-    { key: "impressions", label: "Impresiones", value: funnel.impressions, color: "bg-blue-500" },
-    { key: "clicks", label: "Clics", value: funnel.clicks, color: "bg-violet-500" },
-    { key: "leads", label: "Leads", value: funnel.leads, color: "bg-emerald-500" },
-    { key: "conversions", label: "Ventas", value: funnel.conversions, color: "bg-rose-500" },
+    { label: "Impresiones", value: funnel.impressions },
+    { label: "Clics", value: funnel.clicks },
+    { label: "Leads", value: funnel.leads },
+    { label: "Ventas", value: funnel.conversions },
   ];
-  const max = Math.max(...stages.map((s) => s.value), 1);
   return (
     <div className="space-y-4">
       <Card className="p-4">
-        <h3 className="text-sm font-medium mb-4">Embudo de conversión</h3>
-        <div className="space-y-3">
-          {stages.map((s, i) => {
-            const pct = (s.value / max) * 100;
-            const prev = i > 0 ? stages[i - 1].value : null;
-            const conv = prev != null && prev > 0 ? (s.value / prev) * 100 : null;
-            return (
-              <div key={s.key}>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{s.label}</span>
-                    {conv != null && (
-                      <Badge variant="outline" className="text-[10px]">{conv.toFixed(1)}%</Badge>
-                    )}
-                  </div>
-                  <span className="tabular-nums font-medium">{fmt.fmtInt(s.value)}</span>
-                </div>
-                <div className="h-8 rounded-md bg-muted overflow-hidden relative">
-                  <div className={`h-full ${s.color} transition-all`} style={{ width: `${Math.max(pct, 1.5)}%` }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <h3 className="text-sm font-semibold mb-4">Embudo de conversión</h3>
+        <FunnelViz stages={stages} fmtValue={(n: number) => fmt.fmtInt(n)} />
       </Card>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi title="CTR (click-through)" value={fmt.fmtPct(funnel.rates.ctr, 2)} icon={MousePointerClick} accent="blue" />

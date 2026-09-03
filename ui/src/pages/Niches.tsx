@@ -36,6 +36,9 @@ function VideoRefRow({ nicheKey, r }: { nicheKey: string; r: NicheIntel["videoRe
   return (
     <div className="text-xs py-1" key={nicheKey + r.id}>
       <div className="flex items-center gap-2">
+        <img src={`/api/growth/video-thumb?url=${encodeURIComponent(r.url)}`} alt="" loading="lazy"
+          className="h-9 w-14 rounded object-cover bg-muted/50 shrink-0 border border-border"
+          onError={(e) => { e.currentTarget.style.display = "none"; }} />
         <Film className="h-3 w-3 text-violet-400 shrink-0" />
         <a href={r.url} target="_blank" rel="noreferrer noopener" className="truncate text-muted-foreground hover:underline max-w-[16rem]" title={r.comentario ?? r.url}>{r.url.replace(/^https?:\/\/(www\.)?/, "")}</a>
         <span className="text-[10px] text-muted-foreground/60 shrink-0">{r.clientName}</span>
@@ -122,6 +125,10 @@ function ClientVsIdeal({ c, idealCtr, idealCpl }: {
           <span className="w-24 inline-flex items-center gap-1.5">{dot(ctrOk)} CTR {fmtPct(a.ctr)}</span>
           <span className="w-28 inline-flex items-center gap-1.5">{dot(cplOk)} {a.cpl != null ? `CPL ${fmtMoney(a.cpl)}` : "sin leads"}</span>
         </>
+      ) : c.syncStatus?.status === "failed" ? (
+        <span className="inline-flex items-center gap-1.5 text-amber-500" title={c.syncStatus.error ?? "error de sync"}>
+          <span className="h-2 w-2 rounded-full bg-amber-500 inline-block" /> error de sync — sin acceso a la cuenta
+        </span>
       ) : (
         <span className="text-muted-foreground/60">sin pauta activa en 30d</span>
       )}
@@ -181,6 +188,73 @@ function NicheCard({ n }: { n: NicheIntel }) {
           ideal={idealCpl != null ? fmtMoney(idealCpl) : null}
           hint={n.ads30d.cpl != null && idealCpl != null ? (n.ads30d.cpl <= idealCpl ? "good" : "bad") : null} />
       </div>
+
+      {/* ── Radar del rubro (informe accionable semanal del agente) ── */}
+      {n.report && (
+        <div className="rounded-md border border-sky-500/25 bg-sky-500/5 p-3 space-y-3">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-sky-600 dark:text-sky-300">
+            <Trophy className="h-3.5 w-3.5" />Radar del rubro — semana {n.report.week}
+          </div>
+          {(n.report.sections.analisisCruzado?.organico || n.report.sections.analisisCruzado?.pauta) && (
+            <div className="grid md:grid-cols-2 gap-2 text-xs">
+              {n.report.sections.analisisCruzado?.organico && (
+                <div><span className="font-medium text-emerald-600 dark:text-emerald-300">Orgánico:</span> <span className="text-muted-foreground leading-relaxed">{n.report.sections.analisisCruzado.organico}</span></div>
+              )}
+              {n.report.sections.analisisCruzado?.pauta && (
+                <div><span className="font-medium text-sky-600 dark:text-sky-300">Pauta:</span> <span className="text-muted-foreground leading-relaxed">{n.report.sections.analisisCruzado.pauta}</span></div>
+              )}
+            </div>
+          )}
+          {(n.report.sections.referentes?.length ?? 0) > 0 && (
+            <div>
+              <div className="text-[11px] font-medium mb-1">Referentes externos (no son clientes nuestros)</div>
+              <div className="space-y-1">
+                {n.report.sections.referentes!.map((r, i) => (
+                  <div key={i} className="text-xs text-muted-foreground leading-relaxed">
+                    <span className="font-medium text-foreground/90">{r.nombre}</span>
+                    {r.cuenta && <span> · {r.cuenta}</span>}
+                    {r.plataforma && <Badge className="ml-1 text-[9px] px-1 py-0 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300">{r.plataforma}</Badge>}
+                    {r.ubicacion && <span className="text-muted-foreground/70"> ({r.ubicacion})</span>}
+                    {r.queHacen && <span> — {r.queHacen}</span>}
+                    {r.urlPerfil && <a href={r.urlPerfil} target="_blank" rel="noreferrer" className="ml-1 text-sky-500 hover:underline">perfil ↗</a>}
+                    {r.urlEjemplo && <a href={r.urlEjemplo} target="_blank" rel="noreferrer" className="ml-1 text-sky-500 hover:underline">ejemplo ↗</a>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {(n.report.sections.ideas?.length ?? 0) > 0 && (
+            <div>
+              <div className="text-[11px] font-medium mb-1">Ideas con referencia</div>
+              <div className="space-y-1.5">
+                {n.report.sections.ideas!.map((idea, i) => (
+                  <div key={i} className="text-xs leading-relaxed">
+                    <span className="font-medium text-foreground/90">{idea.titulo}</span>
+                    {idea.url && <a href={idea.url} target="_blank" rel="noreferrer" className="ml-1.5 text-sky-500 hover:underline">ver referencia ↗</a>}
+                    {idea.fuente && <span className="text-muted-foreground/70 ml-1">({idea.fuente})</span>}
+                    {idea.detalle && <div className="text-muted-foreground">{idea.detalle}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {(n.report.sections.planPorCliente?.length ?? 0) > 0 && (
+            <div>
+              <div className="text-[11px] font-medium mb-1">Plan de acción por cliente — para dónde ir</div>
+              <div className="space-y-1.5">
+                {n.report.sections.planPorCliente!.map((p, i) => (
+                  <div key={i} className="text-xs">
+                    <span className="font-medium text-foreground/90">{p.cliente}:</span>
+                    <ul className="list-disc ml-5 text-muted-foreground leading-relaxed">
+                      {p.movidas.map((m, j) => <li key={j}>{m}</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Acciones a tomar (plan minado a diario) ── */}
       {n.actions.length > 0 && (

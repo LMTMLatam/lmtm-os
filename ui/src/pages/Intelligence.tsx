@@ -1,15 +1,99 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { clientsApi, type Client } from "../api/clients";
+import { intelCenterApi, type Intervention } from "../api/intel-center";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Brain, Gauge, Lightbulb, MessageSquareWarning, BarChart3, RefreshCw, ExternalLink, FileText } from "lucide-react";
+import { Brain, Gauge, Lightbulb, MessageSquareWarning, BarChart3, RefreshCw, ExternalLink, FileText, ShieldAlert, HeartPulse, Check, X } from "lucide-react";
 
 function scoreColor(v: number): string {
   if (v >= 70) return "text-emerald-500";
   if (v >= 40) return "text-amber-500";
   return "text-rose-500";
+}
+
+const LEVEL_STYLE: Record<number, string> = {
+  5: "bg-red-500/10 text-red-700 dark:text-red-300",
+  4: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  3: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  2: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
+  1: "bg-zinc-500/10 text-zinc-500",
+};
+const LEVEL_LABEL: Record<number, string> = { 5: "crítico", 4: "atención", 3: "seguimiento", 2: "dashboard", 1: "historial" };
+
+/** Centro de Inteligencia: intervenciones de los vigilantes + salud /100 de
+ *  cada cliente. WhatsApp = interrupción, esto = conocimiento. */
+function CentroDeInteligencia() {
+  const qc = useQueryClient();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const iq = useQuery({ queryKey: ["intel-center", "interventions"], queryFn: () => intelCenterApi.interventions(), refetchInterval: 5 * 60_000 });
+  const sq = useQuery({ queryKey: ["intel-center", "salud"], queryFn: () => intelCenterApi.saludClientes(), staleTime: 10 * 60_000 });
+  const setStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "resolved" | "dismissed" }) => intelCenterApi.setStatus(id, status),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["intel-center"] }),
+  });
+  const items: Intervention[] = iq.data?.interventions ?? [];
+  const salud = (sq.data?.clientes ?? []).filter((c) => c.salud != null);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-red-500" />
+          <h2 className="font-semibold">Vigilantes — intervenciones abiertas</h2>
+          <Badge className="text-[10px] px-1.5 py-0 bg-zinc-500/10">{items.length}</Badge>
+          <span className="text-[11px] text-muted-foreground ml-auto">nivel 5 y 4 también llegan por WhatsApp (máx. 8/día, agrupado)</span>
+        </div>
+        {items.length === 0 && <div className="text-sm text-muted-foreground">Sin intervenciones abiertas — todo en orden. Los vigilantes (financiera, contenido, salud de cliente) corren a diario.</div>}
+        <div className="space-y-1.5">
+          {items.map((it) => (
+            <div key={it.id} className="rounded-md border border-border p-2.5">
+              <div className="flex items-center gap-2 text-sm">
+                <Badge className={`text-[9px] px-1.5 py-0 shrink-0 ${LEVEL_STYLE[it.level] ?? ""}`}>{LEVEL_LABEL[it.level] ?? it.level}</Badge>
+                <Badge className="text-[9px] px-1.5 py-0 shrink-0 bg-violet-500/10 text-violet-700 dark:text-violet-300">{it.vigilante}</Badge>
+                <button className="text-left flex-1 truncate hover:underline" onClick={() => setExpanded(expanded === it.id ? null : it.id)}>{it.title}</button>
+                <button title="Resuelto" className="p-1 rounded hover:bg-emerald-500/10 text-emerald-600" onClick={() => setStatus.mutate({ id: it.id, status: "resolved" })}><Check className="h-3.5 w-3.5" /></button>
+                <button title="Descartar" className="p-1 rounded hover:bg-red-500/10 text-red-500" onClick={() => setStatus.mutate({ id: it.id, status: "dismissed" })}><X className="h-3.5 w-3.5" /></button>
+              </div>
+              {/* Solo el nivel 5 se abre entero: son ~10 y son las urgentes.
+                  Probé abrir también el 4 y quedaban 120 tarjetas expandidas,
+                  una pared de texto peor que el problema original (18/8).
+                  El 4 muestra la primera línea, que ya dice de qué se trata. */}
+              {it.body && (expanded === it.id || it.level >= 5) ? (
+                <pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">{it.body}</pre>
+              ) : it.body ? (
+                <p className="mt-1 text-xs text-muted-foreground truncate">{it.body.split("\n").find((l) => l.trim()) ?? ""}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <HeartPulse className="h-4 w-4 text-rose-500" />
+          <h2 className="font-semibold">Salud de clientes</h2>
+          <span className="text-[11px] text-muted-foreground ml-auto">índice /100: pauta 40% + operativa 30% + contenido 30% — los peores primero</span>
+        </div>
+        {salud.length === 0 && <div className="text-sm text-muted-foreground">Todavía sin índice — el vigilante lo estampa en su próxima corrida diaria.</div>}
+        <div className="grid md:grid-cols-2 gap-1.5">
+          {salud.map((c) => (
+            <div key={c.id} className="flex items-start gap-2 text-xs rounded-md border border-border p-2">
+              <span className={`font-bold text-sm w-10 shrink-0 ${scoreColor(c.salud!.score)}`}>{c.salud!.score}</span>
+              <div className="min-w-0">
+                <Link to={`/c/${c.slug}`} className="font-medium hover:underline">{c.name}</Link>
+                {(c.salud!.razones?.length ?? 0) > 0 && (
+                  <div className="text-muted-foreground truncate" title={c.salud!.razones!.join("; ")}>{c.salud!.razones!.join("; ")}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
 }
 
 export function Intelligence() {
@@ -39,13 +123,23 @@ export function Intelligence() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-end justify-between flex-wrap gap-3">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <Brain className="h-6 w-6 text-violet-500" /> Centro de Inteligencia
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Los vigilantes cuidan la agencia y dejan acá el estado permanente: alertas, salud de cada cliente y oportunidades.
+          WhatsApp interrumpe solo lo crítico; este tablero es para entender la empresa.
+        </p>
+      </div>
+
+      <CentroDeInteligencia />
+
+      <div className="flex items-end justify-between flex-wrap gap-3 pt-2 border-t border-border">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Brain className="h-6 w-6 text-violet-500" /> Inteligencia
-          </h1>
+          <h2 className="text-lg font-semibold tracking-tight">Inteligencia por cliente</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Memoria viva, scores, oportunidades y feedback por cliente.
+            Memoria viva, scores, oportunidades y feedback del cliente seleccionado.
           </p>
         </div>
         <select value={slug} onChange={(e) => setSlug(e.target.value)} className="h-9 px-3 rounded-md border border-border bg-background text-sm min-w-[200px]">

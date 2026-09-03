@@ -4,6 +4,7 @@ import {
   Target,
   LayoutDashboard,
   DollarSign,
+  Megaphone,
   History,
   Search,
   SquarePen,
@@ -17,10 +18,12 @@ import {
   Wallet,
   MessageCircle,
   Brain,
-  Swords,
+  
   TrendingUp,
   Layers,
+  Gavel,
   ClipboardCheck,
+  Clapperboard,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
@@ -122,12 +125,14 @@ export function Sidebar() {
 
         <SidebarSection label="Company">
           <SidebarNavItem to="/clients" label="Clients" icon={Building2} />
+          <SidebarNavItem to="/paid-media" label="Paid Media" icon={Megaphone} />
           <SidebarNavItem to="/finance" label="Finanzas" icon={Wallet} />
           <SidebarNavItem to="/growth" label="Growth" icon={TrendingUp} />
           <SidebarNavItem to="/niches" label="Nichos" icon={Layers} />
+          <SidebarNavItem to="/licitaciones" label="Licitaciones" icon={Gavel} />
           <SidebarNavItem to="/readiness" label="Readiness" icon={ClipboardCheck} />
-          <SidebarNavItem to="/intelligence" label="Inteligencia" icon={Brain} />
-          <SidebarNavItem to="/competitors" label="Competencia" icon={Swords} />
+          <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
+          <SidebarNavItem to="/intelligence" label="Centro de Inteligencia" icon={Brain} />
           <SidebarNavItem to="/whatsapp" label="WhatsApp" icon={MessageCircle} />
           <SidebarNavItem to="/org" label="Org" icon={Network} />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />

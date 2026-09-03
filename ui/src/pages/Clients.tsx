@@ -67,6 +67,14 @@ export function Clients() {
   });
   const alerts = alertsQuery.data ?? {};
 
+  // Métricas reales 30d por cliente (review 27/7: las cards no decían nada).
+  const metricsQuery = useQuery({
+    queryKey: ["clients", "ads-metrics"],
+    queryFn: () => clientsApi.adsMetrics(),
+    staleTime: 10 * 60 * 1000,
+  });
+  const adsMetrics = metricsQuery.data ?? {};
+
   const filtered = useMemo(() => {
     let list = clients;
     if (q.trim()) {
@@ -180,7 +188,7 @@ export function Clients() {
       {query.isSuccess && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((c) => (
-            <ClientCard key={c.id} client={c} score={scores[c.id]} alerts={alerts[c.id]} />
+            <ClientCard key={c.id} client={c} score={scores[c.id]} alerts={alerts[c.id]} metrics={adsMetrics[c.id]} />
           ))}
         </div>
       )}
@@ -369,7 +377,7 @@ function scoreColor(v: number): string {
 
 type AlertSummary = { total: number; critical: number; warn: number; top: string };
 
-function ClientCard({ client, score, alerts }: { client: Client; score?: { health: number; ops: number }; alerts?: AlertSummary }) {
+function ClientCard({ client, score, alerts, metrics }: { client: Client; score?: { health: number; ops: number }; alerts?: AlertSummary; metrics?: { spend: number; leads: number; cpl: number | null } }) {
   const alertTone = alerts
     ? alerts.critical > 0
       ? "border-rose-500/50"
@@ -455,6 +463,14 @@ function ClientCard({ client, score, alerts }: { client: Client; score?: { healt
         )}
       </div>
 
+      {metrics && metrics.spend > 0 && (
+        <p className="mt-2 text-xs tabular-nums">
+          <span className="font-semibold">${Math.round(metrics.spend).toLocaleString("es-AR")}</span>
+          <span className="text-muted-foreground"> 30d · </span>
+          <span className="font-semibold">{metrics.leads.toLocaleString("es-AR")}</span>
+          <span className="text-muted-foreground"> leads{metrics.cpl != null ? ` · CPL $${Math.round(metrics.cpl).toLocaleString("es-AR")}` : ""}</span>
+        </p>
+      )}
       <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs">
         <span className="text-muted-foreground tabular-nums">
           {formatRetainer(client.monthlyRetainerCents, client.currency)}/mo

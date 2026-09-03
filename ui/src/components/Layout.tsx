@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
+import { Navigate, Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { Sidebar } from "./Sidebar";
 import { InstanceSidebar } from "./InstanceSidebar";
 import { CompanySettingsSidebar } from "./CompanySettingsSidebar";
@@ -93,6 +93,7 @@ export function Layout() {
   }, [companies, companyPrefix]);
   const hasUnknownCompanyPrefix =
     Boolean(companyPrefix) && !companiesLoading && companies.length > 0 && !matchedCompany;
+  const fallbackCompany = selectedCompany ?? companies[0] ?? null;
   const pluginRoutePath = useMemo(
     () => getCompanyRouteSegment(location.pathname, companyPrefix),
     [companyPrefix, location.pathname],
@@ -433,10 +434,22 @@ export function Layout() {
               )}
             >
               {hasUnknownCompanyPrefix ? (
-                <NotFoundPage
-                  scope="invalid_company_prefix"
-                  requestedPrefix={companyPrefix ?? selectedCompany?.issuePrefix}
-                />
+                // El "prefijo" desconocido casi siempre es una ruta del board
+                // escrita sin prefijo de company (/licitaciones, /company/
+                // settings/...): reintentar bajo la company por defecto. Si esa
+                // ruta tampoco existe, el catch-all del board muestra "Page
+                // not found" — que es el error correcto.
+                fallbackCompany ? (
+                  <Navigate
+                    to={`/${fallbackCompany.issuePrefix}${location.pathname}${location.search}${location.hash}`}
+                    replace
+                  />
+                ) : (
+                  <NotFoundPage
+                    scope="invalid_company_prefix"
+                    requestedPrefix={companyPrefix ?? selectedCompany?.issuePrefix}
+                  />
+                )
               ) : (
                 <Outlet />
               )}

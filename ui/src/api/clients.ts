@@ -56,12 +56,20 @@ export const clientsApi = {
     api.patch<Client>(`/clients/${idOrSlug}`, { industry }),
   adsSummary: (idOrSlug: string) =>
     api.get<ClientAdsSummary>(`/clients/${idOrSlug}/ads-summary`),
-  timeseries: (idOrSlug: string, params?: { since?: string; until?: string }) => {
+  timeseries: (idOrSlug: string, params?: { since?: string; until?: string; platform?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.since) sp.set("since", params.since);
+    if (params?.until) sp.set("until", params.until);
+    if (params?.platform) sp.set("platform", params.platform);
+    const qs = sp.toString() ? `?${sp.toString()}` : "";
+    return api.get<TimeseriesResponse>(`/clients/${idOrSlug}/timeseries${qs}`);
+  },
+  adsSplit: (idOrSlug: string, params?: { since?: string; until?: string }) => {
     const sp = new URLSearchParams();
     if (params?.since) sp.set("since", params.since);
     if (params?.until) sp.set("until", params.until);
     const qs = sp.toString() ? `?${sp.toString()}` : "";
-    return api.get<TimeseriesResponse>(`/clients/${idOrSlug}/timeseries${qs}`);
+    return api.get<{ since: string; until: string; platforms: Array<{ platform: string; spend: number; impressions: number; clicks: number; leads: number; ctr: number; cpl: number }> }>(`/clients/${idOrSlug}/ads-split${qs}`);
   },
   adsets: (idOrSlug: string, params?: { since?: string; until?: string }) => {
     const sp = new URLSearchParams();
@@ -128,6 +136,7 @@ export const clientsApi = {
     api.post<{ delivered: boolean; error?: string; brief: string }>(`/clients/portfolio/brief`, null),
   // Intelligence layer
   scores: () => api.get<Record<string, { health: number; ops: number }>>(`/clients/scores`),
+  adsMetrics: () => api.get<Record<string, { spend: number; leads: number; cpl: number | null }>>(`/clients-ads-metrics`),
   intel: (idOrSlug: string) => api.get<ClientIntel>(`/clients/${idOrSlug}/intel`),
   runScore: (idOrSlug: string) => api.post<{ healthScore: number; opsScore: number; components: Record<string, unknown> }>(`/clients/${idOrSlug}/score/run`, null),
   refreshBrain: (idOrSlug: string) => api.post<{ updated: number }>(`/clients/${idOrSlug}/brain/refresh`, null),
@@ -242,6 +251,13 @@ export interface ClientTask {
   originKind: string;
   createdAt: string;
   needsApproval: boolean;
+  /** Qué se está pidiendo, en criollo. Sale de la descripción del issue, sin la
+   *  metadata interna. Antes la tarjeta mostraba solo el título y nadie sabía
+   *  a qué se refería. */
+  queHacer: string | null;
+  pasos: string[];
+  responsable: string | null;
+  plazo: string | null;
 }
 export interface ClientSuggestion {
   id: string;
@@ -583,3 +599,15 @@ export interface ClientFunnelResponse {
   until: string;
   funnel: ClientFunnelData;
 }
+
+// Capa de análisis estratégico en lenguaje cliente (pedido 18/7): resumen,
+// campañas fatigadas (>90d) y recomendación de reinversión con leads estimados.
+export interface AnalisisEstrategico {
+  resumen: string[];
+  fatigadas: Array<{ name: string; desde: string; spend30: number }>;
+  reinversion: { texto: string; extraLeads: number } | null;
+  campanias: Array<{ name: string; spend30: number; ctr: number; cpl: number | null; leads30: number; fatigada: boolean }>;
+}
+export const analisisApi = {
+  get: (idOrSlug: string) => api.get<AnalisisEstrategico>(`/clients/${idOrSlug}/analisis-estrategico`),
+};

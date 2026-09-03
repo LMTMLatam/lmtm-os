@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ExternalLink, Loader2, Plug, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { adsApi, type AdsConnection, type AdsPlatform } from "../api/ads";
+import { clientsApi, type Client } from "../api/clients";
 import { secretsApi } from "../api/secrets";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -165,22 +167,103 @@ function ConnectionRow({
   );
 }
 
+/** Mapeo cuentas → clientes (pedido 23/7): por cada conexión activa, lista las
+ *  cuentas publicitarias reales (Meta o Google) y deja elegir a qué cliente
+ *  del panel pertenece cada una. Guarda al elegir. Para el flujo Meta completo
+ *  (páginas + adsets estilo Make) sigue existiendo /connect-ads. */
+function ConnectionMappings({ connection, companyId, abrir }: { connection: AdsConnection; companyId: string; abrir?: boolean }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  // El botón de arriba ("Mapear cuentas de Meta/Google") despliega este panel
+  // en vez de dejar al usuario buscar el acordeón (pedido 11/8).
+  useEffect(() => { if (abrir) setOpen(true); }, [abrir]);
+  const accountsQuery = useQuery({
+    queryKey: ["ads", "accounts", connection.id],
+    queryFn: () => adsApi.listAdAccounts(connection.id),
+    enabled: open,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const clientsQuery = useQuery({
+    queryKey: queryKeys.clients.list("active"),
+    queryFn: () => clientsApi.list("active"),
+    enabled: open,
+  });
+  const mappingsQuery = useQuery({
+    queryKey: ["ads", "mappings", companyId],
+    queryFn: () => adsApi.listMappings({ companyId }),
+    enabled: open,
+  });
+  const save = useMutation({
+    mutationFn: (b: { adAccountId: string; clientId?: string; label?: string }) =>
+      adsApi.createMapping({ companyId, connectionId: connection.id, adAccountId: b.adAccountId, platform: connection.platform, clientId: b.clientId, label: b.label }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["ads", "mappings", companyId] }),
+  });
+  const clients: Client[] = Array.isArray(clientsQuery.data) ? clientsQuery.data : ((clientsQuery.data as { clients?: Client[] })?.clients ?? []);
+  const normId = (id: string) => id.replace(/^act_/i, "");
+  const mappingByAccount = new Map(
+    (mappingsQuery.data?.mappings ?? [])
+      .filter((m) => m.platform === connection.platform)
+      .map((m) => [normId(m.adAccountId), m]),
+  );
+  const accounts = accountsQuery.data?.accounts ?? [];
+  return (
+    <div className="mt-2 rounded-md border border-border/70 bg-muted/20 p-2">
+      <button onClick={() => setOpen(!open)} className="text-xs font-medium text-foreground/80 hover:text-foreground">
+        {open ? "▾" : "▸"} Mapear cuentas → clientes {open && accounts.length > 0 ? `(${accounts.length} cuentas)` : ""}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {accountsQuery.isLoading && <p className="text-xs text-muted-foreground">Cargando cuentas de {connection.platform}…</p>}
+          {accountsQuery.isError && <p className="text-xs text-rose-500">No se pudieron listar: {(accountsQuery.error as Error).message.slice(0, 200)}</p>}
+          {accounts.map((a) => {
+            const m = mappingByAccount.get(normId(a.id));
+            return (
+              <div key={a.id} className="flex items-center gap-2 text-xs">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${a.status === "active" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                <span className="flex-1 truncate" title={a.id}>{a.name} <span className="text-muted-foreground">({a.id})</span></span>
+                <select
+                  value={m?.clientId ?? ""}
+                  onChange={(e) => save.mutate({ adAccountId: a.id, clientId: e.target.value || undefined, label: `${connection.platform === "google" ? "Google Ads" : "Meta Ads"} — ${a.name}` })}
+                  className="text-xs bg-background border border-border rounded-md px-1.5 py-1 max-w-52"
+                >
+                  <option value="">— sin mapear —</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {m?.clientId && <span className="text-emerald-500 text-[10px]">✓</span>}
+              </div>
+            );
+          })}
+          {save.isError && <p className="text-[11px] text-rose-500">Error al guardar: {(save.error as Error).message.slice(0, 150)}</p>}
+          {connection.platform === "meta" && (
+            <p className="text-[11px] text-muted-foreground pt-1">Para el mapeo completo de Meta (páginas + conjuntos estilo Make): <a className="underline" href={`/connect-ads?connectionId=${connection.id}`}>abrir asistente</a>.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlatformCard({
   platform,
   connections,
+  companyId,
   onConnect,
   onDisconnect,
   pendingDisconnectId,
+  abrirMapeo,
 }: {
   platform: PlatformDescriptor;
   connections: AdsConnection[];
+  companyId: string | null;
   onConnect: () => void;
   onDisconnect: (id: string) => void;
   pendingDisconnectId: string | null;
+  abrirMapeo?: boolean;
 }) {
   const active = connections.filter((c) => c.status === "active");
   return (
-    <div className="rounded-lg border border-border bg-card p-5">
+    <div id={`plataforma-${platform.id}`} className="rounded-lg border border-border bg-card p-5 scroll-mt-4">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -212,12 +295,14 @@ function PlatformCard({
       ) : null}
       <div className="mt-3 flex flex-col gap-2">
         {connections.map((c) => (
-          <ConnectionRow
-            key={c.id}
-            connection={c}
-            onDisconnect={onDisconnect}
-            isDisconnecting={pendingDisconnectId === c.id}
-          />
+          <div key={c.id}>
+            <ConnectionRow
+              connection={c}
+              onDisconnect={onDisconnect}
+              isDisconnecting={pendingDisconnectId === c.id}
+            />
+            {c.status === "active" && companyId && <ConnectionMappings connection={c} companyId={companyId} abrir={abrirMapeo} />}
+          </div>
         ))}
       </div>
     </div>
@@ -436,6 +521,7 @@ export function AdsIntegrations() {
   const { selectedCompany, selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
+  const [mapeoAbierto, setMapeoAbierto] = useState<AdsPlatform | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -491,7 +577,13 @@ export function AdsIntegrations() {
     );
   }
 
+  const irAlMapeo = (p: AdsPlatform) => {
+    setMapeoAbierto(p);
+    document.getElementById(`plataforma-${p}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const connections = connectionsQuery.data?.connections ?? [];
+  const conexionMeta = connections.find((c) => c.platform === "meta" && c.status === "active") ?? null;
   const byPlatform = new Map<AdsPlatform, AdsConnection[]>();
   for (const c of connections) {
     const arr = byPlatform.get(c.platform) ?? [];
@@ -508,6 +600,41 @@ export function AdsIntegrations() {
         </p>
       </header>
 
+      {/* Acceso directo al mapeo: hasta ahora había que adivinar que estaba
+          adentro del acordeón de cada conexión (pedido 11/8). */}
+      <div className="mb-5 rounded-lg border border-border bg-muted/30 p-4">
+        <h3 className="text-sm font-semibold text-foreground">Mapear cuentas publicitarias → clientes</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Sin mapeo, el cliente no tiene datos de pauta: su tablero sale vacío y los agentes no lo analizan.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* Meta va al ASISTENTE (/connect-ads), no al acordeón: ahí se mapea
+              página + cuenta + conjuntos estilo Make, con preselección y carga
+              masiva. El acordeón solo permite cuenta → cliente y el equipo lo
+              encontró peor (pedido 14/8). */}
+          {conexionMeta ? (
+            <a href={`/connect-ads?connectionId=${conexionMeta.id}`}>
+              <Button size="sm" variant="outline">Mapear cuentas de Meta</Button>
+            </a>
+          ) : (
+            <Button size="sm" variant="outline" disabled title="No hay conexión de Meta activa">
+              Mapear cuentas de Meta
+            </Button>
+          )}
+          {/* Google no tiene asistente: no hay páginas ni conjuntos que elegir,
+              así que el acordeón (cuenta → cliente) es todo lo que hace falta. */}
+          <Button size="sm" variant="outline" onClick={() => irAlMapeo("google")}>
+            Mapear cuentas de Google
+          </Button>
+          <Link
+            to="/readiness"
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Ver qué clientes están sin mapear
+          </Link>
+        </div>
+      </div>
+
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Ad Platforms</h2>
       {connectionsQuery.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -521,9 +648,11 @@ export function AdsIntegrations() {
               key={platform.id}
               platform={platform}
               connections={byPlatform.get(platform.id) ?? []}
+              companyId={selectedCompanyId ?? null}
               onConnect={() => handleConnect(platform.id)}
               onDisconnect={handleDisconnect}
               pendingDisconnectId={disconnectMutation.variables ?? null}
+              abrirMapeo={mapeoAbierto === platform.id}
             />
           ))}
         </div>

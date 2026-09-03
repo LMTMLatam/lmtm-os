@@ -18,6 +18,7 @@ import { ClipboardCheck, Check, X, AlertTriangle } from "lucide-react";
 
 const CHECK_LABELS: Record<string, string> = {
   metaAdAccount: "Cuenta Meta",
+  googleAdAccount: "Cuenta Google",
   metaPage: "Página Meta",
   rubro: "Rubro",
   location: "Ubicación",
@@ -29,6 +30,7 @@ const CHECK_LABELS: Record<string, string> = {
 // Where each gap gets fixed (relative to the company prefix root).
 const FIX_LINK: Record<string, string> = {
   metaAdAccount: "/company/settings/integrations/ads",
+  googleAdAccount: "/company/settings/integrations/ads",
   metaPage: "/company/settings/integrations/ads",
 };
 
@@ -62,6 +64,60 @@ function Row({ c }: { c: ReadinessClient }) {
   );
 }
 
+/**
+ * La matriz convertida en trabajo.
+ *
+ * La tabla de 58 filas por 9 casilleros dice el estado pero no dice qué hacer:
+ * hay que leerla columna por columna y sacar la cuenta uno mismo. Acá se
+ * agrupan los huecos por TIPO, ordenados por cuántos clientes afecta cada uno,
+ * porque arreglar una cosa para 32 clientes rinde más que nueve cosas de uno.
+ *
+ * Solo se listan los huecos que alguien puede ir a arreglar hoy.
+ */
+function QueHacer({ clientes }: { clientes: ReadinessClient[] }) {
+  const huecos = Object.keys(CHECK_LABELS)
+    .map((k) => ({
+      clave: k,
+      etiqueta: CHECK_LABELS[k],
+      link: FIX_LINK[k] ?? null,
+      faltan: clientes.filter((c) => !(c.checks as Record<string, boolean>)[k]),
+    }))
+    .filter((h) => h.faltan.length > 0)
+    .sort((a, b) => b.faltan.length - a.faltan.length);
+
+  if (huecos.length === 0) {
+    return (
+      <Card className="p-4 border-l-4 border-l-emerald-500">
+        <p className="text-sm">Sin huecos: todos los clientes activos están completos.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-4">
+      <h2 className="text-sm font-semibold mb-1">Qué hacer ({huecos.length})</h2>
+      <p className="text-xs text-muted-foreground mb-3">
+        Ordenado por cuántos clientes destraba cada arreglo. El detalle completo está en la tabla de abajo.
+      </p>
+      <div className="space-y-2.5">
+        {huecos.map((h) => (
+          <div key={h.clave} className="border-l-2 border-l-amber-500/50 pl-3">
+            <p className="text-sm">
+              <span className="font-medium">{h.etiqueta}</span>
+              <span className="text-muted-foreground"> — falta en {h.faltan.length} cliente{h.faltan.length > 1 ? "s" : ""}</span>
+              {h.link && <Link to={h.link} className="text-xs underline ml-2">ir a cargarlo</Link>}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {h.faltan.slice(0, 8).map((c) => c.name).join(", ")}
+              {h.faltan.length > 8 ? ` y ${h.faltan.length - 8} más` : ""}
+            </p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export function Readiness() {
   const { setBreadcrumbs } = useBreadcrumbs();
   useEffect(() => { setBreadcrumbs([{ label: "Readiness" }]); }, [setBreadcrumbs]);
@@ -91,7 +147,13 @@ export function Readiness() {
         </div>
       )}
 
+      {data && <QueHacer clientes={data.clients} />}
+
       {data && (
+        <details className="[&[open]>summary]:mb-3">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground select-none">
+            Matriz completa por cliente
+          </summary>
         <Card className="p-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -107,6 +169,7 @@ export function Readiness() {
             </tbody>
           </table>
         </Card>
+        </details>
       )}
     </div>
   );

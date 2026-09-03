@@ -7,6 +7,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
 import { Clients } from "./pages/Clients";
+import { PaidMediaHub } from "./pages/PaidMediaHub";
 import { Finance } from "./pages/Finance";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
@@ -42,8 +43,9 @@ import { WhatsApp } from "./pages/WhatsApp";
 import { Intelligence } from "./pages/Intelligence";
 import { Growth } from "./pages/Growth";
 import { Niches } from "./pages/Niches";
+import { Licitaciones } from "./pages/Licitaciones";
 import { Readiness } from "./pages/Readiness";
-import { Competitors } from "./pages/Competitors";
+import { Contenido } from "./pages/Contenido";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
 import { CompanyImport } from "./pages/CompanyImport";
@@ -79,13 +81,20 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Clients />} />
+      <Route path="paid-media" element={<PaidMediaHub />} />
       <Route path="finance" element={<Finance />} />
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />
       <Route path="growth" element={<Growth />} />
       <Route path="niches" element={<Niches />} />
+      <Route path="licitaciones" element={<Licitaciones />} />
       <Route path="readiness" element={<Readiness />} />
-      <Route path="competitors" element={<Competitors />} />
+      <Route path="contenido" element={<Contenido />} />
+      {/* La ruta vieja sigue viva: hay links a /videos en comentarios de ClickUp
+          y en marcadores del equipo. Renombrar sin dejar el alias los rompía. */}
+      <Route path="videos" element={<Contenido />} />
+      {/* Competencia global se unificó: cliente→tab Competidores, agregado→Nichos (pedido 18/7) */}
+      <Route path="competitors" element={<Navigate to="../niches" replace />} />
       {/* También existe top-level; acá cubre los links con prefijo de company
           (ej. el redirect del OAuth de Meta a /lmtm/connect-ads). */}
       <Route path="connect-ads" element={<ConnectAds />} />
@@ -286,6 +295,11 @@ function NoCompaniesStartPage() {
   );
 }
 
+function PublicDashboardPrefixRedirect() {
+  const { slug } = useParams<{ slug: string }>();
+  return <Navigate to={`/public/dashboards/${slug}`} replace />;
+}
+
 export function App() {
   return (
     <>
@@ -297,6 +311,9 @@ export function App() {
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
         <Route path="connect-ads" element={<ConnectAds />} />
         <Route path="public/dashboards/:slug" element={<PublicDashboard />} />
+        {/* Links públicos pegados/abiertos con el prefijo de empresa adelante
+            (/LMTM/public/dashboards/x) daban Page-not-found — redirigir. */}
+        <Route path=":prefix/public/dashboards/:slug" element={<PublicDashboardPrefixRedirect />} />
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />
@@ -328,7 +345,10 @@ export function App() {
           <Route path="intelligence" element={<UnprefixedBoardRedirect />} />
           <Route path="growth" element={<UnprefixedBoardRedirect />} />
           <Route path="niches" element={<UnprefixedBoardRedirect />} />
+          <Route path="licitaciones" element={<UnprefixedBoardRedirect />} />
           <Route path="readiness" element={<UnprefixedBoardRedirect />} />
+          <Route path="contenido" element={<UnprefixedBoardRedirect />} />
+          <Route path="videos" element={<UnprefixedBoardRedirect />} />
           <Route path="competitors" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />

@@ -20,7 +20,7 @@ export interface BenchmarkEvidence {
 
 export interface NicheIntel {
   niche: string;
-  clients: Array<{ id: string; slug: string; name: string; ads30d: ClientAds30d | null }>;
+  clients: Array<{ id: string; slug: string; name: string; ads30d: ClientAds30d | null; syncStatus: { status: string; error: string | null } | null }>;
   ads30d: { spend: number; leads: number; ctr: number; cpl: number | null };
   benchmark: { pattern: string; evidence: BenchmarkEvidence | null } | null;
   winningFormat: { pattern: string; evidence: { topFormat?: string; topAvg?: number; samples?: number } | null } | null;
@@ -35,6 +35,17 @@ export interface NicheIntel {
   competitors: Array<{ name: string; clientName: string }>;
   /** Perfil de videos del nicho: referencias curadas de sus clientes, etiquetables. */
   videoReferences: Array<{ id: string; url: string; categorias: string[]; comentario: string | null; clientName: string }>;
+  /** Radar accionable semanal del rubro (informe de agente): análisis cruzado,
+   * referentes externos con links, ideas con referencia y plan por cliente. */
+  report: {
+    week: string;
+    sections: {
+      analisisCruzado?: { organico?: string; pauta?: string };
+      referentes?: Array<{ nombre: string; cuenta?: string; plataforma?: string; ubicacion?: string; queHacen?: string; urlPerfil?: string; urlEjemplo?: string }>;
+      ideas?: Array<{ titulo: string; detalle?: string; url?: string; fuente?: string }>;
+      planPorCliente?: Array<{ cliente: string; clientId?: string; movidas: string[] }>;
+    };
+  } | null;
 }
 
 /** Vocabulario estándar de etiquetas para referencias de video. */
