@@ -1,0 +1,18 @@
+diff --git a/dist/server/execute.js b/dist/server/execute.js
+index 93cddf8243271f5fb3ab101617f9114257e41328..cba9dd676ce855ba13b1bc14649d7cde6d2351f7 100644
+--- a/dist/server/execute.js
++++ b/dist/server/execute.js
+@@ -230,7 +230,12 @@ function parseHermesOutput(stdout, stderr) {
+         const errorLines = stderr
+             .split("\n")
+             .filter((line) => /error|exception|traceback|failed/i.test(line))
+-            .filter((line) => !/INFO|DEBUG|warn/i.test(line)); // skip log-level noise
++            .filter((line) => !/INFO|DEBUG|warn/i.test(line)) // skip log-level noise
++            // Python asyncio teardown noise: hermes prints "Exception ignored in:
++            // <coroutine object MCPServerTask.run> ... Event loop is closed" on
++            // clean exit (code 0). It is NOT a run failure — without this filter
++            // every successful run gets misclassified as failed and retried.
++            .filter((line) => !/Exception ignored|Event loop is closed|coroutine object|^\s*(File |raise )|^\s*Traceback \(most recent call last\)/.test(line));
+         if (errorLines.length > 0) {
+             result.errorMessage = errorLines.slice(0, 5).join("\n");
+         }

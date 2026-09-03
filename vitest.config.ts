@@ -14,6 +14,7 @@ export default defineConfig({
       "packages/adapters/gemini-local",
       "packages/adapters/opencode-local",
       "packages/adapters/pi-local",
+      "packages/mcp-servers/google",
       "server",
       "ui",
       "cli",

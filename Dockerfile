@@ -122,13 +122,55 @@ COPY docker/claude-mcp.json /app/claude-mcp.json
 # point ANTHROPIC_BASE_URL at http://127.0.0.1:4000 (see docker/litellm-config.yaml
 # + start.sh). Installed in an isolated venv so it never touches the Node
 # toolchain and Debian PEP-668 doesn't block the install.
+#
+# fastapi<0.130: litellm 1.97 importa `get_flat_dependant`, que fastapi sacó en
+# 0.130. Como acá no había pin, cualquier build nuevo se traía 0.141 y el proxy
+# arrancaba y moría en loop ("No module named 'proxy_server'", que es el error
+# secundario y despista). Los 4 agentes apuntados al proxy quedaban sin modelo.
+#
+# El `import proxy_server` del final es la red: si una resolución futura vuelve
+# a romper, falla el BUILD en vez de crashear en producción sin que se note.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-venv \
   && rm -rf /var/lib/apt/lists/* \
   && python3 -m venv /opt/litellm \
   && /opt/litellm/bin/pip install --no-cache-dir --upgrade pip \
-  && /opt/litellm/bin/pip install --no-cache-dir 'litellm[proxy]'
+  && /opt/litellm/bin/pip install --no-cache-dir 'litellm[proxy]' 'fastapi<0.130' \
+  && /opt/litellm/bin/python -c "from litellm.proxy import proxy_server"
 COPY docker/litellm-config.yaml /app/litellm-config.yaml
+
+# ffmpeg: los reels se arman pegando 3 clips (Higgsfield genera clips sueltos,
+# no reels). Sin esto los reels fallan con "spawn ffmpeg ENOENT" y las placas y
+# clips siguen andando, así que el síntoma es parcial y confunde.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+# Higgsfield CLI (binario Go oficial): la usa el PLAN de la agencia, cuyos
+# créditos solo se gastan por la cuenta de usuario (la API de plataforma tiene
+# bolsa aparte). fnf-api-gw.higgsfield.ai está detrás de Cloudflare y rechaza
+# requests directos, así que el binario es la única vía para el plan.
+# Las credenciales las materializa higgsfield-cli.ts en el volumen /data y un
+# advisory lock de Postgres impide que dos contenedores refresquen a la vez.
+ARG HF_VERSION=1.1.23
+RUN curl -fsSL "https://github.com/higgsfield-ai/cli/releases/download/v${HF_VERSION}/hf_${HF_VERSION}_linux_amd64.tar.gz"       -o /tmp/hf.tar.gz   && tar -xzf /tmp/hf.tar.gz -C /usr/local/bin hf   && chmod +x /usr/local/bin/hf   && rm -f /tmp/hf.tar.gz   && /usr/local/bin/hf version
+
+# PostgreSQL 17 client for the daily self-backup of the Railway Postgres
+# (pg_dump must be >= server major; Debian bookworm ships 15, so use PGDG).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-common gnupg \
+  && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+  && apt-get install -y --no-install-recommends postgresql-client-17 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Hermes Agent CLI (Nous Research, PyPI): the `hermes_local` adapter spawns
+# `hermes chat` per agent run. Own venv (deps differ from LiteLLM's); config +
+# credentials are materialized by start.sh into ~/.hermes (provider minimax +
+# the paperclip MCP server, whose subprocess inherits PAPERCLIP_* per-run env).
+RUN python3 -m venv /opt/hermes \
+  && /opt/hermes/bin/pip install --no-cache-dir --upgrade pip \
+  && /opt/hermes/bin/pip install --no-cache-dir hermes-agent \
+  && ln -sf /opt/hermes/bin/hermes /usr/local/bin/hermes
 
 # Heap cap raised from 380 (a Render 512MB-era value) to 1536: on Railway the
 # container has far more RAM, and once the agent fleet actually runs (14 agents

@@ -75,6 +75,62 @@ else
   echo "[wrapper] litellm router disabled (missing config/binary/NVIDIA_API_KEY/LITELLM_MASTER_KEY/MINIMAX_API_KEY)"
 fi
 
+# ── Hermes Agent config (~/.hermes): provider MiniMax + MCP de Paperclip ─────
+# The hermes_local adapter spawns `hermes chat` per run; hermes reads its model,
+# provider credentials and MCP servers from ~/.hermes. The paperclip MCP child
+# inherits the PAPERCLIP_* env the adapter sets on the hermes process.
+if command -v hermes >/dev/null 2>&1 && [ -n "${MINIMAX_API_KEY:-}" ]; then
+  # Persist Hermes's self-learned skills/memory/sessions across deploys: the
+  # container FS is ephemeral but the Railway volume at /data survives. The
+  # whole point of Hermes is that it improves with time — don't wipe that.
+  if [ -d /data ]; then
+    mkdir -p /data/hermes
+    if [ ! -L "${HOME:-/root}/.hermes" ]; then
+      rm -rf "${HOME:-/root}/.hermes" 2>/dev/null || true
+      ln -sfn /data/hermes "${HOME:-/root}/.hermes"
+    fi
+  fi
+  mkdir -p "${HOME:-/root}/.hermes"
+  printf 'MINIMAX_API_KEY=%s\n' "$MINIMAX_API_KEY" > "${HOME:-/root}/.hermes/.env"
+  chmod 600 "${HOME:-/root}/.hermes/.env"
+  cat > "${HOME:-/root}/.hermes/config.yaml" <<'HERMESCFG'
+model:
+  default: MiniMax-M3
+  provider: minimax
+mcp_servers:
+  paperclip:
+    command: "node"
+    args: ["--conditions=production", "/app/packages/mcp-server/dist/stdio.js"]
+HERMESCFG
+  echo "[wrapper] hermes agent config materialized (provider=minimax + paperclip MCP)"
+else
+  echo "[wrapper] hermes agent config skipped (no hermes binary or MINIMAX_API_KEY)"
+fi
+
+# ── Daily Postgres self-backup to the /data volume ────────────────────────────
+# Railway's raw postgres image has no managed backups. Dump daily (compressed,
+# custom format) and keep the last 7. Survives redeploys on the volume; a real
+# restore is `pg_restore -d $DATABASE_URL /data/backups/<file>`.
+if command -v pg_dump >/dev/null 2>&1 && [ -n "${DATABASE_URL:-}" ] && [ -d /data ]; then
+  mkdir -p /data/backups
+  (
+    sleep 300  # let the boot settle before the first dump
+    while true; do
+      TS=$(date -u +%Y%m%d-%H%M)
+      if pg_dump "$DATABASE_URL" -Fc -Z 6 -f "/data/backups/db-$TS.dump" 2>>/tmp/pg-backup.log; then
+        echo "[pg-backup] OK db-$TS.dump ($(du -h "/data/backups/db-$TS.dump" | cut -f1))"
+        ls -1t /data/backups/db-*.dump 2>/dev/null | tail -n +8 | xargs -r rm -f
+      else
+        echo "[pg-backup] FAILED at $TS (see /tmp/pg-backup.log)"
+      fi
+      sleep 86400
+    done
+  ) &
+  echo "[wrapper] pg-backup daily loop started (retención 7, /data/backups)"
+else
+  echo "[wrapper] pg-backup disabled (no pg_dump/DATABASE_URL//data)"
+fi
+
 # ── Fallback proxy: only started if the real server exits. ──
 start_proxy() {
   node -e "

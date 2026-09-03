@@ -27,10 +27,24 @@ model_list:
       model: anthropic/MiniMax-M3
       api_base: https://api.minimax.io/anthropic
       api_key: os.environ/MINIMAX_API_KEY
+  # Aliases for model names the `claude` CLI hardcodes internally (subagents /
+  # small-fast model resolve to real Anthropic ids even when ANTHROPIC_MODEL is
+  # set). Without these the proxy 400s ("Invalid model name") and the run dies
+  # — seen on Carlos 2026-07-12. Route them to the same GLM pool.
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: openai/z-ai/glm-5.2
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: openai/z-ai/glm-5.2
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
 
 litellm_settings:
   # If the primary (NVIDIA) errors/times out, retry the request on MiniMax.
-  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}]
+  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}]
   drop_params: true
   request_timeout: 600
   num_retries: 1
