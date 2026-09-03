@@ -516,16 +516,69 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "pause_ad_entity",
       description:
-        "PAUSAR una campaña o conjunto de anuncios (adset) de Meta de un cliente — la única acción de escritura sobre pauta. Usala cuando detectes gasto sin conversiones, CTR muy bajo o un aviso quemando presupuesto. MUEVE plata real: proponé la pausa en el issue con la justificación (números concretos) y esperá OK humano; recién con aprobación pasá approved=true. El servidor verifica que la entidad sea de ESE cliente. NO existe reanudar/subir presupuesto/crear por esta vía (eso lo hace un humano).",
+        "PAUSAR una campaña o conjunto de anuncios (adset) de un cliente. En Meta sirve para campaña y adset; en Google SOLO para campaña. Usala cuando detectes gasto sin conversiones, CTR muy bajo o un aviso quemando presupuesto. MUEVE plata real: proponé la pausa en el issue con la justificación (números concretos) y esperá OK humano; recién con aprobación pasá approved=true. El servidor verifica que la entidad sea de ESE cliente. NO existe reanudar/subir presupuesto/crear por esta vía (eso lo hace un humano).",
       parameters: {
         type: "object",
         properties: {
           clientId: { type: "string" },
           entityType: { type: "string", enum: ["campaign", "adset"], description: "Tipo de entidad a pausar" },
-          entityId: { type: "string", description: "ID de la campaña o adset (tal cual aparece en la data de Meta)" },
+          entityId: { type: "string", description: "ID de la campaña o adset (tal cual aparece en la data de la plataforma)" },
           approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente esta pausa en el issue" },
         },
         required: ["clientId", "entityType", "entityId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_auditoria_keywords_google",
+      description:
+        "Auditar las keywords de Google Ads de un cliente: lee el informe de términos de búsqueda de los últimos N días y devuelve qué negativizar, qué keyword nueva sumar, qué pausar y qué bajar de amplia a frase, con los números que justifican cada una. NO toca nada, solo lee. Es la ÚNICA fuente válida de términos para add_negative_keywords y pause_keywords_google — no inventes términos. Si el reporte arranca con una advertencia de gasto de marca sin conversiones, el problema es la MEDICIÓN: informá eso y no propongas optimizaciones sobre esos datos.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          dias: { type: "number", description: "Ventana a mirar hacia atrás (default 30)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_negative_keywords",
+      description:
+        "Agregar palabras clave NEGATIVAS a una campaña de Google Ads (en concordancia de frase). Es la palanca más segura: solo puede bajar gasto y se revierte borrando el criterio. Sacá los términos de get_auditoria_keywords_google, nunca inventados. Corré primero con ensayo=true (Google valida y NO guarda nada) para confirmar que el lote es válido, proponé en el issue cuánta plata libera, y recién con OK humano ejecutá con approved=true. El servidor RECHAZA términos que nombren la marca del propio cliente: esa gente ya te está buscando y suele convertir por teléfono o en el local sin que el píxel lo vea.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          campaignId: { type: "string", description: "ID de la campaña de Google a la que se le suman las negativas" },
+          terminos: { type: "array", items: { type: "string" }, description: "Términos de búsqueda a negativizar (máximo 50)" },
+          ensayo: { type: "boolean", description: "true = validar contra Google sin guardar nada" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó esta lista en el issue" },
+        },
+        required: ["clientId", "campaignId", "terminos"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "pause_keywords_google",
+      description:
+        "PAUSAR keywords de Google Ads que gastan sin convertir, indicándolas por TEXTO (el servidor las resuelve contra la cuenta del cliente, así que un texto inventado no toca nada). Sacá la lista de get_auditoria_keywords_google. MUEVE plata real: ensayo=true primero, justificación con el gasto sin conversiones de cada una en el issue, y approved=true solo con OK humano. El servidor protege las keywords de marca del cliente.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          textos: { type: "array", items: { type: "string" }, description: "Texto exacto de las keywords a pausar (máximo 50)" },
+          ensayo: { type: "boolean", description: "true = validar contra Google sin guardar nada" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó esta lista en el issue" },
+        },
+        required: ["clientId", "textos"],
       },
     },
   },
@@ -1652,6 +1705,70 @@ export function agentToolsRoutes(
         if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
         if (!r.ok) return reply(false, r.error ?? "No se pudo pausar.");
         return reply(true, `Pausado: ${r.entity?.type} "${r.entity?.name}" (${r.entity?.id}). Acción registrada.`);
+      }
+
+      if (tool === "get_auditoria_keywords_google") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const dias = typeof params.dias === "number" && params.dias > 0 ? Math.min(params.dias, 90) : 30;
+        try {
+          const { auditarKeywords, auditoriaAPasos } = await import("../services/ads-keywords.js");
+          const a = await auditarKeywords(db, clientId, dias);
+          if (!a) return reply(false, "El cliente no tiene Google Ads mapeado.");
+          // Se devuelve la guía redactada Y los ids que hacen falta para actuar:
+          // sin campaignId el agente no puede llamar a add_negative_keywords.
+          return reply(true, JSON.stringify({
+            guia: auditoriaAPasos(a).cuerpo,
+            cuenta: a.cuenta,
+            gastoMarcaSinConversion: a.gastoMarcaSinConversion,
+            negativas: a.negativas.map((t) => ({ termino: t.termino, costo: t.costo, clics: t.clics, campana: t.campana })),
+            pausar: a.pausar.map((k) => ({ texto: k.texto, costo: k.costo, clics: k.clics, campana: k.campana })),
+          }));
+        } catch (e) {
+          return reply(false, `get_auditoria_keywords_google: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "add_negative_keywords") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const campaignId = typeof params.campaignId === "string" ? params.campaignId : "";
+        const terminos = Array.isArray(params.terminos) ? params.terminos.filter((t): t is string => typeof t === "string") : [];
+        if (!clientId || !campaignId) return reply(false, "Faltan clientId o campaignId.");
+        if (terminos.length === 0) return reply(false, "Falta la lista de términos.");
+        const { agregarNegativas } = await import("../services/ads-actions.js");
+        const r = await agregarNegativas(db, {
+          clientId, campaignId, terminos, agentId: ctx.agentId,
+          approved: params.approved === true, ensayo: params.ensayo === true,
+        });
+        // El rechazo por marca se informa SIEMPRE, salga bien o mal: es el dato
+        // que evita que el agente vuelva a proponer lo mismo en el próximo ciclo.
+        const nota = r.rechazadosPorMarca?.length
+          ? ` No se incluyeron por ser de la marca: ${r.rechazadosPorMarca.join(", ")}.`
+          : "";
+        if (r.approvalRequired) return reply(false, (r.error ?? "Requiere aprobación humana.") + nota);
+        if (!r.ok) return reply(false, r.error ?? "No se pudieron agregar las negativas.");
+        if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.aplicados?.length ?? 0} negativa(s) y NO guardó nada.${nota} Pedí OK humano y volvé a llamar con approved=true.`);
+        return reply(true, `Agregadas ${r.aplicados?.length ?? 0} negativa(s) en concordancia de frase.${nota} Acción registrada.`);
+      }
+
+      if (tool === "pause_keywords_google") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const textos = Array.isArray(params.textos) ? params.textos.filter((t): t is string => typeof t === "string") : [];
+        if (!clientId) return reply(false, "Falta clientId.");
+        if (textos.length === 0) return reply(false, "Falta la lista de keywords.");
+        const { pausarKeywords } = await import("../services/ads-actions.js");
+        const r = await pausarKeywords(db, {
+          clientId, textos, agentId: ctx.agentId,
+          approved: params.approved === true, ensayo: params.ensayo === true,
+        });
+        const partes: string[] = [];
+        if (r.protegidasPorMarca?.length) partes.push(`protegidas por ser de la marca: ${r.protegidasPorMarca.join(", ")}`);
+        if (r.noEncontradas?.length) partes.push(`no están activas en la cuenta: ${r.noEncontradas.join(", ")}`);
+        const nota = partes.length ? ` (${partes.join("; ")})` : "";
+        if (r.approvalRequired) return reply(false, (r.error ?? "Requiere aprobación humana.") + nota);
+        if (!r.ok) return reply(false, (r.error ?? "No se pudieron pausar.") + nota);
+        if (r.ensayo) return reply(true, `Ensayo OK: Google validó la pausa de ${r.pausadas?.length ?? 0} keyword(s) y NO guardó nada.${nota} Pedí OK humano y volvé a llamar con approved=true.`);
+        return reply(true, `Pausadas ${r.pausadas?.length ?? 0} keyword(s).${nota} Acción registrada.`);
       }
 
       if (tool === "get_client_video_tasks") {

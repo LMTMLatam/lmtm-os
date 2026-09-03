@@ -167,6 +167,35 @@ async function adsApi<T = unknown>(
   return json;
 }
 
+/**
+ * Escritura contra Google Ads. Es el ÚNICO camino de escritura del provider:
+ * todo lo demás pasa por `searchStream`, que solo lee.
+ *
+ * `validateOnly` hace que Google valide la operación entera y no guarde nada;
+ * es lo que usamos para el ensayo previo, y también para probar que el
+ * developer token tiene permiso de escritura sin tocar una cuenta real.
+ *
+ * `partialFailure` queda en false a propósito: si una operación del lote falla,
+ * preferimos que falle el lote completo antes que aplicar la mitad de un cambio
+ * y que nadie se entere de qué quedó a medias.
+ */
+export async function mutate<T = Record<string, unknown>>(
+  connection: AdsConnection,
+  customerId: string,
+  recurso: string,
+  operations: Array<Record<string, unknown>>,
+  opts: { validateOnly?: boolean } = {},
+): Promise<T> {
+  const cid = rawCustomerId(customerId);
+  if (!cid) throw new Error(`customerId inválido: ${customerId}`);
+  if (operations.length === 0) throw new Error("mutate sin operaciones");
+  return adsApi<T>(connection, "POST", `/customers/${cid}/${recurso}:mutate`, {
+    operations,
+    partialFailure: false,
+    validateOnly: opts.validateOnly === true,
+  });
+}
+
 type SearchStreamResponse = Array<{
   results?: Array<Record<string, unknown>>;
   fieldMask?: string;
