@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { gFetch } from "./api.js";
+import { mensajeDeRechazo, validarAppsScript, type ScriptFile } from "./apps-script-guard.js";
 
 const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
@@ -60,11 +61,27 @@ export async function sheetsMetadata(i: z.infer<typeof sheetsMetadataSchema>) {
   });
 }
 
+// Carpeta por defecto para TODO lo que se crea en Drive sin destino explícito
+// (pedido del jefe 2026-07-27: los agentes creaban carpetas/archivos sueltos en
+// la raíz — ahora lo nuevo cae siempre en la carpeta de trabajos de agentes).
+const DEFAULT_AGENTS_FOLDER = () => process.env.LMTM_DRIVE_AGENTS_FOLDER?.trim() || null;
+
 export const sheetsCreateSchema = z.object({
   title: z.string().describe("Title of the new spreadsheet."),
 });
 export async function sheetsCreate(i: z.infer<typeof sheetsCreateSchema>) {
-  return gFetch(SHEETS, { method: "POST", jsonBody: { properties: { title: i.title } } });
+  const created = (await gFetch(SHEETS, { method: "POST", jsonBody: { properties: { title: i.title } } })) as Record<string, unknown>;
+  // The Sheets API always creates at My Drive root; relocate into the agents
+  // folder so nothing new lands loose at the root.
+  const folder = DEFAULT_AGENTS_FOLDER();
+  const id = typeof created.spreadsheetId === "string" ? created.spreadsheetId : null;
+  if (folder && id) {
+    await gFetch(`${DRIVE}/${id}`, {
+      method: "PATCH",
+      query: { supportsAllDrives: true, addParents: folder, removeParents: "root", fields: "id,parents" },
+    }).catch(() => {});
+  }
+  return created;
 }
 
 // ── Drive ─────────────────────────────────────────────────────────────────
@@ -93,13 +110,14 @@ export async function driveList(i: z.infer<typeof driveListSchema>) {
 export const driveCopySchema = z.object({
   fileId: z.string().describe("ID of the file (e.g. a Sheet template) to copy."),
   name: z.string().describe("Name for the new copy."),
-  parentFolderId: z.string().optional().describe("Destination folder ID. Omit to copy into the same location."),
+  parentFolderId: z.string().optional().describe("Destination folder ID. Omit = va a la carpeta de trabajos de agentes (default del sistema)."),
 });
 export async function driveCopy(i: z.infer<typeof driveCopySchema>) {
+  const parent = i.parentFolderId ?? DEFAULT_AGENTS_FOLDER();
   return gFetch(`${DRIVE}/${i.fileId}/copy`, {
     method: "POST",
     query: { supportsAllDrives: true, fields: "id,name,webViewLink,parents" },
-    jsonBody: { name: i.name, ...(i.parentFolderId ? { parents: [i.parentFolderId] } : {}) },
+    jsonBody: { name: i.name, ...(parent ? { parents: [parent] } : {}) },
   });
 }
 
@@ -131,16 +149,17 @@ export async function driveMove(i: z.infer<typeof driveMoveSchema>) {
 
 export const driveCreateFolderSchema = z.object({
   name: z.string(),
-  parentFolderId: z.string().optional().describe("Parent folder ID. Omit for My Drive root."),
+  parentFolderId: z.string().optional().describe("Parent folder ID. Omit = se crea en la carpeta de trabajos de agentes (default del sistema), nunca en la raíz."),
 });
 export async function driveCreateFolder(i: z.infer<typeof driveCreateFolderSchema>) {
+  const parent = i.parentFolderId ?? DEFAULT_AGENTS_FOLDER();
   return gFetch(DRIVE, {
     method: "POST",
     query: { supportsAllDrives: true, fields: "id,name,webViewLink" },
     jsonBody: {
       name: i.name,
       mimeType: "application/vnd.google-apps.folder",
-      ...(i.parentFolderId ? { parents: [i.parentFolderId] } : {}),
+      ...(parent ? { parents: [parent] } : {}),
     },
   });
 }
@@ -203,6 +222,21 @@ export const scriptUpdateContentSchema = z.object({
     .describe("Complete set of files for the project. This REPLACES all existing files, so include the manifest too."),
 });
 export async function scriptUpdateContent(i: z.infer<typeof scriptUpdateContentSchema>) {
+  // Se valida contra el contenido que está corriendo antes de pisarlo: ver
+  // apps-script-guard.ts, cada regla sale de algo que rompió el sync de un
+  // cliente de verdad. Un script roto igual reporta COMPLETED, así que si esto
+  // no se corta acá no se entera nadie.
+  let actuales: ScriptFile[] = [];
+  try {
+    const prev = (await gFetch(`${SCRIPT}/${i.scriptId}/content`)) as { files?: ScriptFile[] };
+    actuales = prev.files ?? [];
+  } catch {
+    // proyecto recién creado o sin permiso de lectura: se valida igual, sólo
+    // que sin poder detectar regresiones contra la versión anterior
+  }
+  const violaciones = validarAppsScript(i.files as ScriptFile[], actuales);
+  if (violaciones.length) throw new Error(mensajeDeRechazo(violaciones));
+
   return gFetch(`${SCRIPT}/${i.scriptId}/content`, {
     method: "PUT",
     jsonBody: { files: i.files },

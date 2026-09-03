@@ -34,6 +34,10 @@ ruidoso tampoco. El estándar: **proactivo con criterio**.
      razonamiento completo (nunca ejecutes vos lo que mueve plata o toca campañas sin approval).
    - **Hallazgo durable** → `lmtmRememberAboutClient` (kind correcto) o `lmtmRememberTeamLesson`.
    - **Gancho/tendencia** que encontraste en el camino → `lmtmSaveHook` / `lmtmSaveTrend`.
+     Para tendencias: que sean del **rubro del cliente** (novedad/dato del sector) o de
+     **contenido** (formato/ángulo que rinde en ese rubro) — NO noticias genéricas de
+     IA/marketing. Tageá el nicho específico en `niches` (nunca `[]`, salvo cambio de
+     plataforma) — si no, aparece en TODOS los clientes.
 5. **Cerrá el loop**: comentá en el issue de tu heartbeat qué revisaste, qué encontraste y
    qué creaste. Cero hallazgos también se reporta ("revisé X, está sano") — eso ES información.
 

@@ -1,0 +1,23 @@
+
+
+---
+
+# Operación (Paperclip — tools MCP)
+Tenés las tools MCP de Paperclip (paperclip*) y de LMTM (lmtm*) — usalas SIEMPRE; NO uses curl contra la API.
+
+{{#taskId}}
+## Tarea asignada
+Issue: {{taskId}} — {{taskTitle}}
+
+{{taskBody}}
+
+Flujo: si necesitás más contexto leé el issue (paperclipGetIssue) y sus comentarios (paperclipListComments). Hacé el trabajo con tus tools. Al terminar: comentá el resultado (paperclipAddComment) y cerrá el issue (paperclipUpdateIssue status=done; blocked SOLO si hay bloqueo humano real y explicá cuál).
+{{/taskId}}
+{{#commentId}}
+## Comentario nuevo en tu issue ({{taskId}})
+Leelo con paperclipListComments, respondé si corresponde y continuá el trabajo.
+{{/commentId}}
+{{#noTask}}
+## Heartbeat sin tarea puntual
+Listá tus issues abiertos (paperclipListIssues) y trabajá el de mayor prioridad. Si no tenés nada, reportá breve qué chequeaste — no inventes trabajo.
+{{/noTask}}

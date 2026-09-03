@@ -694,6 +694,72 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         client.requestJson("POST", "/agent-tools/execute", { body: { tool: "search_hooks", parameters: p } }),
     ),
     makeTool(
+      "lmtmGetClientVideoTasks",
+      "Tareas abiertas de 'Producción de video' del cliente (ClickUp) con flag tieneGuion. Las que no tienen guion, escribíselo: comentario en la tarea (clickup add_comment) + deliverable.",
+      z.object({ clientId: z.string().min(1) }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_video_tasks", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmListLicitaciones",
+      "Licitaciones de Mercado Público (ChileCompra) del panel. estado: candidata (a revisar) | util | descartada | vencida.",
+      z.object({ estado: z.string().optional() }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "list_licitaciones", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmSetLicitacionEstado",
+      "Cura una licitación: util (relevancia OBLIGATORIA: por qué nos sirve y qué ofertaríamos) o descartada.",
+      z.object({ codigo: z.string().min(1), estado: z.enum(["util", "descartada"]), relevancia: z.string().optional() }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "set_licitacion_estado", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmGetClientMarketingPlan",
+      "Plan de Marketing del cliente en ClickUp (reuniones, planificaciones y estrategia que cargó el equipo). Fuente de 'qué se decidió con el cliente' — usalo antes de proponer estrategia o contenido para alinear con lo acordado.",
+      z.object({
+        clientId: z.string().min(1),
+        limit: z.number().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_client_marketing_plan", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmSaveNicheReport",
+      "Guarda el RADAR DE NICHO semanal (informe accionable del panel de Nichos): analisisCruzado {organico, pauta} de NUESTROS clientes del rubro, referentes EXTERNOS tendencia (con urlPerfil/urlEjemplo reales), ideas con titulo+detalle+url de referencia (link OBLIGATORIO si salió de redes), y planPorCliente con movidas concretas. Upsert por rubro+semana.",
+      z.object({
+        niche: z.string().min(1),
+        analisisCruzado: z.object({ organico: z.string().optional(), pauta: z.string().optional() }).optional(),
+        referentes: z.array(z.object({
+          nombre: z.string(), cuenta: z.string().optional(), plataforma: z.string().optional(),
+          ubicacion: z.string().optional(), queHacen: z.string().optional(),
+          urlPerfil: z.string().optional(), urlEjemplo: z.string().optional(),
+        })).optional(),
+        ideas: z.array(z.object({
+          titulo: z.string(), detalle: z.string().optional(), url: z.string().optional(), fuente: z.string().optional(),
+        })).optional(),
+        planPorCliente: z.array(z.object({
+          cliente: z.string(), clientId: z.string().optional(), movidas: z.array(z.string()),
+        })).optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "save_niche_report", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmAddClientCompetitor",
+      "Carga un COMPETIDOR del cliente: negocio REAL y EXTERNO del mismo rubro/zona (NUNCA otro cliente de la agencia — se rechaza). Al menos una fuente verificable: igHandle, fbPageUrl o website. Dedupe por nombre.",
+      z.object({
+        clientId: z.string(),
+        name: z.string().min(1),
+        igHandle: z.string().optional(),
+        fbPageUrl: z.string().optional(),
+        website: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", { body: { tool: "add_client_competitor", parameters: p } }),
+    ),
+    makeTool(
       "lmtmSaveTrend",
       "Guarda una TENDENCIA en el panel: noticia/novedad externa con potencial de contenido. Tag honesto: potencial-de-gancho | explicativo | ignorar. Indicá los nichos a los que sirve.",
       z.object({
@@ -744,6 +810,39 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async ({ method, path, body, approved }) =>
         client.requestJson("POST", "/agent-tools/execute", {
           body: { tool: "crm_request", parameters: { method, path, ...(body ? { body } : {}), ...(approved ? { approved } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmGetAgentCards",
+      "TARJETAS del equipo de agentes: quién es cada uno, qué sabe hacer, cuándo derivarle trabajo y su carga actual de issues. Consultalo ANTES de delegar con lmtmDelegateToAgent para elegir al especialista correcto.",
+      z.object({}),
+      async () =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_agent_cards", parameters: {} },
+        }),
+    ),
+    makeTool(
+      "lmtmDelegateToAgent",
+      "DELEGA trabajo a otro agente del equipo: crea un issue asignado a él con tu contexto. Usalo cuando detectás algo que NO es de tu especialidad (ej. detectaste un problema de pauta y sos de contenido → delegar a Milo). Mirá primero lmtmGetAgentCards. No te autodelegues ni delegues lo que podés resolver vos.",
+      z.object({
+        agentName: z.string().min(1).describe("Nombre del agente destino (ej. 'Milo', 'Caro', 'Esteban')"),
+        title: z.string().min(1).describe("Título corto y accionable de la tarea"),
+        description: z.string().min(1).describe("Contexto completo: qué detectaste, dónde, qué esperás que haga"),
+        clientId: z.string().optional().describe("UUID del cliente si aplica"),
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+        issueId: z.string().optional().describe("Tu issue de origen, para dejar registro de la derivación"),
+      }),
+      async ({ agentName, title, description, clientId, priority, issueId }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: {
+            tool: "delegate_to_agent",
+            parameters: {
+              agentName, title, description,
+              ...(clientId ? { clientId } : {}),
+              ...(priority ? { priority } : {}),
+              ...(issueId ? { issueId } : {}),
+            },
+          },
         }),
     ),
     makeTool(
@@ -826,6 +925,18 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async ({ clientId, sinceHours, aheadHours }) =>
         client.requestJson("POST", "/agent-tools/execute", {
           body: { tool: "get_client_scheduled_content", parameters: { clientId, ...(sinceHours ? { sinceHours } : {}), ...(aheadHours ? { aheadHours } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmGetClientContentMatrix",
+      "MATRIZ PROFUNDA de contenido del cliente (base de la auditoría de perfil): mix real de formatos + posts/semana, señal de falta de creatividad (aperturas de copy repetidas, formato dominante), matriz planificada formato×objetivo con huecos y atrasos reales, y tendencias recientes del nicho. Combinala con lmtmGetNicheIntel y la navegación del perfil público.",
+      z.object({
+        clientId: z.string().min(1),
+        days: z.number().int().positive().optional().describe("Ventana de orgánico hacia atrás (default 60)"),
+      }),
+      async ({ clientId, days }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_client_content_matrix", parameters: { clientId, ...(days ? { days } : {}) } },
         }),
     ),
     makeTool(
