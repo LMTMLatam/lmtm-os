@@ -43,6 +43,8 @@ export const clients = pgTable(
     sheetsDetectedAt: timestamp("sheets_detected_at", { withTimezone: true }),
     onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
     offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
+    /** Avatar/imagen de marca de referencia para generar contenido (migr 0127). */
+    avatarUrl: text("avatar_url"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

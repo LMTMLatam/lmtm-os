@@ -855,6 +855,62 @@
       "when": 1781800000013,
       "tag": "0121_hooks_trends",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1781800000014,
+      "tag": "0122_perf_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1781800000015,
+      "tag": "0123_heartbeat_wakeup_fk_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1781800000016,
+      "tag": "0124_niche_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1781800000017,
+      "tag": "0125_interventions",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1781800000018,
+      "tag": "0126_licitaciones",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1781800000019,
+      "tag": "0127_client_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1781800000020,
+      "tag": "0128_higgsfield_lock",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1781800000021,
+      "tag": "0129_client_brand",
+      "breakpoints": true
     }
   ]
 }
