@@ -389,7 +389,10 @@ async function callClaude(messages: ChatMessage[], tools: unknown[], apiKey: str
   }).filter(m => m.content !== "" || (Array.isArray(m.content) && (m.content as unknown[]).length > 0));
 
   const body: Record<string, unknown> = {
-    model: "claude-sonnet-4-5",
+    // Se lee de env en cada llamada (misma convención que MINIMAX_MODEL): el id
+    // estaba fijo en "claude-sonnet-4-5" y el día que Anthropic lo retire, el
+    // chat con los agentes se cae sin que nadie pueda cambiarlo sin deploy.
+    model: process.env.ANTHROPIC_CHAT_MODEL ?? "claude-sonnet-5",
     max_tokens: 4096,
     messages: anthropicMessages,
     ...(systemMsg?.content ? { system: systemMsg.content } : {}),

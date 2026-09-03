@@ -17,6 +17,15 @@ import { activeClients } from "./intel-common.js";
 import { createClientTask } from "./client-tasks.js";
 
 const SCRIPTS_FOLDER_REDES = "1nbhnzZYjeKdlrIGWYBPLyFTFUC16r5pk";
+// Subcarpeta "Scripts" del pipeline de Producción de video (pedido 24/7:
+// vigilar los scripts de video igual que los de redes).
+const SCRIPTS_FOLDER_VIDEO = "11CzUXYbr4ltaSgIxPfFGqENRhB18H7nX";
+
+// Los dos pipelines de Apps Scripts por cliente, vigilados con la misma vara.
+const PIPELINES = [
+  { key: "redes", label: "Redes", folder: SCRIPTS_FOLDER_REDES, metaKey: "redesScriptId", trigger: "crearTriggerDiario", desc: "el Sheet Cronopost → lista Redes Sociales de ClickUp" },
+  { key: "video", label: "Producción de video", folder: SCRIPTS_FOLDER_VIDEO, metaKey: "videoScriptId", trigger: "crearTriggerDiarioMedianoche", desc: "el Sheet de Producción → lista Produccion de video de ClickUp" },
+] as const;
 // A daily script should have run within this window; longer = "not running".
 const STALE_DAYS = Number(process.env.LMTM_SCRIPT_STALE_DAYS ?? 2);
 
@@ -31,22 +40,24 @@ function norm(s: string): string {
     .trim();
 }
 
-/** Map the scripts in the Redes scripts folder to {normalizedName -> scriptId}. */
-async function loadScriptIndex(): Promise<Array<{ id: string; name: string; norm: string }>> {
+/** Map the scripts in a scripts folder to {normalizedName -> scriptId}. */
+async function loadScriptIndex(folderId: string): Promise<Array<{ id: string; name: string; norm: string }>> {
   const res = (await driveList({
-    query: `'${SCRIPTS_FOLDER_REDES}' in parents and mimeType='application/vnd.google-apps.script' and trashed=false`,
+    query: `'${folderId}' in parents and mimeType='application/vnd.google-apps.script' and trashed=false`,
     pageSize: 100,
   })) as { files?: Array<{ id: string; name: string }> };
   return (res.files ?? []).map((f) => ({ id: f.id, name: f.name, norm: norm(f.name) }));
 }
 
-/** Resolve a client's redes script id: stored on metadata, else matched by name. */
+/** Resolve a client's script id for a pipeline: stored on metadata, else matched by name. */
 function resolveScriptId(
   client: { id: string; name: string; metadata?: unknown },
   index: Array<{ id: string; name: string; norm: string }>,
+  metaKey: string,
 ): string | null {
   const meta = (client.metadata ?? {}) as Record<string, unknown>;
-  if (typeof meta.redesScriptId === "string" && meta.redesScriptId) return meta.redesScriptId;
+  const stored = meta[metaKey];
+  if (typeof stored === "string" && stored) return stored;
   const cn = norm(client.name);
   const hit = index.find((s) => s.norm === cn || s.norm.startsWith(cn) || cn.startsWith(s.norm) || s.norm.includes(cn));
   return hit?.id ?? null;
@@ -86,56 +97,58 @@ function judge(scriptId: string, procs: Proc[]): ScriptVerdict {
 }
 
 export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; broken: number }> {
-  let index: Array<{ id: string; name: string; norm: string }>;
-  try {
-    index = await loadScriptIndex();
-  } catch (e) {
-    console.warn("[script-health] could not list scripts folder:", e);
-    return { checked: 0, broken: 0 };
-  }
   const rows = await activeClients(db);
   let checked = 0;
   let broken = 0;
-  for (const client of rows) {
-    const full = (await db
-      .select({ id: clients.id, name: clients.name, metadata: clients.metadata })
-      .from(clients)
-      .where(eq(clients.id, client.id))
-      .limit(1))[0];
-    if (!full) continue;
-    const scriptId = resolveScriptId(full, index);
-    if (!scriptId) continue; // client has no redes script (not all do)
-    checked += 1;
-    let procs: Proc[] = [];
+  for (const pipeline of PIPELINES) {
+    let index: Array<{ id: string; name: string; norm: string }>;
     try {
-      const res = (await scriptProcesses({ scriptId, pageSize: 10 })) as { processes?: Proc[] };
-      procs = res.processes ?? [];
+      index = await loadScriptIndex(pipeline.folder);
     } catch (e) {
-      console.warn(`[script-health] processes failed for ${client.name}:`, e);
+      console.warn(`[script-health] could not list ${pipeline.key} scripts folder:`, e);
       continue;
     }
-    const verdict = judge(scriptId, procs);
-    if (verdict.state === "ok") continue;
-    broken += 1;
-    // File a fix task. createClientTask dedups on (clientId, title, open), so a
-    // still-broken script won't spam a new task every run.
-    const scriptUrl = `https://script.google.com/d/${scriptId}/edit`;
-    await createClientTask(db, {
-      clientId: client.id,
-      title: `⚠️ Script de Redes con problemas: ${client.name}`,
-      description:
-        `La automatización (Apps Script) que sincroniza el Sheet Cronopost → ClickUp de ${client.name} ${verdict.state === "failing" ? "está fallando" : "no está corriendo"}.\n` +
-        `• Detalle: ${verdict.detail}\n` +
-        `• Script: ${scriptUrl}\n\n` +
-        `Revisalo y corregilo (ver skill lmtm-pipeline):\n` +
-        `1) Leé el código con la tool del Apps Script y revisá la config (spreadsheetId, clickUpListId).\n` +
-        `2) Si el error es de código/config, corregilo y volvé a probar.\n` +
-        `3) Si el trigger está caído, reinstalalo (función crearTriggerDiario).\n` +
-        `4) Mientras tanto, si hay filas del Sheet sin pasar a ClickUp, transcribilas para no perder posteos.`,
-      taskType: "internal",
-      priority: "high",
-      source: "script-health-monitor",
-    }).catch(() => {});
+    for (const client of rows) {
+      const full = (await db
+        .select({ id: clients.id, name: clients.name, metadata: clients.metadata })
+        .from(clients)
+        .where(eq(clients.id, client.id))
+        .limit(1))[0];
+      if (!full) continue;
+      const scriptId = resolveScriptId(full, index, pipeline.metaKey);
+      if (!scriptId) continue; // client has no script in this pipeline (not all do)
+      checked += 1;
+      let procs: Proc[] = [];
+      try {
+        const res = (await scriptProcesses({ scriptId, pageSize: 10 })) as { processes?: Proc[] };
+        procs = res.processes ?? [];
+      } catch (e) {
+        console.warn(`[script-health] processes failed for ${client.name} (${pipeline.key}):`, e);
+        continue;
+      }
+      const verdict = judge(scriptId, procs);
+      if (verdict.state === "ok") continue;
+      broken += 1;
+      // File a fix task. createClientTask dedups on (clientId, title, open), so a
+      // still-broken script won't spam a new task every run.
+      const scriptUrl = `https://script.google.com/d/${scriptId}/edit`;
+      await createClientTask(db, {
+        clientId: client.id,
+        title: `⚠️ Script de ${pipeline.label} con problemas: ${client.name}`,
+        description:
+          `La automatización (Apps Script) que sincroniza ${pipeline.desc} de ${client.name} ${verdict.state === "failing" ? "está fallando" : "no está corriendo"}.\n` +
+          `• Detalle: ${verdict.detail}\n` +
+          `• Script: ${scriptUrl}\n\n` +
+          `Revisalo y corregilo (ver skill lmtm-pipeline):\n` +
+          `1) Leé el código con la tool del Apps Script y revisá la config (spreadsheetId, clickUpListId).\n` +
+          `2) Si el error es de código/config, corregilo y volvé a probar.\n` +
+          `3) Si el trigger está caído, reinstalalo (función ${pipeline.trigger}).\n` +
+          `4) Mientras tanto, si hay filas del Sheet sin pasar a ClickUp, transcribilas para no perder piezas.`,
+        taskType: "internal",
+        priority: "high",
+        source: "script-health-monitor",
+      }).catch(() => {});
+    }
   }
   if (broken > 0) console.log(`[script-health] ${broken}/${checked} client script(s) need attention`);
   return { checked, broken };

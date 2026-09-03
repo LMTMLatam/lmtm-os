@@ -264,21 +264,29 @@ export async function mineExperiments(db: Db): Promise<{ experiments: number }> 
 
   let count = 0;
   for (const [niche, tested] of testedByNiche) {
-    // Best foreign winner this niche hasn't tried (generic formats only travel well).
-    const candidate = winners
+    // Best foreign winners this niche hasn't tried (generic formats only travel
+    // well). Up to TWO per niche — one experiment per rubro was too poor a
+    // proposal stream for the panel (pedido del equipo 2026-07-17).
+    const candidates = winners
       .filter((w) => w.niche !== niche && !tested.has(w.format) && w.format !== "otro")
-      .sort((a, b) => b.avg - a.avg)[0];
-    if (!candidate) continue;
-    const pattern = `Experimento sugerido para "${niche}": probar el formato "${candidate.format}" — en "${candidate.niche}" es el de mejor desempeño (score prom. ${candidate.avg.toFixed(1)}) y en este rubro no hay datos todavía.`;
-    await db.insert(learnings).values({
-      companyId: company.id, scope: "niche_experiment", scopeKey: niche, pattern,
-      evidence: { format: candidate.format, sourceNiche: candidate.niche, sourceAvg: candidate.avg },
-      metricImpact: "content_score", confidence: "0.4", occurrences: 1, lastSeenAt: new Date(),
-    }).onConflictDoUpdate({
-      target: [learnings.scope, learnings.scopeKey, learnings.pattern],
-      set: { evidence: { format: candidate.format, sourceNiche: candidate.niche, sourceAvg: candidate.avg }, lastSeenAt: new Date() },
-    });
-    count += 1;
+      .sort((a, b) => b.avg - a.avg);
+    const picks: typeof candidates = [];
+    for (const c of candidates) {
+      if (picks.length >= 2) break;
+      if (!picks.some((p) => p.format === c.format)) picks.push(c);
+    }
+    for (const candidate of picks) {
+      const pattern = `Experimento sugerido para "${niche}": probar el formato "${candidate.format}" — en "${candidate.niche}" es el de mejor desempeño (score prom. ${candidate.avg.toFixed(1)}) y en este rubro no hay datos todavía.`;
+      await db.insert(learnings).values({
+        companyId: company.id, scope: "niche_experiment", scopeKey: niche, pattern,
+        evidence: { format: candidate.format, sourceNiche: candidate.niche, sourceAvg: candidate.avg },
+        metricImpact: "content_score", confidence: "0.4", occurrences: 1, lastSeenAt: new Date(),
+      }).onConflictDoUpdate({
+        target: [learnings.scope, learnings.scopeKey, learnings.pattern],
+        set: { evidence: { format: candidate.format, sourceNiche: candidate.niche, sourceAvg: candidate.avg }, lastSeenAt: new Date() },
+      });
+      count += 1;
+    }
   }
   return { experiments: count };
 }

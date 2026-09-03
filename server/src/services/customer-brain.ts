@@ -176,6 +176,16 @@ export function initCustomerBrain(db: Db): void {
   const run = async () => {
     const rows = await activeClients(db);
     for (const c of rows) { await refreshClientBrain(db, c.id).catch(() => {}); }
+    // Qué funciona en el orgánico de cada cliente (14/8): teníamos 3.301 posts
+    // publicados y el aprendizaje nunca se destilaba, así que las ideas salían
+    // genéricas por más historial que hubiera.
+    try {
+      const { destilarTodos } = await import("./organico-aprendizaje.js");
+      const r = await destilarTodos(db);
+      console.log(`[customer-brain] orgánico destilado: ${r.conSenal}/${r.evaluados} clientes con señal suficiente`);
+    } catch (e) {
+      console.warn("[customer-brain] destilado de orgánico falló:", e instanceof Error ? e.message : e);
+    }
   };
   setTimeout(() => { run().catch((e) => console.warn("[customer-brain] refresh failed:", e)); }, 8 * 60 * 1000);
   brainTimer = setInterval(() => { run().catch((e) => console.warn("[customer-brain] refresh failed:", e)); }, 12 * 3600 * 1000);

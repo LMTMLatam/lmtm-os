@@ -197,7 +197,20 @@ export interface ScheduledContentItem {
    *  this tag is the real "never went out" signal; with the tag, any failure
    *  lives in Make's execution log, not in ClickUp. */
   sentToMake: boolean;
-  plannedDate: string | null; // ISO, from start_date (when it fires to Make)
+  /** ISO from ClickUp start_date ONLY — the "Fecha de inicio" that fires the
+   *  Make scenario. null when the task has no start_date set, meaning Make has
+   *  no trigger and will never dispatch it (a different problem than a missed
+   *  fire). The publication monitor keys its "sin publicar" alert off THIS. */
+  startDate: string | null;
+  /** ISO planning date, start_date ?? due_date. Kept for calendar/aggregate
+   *  callers; NOT the Make trigger when it falls back to due_date. */
+  plannedDate: string | null;
+  /** THE overdue rule (the only one the team cares about): start_date passed
+   *  AND no "mandado a make" tag = the webhook never fired. Tasks without
+   *  start_date are never overdue — the team always sets start_date on what
+   *  they actually schedule; the rest are ideas. ClickUp status and
+   *  plannedDate/due_date do NOT factor in. */
+  overdue: boolean;
   url: string | null;
 }
 
@@ -231,6 +244,7 @@ export async function getRedesScheduledContent(
   for (const t of tasks) {
     const planMs = Number(t.start_date ?? t.due_date ?? 0);
     if (planMs && (planMs < sinceMs || planMs > untilMs)) continue;
+    const startMs = Number(t.start_date ?? 0);
     const sName = t.status?.status ?? "sin estado";
     const sentToMake = hasSentToMakeTag(t.tags);
     out.push({
@@ -238,7 +252,9 @@ export async function getRedesScheduledContent(
       status: sName,
       published: sentToMake,
       sentToMake,
+      startDate: startMs ? new Date(startMs).toISOString() : null,
       plannedDate: planMs ? new Date(planMs).toISOString() : null,
+      overdue: startMs > 0 && startMs < Date.now() && !sentToMake,
       url: t.url ?? null,
     });
   }
@@ -268,11 +284,15 @@ export interface RedesCalendarItem {
   networks: string[];
   /** From "Tipo de Contenido", or a reel/carrusel/story tag as fallback. */
   format: string | null;
+  /** From "Objetivo del Contenido" — the content pillar/objective (engagement,
+   *  valor, educativo, comercial…). Null when the task hasn't set it. */
+  objective: string | null;
   url: string | null;
 }
 
 const PLATAFORMAS_RE = /plataforma/i;
 const TIPO_CONTENIDO_RE = /tipo\s*de\s*contenido/i;
+const OBJETIVO_RE = /objetivo\s*del?\s*contenido/i; // "Objetivo del/de Contenido"
 const FORMAT_TAG_RE = /reel|carrusel|carousel|story|historia|est[aá]tico|foto|video/i;
 
 interface CuLabelField {
@@ -329,6 +349,7 @@ export async function getRedesCalendar(
     const networks = labelsFromField(cfs.find((c) => PLATAFORMAS_RE.test(c.name ?? "")));
     let format: string | null = labelsFromField(cfs.find((c) => TIPO_CONTENIDO_RE.test(c.name ?? "")))[0] ?? null;
     if (!format) format = (t.tags ?? []).map((x) => x.name ?? "").find((n) => FORMAT_TAG_RE.test(n)) ?? null;
+    const objective = labelsFromField(cfs.find((c) => OBJETIVO_RE.test(c.name ?? "")))[0] ?? null;
     const sName = t.status?.status ?? "sin estado";
     const sentToMake = hasSentToMakeTag(t.tags);
     out.push({
@@ -340,6 +361,7 @@ export async function getRedesCalendar(
       date: new Date(startMs).toISOString(),
       networks,
       format,
+      objective,
       url: t.url ?? null,
     });
   }
@@ -680,4 +702,94 @@ export async function getEnfoqueTecnicoContext(
     }
     return { markdown: "", cached: false, stale: true };
   }
+}
+
+// ── Plan de Marketing (pedido 20/7): reuniones, planificaciones y estrategia
+// que el equipo carga en la lista "Plan de Marketing" del folder del cliente.
+// Nutrición para agentes (Propuesta CM, estrategia) — el doc del jefe lo pide
+// explícito: "puede ser algo importante para nutrirse en la planificación
+// alineada con la marca".
+export interface PlanMktItem {
+  name: string;
+  status: string;
+  updatedAt: string | null;
+  description: string | null;
+}
+
+const planMktListCache = new Map<string, { at: number; listId: string | null }>();
+
+export async function getPlanMarketing(db: Db, clientId: string, limit = 30): Promise<PlanMktItem[] | null> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client?.clickupFolderId) return null;
+
+  let cached = planMktListCache.get(clientId);
+  if (!cached || Date.now() - cached.at > 6 * 3_600_000) {
+    const r = await cu<{ lists: Array<{ id: string; name: string }> }>(`/folder/${encodeURIComponent(client.clickupFolderId)}/list`);
+    const list = (r.lists ?? []).find((l) => /plan\s*de\s*m(arketing|kt)/i.test(l.name)) ?? null;
+    cached = { at: Date.now(), listId: list?.id ?? null };
+    planMktListCache.set(clientId, cached);
+  }
+  if (!cached.listId) return null;
+
+  const r = await cu<{ tasks: Array<{
+    name: string;
+    status?: { status?: string };
+    date_updated?: string | null;
+    description?: string | null;
+    text_content?: string | null;
+  }> }>(`/list/${encodeURIComponent(cached.listId)}/task`, {
+    query: { archived: false, include_closed: true, order_by: "updated", page: 0 },
+  });
+  // ClickUp no garantiza el sentido del orden — lo más reciente primero, acá.
+  const tasks = (r.tasks ?? []).sort((a, b) => Number(b.date_updated ?? 0) - Number(a.date_updated ?? 0));
+  return tasks.slice(0, limit).map((t) => ({
+    name: t.name,
+    status: t.status?.status ?? "sin estado",
+    updatedAt: t.date_updated ? new Date(Number(t.date_updated)).toISOString().slice(0, 10) : null,
+    description: ((t.description ?? t.text_content ?? "").trim().slice(0, 600)) || null,
+  }));
+}
+
+// ── Producción de video (pedido 23/7): tareas de la lista "Produccion de
+// video" del cliente, con heurística de si YA tienen guion (descripción larga
+// con estructura o comentario del equipo). El circuito "Guionista" usa esto
+// para escribir el guion de las que están peladas.
+export interface VideoTask {
+  id: string;
+  name: string;
+  status: string;
+  dueDate: string | null;
+  url: string | null;
+  descripcion: string | null;
+  /** Heurística: descripción ≥250 chars o con marcas de guion (escena/VO/hook). */
+  tieneGuion: boolean;
+}
+
+export async function getVideoTasks(db: Db, clientId: string): Promise<VideoTask[] | null> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+  if (!client?.clickupListVideoId) return null;
+  const r = await cu<{ tasks: Array<{
+    id: string;
+    name: string;
+    status?: { status?: string };
+    due_date?: string | null;
+    url?: string | null;
+    description?: string | null;
+    text_content?: string | null;
+  }> }>(`/list/${encodeURIComponent(client.clickupListVideoId)}/task`, {
+    query: { archived: false, include_closed: false, subtasks: false },
+  });
+  return (r.tasks ?? []).map((t) => {
+    const desc = (t.description ?? t.text_content ?? "").trim();
+    const tieneGuion = desc.length >= 250 || /guion|guión|escena \d|voz en off|\bvo:|\bhook\b|toma \d/i.test(desc);
+    return {
+      id: t.id,
+      name: t.name,
+      status: t.status?.status ?? "sin estado",
+      dueDate: t.due_date ? new Date(Number(t.due_date)).toISOString().slice(0, 10) : null,
+      url: t.url ?? null,
+      descripcion: desc.slice(0, 500) || null,
+      tieneGuion,
+    };
+  });
 }

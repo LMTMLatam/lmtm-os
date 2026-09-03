@@ -16,6 +16,17 @@ import { createClientTask } from "./client-tasks.js";
 
 const DROP_THRESHOLD = 20; // health points lost vs ~1 week ago
 const FLOOR = 35; // absolute low-health line (0-100)
+/**
+ * Días antes de volver a avisar por el mismo cliente.
+ *
+ * Antes esto no existía y se confiaba en que la deduplicación por tarea ABIERTA
+ * alcanzaba. No alcanzaba: el agente cierra el aviso el mismo día y al otro se
+ * crea uno nuevo. Medido el 30/8/26: 284 avisos en 60 días, con SKYGARDEN 52,
+ * MAERS 51 y Sebastián Ramasco 40, muchos separados por CERO días. Con 7 días
+ * se evita el 87% de esos avisos; subir a 14 solo agrega un punto, así que no
+ * vale la pena tapar una señal que reaparece de verdad.
+ */
+export const DIAS_SIN_REPETIR = 7;
 
 export async function runRetentionWatch(db: Db): Promise<{ flagged: number }> {
   const clients = await activeClients(db);
@@ -42,8 +53,6 @@ export async function runRetentionWatch(db: Db): Promise<{ flagged: number }> {
       ? `Score de salud en ${latest.health}/100 (bajo el piso de ${FLOOR}).`
       : `Score de salud cayó ${dropped} puntos (${baseline!.health}→${latest.health}) en ~1 semana.`;
 
-    // createClientTask dedups against an open task with the same title, so a
-    // client stays flagged once until someone resolves it (no daily spam).
     const res = await createClientTask(db, {
       clientId: c.id,
       title: `[RIESGO CHURN] ${c.name}`,
@@ -51,6 +60,7 @@ export async function runRetentionWatch(db: Db): Promise<{ flagged: number }> {
       taskType: "internal",
       priority: dropped >= 30 || latest.health < 20 ? "high" : "medium",
       source: "retention-watch",
+      noRepetirDias: DIAS_SIN_REPETIR,
     }).catch((e) => { console.warn(`[retention-watch] task failed for ${c.name}:`, e); return null; });
 
     if (res?.created) flagged += 1;

@@ -15,6 +15,8 @@ import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
+import { videoRoutes } from "./routes/video.js";
+import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
 import { agentToolsRoutes } from "./routes/agent-tools.js";
@@ -241,6 +243,8 @@ export async function createApp(
   api.use(metaRoutes(db));
   api.use(metaSyncRoutes(db));
   api.use(adsRoutes(db));
+  api.use(videoRoutes(db));
+  api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
   // Mounted at /api/public so the URL space stays under /api.
@@ -269,12 +273,24 @@ export async function createApp(
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
   try { initAdsAutoSync(db); } catch (e) { console.warn("[ads-autosync] init failed:", e); }
+  // Generación de video: barre las piezas que el equipo etiquetó "generar
+  // video" en ClickUp. Se apaga solo si no hay credenciales de Higgsfield.
+  try {
+    const { initVideoHiggsfield } = await import("./services/video-higgsfield.js");
+    initVideoHiggsfield(db);
+  } catch (e) { console.warn("[higgsfield] init failed:", e); }
   // Content publication monitor: flags planned content that passed its date
   // without being marked published (closes the idea→published last mile).
   try {
     const { initPublicationMonitor } = await import("./services/publication-monitor.js");
     initPublicationMonitor(db);
   } catch (e) { console.warn("[publication-monitor] init failed:", e); }
+  // DB retention: prunes terminal agent_wakeup_requests rows (the scheduler
+  // logs ~15k skipped no-ops/day and nothing else ever deletes them).
+  try {
+    const { initDbMaintenance } = await import("./services/db-maintenance.js");
+    initDbMaintenance(db);
+  } catch (e) { console.warn("[db-maintenance] init failed:", e); }
   // ClickUp folder reconciliation: archive clients whose folder left the
   // "Clientes" space (moving a folder fires no webhook — only create/delete).
   try {
@@ -286,6 +302,24 @@ export async function createApp(
   // pinged twice; fetchAccountBalances/runBalanceCheck stay available for the
   // panel + on-demand routes.
   void initBalanceMonitor;
+  // Centro de Inteligencia (pedido 2026-07-18): vigilantes + brief 8/18 ART.
+  try {
+    const { initVigilantes } = await import("./services/vigilantes.js");
+    initVigilantes(db);
+  } catch (e) { console.warn("[vigilantes] init failed:", e); }
+  // Licitaciones de Mercado Público (pedido 2026-07-22): sync diario.
+  try {
+    const { initLicitaciones } = await import("./services/licitaciones.js");
+    initLicitaciones(db);
+  } catch (e) { console.warn("[licitaciones] init failed:", e); }
+  // Warmer del panel (fluidez, 23/7): el triage (y con él la planilla de
+  // cotizado y los conteos de ClickUp) se precalcula al arrancar y se
+  // refresca cada 5 min — ningún humano paga el cómputo frío de ~20s.
+  try {
+    const { warmTriage } = await import("./services/plan-accion.js");
+    setTimeout(() => warmTriage(db), 90_000);
+    setInterval(() => warmTriage(db), 5 * 60_000);
+  } catch (e) { console.warn("[panel-warmer] init failed:", e); }
   // Intelligence layer (0107): brain, scores, KG, learnings, auditor, feedback, opportunities.
   try {
     initCustomerBrain(db);
@@ -333,6 +367,17 @@ export async function createApp(
         initScriptHealth(db);
       } catch (e) {
         console.warn("[script-health] init failed:", e);
+      }
+    })();
+    // Weekly agent performance evals (patrón Agent Engine, 25/7): score each
+    // agent from its collected runs + issue outcomes and distill lessons the
+    // agent receives via get_team_lessons — the fleet improves itself.
+    void (async () => {
+      try {
+        const { initAgentEval } = await import("./services/agent-eval.js");
+        initAgentEval(db);
+      } catch (e) {
+        console.warn("[agent-eval] init failed:", e);
       }
     })();
     // Outcome scorer: 7 days after each executed ad pause, measure whether the

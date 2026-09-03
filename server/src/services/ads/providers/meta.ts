@@ -101,13 +101,6 @@ async function getPageAccessToken(userToken: string, pageId: string): Promise<st
   return found;
 }
 
-function unixToDate(unix: string | number | undefined): Date | undefined {
-  if (unix == null) return undefined;
-  const n = typeof unix === "string" ? parseInt(unix, 10) : unix;
-  if (!Number.isFinite(n)) return undefined;
-  return new Date(n * 1000);
-}
-
 function inferPostType(permalinkUrl: string | undefined, fullPicture: string | undefined): string {
   const u = (permalinkUrl ?? "").toLowerCase();
   if (u.includes("/videos/")) return "video";
@@ -545,7 +538,11 @@ export const metaProvider: AdsProvider = {
           story: p.story,
           fullPicture: p.full_picture,
           permalinkUrl: p.permalink_url,
-          createdTime: unixToDate(p.created_time),
+          // FB /posts returns created_time as an ISO 8601 string
+          // ("2026-07-09T13:00:29+0000"), NOT a unix timestamp — parsing it as
+          // a number would yield the year (2026) and a 1970 date. Parse as a
+          // date string, matching the IG media path below and meta-sync.ts.
+          createdTime: p.created_time ? new Date(p.created_time) : undefined,
           // `type` was deprecated in Graph API v3.3+, so we infer it
           // from the permalink URL. Example:
           //   https://facebook.com/PktGlobal/photos/123 → "photo"

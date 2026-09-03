@@ -120,6 +120,7 @@ async function adsApi<T = unknown>(
   method: "GET" | "POST",
   path: string,
   body?: Record<string, unknown>,
+  retried = false,
 ): Promise<T> {
   const devToken = connection.developerToken ?? needEnv("GOOGLE_ADS_DEVELOPER_TOKEN");
   const loginCid = rawCustomerId(connection.managerAccountId);
@@ -143,6 +144,22 @@ async function adsApi<T = unknown>(
     throw new Error(`Google Ads ${path} returned non-JSON (${r.status}): ${text.slice(0, 400)}`);
   }
   if (!r.ok) {
+    // 401 a mitad de un job largo (30/7): el sync de insights recorre las
+    // cuentas en secuencia por >15 min y Google reusa access tokens por
+    // vencer — el token muere adentro del loop. Refrescamos y reintentamos
+    // UNA vez, mutando connection para que el resto del job use el nuevo.
+    if (r.status === 401 && connection.refreshToken && !retried) {
+      try {
+        const set = await googleAdsProvider.refreshToken(connection.refreshToken);
+        if (set.accessToken) {
+          console.log(`[google-ads] 401 mid-job — token refrescado, reintentando ${path}`);
+          (connection as { accessToken: string | null }).accessToken = set.accessToken;
+          return adsApi<T>(connection, method, path, body, true);
+        }
+      } catch (e) {
+        console.warn(`[google-ads] refresh tras 401 falló:`, e instanceof Error ? e.message : e);
+      }
+    }
     // Google buries the actionable errorCode (e.g. DEVELOPER_TOKEN_INVALID)
     // in details[] AFTER a generic message — keep enough of the body to see it.
     throw new Error(`Google Ads ${path} → ${r.status}: ${text.slice(0, 1200)}`);
@@ -156,7 +173,24 @@ type SearchStreamResponse = Array<{
   // Pagination: Google Ads uses page tokens (pageSize + pageToken).
 }>;
 
-async function searchStream(
+// La REST de Google Ads devuelve protobuf-JSON en camelCase
+// (customerClient.descriptiveName), pero todos nuestros accesos están en
+// snake_case como los campos GAQL (customer_client.descriptive_name).
+// Normalizamos UNA vez acá — sin esto, cada .map de resultados filtraba
+// todo a vacío (bug 23/7: listAdAccounts devolvía 0 con el MCC lleno).
+function camelToSnakeDeep(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(camelToSnakeDeep);
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[k.replace(/([A-Z])/g, "_$1").toLowerCase()] = camelToSnakeDeep(val);
+    }
+    return out;
+  }
+  return v;
+}
+
+export async function searchStream(
   connection: AdsConnection,
   customerId: string,
   query: string,
@@ -170,7 +204,7 @@ async function searchStream(
   const all: Array<Record<string, unknown>> = [];
   const res = await adsApi<SearchStreamResponse>(connection, "POST", path, { query });
   for (const chunk of res) {
-    if (Array.isArray(chunk.results)) all.push(...chunk.results);
+    if (Array.isArray(chunk.results)) all.push(...(chunk.results.map((r) => camelToSnakeDeep(r) as Record<string, unknown>)));
   }
   return all;
 }
@@ -266,7 +300,7 @@ export const googleAdsProvider: AdsProvider = {
       SELECT
         campaign.id, campaign.name, campaign.status,
         campaign.start_date, campaign.end_date,
-        campaign.advertising_channel_type, campaign.advertising_channel_subtype
+        campaign.advertising_channel_type
       FROM campaign
     `.trim();
     const rows = await searchStream(connection, cid, query);
@@ -326,7 +360,7 @@ export const googleAdsProvider: AdsProvider = {
       SELECT
         ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type,
         ad_group_ad.ad.display_url, ad_group_ad.ad.final_urls,
-        ad_group_ad.ad.group, ad_group_ad.status,
+        ad_group_ad.ad_group, ad_group_ad.status,
         ad_group_ad.ad.responsive_search_ad.headlines,
         ad_group_ad.ad.responsive_search_ad.descriptions,
         ad_group_ad.ad.image_ad.image_url
@@ -336,7 +370,11 @@ export const googleAdsProvider: AdsProvider = {
     return rows
       .map((row) => {
         const aga = row.ad_group_ad as Record<string, unknown> | undefined;
-        return aga?.ad as Record<string, unknown> | undefined;
+        const ad = aga?.ad as Record<string, unknown> | undefined;
+        // v22 quitó ad.group — el padre ahora viene en ad_group_ad.ad_group
+        // (resource name). Lo colgamos del ad para que el mapeo lo lea igual.
+        if (ad && aga?.ad_group != null) ad.group = aga.ad_group;
+        return ad;
       })
       .filter((a): a is Record<string, unknown> => Boolean(a))
       .map((a) => {
@@ -373,11 +411,9 @@ export const googleAdsProvider: AdsProvider = {
       SELECT
         segments.date,
         campaign.id, campaign.name,
-        ad_group.id, ad_group_criterion.criterion_id,
         metrics.impressions, metrics.clicks, metrics.cost_micros,
         metrics.ctr, metrics.average_cpc, metrics.average_cpm,
-        metrics.conversions, metrics.conversions_value,
-        metrics.video_views
+        metrics.conversions, metrics.conversions_value
       FROM campaign
       WHERE segments.date BETWEEN '${sinceStr}' AND '${untilStr}'
     `.trim();
@@ -405,7 +441,12 @@ export const googleAdsProvider: AdsProvider = {
           ctr: num(m.ctr),
           cpc: microsToUnits(m.average_cpc),
           cpm: microsToUnits(m.average_cpm),
-          conversions: intNum(m.conversions),
+          // Google reparte conversiones fraccionarias (193.12) por atribución
+          // — la columna es INTEGER, así que redondeamos (22P02 visto 23/7).
+          conversions: Math.round(num(m.conversions) ?? 0),
+          // En Google el "lead" es la conversión (formulario/llamada/WhatsApp)
+          // — así el CPL del panel compara peras con peras contra Meta.
+          leads: Math.round(num(m.conversions) ?? 0),
           conversionValue: num(m.conversions_value),
           videoViews: intNum(m.video_views),
           raw: row,

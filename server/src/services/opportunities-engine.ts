@@ -162,19 +162,17 @@ export async function generateClientOpportunities(
     });
   }
 
-  // 6. Optional AI-generated creative idea from the combined context.
-  try {
-    const brain = await getBrainContext(db, clientId, 1200);
-    const idea = await aiNarrative(
-      "Sos un creativo de LMTM. Proponé UNA idea de contenido concreta y original para este cliente, en 1-2 oraciones, accionable. Sin títulos ni saludos.",
-      `Cliente: ${client.name} (${client.industry ?? "s/rubro"})\nContexto:\n${brain || "s/d"}\nAprendizaje de nicho: ${nicheLearnings[0]?.pattern ?? "s/d"}`,
-    );
-    if (idea) drafts.push({
-      kind: "content", title: `Idea creativa: ${idea.slice(0, 70)}`,
-      rationale: "Generada por IA a partir del contexto del cliente.", suggestedAction: idea,
-      priority: 60, basis: { ai: true },
-    });
-  } catch { /* AI optional */ }
+  // 6. NO se genera una "idea creativa" acá. (Sacado el 18/8.)
+  //
+  // Este bloque pedía UNA idea suelta de 1-2 oraciones por cliente en cada
+  // corrida y la guardaba como oportunidad. Corriendo a diario sobre 58 clientes
+  // dejó 2.006 oportunidades abiertas en 30 días — el 97% de todas — con el
+  // mismo motivo de relleno ("Generada por IA a partir del contexto del
+  // cliente") y sin llegar nunca a ClickUp, que es donde el equipo trabaja.
+  //
+  // Es un duplicado PEOR de generateContentPlan (competitor-content.ts), que ya
+  // escribe ideas cerradas —copy, slides, diseño, CTA, ángulo— directo en la
+  // lista Super Redes del cliente. Una idea de contenido tiene un solo lugar.
 
   // Persist (dedup by client+kind+title).
   let created = 0;
@@ -307,6 +305,27 @@ export async function listOpportunities(db: Db, clientId: string) {
 }
 
 export async function runAllOpportunities(db: Db): Promise<{ clients: number; materialized: number }> {
+  // Expirar lo viejo ANTES de generar (LMTM-3004, 30/7): las oportunidades de
+  // efeméride ("Día del Padre") no se cierran solas y quedaban vivas meses en
+  // el semáforo del plan de acción.
+  try {
+    const { sql: raw } = await import("drizzle-orm");
+    // 21 días era demasiado: con 58 clientes generando a diario, el panel
+    // acumulaba 2.064 oportunidades abiertas — 35 por cliente, imposible de
+    // trabajar. A los 14 días una oportunidad de marketing ya no es oportuna.
+    await db.execute(raw`update opportunities set status='expired'
+      where status not in ('done','dismissed','descartada','expired') and created_at < now() - interval '14 days'`);
+    // Tope por cliente: aunque estén dentro de los 14 días, más de 10 abiertas
+    // no se miran. Se dejan las de mayor prioridad y el resto vence. Sin esto,
+    // un cliente con mucha actividad tapa a los demás en el panel de Growth.
+    await db.execute(raw`update opportunities set status='expired' where id in (
+      select id from (
+        select id, row_number() over (partition by client_id order by priority desc, created_at desc) rn
+        from opportunities where status='new'
+      ) t where rn > 10)`);
+  } catch (e) {
+    console.warn("[opportunities] expiración de viejas falló:", e instanceof Error ? e.message : e);
+  }
   const rows = await activeClients(db);
   // One representative per niche gets the niche-wide suggestions as real
   // issues; the rest keep them as panel suggestions only. Deterministic pick

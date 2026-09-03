@@ -11,7 +11,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { agents, issues } from "@paperclipai/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { resolveTriageOwnerId } from "./client-tasks.js";
 
 // Area → (regex that matches the issue text, regex that matches the agent name).
@@ -89,6 +89,68 @@ export async function routeNewIssue(
  * Only touches actionable states; never reassigns board/system issues. Returns
  * how many were delegated.
  */
+// Trabajo que NINGÚN agente puede hacer (30/7): recargar saldo, llamar al
+// cliente, subir creativos a mano, conseguir accesos. Estaba mezclado en la
+// cola de Milo (136 pendientes) tapando lo que sí es ejecutable.
+const SOLO_HUMANO =
+  /\b(recarg\w+|cargar saldo|pagar|abonar|transferi\w+|llamar|telefone\w+|reuni[oó]n|meet|visitar|firmar|contactar (a|al)|conseguir acceso|pedir acceso|solicitar acceso|dar de alta|subir (3|los|las|el|la) \w*(variante|creativo|foto|video)|escanear|sacar foto|filmar|grabar)\b/i;
+
+/** Marca como [HUMANO] las tareas que requieren a una persona, para que no
+ * ensucien la cola ejecutable del agente. Devuelve cuántas marcó. */
+export async function tagHumanOnlyIssues(db: Db): Promise<number> {
+  const rows = await db
+    .select({ id: issues.id, title: issues.title })
+    .from(issues)
+    .where(and(
+      inArray(issues.status, ["todo", "backlog"] as never),
+      sql`${issues.title} not like '[HUMANO]%'`,
+    ));
+  let n = 0;
+  for (const i of rows) {
+    if (!SOLO_HUMANO.test(i.title)) continue;
+    await db.update(issues).set({ title: `[HUMANO] ${i.title}`.slice(0, 200), workMode: "human" } as never).where(eq(issues.id, i.id));
+    n += 1;
+  }
+  if (n > 0) console.log(`[issue-router] ${n} tarea(s) marcadas como [HUMANO]`);
+  return n;
+}
+
+/** Rebalanceo (30/7): si un agente acumula >40 pendientes y hay colegas del
+ * mismo palo con capacidad, se le pasa lo que el otro puede hacer. */
+export async function rebalanceOverloadedAgents(db: Db): Promise<number> {
+  const load = await db
+    .select({ agentId: issues.assigneeAgentId, n: sql<number>`count(*)::int` })
+    .from(issues)
+    .where(and(inArray(issues.status, ["todo", "backlog"] as never), isNotNull(issues.assigneeAgentId)))
+    .groupBy(issues.assigneeAgentId);
+  const byAgent = new Map(load.map((l) => [l.agentId as string, l.n]));
+  const sobrecargados = load.filter((l) => l.n > 40);
+  if (sobrecargados.length === 0) return 0;
+  let moved = 0;
+  for (const s of sobrecargados) {
+    const [ag] = await db.select({ companyId: agents.companyId }).from(agents).where(eq(agents.id, s.agentId as string)).limit(1);
+    if (!ag) continue;
+    const roster = await loadRoster(db, ag.companyId);
+    const pend = await db
+      .select({ id: issues.id, title: issues.title, description: issues.description })
+      .from(issues)
+      .where(and(eq(issues.assigneeAgentId, s.agentId as string), inArray(issues.status, ["todo", "backlog"] as never)))
+      .orderBy(issues.createdAt)
+      .limit(30);
+    for (const i of pend) {
+      const target = resolveSpecialist(roster, `${i.title}\n${i.description ?? ""}`);
+      // Solo mover a un colega con menos carga que el sobrecargado.
+      if (!target || target === s.agentId || (byAgent.get(target) ?? 0) >= 20) continue;
+      await db.update(issues).set({ assigneeAgentId: target } as never).where(eq(issues.id, i.id));
+      byAgent.set(target, (byAgent.get(target) ?? 0) + 1);
+      moved += 1;
+      if (moved >= 20) break;
+    }
+  }
+  if (moved > 0) console.log(`[issue-router] rebalance: ${moved} issue(s) redistribuidos`);
+  return moved;
+}
+
 export async function sweepStrandedIssues(db: Db): Promise<{ scanned: number; routed: number }> {
   const companies = await db.select({ id: agents.companyId }).from(agents).groupBy(agents.companyId);
   let scanned = 0;
@@ -118,6 +180,8 @@ export async function sweepStrandedIssues(db: Db): Promise<{ scanned: number; ro
     }
   }
   if (routed > 0) console.log(`[issue-router] sweep: delegated ${routed}/${scanned} stranded issue(s)`);
+  await tagHumanOnlyIssues(db).catch((e) => console.warn("[issue-router] tag humano falló:", e));
+  await rebalanceOverloadedAgents(db).catch((e) => console.warn("[issue-router] rebalance falló:", e));
   return { scanned, routed };
 }
 

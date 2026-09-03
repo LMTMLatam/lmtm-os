@@ -22,6 +22,7 @@ import {
   scriptUpdateContent,
 } from "@paperclipai/mcp-google";
 import { createClientTask } from "./client-tasks.js";
+import { configuracionDesdeClickUp, inyectarConfig } from "./apps-script-config.js";
 
 export const CLIENTES_SPACE_ID = "90131985551";
 
@@ -33,11 +34,21 @@ const REDES = {
   scriptTemplate: "14H0_s9ozhWfqlA49_rWDbuwSj8udq8EWqZw8T8Ef1P9MmQ-RK0NHLLC4", // "PLANILLA SCRIPT REDES"
 };
 
+// Producción de video: mismo pipeline que Redes (pedido 24/7) — sheet
+// "<CLIENTE> - PRODUCCIÓN" + Apps Script que la sincroniza con la lista
+// "Produccion de video" del folder de ClickUp del cliente.
+const VIDEO = {
+  template: "1niOnE8Vss05mBsCdO4CTnmIC39i7UyUXdXOP2Z775Kw", // "Plantilla _Produccion de video"
+  folder: "1Rmbx5DJSAsFrNBpZhKsDP4LsmBA0_NKp", // carpeta raíz de sheets de producción
+  scripts: "11CzUXYbr4ltaSgIxPfFGqENRhB18H7nX", // subcarpeta "Scripts"
+  scriptTemplate: "1J_wD4I2If94mGsMWL2QPmomeit34X8iN26ggyVN1c2FJmnZibWFL5K5O", // "Planilla script redes" (versión video)
+};
+
 const CU_API = "https://api.clickup.com/api/v2";
 
 /** Find the "Redes Sociales" list inside a client's ClickUp folder (the list the
  * Cronopost script feeds). Returns its id, or null if the folder has no such list. */
-async function findRedesListId(folderId: string): Promise<string | null> {
+async function findListId(folderId: string, re: RegExp): Promise<string | null> {
   const token = process.env.CLICKUP_API_TOKEN;
   if (!token) return null;
   try {
@@ -46,12 +57,14 @@ async function findRedesListId(folderId: string): Promise<string | null> {
     });
     if (!r.ok) return null;
     const j = (await r.json()) as { lists?: Array<{ id: string; name: string }> };
-    const hit = (j.lists ?? []).find((l) => /redes\s*sociales/i.test(l.name));
+    const hit = (j.lists ?? []).find((l) => re.test(l.name));
     return hit?.id ?? null;
   } catch {
     return null;
   }
 }
+const findRedesListId = (folderId: string) => findListId(folderId, /redes\s*sociales/i);
+const findVideoListId = (folderId: string) => findListId(folderId, /produ\S*\s+de\s+v[ií]deos?/i);
 
 interface ScriptProvision {
   scriptId: string | null;
@@ -68,6 +81,47 @@ interface ScriptProvision {
  * association + runtime scopes we don't have), so it stays a 1-click step:
  * open the script and run crearTriggerDiario() once.
  */
+/**
+ * Reescribe la config del script clonado con los ids REALES de la lista del
+ * cliente nuevo y las columnas reales de su planilla.
+ *
+ * Sin esto el cliente hereda los ids de la plantilla, que son los de otro
+ * cliente: los campos que ClickUp define por carpeta (OKR) apuntan a la lista
+ * equivocada y el script escribe en el vacío. Es el bug que la auditoría del
+ * 25/8/26 encontró en 41 clientes.
+ */
+async function conConfigDelCliente(
+  files: Array<{ name: string; type: "SERVER_JS" | "HTML" | "JSON"; source: string }>,
+  args: { clientName: string; sheetId: string; clickUpListId: string; sheetName: string; pipeline: "redes" | "video" },
+): Promise<{ files: typeof files; avisos: string[] }> {
+  try {
+    const cfg = await configuracionDesdeClickUp({
+      listId: args.clickUpListId,
+      spreadsheetId: args.sheetId,
+      sheetName: args.sheetName,
+      pipeline: args.pipeline,
+    });
+    const cabecera =
+      `/* ===== CONFIG GENERADA DESDE CLICKUP en el onboarding — no editar a mano =====\n` +
+      ` * Cliente: ${args.clientName} · lista ${args.clickUpListId} · pestaña "${args.sheetName}"\n` +
+      ` * Los ids salen de la API de ClickUp y COLUMNS del header de la planilla.\n` +
+      ` */`;
+    return {
+      files: files.map((f) => (f.type === "SERVER_JS" ? { ...f, source: inyectarConfig(f.source, cfg, cabecera) } : f)),
+      avisos: cfg.avisos,
+    };
+  } catch (e) {
+    // Si ClickUp o Sheets no responden preferimos dejar el script con la config
+    // de la plantilla y avisarlo, antes que no crear nada.
+    return {
+      files,
+      avisos: [
+        `NO se pudo generar la config desde ClickUp (${e instanceof Error ? e.message : String(e)}): el script queda creado pero NO va a sincronizar hasta que se le carguen los ids de campo.`,
+      ],
+    };
+  }
+}
+
 async function provisionScriptForClient(args: {
   clientName: string;
   sheetId: string;
@@ -101,13 +155,60 @@ async function provisionScriptForClient(args: {
   }
   out.scriptId = scriptId;
   out.scriptUrl = `https://script.google.com/d/${scriptId}/edit`;
-  await scriptUpdateContent({ scriptId, files: parameterized as never });
+  const conf = await conConfigDelCliente(parameterized, { ...args, sheetName: "Cronopost", pipeline: "redes" });
+  await scriptUpdateContent({ scriptId, files: conf.files as never });
   try {
     await driveMove({ fileId: scriptId, addParentId: REDES.scripts, removeParentId: "root" });
   } catch {
     /* move is cosmetic; the script works wherever it lives */
   }
   out.note = "script creado y configurado; falta instalar el trigger (1 clic: abrir el script y correr crearTriggerDiario)";
+  if (conf.avisos.length) out.note += ` · revisar: ${conf.avisos.join("; ")}`;
+  return out;
+}
+
+/** Igual que provisionScriptForClient pero para el pipeline de Producción de
+ *  video (placeholders y trigger distintos: la plantilla usa "ID DEL SHEETS" /
+ *  "ID DE LA LISTA DE CLICKUP" y el trigger es crearTriggerDiarioMedianoche). */
+async function provisionVideoScriptForClient(args: {
+  clientName: string;
+  sheetId: string;
+  clickUpListId: string;
+}): Promise<ScriptProvision> {
+  const out: ScriptProvision = { scriptId: null, scriptUrl: null, triggerInstalled: false, note: "" };
+  const tpl = (await scriptGetContent({ scriptId: VIDEO.scriptTemplate })) as {
+    files?: Array<{ name: string; type: "SERVER_JS" | "HTML" | "JSON"; source: string }>;
+  };
+  const files = tpl.files ?? [];
+  if (files.length === 0) {
+    out.note = "no se pudo leer la plantilla de script de video";
+    return out;
+  }
+  const parameterized = files.map((f) => {
+    if (f.type !== "SERVER_JS") return f;
+    let s = f.source;
+    s = s.replace(/projectName:\s*"CLIENTE"/g, `projectName: ${JSON.stringify(args.clientName)}`);
+    s = s.replace(/clickUpListId:\s*"ID DE LA LISTA DE CLICKUP"/g, `clickUpListId: ${JSON.stringify(args.clickUpListId)}`);
+    s = s.replace(/spreadsheetId:\s*"ID DEL SHEETS?"/g, `spreadsheetId: ${JSON.stringify(args.sheetId)}`);
+    return { name: f.name, type: f.type, source: s };
+  });
+  const created = (await scriptCreate({ title: `${args.clientName} - Video` })) as { scriptId?: string };
+  const scriptId = created.scriptId;
+  if (!scriptId) {
+    out.note = "scriptCreate no devolvió scriptId";
+    return out;
+  }
+  out.scriptId = scriptId;
+  out.scriptUrl = `https://script.google.com/d/${scriptId}/edit`;
+  const conf = await conConfigDelCliente(parameterized, { ...args, sheetName: "Produccion de videos", pipeline: "video" });
+  await scriptUpdateContent({ scriptId, files: conf.files as never });
+  try {
+    await driveMove({ fileId: scriptId, addParentId: VIDEO.scripts, removeParentId: "root" });
+  } catch {
+    /* move is cosmetic */
+  }
+  out.note = "script de video creado y configurado; falta instalar el trigger (1 clic: correr crearTriggerDiarioMedianoche)";
+  if (conf.avisos.length) out.note += ` · revisar: ${conf.avisos.join("; ")}`;
   return out;
 }
 
@@ -130,6 +231,8 @@ export interface ProvisionResult {
   client: { id: string; slug: string; name: string; created: boolean } | null;
   redesSheet: { id: string; url: string | null } | null;
   script: ScriptProvision | null;
+  videoSheet: { id: string; url: string | null } | null;
+  videoScript: ScriptProvision | null;
   errors: string[];
 }
 
@@ -139,7 +242,7 @@ export async function provisionClientFromClickUp(
   input: { folderId: string; folderName: string },
 ): Promise<ProvisionResult> {
   const name = (input.folderName ?? "").trim();
-  const out: ProvisionResult = { client: null, redesSheet: null, script: null, errors: [] };
+  const out: ProvisionResult = { client: null, redesSheet: null, script: null, videoSheet: null, videoScript: null, errors: [] };
   if (!name) {
     out.errors.push("folderName vacío");
     return out;
@@ -163,6 +266,25 @@ export async function provisionClientFromClickUp(
     }
   } catch (e) {
     out.errors.push(`sheet redes: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 1b. Copy the Producción de video Sheet template (pedido 24/7: video se
+  // provisiona igual que Redes).
+  let videoSheetId: string | null = null;
+  try {
+    const copy = (await driveCopy({
+      fileId: VIDEO.template,
+      name: `${name.toUpperCase()} - PRODUCCIÓN`,
+      parentFolderId: VIDEO.folder,
+    })) as { id?: string; webViewLink?: string };
+    if (copy?.id) {
+      videoSheetId = copy.id;
+      out.videoSheet = { id: copy.id, url: copy.webViewLink ?? null };
+    } else {
+      out.errors.push("drive_copy (video) no devolvió id");
+    }
+  } catch (e) {
+    out.errors.push(`sheet video: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // 2. Ensure an LMTM client record (so it shows in the panel with all sections).
@@ -230,12 +352,37 @@ export async function provisionClientFromClickUp(
     out.errors.push("lista 'Redes Sociales' no encontrada en el folder → script no creado");
   }
 
+  // 3b. Apps Script de Producción de video (sheet de producción + lista
+  // "Produccion de video" del folder). Mismo best-effort que Redes.
+  const videoListId = await findVideoListId(input.folderId);
+  if (videoSheetId && videoListId) {
+    try {
+      out.videoScript = await provisionVideoScriptForClient({ clientName: name, sheetId: videoSheetId, clickUpListId: videoListId });
+      const [row] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
+      const meta = {
+        ...((row?.metadata as Record<string, unknown>) ?? {}),
+        ...(out.videoScript?.scriptId ? { videoScriptId: out.videoScript.scriptId } : {}),
+        videoSheetId,
+      };
+      await db.update(clients).set({ metadata: meta as never, updatedAt: new Date() }).where(eq(clients.id, clientId));
+    } catch (e) {
+      out.errors.push(`script video: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else if (!videoListId) {
+    out.errors.push("lista 'Produccion de video' no encontrada en el folder → script de video no creado");
+  }
+
   // 4. File a task for the remaining manual/agent steps (trigger + Make).
   try {
     const fallbackCompanyId = (await defaultCompanyId(db)) ?? undefined;
     const scriptLine = out.script?.scriptUrl
       ? `• Apps Script creado y configurado: ${out.script.scriptUrl}\n  ⚠️ Falta 1 clic: abrir el script y correr la función *crearTriggerDiario* (instala el trigger diario).\n`
       : `• Apps Script: ⚠️ no se pudo crear (${out.errors.join("; ") || "revisar"}). Crear a mano desde la plantilla.\n`;
+    const videoLine =
+      (out.videoSheet?.url ? `• Sheet de Producción de video: ${out.videoSheet.url}\n` : `• Sheet de Producción de video: ⚠️ no se pudo crear, revisar\n`) +
+      (out.videoScript?.scriptUrl
+        ? `• Apps Script de video creado: ${out.videoScript.scriptUrl}\n  ⚠️ Falta 1 clic: correr *crearTriggerDiarioMedianoche*.\n`
+        : `• Apps Script de video: ⚠️ no se pudo crear. Crear a mano desde la plantilla del folder Scripts.\n`);
     await createClientTask(db, {
       clientId,
       title: `Onboarding ${name}: trigger + scenario Make`,
@@ -243,8 +390,9 @@ export async function provisionClientFromClickUp(
         `Cliente nuevo detectado en ClickUp (folder ${input.folderId}). Provisión automática:\n` +
         `• Sheet de Redes: ${out.redesSheet?.url ?? "⚠️ no se pudo crear, revisar"}\n` +
         scriptLine +
+        videoLine +
         `Falta para terminar el pipeline (ver skill lmtm-pipeline):\n` +
-        `1) Instalar el trigger del script (1 clic, ver arriba).\n` +
+        `1) Instalar los triggers de AMBOS scripts (1 clic cada uno, ver arriba).\n` +
         `2) Probar una fila de punta a punta y guardar los IDs en el brain del cliente.\n` +
         `(El scenario de Make se configura aparte — no se automatiza por ahora.)`,
       taskType: "internal",

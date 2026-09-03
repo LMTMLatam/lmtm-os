@@ -22,11 +22,12 @@ export interface AuditFinding {
   text: string;
 }
 
-interface NetworkActivity {
+export interface NetworkActivity {
   hasPage: boolean;       // the client has at least one Meta page connected
   count: number;          // real posts published on the network in the window
   everSynced: boolean;    // we have ANY organic post ever for this client/page
-  latestAt: Date | null;
+  latestAt: Date | null;  // createdTime of the most recent synced post
+  lastSyncedAt: Date | null; // most recent syncedAt — how fresh OUR data is
 }
 
 /**
@@ -35,7 +36,7 @@ interface NetworkActivity {
  * carried it, and also by the client's mapped pageId(s) as a fallback (the
  * same page can be mapped to a client without clientId stamped on every row).
  */
-async function networkActivity(
+export async function networkActivity(
   db: Db,
   clientId: string,
   sinceMs: number,
@@ -57,19 +58,21 @@ async function networkActivity(
   // All synced posts for this client/page (any date) — lets us tell apart
   // "really posted nothing this week" from "we have no network data at all yet".
   const rows = await db
-    .select({ createdTime: organicPosts.createdTime })
+    .select({ createdTime: organicPosts.createdTime, syncedAt: organicPosts.syncedAt })
     .from(organicPosts)
     .where(match);
 
   let latestAt: Date | null = null;
+  let lastSyncedAt: Date | null = null;
   let count = 0;
   for (const r of rows) {
+    if (r.syncedAt && (!lastSyncedAt || r.syncedAt > lastSyncedAt)) lastSyncedAt = r.syncedAt;
     if (!r.createdTime) continue;
     const ms = r.createdTime.getTime();
     if (ms >= sinceMs && ms <= untilMs) count += 1;
     if (!latestAt || r.createdTime > latestAt) latestAt = r.createdTime;
   }
-  return { hasPage, count, everSynced: rows.length > 0, latestAt };
+  return { hasPage, count, everSynced: rows.length > 0, latestAt, lastSyncedAt };
 }
 
 interface ClientAudit {
@@ -86,7 +89,7 @@ async function auditClient(
 ): Promise<ClientAudit> {
   const redes = await getRedesPostStats(db, client.id, weekAgoMs, nowMs + 86400000).catch(() => null);
   const net = await networkActivity(db, client.id, weekAgoMs, nowMs + 86400000).catch(
-    () => ({ hasPage: false, count: 0, everSynced: false, latestAt: null }) as NetworkActivity,
+    () => ({ hasPage: false, count: 0, everSynced: false, latestAt: null, lastSyncedAt: null }) as NetworkActivity,
   );
 
   const plannedThisWeek = redes?.plannedThisWeek ?? 0;

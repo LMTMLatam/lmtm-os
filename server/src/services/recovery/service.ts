@@ -24,6 +24,7 @@ import { parseObject, asBoolean, asNumber } from "../../adapters/utils.js";
 import { runningProcesses } from "../../adapters/index.js";
 import { forbidden, notFound } from "../../errors.js";
 import { logger } from "../../middleware/logger.js";
+import { decidirRecuperacion, tituloParaPersona, MAX_INTENTOS } from "./reintentos.js";
 import { redactCurrentUserText } from "../../log-redaction.js";
 import { redactSensitiveText } from "../../redaction.js";
 import { logActivity } from "../activity-log.js";
@@ -1491,6 +1492,62 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
 
     const existing = await findOpenStrandedIssueRecoveryIssue(input.issue.companyId, input.issue.id);
     if (existing) return existing;
+
+    // La búsqueda de arriba solo mira recuperaciones ABIERTAS. Si el agente
+    // cierra la recuperación sin destrabar el origen, el barrido siguiente
+    // abre otra, y otra: 288 recuperaciones sobre 93 orígenes en 30 días, con
+    // LMTM-3820 recuperado 38 veces cada seis minutos (30/8/26). Acá se cuenta
+    // TODO lo intentado antes, cerrado incluido.
+    const previos = await db
+      .select({ creado: issues.createdAt })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, input.issue.companyId),
+          eq(issues.originKind, STRANDED_ISSUE_RECOVERY_ORIGIN_KIND),
+          eq(issues.originId, input.issue.id),
+        ),
+      )
+      .orderBy(desc(issues.createdAt));
+
+    const decision = decidirRecuperacion({
+      intentosPrevios: previos.length,
+      ultimoIntento: previos[0]?.creado ?? null,
+    });
+
+    if (decision.accion === "esperar") {
+      logger.info(
+        { issueId: input.issue.id, intentos: previos.length },
+        `[recovery] no reintento todavía: ${decision.motivo}`,
+      );
+      return null;
+    }
+
+    if (decision.accion === "rendirse") {
+      // Que la automatización no pueda es un dato útil. Se marca el ORIGEN para
+      // la cola humana en vez de seguir abriendo recuperaciones que nadie lee.
+      const nuevoTitulo = tituloParaPersona(input.issue.title);
+      if (nuevoTitulo !== input.issue.title || input.issue.status !== "blocked") {
+        await issuesSvc
+          .update(input.issue.id, { title: nuevoTitulo, status: "blocked" as never })
+          .catch((e) => logger.warn({ err: e, issueId: input.issue.id }, "[recovery] no pude marcarlo para persona"));
+        await issuesSvc
+          .addComment(
+            input.issue.id,
+            `Se intentó recuperar este issue automáticamente ${previos.length} veces (tope: ${MAX_INTENTOS}) y siguió varado. ` +
+              `Dejo de reintentar y lo paso a la cola humana: si la automatización no lo destrabó en ${MAX_INTENTOS} intentos, ` +
+              `seguir insistiendo solo llena el tablero. Hay que mirar por qué no arranca.`,
+            {},
+            { authorType: "system" },
+          )
+          .catch(() => { /* el comentario es informativo, no puede frenar el barrido */ });
+      }
+      logger.warn(
+        { issueId: input.issue.id, intentos: previos.length },
+        "[recovery] me rindo con este issue, pasa a la cola humana",
+      );
+      return null;
+    }
 
     const ownerAgentId = await resolveStrandedIssueRecoveryOwnerAgentId(input.issue);
     if (!ownerAgentId) return null;

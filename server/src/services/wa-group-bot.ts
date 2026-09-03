@@ -10,7 +10,7 @@ import {
 import { desc, gte, eq, and, sql } from "drizzle-orm";
 import { upsertMemory } from "./customer-brain.js";
 import { resolveCompanyId } from "./intel-common.js";
-import { detectClientTasksFromMessages } from "./client-tasks.js";
+import { detectPendingItems } from "./client-tasks.js";
 
 const SESSION_ID = "lmtm";
 
@@ -264,6 +264,76 @@ async function summarizeGroup(
   );
 }
 
+/**
+ * Destila el resumen en HECHOS DURABLES del cliente (14/8).
+ *
+ * Antes el resumen entero se pegaba en la memoria como un `event` por día: a los
+ * dos meses el brain tenía 30 resúmenes cronológicos apilados y ningún agente
+ * sacaba de ahí un dato útil. Ahora se extraen datos con clave estable, así el
+ * de septiembre PISA al de agosto en vez de acumularse.
+ *
+ * REGLA (pedido del usuario 27/7): de acá NO salen tareas ni acciones. Los
+ * pendientes del grupo se anotan en el resumen y los decide el equipo. Esta
+ * función extrae contexto (cómo es el cliente, qué prefiere, qué cambió en su
+ * negocio), nunca cosas para hacer.
+ */
+async function destilarContextoDeGrupo(
+  db: Db,
+  companyId: string,
+  clientId: string,
+  clienteNombre: string,
+  summary: string,
+): Promise<number> {
+  const sistema = [
+    "Extraés DATOS DURABLES de un cliente a partir del resumen de su grupo de WhatsApp.",
+    "Durable = sigue siendo cierto dentro de un mes: cómo trabaja, qué prefiere, qué NO quiere, gente clave,",
+    "productos/servicios, sucursales, temporadas fuertes, restricciones de marca, novedades del negocio.",
+    "NO extraigas: tareas, pedidos, cosas para hacer, urgencias, quejas puntuales ni nada con fecha de vencimiento.",
+    "Devolvé SOLO un JSON array (sin markdown), máximo 5 objetos:",
+    `[{"kind":"fact|preference|risk|event","key":"slug-corto-estable","content":"la afirmación en una oración"}]`,
+    "kind: fact = dato del negocio; preference = cómo le gusta / qué no quiere; risk = algo a cuidar; event = cambio puntual relevante.",
+    "key: slug en minúsculas, estable entre resúmenes (ej. 'horarios-atencion', 'tono-de-marca', 'sucursales').",
+    "Si el resumen no tiene ningún dato durable, devolvé [].",
+  ].join(" ");
+  const userContent = `Cliente: ${clienteNombre}\n\nResumen del grupo:\n${summary.slice(0, 4000)}`;
+
+  const salida =
+    (await callAnthropic(sistema, userContent)) ??
+    (await callOpenAI(sistema, userContent)) ??
+    (await callMinimax(sistema, userContent));
+  if (!salida) return 0;
+
+  let items: Array<{ kind?: string; key?: string; content?: string }> = [];
+  try {
+    const limpio = salida.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const parsed = JSON.parse(limpio.slice(limpio.indexOf("["), limpio.lastIndexOf("]") + 1));
+    if (Array.isArray(parsed)) items = parsed;
+  } catch { return 0; }
+
+  const KINDS = new Set(["fact", "preference", "risk", "event"]);
+  // Red de seguridad por si el modelo igual devuelve un pendiente disfrazado.
+  const SUENA_A_TAREA = /\b(hay que|tenemos que|pedir|enviar|mandar|coordinar|recordar|pendiente|urgente|para el (lunes|martes|mi[eé]rcoles|jueves|viernes))\b/i;
+
+  let guardados = 0;
+  for (const it of items.slice(0, 5)) {
+    const kind = (it.kind ?? "").toLowerCase();
+    const key = (it.key ?? "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
+    const content = (it.content ?? "").trim();
+    if (!KINDS.has(kind) || !key || content.length < 12) continue;
+    if (SUENA_A_TAREA.test(content)) continue;
+    await upsertMemory(db, {
+      companyId, clientId,
+      kind: kind as "fact" | "preference" | "risk" | "event",
+      key: `wa-${key}`,
+      content,
+      source: "wa-group-bot:destilado",
+      confidence: 0.75,
+    }).catch(() => {});
+    guardados++;
+  }
+  return guardados;
+}
+
 // --- Delivery ---
 
 async function deliverSummary(
@@ -402,19 +472,13 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
 
   if (messages.length < cfg.minMessages) return;
 
-  const summary = await summarizeGroup(
+  let summary = await summarizeGroup(
     groupJid,
     cfg.groupName ?? groupName,
     messages.map((m) => ({ senderName: m.senderName, body: m.body, timestamp: m.timestamp })),
     cfg.summaryTone,
   );
   if (!summary) return;
-
-  const summaryDate = new Date().toISOString();
-  const [inserted] = await db
-    .insert(waGroupSummaries)
-    .values({ groupJid, groupName: cfg.groupName ?? groupName, summaryDate, content: summary, messageCount: messages.length })
-    .returning({ id: waGroupSummaries.id });
 
   // Persist name if we learned it
   if (cfg.groupName === null && groupName !== null) {
@@ -431,32 +495,48 @@ async function runGroupSummary(groupJid: string, groupName: string | null) {
     }
   }
 
+  // Pendientes del chat: SOLO ANOTADOS en el resumen (pedido 2026-07-27).
+  // Antes se convertían en tareas ejecutables y los agentes actuaban sobre
+  // pedidos del cliente sin OK del equipo (caso carpetas Drive DUNOD).
+  if (cfg.clientId) {
+    const items = await detectPendingItems(messages.map((m) => ({ senderName: m.senderName, body: m.body }))).catch(() => []);
+    if (items.length > 0) {
+      summary +=
+        "\n\n📋 *Pendientes detectados en el chat* (NO ejecutados — los decide el equipo):\n" +
+        items.map((t) => `• ${t.title}${t.description ? ` — ${t.description}` : ""}`).join("\n");
+    }
+  }
+
+  const summaryDate = new Date().toISOString();
+  const [inserted] = await db
+    .insert(waGroupSummaries)
+    .values({ groupJid, groupName: cfg.groupName ?? groupName, summaryDate, content: summary, messageCount: messages.length })
+    .returning({ id: waGroupSummaries.id });
+
   // If this group is mapped to a client, feed the summary into the client's
-  // living memory so it surfaces as client context (and self-learning), create
-  // the summary in the client's ClickUp, and detect pending tasks raised in the
-  // chat → file them as client tasks (internal active, external proposed).
+  // living memory so it surfaces as client context (and self-learning) and
+  // create the summary in the client's ClickUp.
   if (cfg.clientId) {
     try {
       const companyId = await resolveCompanyId(db, cfg.clientId);
       await createClientSummaryTask(db, cfg.clientId, cfg.groupName ?? groupName, summary, summaryDate).catch(() => {});
       if (companyId) {
+        // El resumen del día, para trazabilidad (clave por fecha).
         await upsertMemory(db, {
           companyId,
           clientId: cfg.clientId,
           kind: "event",
           key: `wa-summary-${summaryDate.slice(0, 10)}`,
-          content: `Resumen WhatsApp (${cfg.groupName ?? groupName ?? "grupo"}): ${summary.slice(0, 600)}`,
+          content: `Resumen WhatsApp (${cfg.groupName ?? groupName ?? "grupo"}): ${summary.slice(0, 900)}`,
           source: "wa-group-bot",
         });
-      }
-      const taskRes = await detectClientTasksFromMessages(db, {
-        clientId: cfg.clientId,
-        source: `grupo WhatsApp ${cfg.groupName ?? groupName ?? ""}`.trim(),
-        messages: messages.map((m) => ({ senderName: m.senderName, body: m.body })),
-        fallbackCompanyId: companyId ?? undefined,
-      }).catch(() => null);
-      if (taskRes && (taskRes.created > 0 || taskRes.proposed > 0)) {
-        console.log(`[wa-bot] tasks detected for client ${cfg.clientId}: ${taskRes.created} activas, ${taskRes.proposed} para aprobar`);
+        // Y los datos durables, con clave estable, que es lo que después
+        // realmente usa cualquier agente del cliente.
+        const [cli] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, cfg.clientId));
+        const n = await destilarContextoDeGrupo(
+          db, companyId, cfg.clientId, cli?.name ?? "el cliente", summary,
+        ).catch(() => 0);
+        if (n > 0) console.log(`[wa-group-bot] ${n} dato(s) durables al brain de ${cli?.name ?? cfg.clientId}`);
       }
     } catch { /* noop */ }
   }

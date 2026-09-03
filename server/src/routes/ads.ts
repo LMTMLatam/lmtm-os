@@ -31,10 +31,12 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, hooks, learnings, organicPosts, organicPostInsights, publicDashboards, accountScores, issues, opportunities, trends, videoReferences, type AdsAccountMapping } from "@paperclipai/db";
+import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, hooks, learnings, organicPosts, organicPostInsights, publicDashboards, syncLogs, accountScores, issues, opportunities, trends, videoReferences, type AdsAccountMapping } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
+import { trendMatchesIndustry } from "../services/niche-slugs.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
+import { microCache, invalidateMicroCache } from "../services/micro-cache.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
 import { linkedinAdsProviderScopes } from "../services/ads/providers/linkedin.js";
 import { logActivity } from "../services/activity-log.js";
@@ -45,6 +47,7 @@ import { withFreshAccessToken } from "../services/ads/token-refresh.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
 import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
+import { esPropuestaViva, resumirPropuesta } from "../services/propuestas-cliente.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
 import { getClientBrain, refreshClientBrain, upsertMemory } from "../services/customer-brain.js";
 import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
@@ -55,7 +58,7 @@ import { mineLearnings } from "../services/learning-engine.js";
 import { rebuildClientContent, topContent } from "../services/knowledge-graph.js";
 import { runAllAdsSync } from "../services/ads-autosync.js";
 import { fetchAccountBalances, runBalanceCheck } from "../services/balance-monitor.js";
-import { competitors, contentIdeas } from "@paperclipai/db";
+import { competitors, contentIdeas, nicheReports, interventions } from "@paperclipai/db";
 import { generateContentPlan } from "../services/competitor-content.js";
 import { resolveCompanyId } from "../services/intel-common.js";
 
@@ -105,9 +108,10 @@ function panelUrl(): string {
 function oauthFailRedirect(res: Response, platform: string, reason: string): void {
   const base = panelUrl();
   const qs = `${platform}_error=${encodeURIComponent(reason)}`;
-  // We send the user back to the integrations page for that platform;
-  // the panel renders an error banner from the query string.
-  res.redirect(base ? `${base}/integrations/${platform}?${qs}` : `/integrations/${platform}?${qs}`);
+  // Back to the ads-integrations page (la ruta /integrations/:platform no
+  // existe en el panel — mandaba a "Page not found", visto 22/7).
+  const page = `/company/settings/integrations/ads?${qs}`;
+  res.redirect(base ? `${base}${page}` : page);
 }
 
 function encodeState(payload: Record<string, unknown>): string {
@@ -131,8 +135,16 @@ function toPublicConnection<T extends Record<string, unknown>>(row: T): Partial<
   return safe as Partial<T>;
 }
 
+// Cooldown de sync manual por cliente+rango (pedido 27/7): re-sincronizar lo
+// mismo cada vez que alguien toca las fechas hace esperar minutos por datos
+// que ya están en la DB.
+const SYNC_COOLDOWN_MS = 30 * 60_000;
+const syncCooldowns = new Map<string, number>();
+
 export function adsRoutes(db: Db): Router {
   const router = Router();
+  // Lecturas pesadas del dashboard: cache 3 min (se invalida al syncear).
+  const dashCache = microCache(3 * 60_000);
 
   // Single-flight guard for the heavy "pages-with-sets" inventory build. Several
   // page loads / retries used to each spawn a full build (listPages ~50 Graph
@@ -753,13 +765,18 @@ export function adsRoutes(db: Db): Router {
       // Persist the connection. We let the user pick the ad account
       // mapping after the fact — /api/ads/connections/:id/ad-accounts
       // calls provider.listAdAccounts() once they hit the UI.
+      // El navegador a veces dispara el callback DOS veces (visto 22/7 con
+      // Google): el segundo insert chocaba el unique (company_id, label) y el
+      // usuario veía un error aunque la conexión ya estaba guardada. Upsert:
+      // si el label ya existe, se refrescan los tokens de esa fila.
+      const label = state.label ?? `${platform} Ads`;
       const [row] = await db
         .insert(adsConnections)
         .values({
           companyId: state.companyId,
           clientId: null,
           platform,
-          label: state.label ?? `${platform} Ads`,
+          label,
           accessToken: tokenSet.accessToken,
           refreshToken: tokenSet.refreshToken ?? null,
           developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? null, // only used for google
@@ -770,6 +787,22 @@ export function adsRoutes(db: Db): Router {
           scopes: tokenSet.scopes,
           status: "active",
           expiresAt: tokenSet.expiresAt ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [adsConnections.companyId, adsConnections.label],
+          set: {
+            accessToken: tokenSet.accessToken,
+            refreshToken: tokenSet.refreshToken ?? null,
+            scopes: tokenSet.scopes,
+            status: "active",
+            expiresAt: tokenSet.expiresAt ?? null,
+            // Reconectar SANA la conexión: si no se limpia, el error viejo
+            // sigue en rojo en la pantalla de Integraciones aunque ya funcione
+            // y parece que la reconexión falló (pasó con Google el 14/8).
+            lastError: null,
+            lastCheckAt: new Date(),
+            updatedAt: new Date(),
+          },
         })
         .returning();
 
@@ -917,6 +950,198 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // GET /clients/:idOrSlug/propuesta-cm — la última "Propuesta CM" del cliente:
+  // el cruce ideas+ganchos+competidores+tendencias+memoria+contenido que arma
+  // la rutina mensual (pedido 18/7: decidir como un CM experto, no unidades
+  // sueltas). Es un deliverable kind=plan con título "Propuesta CM ...".
+  router.get("/clients/:idOrSlug/propuesta-cm", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const { agentDeliverables } = await import("@paperclipai/db");
+    const [row] = await db.select({ id: agentDeliverables.id, title: agentDeliverables.title, content: agentDeliverables.content, createdAt: agentDeliverables.createdAt })
+      .from(agentDeliverables)
+      .where(and(eq(agentDeliverables.clientId, client.id), eq(agentDeliverables.kind, "plan"), sql`${agentDeliverables.title} ilike 'Propuesta CM%'`))
+      .orderBy(desc(agentDeliverables.createdAt)).limit(1);
+    res.json({ propuesta: row ?? null });
+  });
+
+  // Plan de acción del cliente (pedido 20/7): triage + reporte estratégico
+  // semanal del agente. El botón "Regenerar" abre un issue a Luna y la despierta.
+  router.get("/clients/:idOrSlug/plan-accion", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const { planAccionCliente } = await import("../services/plan-accion.js");
+    const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
+    const [plan, profundo] = await Promise.all([
+      planAccionCliente(db, client.id),
+      analisisProfundo(db, { id: client.id, industry: client.industry ?? null }).catch(() => null),
+    ]);
+    res.json({ plan, profundo });
+  });
+
+  // Narrativa estilo IA de Meta (23/7): el estratega LLM escribe el análisis
+  // sobre los datos duros por conjunto/edad/formato. Cache 12h; puede tardar
+  // unos segundos la primera vez — la UI la pide aparte con su skeleton.
+  router.get("/clients/:idOrSlug/analisis-narrativa", dashCache, async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    try {
+      const { narrativaPauta } = await import("../services/ads-deep-analysis.js");
+      res.json(await narrativaPauta(db, { id: client.id, name: client.name, industry: client.industry ?? null }));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.post("/clients/:idOrSlug/plan-accion/regenerar", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    try {
+      const { agents: agentsTable } = await import("@paperclipai/db");
+      const { resolveCompanyId } = await import("../services/intel-common.js");
+      const { issueService } = await import("../services/issues.js");
+      const { heartbeatService } = await import("../services/heartbeat.js");
+      const { PLAN_ACCION_SPEC } = await import("../services/plan-accion.js");
+      const companyId = await resolveCompanyId(db, client.id);
+      if (!companyId) return res.status(400).json({ error: "cliente sin company" });
+      const roster = await db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.companyId, companyId));
+      const luna = roster.find((a) => /luna/i.test(a.name)) ?? roster.find((a) => /caro/i.test(a.name)) ?? null;
+      if (!luna) return res.status(400).json({ error: "no hay agente para asignar" });
+      const created = await issueService(db).create(companyId, {
+        title: `[${client.name.toUpperCase()}] Plan de acción — regenerar ahora`.slice(0, 200),
+        description: [
+          `El equipo pidió regenerar YA el plan de acción estratégico de **${client.name}**.`,
+          "",
+          "Relevá primero: lmtmGetClientContentMatrix (orgánico y cumplimiento), lmtmGetClientAdsPerformance (pauta real), lmtmGetClientMarketingPlan (estrategia acordada), lmtmGetClientBrain (voz, público, restricciones), lmtmGetClientCompetitors y lmtmGetNicheIntel del rubro (benchmark + RADAR con referentes externos y links).",
+          "",
+          PLAN_ACCION_SPEC,
+          "",
+          `Guardalo con lmtmSaveDeliverable kind=plan, título exacto: "Plan de acción ${new Date().toISOString().slice(0, 10)} — ${client.name}".`,
+        ].join("\n"),
+        status: "todo",
+        priority: "high",
+        clientId: client.id,
+        originKind: "manual",
+        createdByAgentId: null,
+        assigneeAgentId: luna.id,
+      });
+      const issueId = String(created.id ?? "");
+      if (issueId) {
+        await heartbeatService(db).wakeup(luna.id, {
+          source: "automation", triggerDetail: "system", reason: "plan_accion_regenerar", payload: { issueId },
+        }).catch(() => {});
+      }
+      res.json({ ok: true, issueId });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // Consultas IA del equipo (ChatGPT/Gemini) → brain del cliente (pedido 20/7):
+  // se pega la conversación, queda como documento y un issue de destilación
+  // despierta al agente para extraer memorias reales.
+  router.post("/clients/:idOrSlug/consultas-ia", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const { guardarConsultaIA, esFuenteIA } = await import("../services/consultas-ia.js");
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const fuente = esFuenteIA(b.fuente) ? b.fuente : "otro";
+    const r = await guardarConsultaIA(db, {
+      clientId: client.id,
+      fuente,
+      texto: typeof b.texto === "string" ? b.texto : undefined,
+      url: typeof b.url === "string" ? b.url : undefined,
+      titulo: typeof b.titulo === "string" ? b.titulo : undefined,
+    });
+    if (!r.ok) return res.status(400).json(r);
+    res.json(r);
+  });
+
+  router.get("/clients/:idOrSlug/consultas-ia", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const { listarConsultasIA } = await import("../services/consultas-ia.js");
+    res.json({ consultas: await listarConsultasIA(db, client.id) });
+  });
+
+  // GET /clients/:idOrSlug/analisis-estrategico — la capa de ANÁLISIS arriba de
+  // los datos (pedido 18/7): en lenguaje de cliente, con recomendación de
+  // reinversión ("podrías lograr ~X leads más si...") y avisos fatigados
+  // (>90 días corriendo). Determinista, sale de adsInsights — sin LLM.
+  router.get("/clients/:idOrSlug/analisis-estrategico", dashCache, async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const d90 = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+    const d30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const d7 = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+
+    const rows = await db.select({
+      campaign: adsInsights.campaignName,
+      date: adsInsights.date,
+      spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric,0)`,
+      impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+      clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+      leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+    }).from(adsInsights)
+      .where(and(eq(adsInsights.clientId, client.id), gte(adsInsights.date, d90), isNotNull(adsInsights.campaignName)))
+      .groupBy(adsInsights.campaignName, adsInsights.date);
+
+    type Camp = { name: string; firstSeen: string; spend30: number; imp30: number; clicks30: number; leads30: number; activeLast7: boolean };
+    const camps = new Map<string, Camp>();
+    for (const r of rows) {
+      const name = r.campaign!;
+      const c = camps.get(name) ?? { name, firstSeen: r.date, spend30: 0, imp30: 0, clicks30: 0, leads30: 0, activeLast7: false };
+      if (r.date < c.firstSeen) c.firstSeen = r.date;
+      if (r.date >= d30) { c.spend30 += Number(r.spend); c.imp30 += r.impressions; c.clicks30 += r.clicks; c.leads30 += r.leads; }
+      if (r.date >= d7 && Number(r.spend) > 0) c.activeLast7 = true;
+      camps.set(name, c);
+    }
+    const activas = [...camps.values()].filter((c) => c.activeLast7);
+    const conGasto = activas.filter((c) => c.spend30 > 0);
+    const fatigadas = activas.filter((c) => c.firstSeen <= d90);
+
+    const cpl = (c: Camp) => (c.leads30 > 0 ? c.spend30 / c.leads30 : null);
+    const ctr = (c: Camp) => (c.imp30 > 0 ? c.clicks30 / c.imp30 : 0);
+    const conLeads = conGasto.filter((c) => c.leads30 > 0).sort((a, b) => cpl(a)! - cpl(b)!);
+    const mejor = conLeads[0] ?? null;
+    const peores = conGasto.filter((c) => c !== mejor && (cpl(c) === null || (mejor && cpl(c)! > cpl(mejor)! * 1.8))).sort((a, b) => b.spend30 - a.spend30);
+    const peor = peores[0] ?? null;
+
+    const resumen: string[] = [];
+    const totalSpend = conGasto.reduce((s, c) => s + c.spend30, 0);
+    const totalLeads = conGasto.reduce((s, c) => s + c.leads30, 0);
+    resumen.push(`En los últimos 30 días se invirtieron $${Math.round(totalSpend).toLocaleString("es-AR")} en ${conGasto.length} campaña(s) activa(s), que generaron ${totalLeads} consulta(s).`);
+    if (fatigadas.length) resumen.push(`${fatigadas.length} campaña(s) llevan más de 90 días corriendo — los anuncios se fatigan: el público ya los vio muchas veces y rinden cada vez menos. Conviene renovar creatividades o mensaje: ${fatigadas.slice(0, 3).map((c) => `"${c.name.slice(0, 40)}"`).join(", ")}.`);
+    let reinversion: { texto: string; extraLeads: number } | null = null;
+    if (mejor && peor && cpl(mejor)) {
+      const extra = Math.max(0, Math.floor(peor.spend30 / cpl(mejor)! - peor.leads30));
+      if (extra >= 3) {
+        reinversion = {
+          extraLeads: extra,
+          texto: `Podrías lograr ~${extra} consulta(s) más al mes moviendo el presupuesto de "${peor.name.slice(0, 45)}" (${peor.leads30} consultas con $${Math.round(peor.spend30).toLocaleString("es-AR")}) hacia "${mejor.name.slice(0, 45)}", que consigue una consulta cada $${Math.round(cpl(mejor)!).toLocaleString("es-AR")}.`,
+        };
+        resumen.push(reinversion.texto);
+      }
+    }
+    if (!conGasto.length) resumen.push("Sin pauta activa en los últimos 30 días.");
+
+    // Análisis profundo (23/7, estilo IA de Meta): benchmark del rubro,
+    // cuello de botella de formatos y eficiencia por edad.
+    const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
+    const profundo = await analisisProfundo(db, { id: client.id, industry: client.industry ?? null }).catch(() => null);
+    if (profundo) resumen.push(...profundo.resumen);
+
+    res.json({
+      resumen,
+      profundo,
+      fatigadas: fatigadas.map((c) => ({ name: c.name, desde: c.firstSeen, spend30: c.spend30 })),
+      reinversion,
+      campanias: conGasto.sort((a, b) => b.spend30 - a.spend30).slice(0, 8).map((c) => ({
+        name: c.name, spend30: Math.round(c.spend30), ctr: ctr(c), cpl: cpl(c) != null ? Math.round(cpl(c)!) : null, leads30: c.leads30, fatigada: c.firstSeen <= d90,
+      })),
+    });
+  });
+
   // POST /clients/:idOrSlug/content-calendar/compose — Community Manager: crea
   // el posteo en la lista Redes con las convenciones del calendario (start_date
   // + Plataformas + Tipo de Contenido). Si no viene copy, lo genera la IA a
@@ -976,16 +1201,24 @@ export function adsRoutes(db: Db): Router {
         status: issues.status,
         priority: issues.priority,
         originKind: issues.originKind,
+        description: issues.description,
         createdAt: issues.createdAt,
       })
       .from(issues)
       .where(eq(issues.clientId, client.id))
       .orderBy(desc(issues.createdAt))
       .limit(100);
-    const tasks = taskRows.map((t) => ({
-      ...t,
-      needsApproval: t.originKind === "agent_proposed" && t.status === "backlog",
-    }));
+    const tasks = taskRows
+      // Una propuesta vencida o fuera de tema no va a NINGUNA de las dos listas.
+      // Sacarla solo de "Para aprobar" la mandaba a "Tareas activas", que pasaba
+      // de 12 a 199 filas: el mismo cementerio, mudado de estante.
+      .filter((t) => t.originKind !== "agent_proposed" || t.status !== "backlog"
+        || esPropuestaViva({ originKind: t.originKind, status: t.status, title: t.title, createdAt: t.createdAt }))
+      .map(({ description, ...t }) => ({
+        ...t,
+        ...resumirPropuesta(description),
+        needsApproval: t.originKind === "agent_proposed" && t.status === "backlog",
+      }));
 
     // 2) Scheduled content from ClickUp (7d back → 14d ahead).
     const scheduled = (await getRedesScheduledContent(db, client.id, now - 7 * 86_400_000, now + 14 * 86_400_000).catch(() => null)) ?? [];
@@ -1120,7 +1353,33 @@ export function adsRoutes(db: Db): Router {
   // last-30-day rollup of spend, impressions, clicks, leads. If the client has no ad
   // accounts linked, returns an empty `accounts` list — the UI then renders the
   // "Connect Meta" CTA.
-  router.get("/clients/:idOrSlug/ads-summary", async (req, res) => {
+  // Métricas 30d por cliente para las cards del listado (review 27/7: las
+  // cards no mostraban nada útil). Una sola query agrupada, cache 10 min.
+  router.get("/clients-ads-metrics", microCache(10 * 60_000), async (_req, res) => {
+    try {
+      const d30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+      const rows = await db
+        .select({
+          clientId: adsInsights.clientId,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(isNotNull(adsInsights.clientId), gte(adsInsights.date, d30)))
+        .groupBy(adsInsights.clientId);
+      const out: Record<string, { spend: number; leads: number; cpl: number | null }> = {};
+      for (const r of rows) {
+        if (!r.clientId) continue;
+        const spend = Number(r.spend);
+        out[r.clientId] = { spend, leads: r.leads, cpl: r.leads > 0 ? spend / r.leads : null };
+      }
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ error: "Internal server error", detail: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.get("/clients/:idOrSlug/ads-summary", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const debugInfo: Record<string, unknown> = {};
     try {
@@ -1308,8 +1567,11 @@ export function adsRoutes(db: Db): Router {
   // counts. For "all" we run campaigns + adsets + ads + insights in sequence
   // (organic is opt-in via "organic" job because it requires a page mapping
   // and is slower).
-  router.post("/integrations/sync/:job", async (req, res) => {
+  router.post("/integrations/sync/:job", async (req, res, next) => {
     const job = req.params.job;
+    // "background" tiene su propia ruta más abajo — sin este next() el
+    // parámetro :job la tapaba y devolvía "unknown job" (bug latente, 23/7).
+    if (job === "background") return next();
     if (!["campaigns", "adsets", "ads", "insights", "organic", "all"].includes(job)) {
       return res.status(400).json({ error: `unknown job: ${job}` });
     }
@@ -1395,7 +1657,7 @@ export function adsRoutes(db: Db): Router {
     void (async () => {
       for (const m of maps) {
         const opts = { connectionId, mappingId: m.id, since, until };
-        for (const fn of [adsAggregator.syncCampaigns, adsAggregator.syncInsights, adsAggregator.syncOrganic]) {
+        for (const fn of [adsAggregator.syncCampaigns, adsAggregator.syncCreatives, adsAggregator.syncInsights, adsAggregator.syncOrganic]) {
           try {
             await fn(db, { ...opts, jobName: "background" });
           } catch (e) {
@@ -1417,7 +1679,7 @@ export function adsRoutes(db: Db): Router {
   // campaigns table: name, id, status, objective, daily budget, and the
   // sum of (impressions, clicks, spend, leads) per campaign inside the
   // date window. Also returns the 4 top-line KPIs.
-  router.get("/clients/:idOrSlug/campaigns", async (req, res) => {
+  router.get("/clients/:idOrSlug/campaigns", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const sinceParam = (req.query.since as string) || (() => {
       const d = new Date(); d.setUTCDate(d.getUTCDate() - 30); return d.toISOString().slice(0, 10);
@@ -1653,15 +1915,50 @@ export function adsRoutes(db: Db): Router {
 
   // ============================================================
   // 1) DAILY TIME-SERIES
+  // GET /clients/:idOrSlug/ads-split — totales por plataforma del rango
+  // (la tira "Meta vs Google" del dashboard combinado, pedido 23/7).
+  router.get("/clients/:idOrSlug/ads-split", dashCache, async (req, res) => {
+    const { since, until } = parseWindow(req);
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const rows = await db
+      .select({
+        platform: adsInsights.platform,
+        spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric,0)`,
+        impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+        clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+        leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+      })
+      .from(adsInsights)
+      .where(and(eq(adsInsights.clientId, client.id), gte(adsInsights.date, since), lte(adsInsights.date, until)))
+      .groupBy(adsInsights.platform);
+    res.json({
+      since, until,
+      platforms: rows.map((r) => ({
+        platform: r.platform,
+        spend: Number(r.spend),
+        impressions: Number(r.impressions),
+        clicks: Number(r.clicks),
+        leads: Number(r.leads),
+        ctr: Number(r.impressions) > 0 ? Number(r.clicks) / Number(r.impressions) : 0,
+        cpl: Number(r.leads) > 0 ? Number(r.spend) / Number(r.leads) : 0,
+      })),
+    });
+  });
+
   // GET /api/clients/:idOrSlug/timeseries?since&until&metric=spend
   // Returns: { client, since, until, series: [{date, impressions, clicks, spend, leads, conversions, ctr, cpc, cpm, cpl, reach, videoViews}] }
   // ============================================================
-  router.get("/clients/:idOrSlug/timeseries", async (req, res) => {
+  router.get("/clients/:idOrSlug/timeseries", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const { since, until } = parseWindow(req);
     try {
       const client = await resolveClient(idOrSlug, db);
       if (!client) return res.status(404).json({ error: "client not found" });
+      // ?platform=meta|google filtra la serie; sin el param suma todas
+      // (dashboard combinado, pedido 23/7).
+      const platformQ = typeof req.query.platform === "string" && ["meta", "google", "tiktok", "linkedin"].includes(req.query.platform)
+        ? req.query.platform : null;
       const rows = await db
         .select({
           date: adsInsights.date,
@@ -1678,6 +1975,7 @@ export function adsRoutes(db: Db): Router {
           eq(adsInsights.clientId, client.id),
           gte(adsInsights.date, since),
           lte(adsInsights.date, until),
+          ...(platformQ ? [eq(adsInsights.platform, platformQ)] : []),
         ))
         .groupBy(adsInsights.date)
         .orderBy(adsInsights.date);
@@ -1714,7 +2012,7 @@ export function adsRoutes(db: Db): Router {
   // GET /api/clients/:idOrSlug/adsets?since&until
   // Returns per-adset {id, name, status, campaignId, campaignName, dailyBudget, lifetimeBudget, impressions, clicks, spend, leads, ctr, cpc, cpm, cpl}
   // ============================================================
-  router.get("/clients/:idOrSlug/adsets", async (req, res) => {
+  router.get("/clients/:idOrSlug/adsets", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const { since, until } = parseWindow(req);
     try {
@@ -1729,6 +2027,7 @@ export function adsRoutes(db: Db): Router {
           adAccountId: adsAdsets.adAccountId,
           dailyBudget: adsAdsets.dailyBudget,
           lifetimeBudget: adsAdsets.lifetimeBudget,
+          platform: adsAdsets.platform,
         })
         .from(adsAdsets)
         .where(eq(adsAdsets.clientId, client.id));
@@ -1791,7 +2090,7 @@ export function adsRoutes(db: Db): Router {
   // GET /api/clients/:idOrSlug/creatives?since&until
   // Returns per-creative {id, name, status, adsetId, adsetName, campaignId, campaignName, imageUrl, videoId, impressions, clicks, spend, leads, ...}
   // ============================================================
-  router.get("/clients/:idOrSlug/creatives", async (req, res) => {
+  router.get("/clients/:idOrSlug/creatives", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const { since, until } = parseWindow(req);
     try {
@@ -1872,7 +2171,7 @@ export function adsRoutes(db: Db): Router {
   // GET /api/clients/:idOrSlug/organic?since&until
   // Returns per-post: {id, message, postType, createdTime, permalinkUrl, fullPicture, reactions, comments, shares, postImpressions, postEngagedUsers, videoViews, engagementRate}
   // ============================================================
-  router.get("/clients/:idOrSlug/organic", async (req, res) => {
+  router.get("/clients/:idOrSlug/organic", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     parseWindow(req); // window kept for symmetry, but organic posts aren't bucketed by day
     try {
@@ -2005,7 +2304,7 @@ export function adsRoutes(db: Db): Router {
   // Returns aggregated breakdown from ads_insights.raw (or as a fallback
   // returns empty arrays so the UI renders "Sin datos" rather than crashing).
   // ============================================================
-  router.get("/clients/:idOrSlug/audience", async (req, res) => {
+  router.get("/clients/:idOrSlug/audience", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const { since, until } = parseWindow(req);
     try {
@@ -2172,7 +2471,7 @@ export function adsRoutes(db: Db): Router {
   //   conversionRateClickToLead, conversionRateLeadToSale, ...}
   // landingVisits falls back to clicks*0.6 if absent in raw.
   // ============================================================
-  router.get("/clients/:idOrSlug/funnel", async (req, res) => {
+  router.get("/clients/:idOrSlug/funnel", dashCache, async (req, res) => {
     const { idOrSlug } = req.params;
     const { since, until } = parseWindow(req);
     try {
@@ -2394,11 +2693,27 @@ export function adsRoutes(db: Db): Router {
       jobs?: Array<"campaigns" | "adsets" | "ads" | "insights" | "organic">;
       since?: string;
       until?: string;
+      force?: boolean;
     };
     const jobs = body.jobs && body.jobs.length > 0 ? body.jobs : ["campaigns", "adsets", "ads", "insights", "organic"];
     try {
       const client = await resolveClient(idOrSlug, db);
       if (!client) return res.status(404).json({ error: "client not found" });
+      // Cooldown (pedido 27/7): si este cliente+rango ya se sincronizó hace
+      // poco, no volver a pegarle a Meta/Google — el dato ya está en la DB y
+      // el usuario espera minutos por nada. `force: true` lo saltea.
+      const cdKey = `${client.id}:${body.since ?? ""}:${body.until ?? ""}`;
+      const last = syncCooldowns.get(cdKey);
+      if (!body.force && last && Date.now() - last < SYNC_COOLDOWN_MS) {
+        const min = Math.ceil((SYNC_COOLDOWN_MS - (Date.now() - last)) / 60_000);
+        return res.json({
+          client: { id: client.id, slug: client.slug, name: client.name },
+          cached: true,
+          mappings: -1,
+          results: [],
+          note: `Sincronizado hace poco — datos ya frescos (próximo sync en ~${min} min, o forzalo).`,
+        });
+      }
       const mappings = await db
         .select({
           id: adsAccountMappings.id,
@@ -2459,6 +2774,11 @@ export function adsRoutes(db: Db): Router {
       }
       const total = results.reduce((acc, r) => acc + (r.recordsSynced ?? 0), 0);
       const failed = results.filter((r) => r.status === "failed").length;
+      // Marcar el cooldown y tirar el micro-cache de lecturas de este cliente
+      // para que el panel vea el dato recién sincronizado.
+      syncCooldowns.set(cdKey, Date.now());
+      invalidateMicroCache(`/${client.slug}/`);
+      invalidateMicroCache(client.id);
       res.json({
         client: { id: client.id, slug: client.slug, name: client.name },
         mappings: mappings.length,
@@ -2837,6 +3157,238 @@ export function adsRoutes(db: Db): Router {
     res.status(204).end();
   });
 
+  // ── Semáforo master de pauta (pedido 18/7) ─────────────────────────────────
+  // Un tablero: cada cliente con pauta en verde/amarillo/rojo (salud de pauta
+  // minada a diario) + sus oportunidades abiertas + texto listo para reenviar
+  // al cliente (copy-paste, sale del análisis estratégico determinista).
+  // ── Licitaciones de Mercado Público (pedido 22/7) ─────────────────────────
+  router.get("/licitaciones", async (req, res) => {
+    try {
+      const { listarLicitaciones } = await import("../services/licitaciones.js");
+      const estados = typeof req.query.estado === "string" && req.query.estado
+        ? req.query.estado.split(",")
+        : ["util", "candidata"];
+      res.json({ licitaciones: await listarLicitaciones(db, estados) });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.patch("/licitaciones/:codigo", async (req, res) => {
+    try {
+      const { marcarLicitacion } = await import("../services/licitaciones.js");
+      const b = (req.body ?? {}) as { estado?: string; relevancia?: string };
+      if (!["util", "descartada", "candidata"].includes(b.estado ?? "")) {
+        return res.status(400).json({ error: "estado debe ser util | descartada | candidata" });
+      }
+      const ok = await marcarLicitacion(db, req.params.codigo, b.estado as "util" | "descartada" | "candidata", b.relevancia);
+      if (!ok) return res.status(404).json({ error: "licitación no encontrada" });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.post("/licitaciones/sync", async (_req, res) => {
+    try {
+      const { syncLicitaciones } = await import("../services/licitaciones.js");
+      res.json(await syncLicitaciones(db));
+    } catch (e) {
+      res.status(502).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // Re-corre el vigilante de salud a demanda (además del tick diario) — útil
+  // tras cambiar la fórmula o mapear cuentas, para refrescar el triage ya.
+  router.post("/ops/vigilantes/salud/run", async (_req, res) => {
+    try {
+      const { runVigilanteSaludCliente } = await import("../services/vigilantes.js");
+      res.json(await runVigilanteSaludCliente(db));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // Centro de mando del dashboard principal (6/8): TODO lo accionable en una
+  // sola request — semáforo de clientes, lo que solo puede hacer un humano,
+  // alertas críticas y la serie de la cartera para los gráficos.
+  router.get("/dashboard/accion", microCache(2 * 60_000), async (_req, res) => {
+    try {
+      const { triageGrowth } = await import("../services/plan-accion.js");
+      const { colaHumana } = await import("../services/cola-humana.js");
+      const [triage, cola, alertas, serie] = await Promise.all([
+        triageGrowth(db).catch(() => ({ rojo: [], amarillo: [], verde: [] })),
+        // Cola humana: lo marcado [HUMANO] más todo lo que quedó bloqueado
+        // esperando a una persona. Antes sólo entraba lo del prefijo y el
+        // equipo veía 15 de 346 (revisión de flota 26/8/26).
+        colaHumana(db).catch(() => ({ filas: [], total: 0 })),
+        db.select({
+          id: adsAlerts.id, severity: adsAlerts.severity, title: adsAlerts.title,
+          clientId: adsAlerts.clientId, createdAt: adsAlerts.createdAt,
+        }).from(adsAlerts)
+          .where(eq(adsAlerts.status, "pending"))
+          .orderBy(desc(adsAlerts.createdAt)).limit(10),
+        // Serie diaria de TODA la cartera (30 días) para los gráficos.
+        db.select({
+          date: adsInsights.date,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        }).from(adsInsights)
+          .where(gte(adsInsights.date, new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)))
+          .groupBy(adsInsights.date).orderBy(adsInsights.date),
+      ]);
+      // Nombre de cliente para las filas que lo tengan.
+      const humanas = cola.filas;
+      const ids = [...new Set([...humanas, ...alertas].map((r) => r.clientId).filter(Boolean))] as string[];
+      const names = ids.length
+        ? await db.select({ id: clients.id, name: clients.name, slug: clients.slug }).from(clients).where(inArray(clients.id, ids))
+        : [];
+      const byId = new Map(names.map((c) => [c.id, c]));
+      const conCliente = <T extends { clientId: string | null }>(r: T) => ({
+        ...r,
+        clienteNombre: r.clientId ? byId.get(r.clientId)?.name ?? null : null,
+        clienteSlug: r.clientId ? byId.get(r.clientId)?.slug ?? null : null,
+      });
+      res.json({
+        triage: {
+          rojo: triage.rojo.map((c) => ({ clientId: c.clientId, name: c.name, slug: c.slug, salud: c.salud, problemas: c.problemas.slice(0, 2) })),
+          amarillo: triage.amarillo.map((c) => ({ clientId: c.clientId, name: c.name, slug: c.slug, salud: c.salud, problemas: c.problemas.slice(0, 2) })),
+          verdeCount: triage.verde.length,
+        },
+        humanas: humanas.map(conCliente),
+        humanasTotal: cola.total,
+        alertas: alertas.map(conCliente),
+        serie: serie.map((s) => ({ date: String(s.date), spend: Number(s.spend), leads: s.leads })),
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // Triage general rojo/amarillo/verde (pedido 20/7): la vista principal de
+  // Growth. Cada cliente con sus problemas y su plan corto para salir del rojo.
+  router.get("/growth/triage", async (_req, res) => {
+    try {
+      const { triageGrowth } = await import("../services/plan-accion.js");
+      res.json(await triageGrowth(db));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.get("/growth/semaforo-pauta", async (_req, res) => {
+    const { accountScores: scores, opportunities: opps } = await import("@paperclipai/db");
+    const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
+      .from(clients).where(eq(clients.status, "active"));
+    const hoy = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+    const scoreRows = await db.select().from(scores).where(gte(scores.date, hoy)).orderBy(desc(scores.date));
+    const latest = new Map<string, number>();
+    // Un cliente SIN pauta puntúa 0 y se pintaba de rojo junto a los que sí
+    // tienen pauta andando mal: 40 de 58 en rojo con 0/100 (18/8). No es lo
+    // mismo "la pauta va mal" que "no hay pauta" — el segundo no es un problema
+    // a atender en Paid Media, es un cliente que no contrató el servicio.
+    const sinPauta = new Set<string>();
+    for (const s of scoreRows) {
+      if (latest.has(s.clientId)) continue;
+      latest.set(s.clientId, Number(s.healthScore ?? 0));
+      if ((s.components as { noAds?: boolean } | null)?.noAds === true) sinPauta.add(s.clientId);
+    }
+    const oppRows = await db.select({ clientId: opps.clientId, title: opps.title, priority: opps.priority })
+      .from(opps).where(sql`${opps.status} not in ('done','dismissed','descartada')`).orderBy(desc(opps.priority)).limit(300);
+    const oppsByClient = new Map<string, string[]>();
+    for (const o of oppRows) {
+      if (!o.clientId) continue;
+      const arr = oppsByClient.get(o.clientId) ?? [];
+      if (arr.length < 3) arr.push(o.title);
+      oppsByClient.set(o.clientId, arr);
+    }
+    const rows = activos
+      .filter((c) => latest.has(c.id))
+      .map((c) => {
+        const score = latest.get(c.id)!;
+        return {
+          id: c.id, name: c.name, slug: c.slug, industry: c.industry,
+          score,
+          sinPauta: sinPauta.has(c.id),
+          semaforo: sinPauta.has(c.id) ? "sin-pauta"
+            : score >= 70 ? "verde" : score >= 40 ? "amarillo" : "rojo",
+          oportunidades: oppsByClient.get(c.id) ?? [],
+        };
+      })
+      .sort((a, b) => a.score - b.score);
+    res.json({ clientes: rows });
+  });
+
+  // ── Cotizado vs realizado (planilla del equipo × datos reales) ─────────────
+  router.get("/growth/cotizado", async (req, res) => {
+    try {
+      const { cotizadoVsRealizado } = await import("../services/cotizado.js");
+      const months = Number(req.query.months) || 1; // 3 = vista trimestral
+      res.json(await cotizadoVsRealizado(db, { months }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(502).json({ error: "No se pudo leer la planilla de cotizado", detail: msg.slice(0, 300) });
+    }
+  });
+
+  // Carga del equipo: cuántas cuentas atiende cada persona y en qué rol
+  // (columnas "Responsable de atención" de PLANILLA GENERAL).
+  router.get("/growth/carga-equipo", async (_req, res) => {
+    try {
+      const { cargaEquipo } = await import("../services/cotizado.js");
+      res.json(await cargaEquipo());
+    } catch (e) {
+      res.status(502).json({ error: "No se pudo leer la carga del equipo", detail: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.get("/growth/responsables", async (_req, res) => {
+    try {
+      const { leerResponsables } = await import("../services/cotizado.js");
+      res.json({ responsables: await leerResponsables() });
+    } catch (e) {
+      res.status(502).json({ error: "No se pudo leer la pestaña RESPONSABLES", detail: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // ── Centro de Inteligencia: intervenciones de los vigilantes ────────────────
+  // Nivel 5 = crítico (WhatsApp) · 4 = atención (WA agrupado) · 3 = brief
+  // diario · 2 = dashboard · 1 = historial. status: open|sent|resolved|dismissed.
+  router.get("/growth/interventions", async (req, res) => {
+    const status = typeof req.query.status === "string" && req.query.status ? req.query.status.split(",") : ["open", "sent"];
+    // Vencimiento por antigüedad: había 380 abiertas, 76 de más de un mes. Una
+    // alerta de hace 30 días o ya se resolvió sola o dejó de importar, y en el
+    // medio tapa a las de esta semana — que son las accionables. Mismo criterio
+    // que "Para aprobar" y que las oportunidades (18/8).
+    const VIGENCIA_DIAS = 21;
+    const corte = new Date(Date.now() - VIGENCIA_DIAS * 86_400_000);
+    const rows = await db.select().from(interventions)
+      .where(and(inArray(interventions.status, status), gte(interventions.createdAt, corte)))
+      .orderBy(desc(interventions.level), desc(interventions.updatedAt)).limit(120);
+    res.json({ interventions: rows });
+  });
+
+  // Salud /100 de cada cliente (estampada a diario por el vigilante).
+  router.get("/growth/salud-clientes", async (_req, res) => {
+    const rows = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry, metadata: clients.metadata })
+      .from(clients).where(eq(clients.status, "active"));
+    const out = rows.map((r) => {
+      const salud = ((r.metadata as Record<string, unknown>)?.salud ?? null) as { score?: number; razones?: string[]; checkedAt?: string } | null;
+      return { id: r.id, name: r.name, slug: r.slug, industry: r.industry, salud };
+    }).sort((a, b) => (a.salud?.score ?? 999) - (b.salud?.score ?? 999));
+    res.json({ clientes: out });
+  });
+
+  router.patch("/growth/interventions/:id", async (req, res) => {
+    const next = (req.body as { status?: string } | null)?.status;
+    if (!next || !["resolved", "dismissed", "open"].includes(next)) return res.status(400).json({ error: "status inválido (resolved|dismissed|open)" });
+    const [row] = await db.update(interventions)
+      .set({ status: next, updatedAt: new Date() })
+      .where(eq(interventions.id, req.params.id)).returning();
+    if (!row) return res.status(404).json({ error: "not found" });
+    res.json(row);
+  });
+
   // ── Tendencias ──────────────────────────────────────────────────────────────
   // Daily external news mined by the agents, tagged by content potential.
   // ?niche= filters to trends applicable to that niche (or untagged ones).
@@ -2847,7 +3399,7 @@ export function adsRoutes(db: Db): Router {
     let list = await db.select().from(trends).where(gte(trends.day, since))
       .orderBy(desc(trends.day), desc(trends.createdAt)).limit(300);
     const niche = typeof req.query.niche === "string" ? req.query.niche.trim() : "";
-    if (niche) list = list.filter((t) => t.niches.length === 0 || t.niches.includes(niche));
+    if (niche) list = list.filter((t) => trendMatchesIndustry(t.niches, niche));
     res.json({ since, trends: list });
   });
 
@@ -3000,6 +3552,56 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // GET /growth/video-thumb?url= — resolve + proxy a video's preview image so
+  // the niche panel shows thumbnails instead of bare links. TikTok/YouTube via
+  // public oEmbed (no auth); Instagram via Meta's instagram_oembed (needs the
+  // app's oEmbed Read feature — lights up once Meta perms are approved). We
+  // proxy the bytes (same-origin, CSP-safe) and re-resolve every few hours so
+  // IG's expiring CDN URLs stay fresh. Any miss → 404, UI falls back to the link.
+  const videoThumbCache = new Map<string, { thumb: string | null; at: number }>();
+  const VIDEO_THUMB_TTL_MS = 6 * 3600_000;
+  const resolveVideoThumb = async (url: string): Promise<string | null> => {
+    const cached = videoThumbCache.get(url);
+    if (cached && Date.now() - cached.at < VIDEO_THUMB_TTL_MS) return cached.thumb;
+    let thumb: string | null = null;
+    try {
+      if (/(youtube\.com|youtu\.be)/i.test(url)) {
+        const m = url.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
+        if (m) thumb = `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg`;
+      } else if (/tiktok\.com/i.test(url)) {
+        const r = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`);
+        if (r.ok) thumb = ((await r.json()) as { thumbnail_url?: string }).thumbnail_url ?? null;
+      } else if (/instagram\.com/i.test(url)) {
+        const appId = process.env.META_APP_ID?.trim();
+        const appSecret = process.env.META_APP_SECRET?.trim();
+        if (appId && appSecret) {
+          const token = encodeURIComponent(`${appId}|${appSecret}`);
+          const r = await fetch(`https://graph.facebook.com/v21.0/instagram_oembed?omitscript=true&fields=thumbnail_url&access_token=${token}&url=${encodeURIComponent(url)}`);
+          if (r.ok) thumb = ((await r.json()) as { thumbnail_url?: string }).thumbnail_url ?? null;
+        }
+      }
+    } catch {
+      thumb = null;
+    }
+    videoThumbCache.set(url, { thumb, at: Date.now() });
+    return thumb;
+  };
+  router.get("/growth/video-thumb", async (req, res) => {
+    const url = typeof req.query.url === "string" ? req.query.url : "";
+    if (!/^https?:\/\//.test(url)) return res.status(400).end();
+    const thumb = await resolveVideoThumb(url);
+    if (!thumb) return res.status(404).end();
+    try {
+      const img = await fetch(thumb);
+      if (!img.ok) return res.status(404).end();
+      res.setHeader("Content-Type", img.headers.get("content-type") ?? "image/jpeg");
+      res.setHeader("Cache-Control", "public, max-age=21600");
+      return res.end(Buffer.from(await img.arrayBuffer()));
+    } catch {
+      return res.status(404).end();
+    }
+  });
+
   // GET /growth/niches — per-niche intelligence: aggregated ads performance,
   // mined benchmark (avg vs best-quartile "ideal"), winning format, suggested
   // cross-niche experiment, top content and the niche's competitor landscape.
@@ -3020,7 +3622,7 @@ export function adsRoutes(db: Db): Router {
         byNiche.set(c.industry, arr);
       }
 
-      const [aggRows, perClientRows, campaignRows, hookRows, trendRows, videoRefRows, allLearnings, topContentRows, compRows] = await Promise.all([
+      const [aggRows, perClientRows, campaignRows, hookRows, trendRows, videoRefRows, allLearnings, topContentRows, compRows, syncLogRows] = await Promise.all([
         db.select({
           industry: clients.industry,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
@@ -3087,6 +3689,14 @@ export function adsRoutes(db: Db): Router {
           .from(competitors)
           .innerJoin(clients, eq(competitors.clientId, clients.id))
           .where(and(eq(clients.status, "active"), isNotNull(clients.industry))),
+        // Latest per-client ads-autosync status: lets the panel tell a real
+        // "sin pauta" (sync ok, 0 spend) from a sync error (token can't access
+        // the account) instead of a silent false negative.
+        db.select({ clientId: syncLogs.clientId, status: syncLogs.status, error: syncLogs.error })
+          .from(syncLogs)
+          .where(and(eq(syncLogs.jobName, "ads-autosync"), isNotNull(syncLogs.clientId)))
+          .orderBy(desc(syncLogs.createdAt))
+          .limit(500),
       ]);
 
       const aggByNiche = new Map(aggRows.map((r) => [r.industry!, r]));
@@ -3109,6 +3719,18 @@ export function adsRoutes(db: Db): Router {
           impressions: imp,
         }];
       }));
+
+      const syncByClient = new Map<string, { status: string; error: string | null }>();
+      for (const r of syncLogRows) {
+        if (r.clientId && !syncByClient.has(r.clientId)) syncByClient.set(r.clientId, { status: r.status, error: r.error });
+      }
+
+      // Último radar por rubro (informe semanal del agente).
+      const reportRows = await db.select().from(nicheReports).orderBy(desc(nicheReports.week), desc(nicheReports.updatedAt)).limit(100);
+      const reportByNiche = new Map<string, { week: string; sections: unknown; updatedAt: Date }>();
+      for (const r of reportRows) {
+        if (!reportByNiche.has(r.niche)) reportByNiche.set(r.niche, { week: r.week, sections: r.sections, updatedAt: r.updatedAt });
+      }
 
       const niches = [...byNiche.entries()].map(([niche, members]) => {
         const agg = aggByNiche.get(niche);
@@ -3136,7 +3758,7 @@ export function adsRoutes(db: Db): Router {
           .slice(0, 3);
         return {
           niche,
-          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name, ads30d: perClient.get(m.id) ?? null })),
+          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name, ads30d: perClient.get(m.id) ?? null, syncStatus: syncByClient.get(m.id) ?? null })),
           ads30d: {
             spend, leads,
             ctr: imp > 0 ? Number(agg!.clicks) / imp : 0,
@@ -3158,6 +3780,10 @@ export function adsRoutes(db: Db): Router {
             .map((t) => ({ title: t.title, format: t.format, score: Number(t.score ?? 0), clientName: t.clientName })),
           competitors: compRows.filter((c) => c.industry === niche).slice(0, 15)
             .map((c) => ({ name: c.name, clientName: c.clientName })),
+          // Radar accionable de la semana (informe de agente: análisis cruzado
+          // + referentes externos con links + ideas con referencia + plan por
+          // cliente). Pedido del equipo 2026-07-17: dirección, no solo datos.
+          report: reportByNiche.get(niche) ?? null,
         };
       }).sort((a, b) => b.clients.length - a.clients.length);
 
@@ -3227,13 +3853,16 @@ export function adsRoutes(db: Db): Router {
         planillaExternalId: clients.planillaExternalId,
       }).from(clients).where(eq(clients.status, "active"));
 
-      const mappingRows = await db.select({ clientId: adsAccountMappings.clientId, adAccountId: adsAccountMappings.adAccountId, pageId: adsAccountMappings.pageId })
+      // Por plataforma: un mapeo SOLO de Google marcaba "Cuenta Meta ✓" y
+      // escondía que al cliente le falta Meta entero (11/8).
+      const mappingRows = await db.select({ clientId: adsAccountMappings.clientId, platform: adsAccountMappings.platform, adAccountId: adsAccountMappings.adAccountId, pageId: adsAccountMappings.pageId })
         .from(adsAccountMappings);
-      const mapByClient = new Map<string, { adAccount: boolean; page: boolean }>();
+      const mapByClient = new Map<string, { adAccount: boolean; google: boolean; page: boolean }>();
       for (const m of mappingRows) {
         if (!m.clientId) continue;
-        const e = mapByClient.get(m.clientId) ?? { adAccount: false, page: false };
-        if (m.adAccountId) e.adAccount = true;
+        const e = mapByClient.get(m.clientId) ?? { adAccount: false, google: false, page: false };
+        if (m.adAccountId && m.platform === "google") e.google = true;
+        else if (m.adAccountId) e.adAccount = true;
         if (m.pageId) e.page = true;
         mapByClient.set(m.clientId, e);
       }
@@ -3243,9 +3872,10 @@ export function adsRoutes(db: Db): Router {
 
       const clientsOut = rows.map((c) => {
         const meta = (c.metadata as Record<string, unknown> | null) ?? {};
-        const map = mapByClient.get(c.id) ?? { adAccount: false, page: false };
+        const map = mapByClient.get(c.id) ?? { adAccount: false, google: false, page: false };
         const checks = {
           metaAdAccount: map.adAccount,
+          googleAdAccount: map.google,
           metaPage: map.page,
           rubro: c.industry != null,
           location: typeof meta.location === "string" && !!meta.location,
@@ -3255,13 +3885,14 @@ export function adsRoutes(db: Db): Router {
           brain: brainSet.has(c.id),
         };
         const missing = Object.entries(checks).filter(([, v]) => !v).map(([k]) => k);
-        // "Dark" = no ad account AND no page → dashboard fully empty, no data.
-        const dark = !checks.metaAdAccount && !checks.metaPage;
-        return { id: c.id, slug: c.slug, name: c.name, industry: c.industry, checks, missing, dark, readyPct: Math.round(((8 - missing.length) / 8) * 100) };
+        // "Dark" = ninguna cuenta de pauta NI página → tablero vacío, sin datos.
+        const dark = !checks.metaAdAccount && !checks.googleAdAccount && !checks.metaPage;
+        const total = Object.keys(checks).length;
+        return { id: c.id, slug: c.slug, name: c.name, industry: c.industry, checks, missing, dark, readyPct: Math.round(((total - missing.length) / total) * 100) };
       }).sort((a, b) => a.readyPct - b.readyPct);
 
       const totals = { clients: clientsOut.length, dark: clientsOut.filter((c) => c.dark).length } as Record<string, number>;
-      for (const key of ["metaAdAccount", "metaPage", "rubro", "location", "sheetRedes", "scriptRedes", "sheetProduccion", "brain"]) {
+      for (const key of ["metaAdAccount", "googleAdAccount", "metaPage", "rubro", "location", "sheetRedes", "scriptRedes", "sheetProduccion", "brain"]) {
         totals[key] = clientsOut.filter((c) => (c.checks as Record<string, boolean>)[key]).length;
       }
       res.json({ totals, clients: clientsOut });
@@ -3381,9 +4012,17 @@ export function adsRoutes(db: Db): Router {
   });
 
   // POST /ops/publication/check — run the overdue-content check + WhatsApp now.
-  router.post("/ops/publication/check", async (_req, res) => {
-    const { runPublicationCheck } = await import("../services/publication-monitor.js");
-    res.json(await runPublicationCheck(db));
+  // Add ?dry=1 to compute the buckets and return them WITHOUT sending WhatsApp,
+  // so the new bucketing can be verified against live ClickUp without spamming.
+  router.post("/ops/publication/check", async (req, res) => {
+    const { runPublicationCheck, runInactivityCheck, runDiversificationCheck } = await import("../services/publication-monitor.js");
+    const { runMakeHealthCheck } = await import("../services/make.js");
+    const dryRun = req.query.dry != null;
+    const publication = await runPublicationCheck(db, { dryRun });
+    const inactivity = await runInactivityCheck(db, { dryRun });
+    const diversification = await runDiversificationCheck(db, { dryRun });
+    const make = await runMakeHealthCheck(db, { dryRun });
+    res.json({ ...publication, inactivity, diversification, make });
   });
 
   // GET /growth/niches/:niche/sales-kit — commercial one-pager for prospecting

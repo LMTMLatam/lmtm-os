@@ -16,7 +16,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables, hooks, issues, agents, trends } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables, hooks, issues, agents, trends, nicheReports } from "@paperclipai/db";
 import { isNotNull, isNull, ne } from "drizzle-orm";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
@@ -24,10 +24,19 @@ import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js
 import { getBrainContext, upsertMemory, type MemoryKind } from "../services/customer-brain.js";
 import { aggInsights, dayStr, sendWhatsAppToNumber, alertsNumber } from "../services/agency-ops.js";
 import { fetchAccountBalances } from "../services/balance-monitor.js";
-import { getRedesScheduledContent } from "../services/clickup-sync.js";
+import { getRedesScheduledContent, getRedesCalendar } from "../services/clickup-sync.js";
 import { createClientTask } from "../services/client-tasks.js";
 import { clickupTools, googleTools } from "../services/agent-mcp-tools.js";
 import { resolveCompanyId } from "../services/intel-common.js";
+import { canonicalizeNiches, trendMatchesIndustry } from "../services/niche-slugs.js";
+import {
+  esDeAccion,
+  mensajeDeBloqueo,
+  modoDeAgente,
+  puedeUsar,
+  MODO_POR_DEFECTO,
+  type ModoAgente,
+} from "../services/agent-modo.js";
 import { unauthorized } from "../errors.js";
 
 type ToolDef = {
@@ -114,6 +123,89 @@ const CORE_TOOLS: ToolDef[] = [
         type: "object",
         properties: { clientId: { type: "string" } },
         required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_niche_report",
+      description:
+        "Guarda el RADAR DE NICHO semanal: informe accionable por rubro que ve el equipo en el panel de Nichos. Secciones: analisisCruzado (qué funciona entre NUESTROS clientes del rubro, orgánico y pauta por separado, con números), referentes (cuentas EXTERNAS tendencia del rubro — BsAs/otro país, TikTok/IG/Ads Library — con urlPerfil y urlEjemplo REALES), ideas (cada una con titulo + detalle + url de REFERENCIA de donde salió — si la sacaste de redes porque funciona, el link es OBLIGATORIO), planPorCliente (2-3 movidas concretas por cliente del rubro: para dónde ir, no datos). Upsert por rubro+semana.",
+      parameters: {
+        type: "object",
+        properties: {
+          niche: { type: "string", description: "Rubro canónico (slug de clients.industry)" },
+          analisisCruzado: {
+            type: "object",
+            properties: {
+              organico: { type: "string", description: "Qué está funcionando en orgánico entre nuestros clientes del rubro (formatos, ganchos, cadencia) y cómo se compara con el benchmark" },
+              pauta: { type: "string", description: "Qué está funcionando en pauta (CTR/CPL reales vs benchmark, campañas ganadoras) y qué están pautando los referentes externos" },
+            },
+          },
+          referentes: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                nombre: { type: "string" },
+                cuenta: { type: "string", description: "@usuario" },
+                plataforma: { type: "string", description: "instagram | tiktok | meta-ads" },
+                ubicacion: { type: "string", description: "ej. Buenos Aires, México, España" },
+                queHacen: { type: "string", description: "Qué hacen que funciona (orgánico y/o pauta)" },
+                urlPerfil: { type: "string" },
+                urlEjemplo: { type: "string", description: "Link a un post/reel/anuncio concreto" },
+              },
+              required: ["nombre"],
+            },
+          },
+          ideas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                titulo: { type: "string" },
+                detalle: { type: "string", description: "Qué es, por qué funciona, cómo lo adaptamos" },
+                url: { type: "string", description: "Link de referencia (OBLIGATORIO si salió de redes)" },
+                fuente: { type: "string", description: "De dónde salió (cuenta/plataforma)" },
+              },
+              required: ["titulo"],
+            },
+          },
+          planPorCliente: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                cliente: { type: "string" },
+                clientId: { type: "string" },
+                movidas: { type: "array", items: { type: "string" }, description: "2-3 acciones concretas de dirección" },
+              },
+              required: ["cliente", "movidas"],
+            },
+          },
+        },
+        required: ["niche"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_client_competitor",
+      description:
+        "Carga un COMPETIDOR del cliente: un negocio REAL y EXTERNO del mismo rubro/zona (NUNCA otro cliente de la agencia — el sistema lo rechaza). Pasá al menos una fuente verificable (igHandle, fbPageUrl o website). Dedupe automático por nombre.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          name: { type: "string", description: "Nombre del competidor" },
+          igHandle: { type: "string", description: "@usuario de Instagram (sin URL)" },
+          fbPageUrl: { type: "string", description: "URL de la página de Facebook o del Ads Library" },
+          website: { type: "string" },
+          notes: { type: "string", description: "Por qué es competidor relevante (rubro, zona, tamaño)" },
+        },
+        required: ["clientId", "name"],
       },
     },
   },
@@ -340,7 +432,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "save_trend",
       description:
-        "Guarda una TENDENCIA en el panel: una noticia/novedad externa (IA, marketing, plataformas) con potencial de contenido. Etiquetala honesto: 'potencial-de-gancho' solo si de verdad da para un posteo; 'explicativo' si es contexto; 'ignorar' si no sirve. Indicá a qué nichos les sirve.",
+        "Guarda una TENDENCIA en el panel del nicho del cliente. Priorizá dos tipos y EVITÁ noticias genéricas de IA/marketing: (1) del RUBRO del cliente (inmobiliario, gastronomía, retail, salud, etc.) — una noticia/dato/movimiento del sector que dé para contenido; (2) de CONTENIDO — un formato/ángulo/tema que está rindiendo en ESE rubro (ej. 'reels de recorrido de propiedad', 'carruseles de 5 errores', 'antes/después de reforma'). Etiquetá honesto: 'potencial-de-gancho' solo si de verdad da para un posteo; 'explicativo' si es contexto; 'ignorar' si no. CLAVE: en `niches` poné SIEMPRE el/los rubro(s) específico(s) — un trend sin nicho aparece en TODOS los clientes, así que reservá `[]` SOLO para cambios universales de plataforma (ej. cambio de algoritmo de Instagram), nunca para noticias de sector o de IA/marketing.",
       parameters: {
         type: "object",
         properties: {
@@ -348,7 +440,7 @@ const CORE_TOOLS: ToolDef[] = [
           url: { type: "string", description: "Link a la fuente" },
           source: { type: "string", description: "Fuente (ej. 'blog Anthropic', 'X')" },
           tag: { type: "string", enum: ["potencial-de-gancho", "explicativo", "ignorar"] },
-          niches: { type: "array", items: { type: "string" }, description: "Nichos a los que aplica ([] = todos)" },
+          niches: { type: "array", items: { type: "string" }, description: "Rubro(s) específico(s) a los que aplica, ej. ['inmobiliario']. [] = universal, SOLO para cambios de plataforma — evitá [] en noticias de sector o de contenido." },
           summary: { type: "string", description: "Resumen de 1-2 frases: qué es y por qué sirve para contenido" },
         },
         required: ["title"],
@@ -379,7 +471,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "list_deliverables",
-      description: "Lista los entregables guardados (por cliente o por issue), para reutilizar trabajo hecho en vez de rehacerlo.",
+      description: "Lista los entregables guardados. CON clientId/issueId: los de ese cliente o issue, para reutilizar trabajo hecho. SIN filtros: devuelve la COBERTURA — qué clientes tienen el entregable más viejo (o nunca), para saber por quién empezar en una tanda rotativa.",
       parameters: {
         type: "object",
         properties: {
@@ -440,6 +532,48 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_client_video_tasks",
+      description:
+        "Tareas ABIERTAS de la lista 'Producción de video' del cliente en ClickUp, con flag tieneGuion (heurística sobre la descripción). Las que NO tienen guion son las que el guionista debe escribir: el guion se publica como COMENTARIO en la tarea (mcp clickup add_comment con el taskId) y se guarda como deliverable.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string", description: "UUID del cliente" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_licitaciones",
+      description:
+        "Licitaciones de Mercado Público (ChileCompra) guardadas en el panel. Filtrá por estado: candidata (a revisar), util (nos sirven), descartada, vencida. Devuelve código, nombre, descripción, organismo, región, monto, fecha de cierre y relevancia.",
+      parameters: {
+        type: "object",
+        properties: { estado: { type: "string", description: "candidata | util | descartada | vencida (default: candidata)" } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_licitacion_estado",
+      description:
+        "Marca una licitación del panel: util (con relevancia OBLIGATORIA: por qué le sirve a la agencia y qué se podría ofertar) o descartada. Usalo al curar las candidatas.",
+      parameters: {
+        type: "object",
+        properties: {
+          codigo: { type: "string", description: "CodigoExterno de la licitación" },
+          estado: { type: "string", description: "util | descartada" },
+          relevancia: { type: "string", description: "Por qué nos sirve (obligatoria si estado=util)" },
+        },
+        required: ["codigo", "estado"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_niche_intel",
       description:
         "Inteligencia del NICHO/rubro: benchmark de CTR/CPL (promedio vs meta alcanzable del mejor cuartil), formato ganador en orgánico Y en ads, experimento sugerido, PLAN DE ACCIÓN minado a diario (acciones concretas por cliente: subir CTR, bajar CPL, escalar, activar pauta — con prioridad), mejor contenido y competidores del rubro. Usalo como BASE de todo diagnóstico de pauta o propuesta antes de improvisar. Sin 'niche' devuelve el resumen de todos los nichos.",
@@ -478,12 +612,12 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_client_organic_posts",
       description:
-        "Publicaciones orgánicas REALES sincronizadas de las redes del cliente (Instagram + Facebook) en las últimas N horas: texto, fecha, permalink, plataforma y tipo. Usalo para verificar si lo que se debía postear realmente salió. Devuelve [] si no hay datos sincronizados.",
+        "Publicaciones orgánicas REALES del cliente (Instagram + Facebook) CON SU RENDIMIENTO: reacciones, comentarios, compartidos y engagement por post, más el ranking de formatos que mejor y peor rinden EN ESA CUENTA y el resumen ya destilado (`queFunciona`). Usalo SIEMPRE antes de proponer ideas de contenido: es la diferencia entre una idea genérica y una basada en lo que a este cliente le funcionó. También sirve para verificar si lo que se debía postear salió. Ventana por defecto 90 días — subila si el cliente publica poco.",
       parameters: {
         type: "object",
         properties: {
           clientId: { type: "string", description: "UUID del cliente" },
-          sinceHours: { type: "number", description: "Ventana en horas (default 168 = 7 días)" },
+          sinceHours: { type: "number", description: "Ventana en horas (default 2160 = 90 días). Para aprender patrones conviene 90-180 días, no 7." },
         },
         required: ["clientId"],
       },
@@ -495,13 +629,45 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_client_scheduled_content",
       description:
-        "Contenido PROGRAMADO del cliente desde la lista de Redes Sociales de ClickUp dentro de una ventana. plannedDate = Fecha de inicio (cuándo se dispara a Make). published/sentToMake = etiqueta 'mandado a make'/'enviado a make' (la ÚNICA señal de que el post salió — NO mirar el status de ClickUp para esto). Cruzalo con get_client_organic_posts para ver si el plan se cumple. Devuelve null si el cliente no tiene lista de Redes mapeada.",
+        "Contenido PROGRAMADO del cliente desde la lista de Redes Sociales de ClickUp dentro de una ventana. REGLA DE ATRASO (la ÚNICA que importa, ya viene calculada en el campo `overdue`): startDate (Fecha de inicio, la que dispara el webhook a Make) ya pasó Y sin etiqueta 'mandado a make' (sentToMake=false). NADA MÁS cuenta: el status de ClickUp ('en curso', etc.), plannedDate y due_date NO determinan atraso, y las tareas SIN startDate son ideas sin programar — NUNCA reportarlas como atrasadas. Si overdue=true → el webhook no disparó: eso sí reportalo. Devuelve null si el cliente no tiene lista de Redes mapeada.",
       parameters: {
         type: "object",
         properties: {
           clientId: { type: "string", description: "UUID del cliente" },
           sinceHours: { type: "number", description: "Horas hacia atrás (default 168 = 7 días)" },
           aheadHours: { type: "number", description: "Horas hacia adelante (default 336 = 14 días)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_marketing_plan",
+      description:
+        "Plan de Marketing del cliente en ClickUp (reuniones, planificaciones, estrategia cargada por el equipo). Usalo para alinear propuestas y contenido con la estrategia REAL acordada con el cliente — es la fuente de 'qué se decidió en reuniones'.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "UUID del cliente" },
+          limit: { type: "number", description: "Máx. ítems (default 30)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_content_matrix",
+      description:
+        "MATRIZ PROFUNDA de contenido del cliente — la base de la auditoría de perfil. Devuelve en una llamada: (a) orgánico real últimos N días (mix de formatos, posts/semana, días desde el último), (b) señal de FALTA DE CREATIVIDAD (aperturas de copy repetidas ≥3 veces y concentración de formato), (c) matriz planificada formato×objetivo del calendario de Redes (-30/+30 días) con huecos (sin formato/sin objetivo cargado) y atrasos reales (campo overdue), (d) tendencias recientes del NICHO del cliente. Combinala con get_niche_intel (benchmarks/plan del rubro) y con la navegación del perfil público (bio/destacadas) para la auditoría completa.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "UUID del cliente" },
+          days: { type: "number", description: "Ventana de orgánico hacia atrás (default 60)" },
         },
         required: ["clientId"],
       },
@@ -538,6 +704,36 @@ const CORE_TOOLS: ToolDef[] = [
           title: { type: "string", description: "Título opcional para encabezar el reporte (ej. 'Reporte de pauta - DUNOD')." },
         },
         required: ["message"],
+      },
+    },
+  },
+  // ── A2A: tarjetas de agentes + delegación explícita (pedido 25/7) ─────────
+  {
+    type: "function",
+    function: {
+      name: "get_agent_cards",
+      description:
+        "TARJETAS del equipo de agentes: quién es cada uno, qué sabe hacer, cuándo derivarle trabajo, y cuántos issues abiertos tiene ahora (carga). Consultalo ANTES de delegar con delegate_to_agent para elegir al especialista correcto.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delegate_to_agent",
+      description:
+        "DELEGA trabajo a otro agente del equipo: crea un issue asignado a él con tu contexto. Usalo cuando detectás algo que NO es de tu especialidad (ej. Content detecta problema de pauta → delegar a Milo). Mirá primero get_agent_cards para elegir bien. No te autodelegues ni delegues lo que podés resolver vos.",
+      parameters: {
+        type: "object",
+        properties: {
+          agentName: { type: "string", description: "Nombre del agente destino (ej. 'Milo', 'Caro', 'Esteban')" },
+          title: { type: "string", description: "Título corto y accionable de la tarea" },
+          description: { type: "string", description: "Contexto completo: qué detectaste, dónde, qué esperás que haga (markdown)" },
+          clientId: { type: "string", description: "UUID del cliente si la tarea es de un cliente (de list_clients)" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Prioridad (default medium)" },
+          issueId: { type: "string", description: "Issue de origen (el tuyo) para dejar registro de la derivación" },
+        },
+        required: ["agentName", "title", "description"],
       },
     },
   },
@@ -606,10 +802,33 @@ export function agentToolsRoutes(
     }
   }
 
+  // Modo del agente que está llamando. Si no se puede resolver (actor de board,
+  // agente borrado, DB caída) devuelve el default, que es "accion": este gate
+  // limita a quien está marcado como consulta, no rompe a quien no lo está.
+  async function modoDelActor(req: Request): Promise<ModoAgente> {
+    const ctx = actorContext(req);
+    if (!ctx?.agentId) return MODO_POR_DEFECTO;
+    try {
+      const [row] = await db
+        .select({ permissions: agents.permissions })
+        .from(agents)
+        .where(eq(agents.id, ctx.agentId))
+        .limit(1);
+      return modoDeAgente(row?.permissions);
+    } catch {
+      return MODO_POR_DEFECTO;
+    }
+  }
+
   // GET /api/agent-tools — list every tool the agent can call (MiniMax/OpenAI format).
-  router.get("/agent-tools", (req, res) => {
+  // Un agente en modo consulta no ve siquiera las herramientas que escriben: es
+  // más barato que las ignore a que las llame y se coma un error.
+  router.get("/agent-tools", async (req, res) => {
     if (req.actor.type === "none") throw unauthorized("Authentication required");
-    res.json({ tools: [...CORE_TOOLS, ...pluginToolDefs()] });
+    const todas = [...CORE_TOOLS, ...pluginToolDefs()];
+    const modo = await modoDelActor(req);
+    const tools = modo === "accion" ? todas : todas.filter((t) => !esDeAccion(t.function.name));
+    res.json({ tools });
   });
 
   // POST /api/agent-tools/execute — run a tool by name. Always returns 200 with
@@ -624,6 +843,11 @@ export function agentToolsRoutes(
     const issueRef = typeof params.issueId === "string" ? params.issueId : "";
 
     const reply = (ok: boolean, content: string) => res.json({ ok, content });
+
+    // El filtro del GET ya esconde estas tools, pero el modelo puede inventarse
+    // el nombre igual. Este es el que corta de verdad.
+    const modo = await modoDelActor(req);
+    if (!puedeUsar(modo, tool)) return reply(false, mensajeDeBloqueo(tool));
 
     try {
       if (tool === "get_issue") {
@@ -722,6 +946,68 @@ export function agentToolsRoutes(
         return reply(true, JSON.stringify(out));
       }
 
+      if (tool === "save_niche_report") {
+        const rawNiche = typeof params.niche === "string" ? params.niche.trim() : "";
+        if (!rawNiche) return reply(false, "Falta niche.");
+        const industries = (await db.selectDistinct({ i: clients.industry }).from(clients)
+          .where(and(eq(clients.status, "active"), isNotNull(clients.industry))))
+          .map((r) => r.i!.toLowerCase()).filter((i) => i !== "interno-test");
+        const { ok: okNiches, unknown } = canonicalizeNiches([rawNiche], industries);
+        if (!okNiches.length) return reply(false, `Rubro desconocido: "${rawNiche}"${unknown.length ? "" : ""}. Slugs válidos: ${industries.join(", ")}.`);
+        const niche = okNiches[0];
+        // Ideas sacadas de redes SIN link no sirven al equipo — es el pedido
+        // explícito: título + detalle + link de referencia verificable.
+        const ideas = Array.isArray(params.ideas) ? (params.ideas as Array<Record<string, unknown>>) : [];
+        const sinLink = ideas.filter((i) => typeof i.fuente === "string" && /instagram|tiktok|meta|facebook|reel|ads library/i.test(i.fuente) && !(typeof i.url === "string" && i.url.startsWith("http")));
+        if (sinLink.length) return reply(false, `${sinLink.length} idea(s) citan una red social como fuente pero no traen url de referencia. Si la idea salió de redes porque funciona, el link al post/reel/anuncio es OBLIGATORIO.`);
+        const sections = {
+          analisisCruzado: (params.analisisCruzado ?? {}) as { organico?: string; pauta?: string },
+          referentes: Array.isArray(params.referentes) ? (params.referentes as never[]).slice(0, 10) : [],
+          ideas: ideas.slice(0, 10) as never[],
+          planPorCliente: Array.isArray(params.planPorCliente) ? (params.planPorCliente as never[]).slice(0, 30) : [],
+        };
+        // Semana = lunes corriente (upsert por rubro+semana).
+        const now = new Date();
+        const monday = new Date(now.getTime() - ((now.getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(0, 10);
+        const [existing] = await db.select({ id: nicheReports.id }).from(nicheReports)
+          .where(and(eq(nicheReports.niche, niche), eq(nicheReports.week, monday)));
+        if (existing) {
+          await db.update(nicheReports).set({ sections, createdByAgentId: ctx.agentId, updatedAt: new Date() }).where(eq(nicheReports.id, existing.id));
+        } else {
+          await db.insert(nicheReports).values({ niche, week: monday, sections, createdByAgentId: ctx.agentId });
+        }
+        return reply(true, `Radar de nicho guardado para "${niche}" (semana ${monday}): ${sections.referentes.length} referentes, ${sections.ideas.length} ideas, plan para ${sections.planPorCliente.length} clientes.`);
+      }
+
+      if (tool === "add_client_competitor") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const name = typeof params.name === "string" ? params.name.trim().slice(0, 200) : "";
+        if (!clientId || !name) return reply(false, "Faltan clientId o name.");
+        const igHandle = typeof params.igHandle === "string" ? params.igHandle.trim().replace(/^@/, "").slice(0, 120) || null : null;
+        const fbPageUrl = typeof params.fbPageUrl === "string" ? params.fbPageUrl.trim().slice(0, 500) || null : null;
+        const website = typeof params.website === "string" ? params.website.trim().slice(0, 500) || null : null;
+        if (!igHandle && !fbPageUrl && !website) return reply(false, "Pasá al menos una fuente verificable: igHandle, fbPageUrl o website.");
+        const [client] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, clientId));
+        if (!client) return reply(false, "Cliente no encontrado.");
+        const compCompanyId = (await resolveCompanyId(db, clientId)) ?? ctx.companyId;
+        // Un competidor tiene que ser EXTERNO: los clientes de la agencia no
+        // compiten entre sí en este panel (ese fue el reclamo del equipo).
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const agencyClients = await db.select({ name: clients.name }).from(clients).where(eq(clients.status, "active"));
+        if (agencyClients.some((c) => norm(c.name) === norm(name))) {
+          return reply(false, `"${name}" es un CLIENTE de la agencia, no un competidor externo. Buscá negocios reales del rubro/zona que NO trabajen con nosotros.`);
+        }
+        const existing = await db.select({ id: competitors.id, name: competitors.name }).from(competitors).where(eq(competitors.clientId, clientId)).limit(50);
+        if (existing.some((c) => norm(c.name) === norm(name))) return reply(true, `"${name}" ya estaba cargado como competidor de este cliente.`);
+        await db.insert(competitors).values({
+          companyId: compCompanyId, clientId, name,
+          igHandle, fbPageUrl, website,
+          notes: typeof params.notes === "string" ? params.notes.slice(0, 1000) : null,
+          sampleAds: [],
+        });
+        return reply(true, `Competidor "${name}" cargado (${[igHandle && "IG", fbPageUrl && "FB", website && "web"].filter(Boolean).join("/")}).`);
+      }
+
       if (tool === "get_client_ads_performance") {
         const clientId = typeof params.clientId === "string" ? params.clientId : "";
         const days =
@@ -732,10 +1018,46 @@ export function agentToolsRoutes(
         const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
         const cpl = agg.leads > 0 ? agg.spend / agg.leads : null;
         const cpc = agg.clicks > 0 ? agg.spend / agg.clicks : null;
+        // Análisis profundo (23/7): benchmark del rubro, formatos, edades —
+        // el mismo que ve el equipo en la card de análisis estratégico.
+        const [cl] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
+        const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
+        const profundo = await analisisProfundo(db, { id: clientId, industry: cl?.industry ?? null }).catch(() => null);
+        // Desglose por plataforma (30/7): el total mezclaba Meta + Google y los
+        // agentes no podían analizar Google por separado. Sus CPL no son
+        // comparables entre sí — Google captura demanda, Meta la genera.
+        const porPlat = await db
+          .select({
+            platform: adsInsights.platform,
+            spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
+            impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+            clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+            leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+          })
+          .from(adsInsights)
+          .where(and(eq(adsInsights.clientId, clientId), gte(adsInsights.date, since.toISOString().slice(0, 10))))
+          .groupBy(adsInsights.platform);
+        const plataformas = porPlat.map((p) => {
+          const sp = Number(p.spend), ld = p.leads, im = p.impressions, ck = p.clicks;
+          return {
+            platform: p.platform,
+            spend: Math.round(sp), impressions: im, clicks: ck, leads: ld,
+            ctrPct: im > 0 ? Number(((ck / im) * 100).toFixed(2)) : 0,
+            cpl: ld > 0 ? Number((sp / ld).toFixed(2)) : null,
+          };
+        });
         return reply(
           true,
           JSON.stringify({
             windowDays: days,
+            plataformas,
+            notaPlataformas: plataformas.length > 1
+              ? "Este cliente tiene MÁS DE UNA plataforma: analizá y recomendá sobre cada una por separado. No compares sus CPL entre sí (Google capta demanda existente, Meta la genera)."
+              : undefined,
+            analisis: profundo?.resumen ?? [],
+            porEdad: profundo?.porEdad ?? [],
+            formatos: profundo?.formatos ?? null,
+            benchmarkRubro: profundo?.benchmark ?? null,
             spend: Math.round(agg.spend),
             impressions: agg.impressions,
             clicks: agg.clicks,
@@ -770,7 +1092,7 @@ export function agentToolsRoutes(
       if (tool === "get_client_organic_posts") {
         const clientId = typeof params.clientId === "string" ? params.clientId : "";
         if (!clientId) return reply(false, "Falta clientId.");
-        const hours = typeof params.sinceHours === "number" && params.sinceHours > 0 ? Math.min(24 * 90, params.sinceHours) : 168;
+        const hours = typeof params.sinceHours === "number" && params.sinceHours > 0 ? Math.min(24 * 180, params.sinceHours) : 24 * 90;
         const since = new Date(Date.now() - hours * 3_600_000);
         const maps = await db
           .select({ pageId: adsAccountMappings.pageId })
@@ -780,29 +1102,36 @@ export function agentToolsRoutes(
         const match = pageIds.length
           ? or(eq(organicPosts.clientId, clientId), inArray(organicPosts.pageId, pageIds))
           : eq(organicPosts.clientId, clientId);
-        const rows = await db
-          .select({
-            platform: organicPosts.platform,
-            message: organicPosts.message,
-            permalinkUrl: organicPosts.permalinkUrl,
-            postType: organicPosts.postType,
-            createdTime: organicPosts.createdTime,
-          })
-          .from(organicPosts)
-          .where(and(gte(organicPosts.createdTime, since), match))
-          .orderBy(desc(organicPosts.createdTime))
-          .limit(50);
-        if (rows.length === 0) {
+        // Antes esto devolvía SOLO el texto de cada post: el agente veía qué
+        // publicó el cliente pero no qué le funcionó, así que las ideas salían
+        // genéricas con 3.301 posts en la base (14/8). Ahora viene el
+        // rendimiento y, arriba, el resumen de qué formato rinde en la cuenta.
+        const { rendimientoOrganico, memoriaOrganica } = await import("../services/organico-aprendizaje.js");
+        const r = await rendimientoOrganico(db, clientId, {
+          dias: Math.ceil(hours / 24), limite: 50, pageIds,
+        });
+        if (r.totalPosts === 0) {
           return reply(true, "(Sin publicaciones orgánicas sincronizadas en la ventana. Si el cliente publica pero no aparece, falta reconectar la página de Meta o no se sincronizó todavía.)");
         }
-        const out = rows.map((r) => ({
-          platform: r.platform,
-          type: r.postType,
-          text: (r.message ?? "").slice(0, 280),
-          permalink: r.permalinkUrl,
-          publishedAt: r.createdTime?.toISOString() ?? null,
+        const aprendido = await memoriaOrganica(db, clientId);
+        return reply(true, JSON.stringify({
+          ventanaDias: Math.ceil(hours / 24),
+          totalPosts: r.totalPosts,
+          conMetricas: r.conMetricas,
+          engagementPromedio: r.promedio,
+          nota: r.conMetricas === 0
+            ? "Meta no devolvió métricas de estos posts — usalos como referencia de temas, no de rendimiento."
+            : "engagement = reacciones + comentarios×3 + compartidos×5.",
+          queFunciona: aprendido,
+          porFormato: r.porTipo,
+          mejores: r.top.map((p) => ({ tipo: p.tipo, engagement: p.engagement, texto: p.texto.slice(0, 200), permalink: p.permalink })),
+          peores: r.flojos.map((p) => ({ tipo: p.tipo, engagement: p.engagement, texto: p.texto.slice(0, 120) })),
+          posts: r.posts.map((p) => ({
+            tipo: p.tipo, texto: p.texto.slice(0, 240), fecha: p.fecha,
+            engagement: p.engagement, reacciones: p.reacciones, comentarios: p.comentarios, compartidos: p.compartidos,
+            permalink: p.permalink,
+          })),
         }));
-        return reply(true, JSON.stringify({ windowHours: hours, count: out.length, posts: out }));
       }
 
       if (tool === "get_client_scheduled_content") {
@@ -816,6 +1145,92 @@ export function agentToolsRoutes(
           return reply(true, "(El cliente no tiene la lista de Redes Sociales de ClickUp mapeada — sincronizar ClickUp del cliente.)");
         }
         return reply(true, JSON.stringify({ count: items.length, items }));
+      }
+
+      if (tool === "get_client_marketing_plan") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, 60) : 30;
+        try {
+          const { getPlanMarketing } = await import("../services/clickup-sync.js");
+          const items = await getPlanMarketing(db, clientId, limit);
+          if (items === null) return reply(false, "El cliente no tiene lista 'Plan de Marketing' en su folder de ClickUp (o no tiene folder mapeado).");
+          return reply(true, JSON.stringify({ items }));
+        } catch (e) {
+          return reply(false, `get_client_marketing_plan: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "get_client_content_matrix") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const days = typeof params.days === "number" && params.days > 0 ? Math.min(params.days, 180) : 60;
+        const now = Date.now();
+        const since = new Date(now - days * 86_400_000);
+
+        // (a) orgánico real + (b) señal de creatividad
+        const posts = await db
+          .select({ createdTime: organicPosts.createdTime, postType: organicPosts.postType, message: organicPosts.message })
+          .from(organicPosts)
+          .where(and(eq(organicPosts.clientId, clientId), gte(organicPosts.createdTime, since)));
+        const formatMix: Record<string, number> = {};
+        for (const p of posts) formatMix[p.postType ?? "otro"] = (formatMix[p.postType ?? "otro"] ?? 0) + 1;
+        const lastPost = posts.reduce<Date | null>((m, p) => (p.createdTime && (!m || p.createdTime > m) ? p.createdTime : m), null);
+        // aperturas de copy repetidas: primeras ~7 palabras normalizadas
+        const openings = new Map<string, number>();
+        for (const p of posts) {
+          const open = (p.message ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+            .split(/\s+/).slice(0, 7).join(" ").trim();
+          if (open.length >= 15) openings.set(open, (openings.get(open) ?? 0) + 1);
+        }
+        const repeated = [...openings.entries()].filter(([, n]) => n >= 3)
+          .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([o, n]) => ({ apertura: o, veces: n }));
+        const total = posts.length || 1;
+        const topFormatShare = Math.max(0, ...Object.values(formatMix)) / total;
+
+        // (c) matriz planificada formato×objetivo (con huecos y atrasos reales)
+        const cal = (await getRedesCalendar(db, clientId, now - 30 * 86_400_000, now + 30 * 86_400_000).catch(() => null)) ?? [];
+        const matriz: Record<string, number> = {};
+        let sinFormato = 0, sinObjetivo = 0, overdue = 0;
+        for (const it of cal) {
+          if (!it.format) sinFormato++;
+          if (!it.objective) sinObjetivo++;
+          if (new Date(it.date).getTime() < now && !it.sentToMake) overdue++;
+          matriz[`${it.format ?? "?"} × ${it.objective ?? "?"}`] = (matriz[`${it.format ?? "?"} × ${it.objective ?? "?"}`] ?? 0) + 1;
+        }
+
+        // (d) tendencias del nicho (14 días; incluye las universales sin nicho)
+        const [c] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
+        const cutoffDay = new Date(now - 14 * 86_400_000).toISOString().slice(0, 10);
+        const recentTrends = await db.select({ day: trends.day, title: trends.title, niches: trends.niches, summary: trends.summary })
+          .from(trends).where(and(gte(trends.day, cutoffDay), ne(trends.tag, "ignorar"))).orderBy(desc(trends.day)).limit(120);
+        const nicheTrends = recentTrends
+          .filter((t) => trendMatchesIndustry(t.niches, c?.industry))
+          .slice(0, 10).map((t) => ({ day: t.day, title: t.title, resumen: t.summary?.slice(0, 160) ?? null }));
+        // (e) efemérides próximas del rubro (21 días adelante — pedido 18/7:
+        // odesur/primavera/congresos entran acá; nunca se planifica hacia atrás)
+        const { efemeridesProximasPorRubro } = await import("../services/efemerides.js");
+        const efemerides = efemeridesProximasPorRubro(c?.industry, 21);
+
+        return reply(true, JSON.stringify({
+          nicho: c?.industry ?? null,
+          organico: {
+            ventanaDias: days, posts: posts.length,
+            postsPorSemana: Math.round((posts.length / (days / 7)) * 10) / 10,
+            diasDesdeUltimoPost: lastPost ? Math.floor((now - lastPost.getTime()) / 86_400_000) : null,
+            mixFormatos: formatMix,
+          },
+          creatividad: {
+            aperturasRepetidas: repeated,
+            concentracionFormatoTop: Math.round(topFormatShare * 100) + "%",
+            señal: repeated.length >= 2 || topFormatShare >= 0.7
+              ? "POSIBLE FATIGA CREATIVA: copys que arrancan igual y/o un solo formato dominante — proponer ángulos/formatos nuevos"
+              : "sin señal fuerte de repetición",
+          },
+          planificacion: { piezasCalendario60d: cal.length, matrizFormatoObjetivo: matriz, sinFormato, sinObjetivo, atrasosReales: overdue },
+          tendenciasNicho: nicheTrends,
+          efemeridesProximas: efemerides,
+        }));
       }
 
       if (tool === "send_balance_alert") {
@@ -954,6 +1369,20 @@ export function agentToolsRoutes(
       }
 
       if (tool === "create_client_task") {
+        // Cupo semanal de propuestas por agente (30/7): el backlog tenía 188
+        // items agent_proposed sin ejecutar. Proponer más no ayuda: satura la
+        // cola y tapa lo accionable.
+        const [prop] = await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(issues)
+          .where(and(
+            eq(issues.createdByAgentId, ctx.agentId),
+            gte(issues.createdAt, new Date(Date.now() - 7 * 86_400_000)),
+            sql`${issues.status} in ('backlog','todo')`,
+          ));
+        if ((prop?.n ?? 0) >= 15) {
+          return reply(false, `Cupo alcanzado: ya tenés ${prop.n} tareas propuestas esta semana sin ejecutar. Cerrá o hacé avanzar las que están pendientes antes de proponer más (mirá tu cola con get_team_status).`);
+        }
         const r = await createClientTask(db, {
           clientId: typeof params.clientId === "string" ? params.clientId : "",
           title: typeof params.title === "string" ? params.title : "",
@@ -1022,6 +1451,12 @@ export function agentToolsRoutes(
         const area = typeof params.area === "string" ? params.area.trim().toLowerCase().slice(0, 60) : "";
         const lesson = typeof params.lesson === "string" ? params.lesson.trim().slice(0, 1200) : "";
         if (!area || !lesson) return reply(false, "Faltan area o lesson.");
+        // Solo lecciones de NEGOCIO (30/7): 76 de 136 lecciones eran sobre el
+        // harness/paperclip — infra que no es trabajo de los agentes y que
+        // ademas ya tienen prohibido tocar.
+        if (/^(paperclip|harness|sistema|system|infra|paperclip-recovery)/.test(area) || /\b(harness|paperclip|detector|dispatcher|heartbeat|wakeup)\b/i.test(lesson)) {
+          return reply(false, "Esa lección es sobre el sistema/harness, no sobre el trabajo de la agencia — no se guarda. Guardá lecciones de marketing, clientes, pauta, contenido o herramientas del cliente (ej. area='meta', 'clickup', 'contenido').");
+        }
         await db.insert(learnings).values({
           companyId: ctx.companyId, scope: "team", scopeKey: area, pattern: lesson,
           evidence: { agentId: ctx.agentId }, metricImpact: "team_ops",
@@ -1041,6 +1476,20 @@ export function agentToolsRoutes(
         if (!niche && clientId) {
           const [c] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
           niche = c?.industry ?? null;
+        }
+        // Anti-duplicados (pedido 18/7: "todos tienen el mismo gancho"): si la
+        // APERTURA (primeras 4 palabras) ya está en el baúl del mismo ámbito,
+        // rechazar y pedir variar — un baúl de 5 "Lo que nadie te..." no sirve.
+        const apertura = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/\s+/).slice(0, 4).join(" ");
+        const nueva = apertura(text);
+        if (nueva.split(" ").length >= 3 && niche) {
+          const existentes = await db.select({ text: hooks.text, clientId: hooks.clientId }).from(hooks)
+            .where(eq(hooks.niche, niche)).limit(300);
+          const mismos = existentes.filter((h) => apertura(h.text) === nueva);
+          const enMiAmbito = mismos.some((h) => h.clientId === clientId);
+          if (enMiAmbito || mismos.length >= 2) {
+            return reply(false, `Esa apertura ya está ${enMiAmbito ? "en este baúl" : `usada en ${mismos.length} baúl(es) del rubro "${niche}"`} ("${mismos[0].text.slice(0, 60)}…"). El equipo pidió ITERAR los ganchos, no repetirlos entre clientes: buscá otro ángulo del mismo reel o reformulá la apertura.`);
+          }
         }
         const [row] = await db.insert(hooks).values({
           clientId, niche, text,
@@ -1075,16 +1524,32 @@ export function agentToolsRoutes(
       if (tool === "save_trend") {
         const title = typeof params.title === "string" ? params.title.trim().slice(0, 300) : "";
         if (!title) return reply(false, "Falta title.");
+        const summary = typeof params.summary === "string" ? params.summary.slice(0, 1000) : null;
+        // Los tags de nicho DEBEN ser rubros reales de clientes: el panel de
+        // cada cliente filtra por su industry, y un slug libre no matchea a
+        // nadie (la tendencia queda invisible) mientras que [] aparece en
+        // TODOS. Validar acá corta el problema en origen.
+        const industries = (await db.selectDistinct({ i: clients.industry }).from(clients)
+          .where(and(eq(clients.status, "active"), isNotNull(clients.industry))))
+          .map((r) => r.i!.toLowerCase()).filter((i) => i !== "interno-test");
+        const rawNiches = Array.isArray(params.niches) ? (params.niches as unknown[]).map(String).slice(0, 20) : [];
+        const { ok: nicheTags, unknown } = canonicalizeNiches(rawNiches, industries);
+        if (unknown.length) {
+          return reply(false, `Rubro(s) desconocido(s): ${unknown.join(", ")}. Usá EXACTAMENTE estos slugs (rubros reales de los clientes): ${industries.join(", ")}. Si es un cambio universal de PLATAFORMA (algoritmo/feature de IG, Meta, TikTok, WhatsApp) mandá niches=[].`);
+        }
+        if (nicheTags.length === 0 && /\b(ia|ai|chatgpt|claude|gemini|openai|anthropic|copilot|bing|cloudflare|product ?hunt|saas|seo|llm)\b/i.test(`${title} ${summary ?? ""}`)) {
+          return reply(false, "Esto parece noticia de IA/herramientas/marketing, no un cambio universal de plataforma. Etiquetala niches=['agencia-marketing'] (o el rubro específico si de verdad aplica). niches=[] queda RESERVADO a cambios de plataforma (algoritmo de IG, features de Meta/TikTok/WhatsApp).");
+        }
         await db.insert(trends).values({
           day: dayStr(new Date()),
           title,
           url: typeof params.url === "string" ? params.url.slice(0, 500) : null,
           source: typeof params.source === "string" ? params.source.slice(0, 120) : null,
           tag: ["potencial-de-gancho", "explicativo", "ignorar"].includes(params.tag as string) ? (params.tag as string) : "potencial-de-gancho",
-          niches: Array.isArray(params.niches) ? (params.niches as unknown[]).map(String).slice(0, 20) : [],
-          summary: typeof params.summary === "string" ? params.summary.slice(0, 1000) : null,
+          niches: nicheTags,
+          summary,
         });
-        return reply(true, "Tendencia guardada en el panel.");
+        return reply(true, `Tendencia guardada en el panel${nicheTags.length ? ` para: ${nicheTags.join(", ")}` : " (universal)"}.`);
       }
 
       if (tool === "save_deliverable") {
@@ -1099,6 +1564,16 @@ export function agentToolsRoutes(
           issueId = iss ? String((iss as Record<string, unknown>).id) : null;
         }
         const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        // Checks deterministas (curso reliable-agents 26/7): links muertos,
+        // caracteres no latinos, mención de otro cliente. Si falla, el error
+        // vuelve al agente para que corrija y reintente — no lo pesca un humano.
+        try {
+          const { verificarEntrega } = await import("../services/entrega-checks.js");
+          const check = await verificarEntrega(db, `${title}\n${content}`, { clientId });
+          if (!check.ok) {
+            return reply(false, "El entregable NO se guardó — corregí estos problemas y volvé a llamar save_deliverable:\n" + check.problemas.map((p) => `- ${p}`).join("\n"));
+          }
+        } catch { /* checks best-effort: nunca bloquear por un fallo del verificador */ }
         const companyId = clientId ? ((await resolveCompanyId(db, clientId)) ?? ctx.companyId) : ctx.companyId;
         const [row] = await db.insert(agentDeliverables).values({
           companyId, issueId, clientId, agentId: ctx.agentId,
@@ -1109,6 +1584,27 @@ export function agentToolsRoutes(
       }
 
       if (tool === "list_deliverables") {
+        // Sin filtros: además del listado, devolvemos qué clientes tienen el
+        // entregable de ese tipo MÁS VIEJO (10/8). La rutina del plan de acción
+        // pedía "acordate a quién cubriste" y la memoria del agente fallaba:
+        // había clientes con plan de hace 3 semanas. Con el dato objetivo el
+        // agente empieza siempre por los más atrasados.
+        const sinFiltro = !params.clientId && !params.issueId;
+        const tipo = typeof params.tipoCobertura === "string" ? params.tipoCobertura : "Plan de acción";
+        if (sinFiltro) {
+          const cob = await db
+            .select({ name: clients.name, id: clients.id, ultimo: sql<string | null>`max(${agentDeliverables.createdAt})` })
+            .from(clients)
+            .leftJoin(agentDeliverables, and(eq(agentDeliverables.clientId, clients.id), sql`${agentDeliverables.title} ilike ${tipo + "%"}`))
+            .where(eq(clients.status, "active"))
+            .groupBy(clients.id, clients.name)
+            .orderBy(sql`max(${agentDeliverables.createdAt}) asc nulls first`)
+            .limit(15);
+          const lineas = cob.map((c) => `- ${c.name}: ${c.ultimo ? String(c.ultimo).slice(0, 10) : "NUNCA"}`);
+          return reply(true,
+            `COBERTURA de "${tipo}" — clientes MÁS ATRASADOS primero (empezá por estos):\n` + lineas.join("\n") +
+            `\n\n(Para ver los entregables de un cliente puntual, llamá de nuevo con clientId.)`);
+        }
         const conds = [eq(agentDeliverables.companyId, ctx.companyId)];
         if (typeof params.clientId === "string" && params.clientId) conds.push(eq(agentDeliverables.clientId, params.clientId));
         if (typeof params.issueId === "string" && params.issueId) {
@@ -1158,6 +1654,50 @@ export function agentToolsRoutes(
         return reply(true, `Pausado: ${r.entity?.type} "${r.entity?.name}" (${r.entity?.id}). Acción registrada.`);
       }
 
+      if (tool === "get_client_video_tasks") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        try {
+          const { getVideoTasks } = await import("../services/clickup-sync.js");
+          const tasks = await getVideoTasks(db, clientId);
+          if (tasks === null) return reply(false, "El cliente no tiene lista 'Producción de video' mapeada en ClickUp.");
+          return reply(true, JSON.stringify({ tasks }));
+        } catch (e) {
+          return reply(false, `get_client_video_tasks: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "list_licitaciones") {
+        const estado = typeof params.estado === "string" && params.estado ? params.estado : "candidata";
+        try {
+          const { listarLicitaciones } = await import("../services/licitaciones.js");
+          const rows = await listarLicitaciones(db, [estado]);
+          const out = rows.map((r) => ({
+            codigo: r.codigo, nombre: r.nombre, descripcion: r.descripcion?.slice(0, 400) ?? null,
+            organismo: r.organismo, region: r.region, moneda: r.moneda, montoEstimado: r.montoEstimado,
+            fechaCierre: r.fechaCierre, relevancia: r.relevancia, url: r.url,
+          }));
+          return reply(true, JSON.stringify({ licitaciones: out }));
+        } catch (e) {
+          return reply(false, `list_licitaciones: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "set_licitacion_estado") {
+        const codigo = typeof params.codigo === "string" ? params.codigo : "";
+        const estado = typeof params.estado === "string" ? params.estado : "";
+        const relevancia = typeof params.relevancia === "string" ? params.relevancia.trim() : "";
+        if (!codigo || !["util", "descartada"].includes(estado)) return reply(false, "Faltan codigo o estado (util|descartada).");
+        if (estado === "util" && relevancia.length < 15) return reply(false, "Para marcar util la relevancia es obligatoria: explicá en 1-2 frases por qué nos sirve y qué podríamos ofertar.");
+        try {
+          const { marcarLicitacion } = await import("../services/licitaciones.js");
+          const ok = await marcarLicitacion(db, codigo, estado as "util" | "descartada", relevancia || undefined);
+          return ok ? reply(true, `Licitación ${codigo} → ${estado}.`) : reply(false, `No existe la licitación ${codigo}.`);
+        } catch (e) {
+          return reply(false, `set_licitacion_estado: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
       if (tool === "get_niche_intel") {
         const niche = typeof params.niche === "string" ? params.niche.trim().toLowerCase() : "";
         const scopes = ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format", "niche_actions"];
@@ -1193,8 +1733,26 @@ export function agentToolsRoutes(
             lines.push("", "Competidores del nicho (cargados por los clientes):");
             for (const c of comps) lines.push(`- ${c.name} (competidor de ${c.clientName})`);
           }
+          // Último RADAR del rubro (informe de Carlos): referentes externos con
+          // links, ideas con referencia y análisis cruzado — el "qué funciona
+          // afuera" que un plan personalizado tiene que contrastar.
+          const [radar] = await db.select().from(nicheReports)
+            .where(eq(nicheReports.niche, niche))
+            .orderBy(desc(nicheReports.week), desc(nicheReports.updatedAt)).limit(1);
+          const s = radar?.sections;
+          if (s) {
+            lines.push("", `RADAR del rubro (semana ${radar.week}):`);
+            if (s.analisisCruzado?.organico) lines.push(`Orgánico: ${s.analisisCruzado.organico}`);
+            if (s.analisisCruzado?.pauta) lines.push(`Pauta: ${s.analisisCruzado.pauta}`);
+            for (const ref of s.referentes ?? []) {
+              lines.push(`- Referente externo: ${ref.nombre}${ref.cuenta ? ` (${ref.cuenta})` : ""}${ref.ubicacion ? `, ${ref.ubicacion}` : ""} — ${ref.queHacen ?? ""}${ref.urlEjemplo ? ` · ejemplo: ${ref.urlEjemplo}` : ref.urlPerfil ? ` · ${ref.urlPerfil}` : ""}`);
+            }
+            for (const idea of s.ideas ?? []) {
+              lines.push(`- Idea con referencia: ${idea.titulo}${idea.detalle ? ` — ${idea.detalle}` : ""}${idea.url ? ` · ${idea.url}` : ""}`);
+            }
+          }
         }
-        return reply(true, lines.join("\n").slice(0, 9000));
+        return reply(true, lines.join("\n").slice(0, 12000));
       }
 
       if (tool === "get_team_lessons") {
@@ -1203,8 +1761,96 @@ export function agentToolsRoutes(
         if (area) conds.push(eq(learnings.scopeKey, area));
         const rows = await db.select({ area: learnings.scopeKey, lesson: learnings.pattern, occurrences: learnings.occurrences, lastSeenAt: learnings.lastSeenAt })
           .from(learnings).where(and(...conds)).orderBy(desc(learnings.lastSeenAt)).limit(30);
-        if (rows.length === 0) return reply(true, "Sin lecciones de equipo registradas todavía.");
-        return reply(true, rows.map((r) => `[${r.area}] ${r.lesson} (visto ${r.occurrences}x)`).join("\n"));
+        const lines = rows.map((r) => `[${r.area}] ${r.lesson} (visto ${r.occurrences}x)`);
+        // Lecciones de la evaluación semanal del PROPIO agente (agent-eval):
+        // se entregan acá para cerrar el loop coleccionar → evaluar → mejorar.
+        if (ctx.agentId) {
+          const own = await db.select({ lesson: learnings.pattern })
+            .from(learnings)
+            .where(and(eq(learnings.scope, "agent"), eq(learnings.scopeKey, ctx.agentId)))
+            .orderBy(desc(learnings.lastSeenAt)).limit(3);
+          if (own.length > 0) {
+            lines.push("", "TU EVALUACIÓN SEMANAL (aplicá estas lecciones en tu trabajo):");
+            for (const o of own) lines.push(`- ${o.lesson}`);
+          }
+        }
+        if (lines.length === 0) return reply(true, "Sin lecciones de equipo registradas todavía.");
+        return reply(true, lines.join("\n"));
+      }
+
+      if (tool === "get_agent_cards") {
+        const roster = await db
+          .select({ id: agents.id, name: agents.name, title: agents.title, capabilities: agents.capabilities })
+          .from(agents)
+          .where(and(eq(agents.companyId, ctx.companyId), eq(agents.adapterType, "claude_local")));
+        if (roster.length === 0) return reply(true, "No hay agentes en el roster.");
+        const loads = await db
+          .select({ agentId: issues.assigneeAgentId, c: sql<number>`count(*)::int` })
+          .from(issues)
+          .where(and(
+            eq(issues.companyId, ctx.companyId),
+            inArray(issues.status, ["todo", "in_progress", "in_review", "blocked"] as never),
+            isNotNull(issues.assigneeAgentId),
+          ))
+          .groupBy(issues.assigneeAgentId);
+        const loadMap = new Map(loads.map((l) => [l.agentId, l.c]));
+        const lines = roster
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((a) => {
+            const me = a.id === ctx.agentId ? " ← VOS" : "";
+            const card = (a.capabilities ?? "").trim() || "(sin tarjeta cargada)";
+            return `${a.name}${a.title ? ` — ${a.title}` : ""} · carga: ${loadMap.get(a.id) ?? 0} issues abiertos${me}\n  ${card}`;
+          });
+        return reply(true, lines.join("\n\n"));
+      }
+
+      if (tool === "delegate_to_agent") {
+        const agentName = typeof params.agentName === "string" ? params.agentName.trim() : "";
+        const title = typeof params.title === "string" ? params.title.trim().slice(0, 200) : "";
+        const detail = typeof params.description === "string" ? params.description.trim() : "";
+        if (!agentName || !title || !detail) return reply(false, "Faltan agentName, title o description.");
+        const roster = await db
+          .select({ id: agents.id, name: agents.name })
+          .from(agents)
+          .where(and(eq(agents.companyId, ctx.companyId), eq(agents.adapterType, "claude_local")));
+        const q = agentName.toLowerCase();
+        const matches = roster.filter((a) => a.name.toLowerCase().includes(q) || a.name.toLowerCase().split(/[\s(]+/)[0] === q);
+        if (matches.length === 0) return reply(false, `No encontré al agente "${agentName}". Roster: ${roster.map((a) => a.name).join(", ")}.`);
+        if (matches.length > 1) return reply(false, `"${agentName}" es ambiguo: ${matches.map((a) => a.name).join(", ")}. Usá el nombre completo.`);
+        const target = matches[0];
+        if (target.id === ctx.agentId) return reply(false, "No podés delegarte trabajo a vos mismo — resolvelo o elegí a otro especialista.");
+        const [me] = ctx.agentId
+          ? await db.select({ name: agents.name }).from(agents).where(eq(agents.id, ctx.agentId)).limit(1)
+          : [];
+        // Dedup: same open title already assigned to the target.
+        const dup = await db.select({ identifier: issues.identifier }).from(issues)
+          .where(and(
+            eq(issues.assigneeAgentId, target.id),
+            eq(issues.title, title),
+            sql`${issues.status} not in ('done','cancelled')`,
+          )).limit(1);
+        if (dup.length > 0) return reply(false, `Ya existe una tarea abierta igual para ${target.name}: ${dup[0].identifier ?? "s/n"}. No dupliques.`);
+        const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        const priority = (["low", "medium", "high", "urgent"] as const).includes(params.priority as never) ? (params.priority as string) : "medium";
+        const created = await issuesSvc.create(ctx.companyId, {
+          title,
+          description: `${detail}\n\n_Delegado por ${me?.name ?? "otro agente"} · vía delegate_to_agent_`,
+          status: "todo" as never,
+          priority: priority as never,
+          ...(clientId ? { clientId } : {}),
+          originKind: "agent_delegated",
+          createdByAgentId: ctx.agentId || null,
+          assigneeAgentId: target.id,
+        } as never);
+        const identifier = ((created as Record<string, unknown>).identifier ?? (created as Record<string, unknown>).id ?? "") as string;
+        // Leave a trace on the origin issue so the delegation is auditable.
+        if (issueRef) {
+          const origin = await issuesSvc.getById(issueRef);
+          if (origin) {
+            await issuesSvc.addComment(origin.id, `🤝 Delegué a **${target.name}**: "${title}" (${identifier}).`, { agentId: ctx.agentId, runId: ctx.runId }).catch(() => {});
+          }
+        }
+        return reply(true, `Delegado a ${target.name}: ${identifier} — "${title}". Va a aparecer en su cola de trabajo.`);
       }
 
       // Plugin tool.
@@ -1229,6 +1875,58 @@ export function agentToolsRoutes(
     } catch (err) {
       return reply(false, `Error ejecutando "${tool}": ${err instanceof Error ? err.message : String(err)}`);
     }
+  });
+
+  // POST /api/ops/agent-eval/run — manual trigger of the weekly agent evals.
+  router.post("/ops/agent-eval/run", async (req, res) => {
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    const { runAgentEvals } = await import("../services/agent-eval.js");
+    const result = await runAgentEvals(db);
+    res.json(result);
+  });
+
+  // POST /api/ops/organico/destilar { clientId? } — recalcula "qué funciona en
+  // el orgánico". Sin clientId corre toda la cartera. Lo dispara solo el brain
+  // cada 12h; esto es para verlo al toque.
+  router.post("/ops/organico/destilar", async (req, res) => {
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    const { destilarOrganico, destilarTodos, rendimientoOrganico } = await import("../services/organico-aprendizaje.js");
+    const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : null;
+    if (clientId) {
+      const [texto, detalle] = await Promise.all([
+        destilarOrganico(db, clientId),
+        rendimientoOrganico(db, clientId),
+      ]);
+      return res.json({
+        aprendido: texto,
+        conMetricas: detalle.conMetricas,
+        promedio: detalle.promedio,
+        porFormato: detalle.porTipo,
+      });
+    }
+    res.json(await destilarTodos(db));
+  });
+
+  // POST /api/ops/keywords/auditar { clientId | clientSlug, dias?, derivar? }
+  // Audita las keywords de Google Ads de una cuenta. Sin `derivar` solo devuelve
+  // el análisis; con `derivar:true` deja la guía como tarea del equipo.
+  router.post("/ops/keywords/auditar", async (req, res) => {
+    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    const { auditarKeywords, auditoriaAPasos, auditarYDerivar } = await import("../services/ads-keywords.js");
+    const { clientId, clientSlug, dias, derivar } = (req.body ?? {}) as {
+      clientId?: string; clientSlug?: string; dias?: number; derivar?: boolean;
+    };
+    let id = clientId;
+    if (!id && clientSlug) {
+      const { clients } = await import("@paperclipai/db");
+      const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.slug, clientSlug));
+      id = c?.id;
+    }
+    if (!id) return res.status(400).json({ error: "falta clientId o clientSlug" });
+    if (derivar) return res.json(await auditarYDerivar(db, id, dias ?? 30));
+    const a = await auditarKeywords(db, id, dias ?? 30);
+    if (!a) return res.status(404).json({ error: "el cliente no tiene Google Ads mapeado" });
+    res.json({ ...a, guia: auditoriaAPasos(a).cuerpo });
   });
 
   return router;

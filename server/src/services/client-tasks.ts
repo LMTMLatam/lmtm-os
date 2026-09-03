@@ -9,7 +9,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { issues, agents } from "@paperclipai/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { issueService } from "./issues.js";
 import { resolveCompanyId } from "./intel-common.js";
 
@@ -41,6 +41,18 @@ export interface CreateClientTaskInput {
   source?: string;
   createdByAgentId?: string | null;
   fallbackCompanyId?: string;
+  /**
+   * Días que tiene que pasar antes de volver a levantar ESTA MISMA señal para
+   * este cliente, aunque la anterior ya esté cerrada.
+   *
+   * La deduplicación de abajo solo mira tareas ABIERTAS, y eso alcanza mientras
+   * alguien deje la tarea abierta hasta resolverla. Para un vigilante que corre
+   * todos los días no alcanza: el agente cierra la tarea el mismo día y al día
+   * siguiente se crea otra igual. Medido el 30/8/26 sobre el watcher de
+   * retención: 284 avisos en 60 días, muchos con CERO días de diferencia
+   * (SKYGARDEN 52, MAERS 51). Con 7 días de espera se evitaba el 87%.
+   */
+  noRepetirDias?: number;
 }
 
 export interface CreateClientTaskResult {
@@ -51,10 +63,19 @@ export interface CreateClientTaskResult {
   message: string;
 }
 
+/** ¿La señal anterior es tan reciente que no vale la pena repetirla? */
+export function dentroDeLaEspera(ultima: Date | null | undefined, dias: number, ahora = new Date()): boolean {
+  if (!ultima || !Number.isFinite(dias) || dias <= 0) return false;
+  return ahora.getTime() - new Date(ultima).getTime() < dias * 86_400_000;
+}
+
 /**
  * Create a task (issue) tagged to a client, with dedup against open tasks of the
  * same title. Internal → active (todo). External → proposal (backlog +
  * origin_kind=agent_proposed) awaiting approval.
+ *
+ * Con `noRepetirDias` la deduplicación además mira las YA CERRADAS: un
+ * vigilante diario no puede volver a levantar la misma señal todos los días.
  */
 export async function createClientTask(db: Db, input: CreateClientTaskInput): Promise<CreateClientTaskResult> {
   const title = (input.title ?? "").trim().slice(0, 200);
@@ -81,6 +102,27 @@ export async function createClientTask(db: Db, input: CreateClientTaskInput): Pr
     return { created: false, duplicate: true, identifier: dup[0].identifier ?? null, taskType, message: "Ya existe una tarea abierta igual." };
   }
 
+  // Espera entre repeticiones: mira también las cerradas. Sin esto, un vigilante
+  // que corre a diario vuelve a levantar la misma señal apenas el agente cierra
+  // la anterior, y el tablero se llena de avisos del mismo cliente.
+  if (input.noRepetirDias && input.noRepetirDias > 0) {
+    const desde = new Date(Date.now() - input.noRepetirDias * 86_400_000);
+    const reciente = await db
+      .select({ identifier: issues.identifier, createdAt: issues.createdAt })
+      .from(issues)
+      .where(and(eq(issues.clientId, input.clientId), eq(issues.title, title), gte(issues.createdAt, desde)))
+      .limit(1);
+    if (reciente.length > 0 && dentroDeLaEspera(reciente[0].createdAt, input.noRepetirDias)) {
+      return {
+        created: false,
+        duplicate: true,
+        identifier: reciente[0].identifier ?? null,
+        taskType,
+        message: `Esta misma señal ya se levantó hace menos de ${input.noRepetirDias} días.`,
+      };
+    }
+  }
+
   const status = taskType === "external" ? "backlog" : "todo";
   const originKind = taskType === "external" ? "agent_proposed" : "agent_detected";
   const body = input.description
@@ -104,6 +146,40 @@ export async function createClientTask(db: Db, input: CreateClientTaskInput): Pr
     ...(assigneeAgentId ? { assigneeAgentId } : {}),
   } as never);
   const identifier = ((created as Record<string, unknown>).identifier ?? (created as Record<string, unknown>).id ?? null) as string | null;
+
+  // Derivación al responsable HUMANO (pedido 18/7): la planilla RESPONSABLES
+  // dice quién atiende diseño/copy de cada cliente. Se registra como
+  // intervención (listado del Centro de Inteligencia + brief) y las urgentes
+  // van directo por WhatsApp — así la tarea llega en tiempo real a la persona
+  // correcta sin pasar por el teléfono del ejecutivo.
+  try {
+    const { clients } = await import("@paperclipai/db");
+    const [cli] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, input.clientId)).limit(1);
+    const clientName = cli?.name ?? "";
+    if (clientName) {
+      const { resolverResponsable } = await import("./cotizado.js");
+      const resp = await resolverResponsable(clientName, `${title} ${input.description ?? ""}`);
+      if (resp) {
+        const { recordIntervention } = await import("./vigilantes.js");
+        const urgente = priority === "urgent" || priority === "high";
+        await recordIntervention(db, {
+          vigilante: "tareas", kind: "tarea", level: urgente ? 4 : 3,
+          clientId: input.clientId,
+          title: `${clientName}: derivar a ${resp.nombre} (${resp.area}) — ${title.slice(0, 120)}`,
+          body: `${input.description ?? title}\n\nResponsable según planilla: ${resp.nombre} (${resp.area}). Issue: ${identifier ?? "s/n"}.`,
+          dedupeKey: `tareas:${identifier ?? title.slice(0, 60)}`,
+        });
+        if (urgente) {
+          const { sendWhatsAppToNumber, alertsNumber } = await import("./agency-ops.js");
+          const team = process.env.LMTM_TEAM_WA_GROUP || alertsNumber();
+          if (team) {
+            await sendWhatsAppToNumber(team, `📋 *${clientName}* · tarea ${priority === "urgent" ? "URGENTE" : "importante"} para *${resp.nombre}* (${resp.area}):\n${title}\n\n_${identifier ?? ""} · LMTM-OS_`).catch(() => {});
+          }
+        }
+      }
+    }
+  } catch { /* la derivación es best-effort: la tarea ya quedó creada */ }
+
   return {
     created: true,
     duplicate: false,
@@ -123,7 +199,7 @@ interface DetectedTask {
 }
 
 /** Minimal LLM call (Anthropic → MiniMax fallback) returning raw text. */
-async function llmExtract(system: string, user: string): Promise<string | null> {
+export async function llmExtract(system: string, user: string): Promise<string | null> {
   const aKey = process.env.ANTHROPIC_API_KEY;
   if (aKey) {
     try {
@@ -195,35 +271,18 @@ const DETECT_SYSTEM =
   'Respondé ÚNICAMENTE con un array JSON, sin texto extra. Si no hay tareas claras, respondé [].';
 
 /**
- * Scan a client's group conversation and create issues for the action items
- * found (internal → active, external → proposal). Returns how many were filed.
+ * Scan a client's group conversation and return the action items found —
+ * DETECTION ONLY. Pedido 2026-07-27: los pendientes de los grupos de WhatsApp
+ * NO se convierten más en tareas ejecutables (los agentes actuaban solos sobre
+ * pedidos del cliente sin OK del equipo); quedan anotados en el resumen del
+ * grupo y un humano decide qué se hace.
  */
-export async function detectClientTasksFromMessages(
-  db: Db,
-  args: { clientId: string; source: string; messages: Array<{ senderName: string | null; body: string }>; fallbackCompanyId?: string; createdByAgentId?: string | null },
-): Promise<{ detected: number; created: number; proposed: number }> {
-  if (args.messages.length === 0) return { detected: 0, created: 0, proposed: 0 };
-  const transcript = args.messages.map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`).join("\n").slice(0, 8000);
+export async function detectPendingItems(
+  messages: Array<{ senderName: string | null; body: string }>,
+): Promise<DetectedTask[]> {
+  if (messages.length === 0) return [];
+  const transcript = messages.map((m) => `${m.senderName ?? "Desconocido"}: ${m.body}`).join("\n").slice(0, 8000);
   const raw = await llmExtract(DETECT_SYSTEM, `Conversación:\n${transcript}`);
-  if (!raw) return { detected: 0, created: 0, proposed: 0 };
-  const tasks = parseTasks(raw);
-  let created = 0;
-  let proposed = 0;
-  for (const t of tasks) {
-    const r = await createClientTask(db, {
-      clientId: args.clientId,
-      title: t.title,
-      description: t.description,
-      taskType: t.type,
-      priority: t.priority,
-      source: args.source,
-      fallbackCompanyId: args.fallbackCompanyId,
-      createdByAgentId: args.createdByAgentId,
-    });
-    if (r.created) {
-      if (r.taskType === "external") proposed++;
-      else created++;
-    }
-  }
-  return { detected: tasks.length, created, proposed };
+  if (!raw) return [];
+  return parseTasks(raw);
 }

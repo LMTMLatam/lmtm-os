@@ -7,12 +7,14 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { competitors, contentIdeas, clients, videoReferences, contentPerformance } from "@paperclipai/db";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { competitors, contentIdeas, clients, clientMemory, videoReferences, contentPerformance } from "@paperclipai/db";
+import { and, desc, eq, gte, lte, ne } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
 import { getRedesCalendar } from "./clickup-sync.js";
 import { getBrainContext, upsertMemory, hasMemory } from "./customer-brain.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
+import { NON_LATIN_RE } from "./entrega-checks.js";
+import { bloqueDeAngulos } from "./angulos-creativos.js";
 
 /** Formatted block of the client's curated video references (from the team's
  * reference sheet) so idea generation can riff on formats the team likes.
@@ -91,6 +93,40 @@ function parseIdeas(raw: string): GeneratedIdea[] {
 // Rosario real-estate firm). Two layers: a hard prompt rule, and the client's
 // operating location (clients.metadata.location) anchored on the Cliente line
 // where it's most salient.
+// Anti-loop (review 27/7: "Altecno está en loop de la misma idea"): las ideas
+// recientes del cliente se inyectan al prompt y queda PROHIBIDO repetir tema.
+async function ideasRecientesBlock(db: Db, clientId: string): Promise<string> {
+  const rows = await db
+    .select({ title: contentIdeas.title, format: contentIdeas.format })
+    .from(contentIdeas)
+    .where(and(eq(contentIdeas.clientId, clientId), gte(contentIdeas.createdAt, new Date(Date.now() - 45 * 86_400_000))))
+    .orderBy(desc(contentIdeas.createdAt))
+    .limit(25);
+  if (rows.length === 0) return "";
+  // Anti-MOLDE entre clientes (30/7): el equipo trabaja varias cuentas y veía
+  // la misma fórmula en todas ("Detrás de escena / proceso — X" ×24, "Lo que
+  // nadie te cuenta de…"). El historial del propio cliente no alcanza.
+  const moldes = await db
+    .select({ title: contentIdeas.title })
+    .from(contentIdeas)
+    .where(and(
+      gte(contentIdeas.createdAt, new Date(Date.now() - 21 * 86_400_000)),
+      ne(contentIdeas.clientId, clientId),
+    ))
+    .orderBy(desc(contentIdeas.createdAt))
+    .limit(60);
+  const aperturas = [...new Set(moldes.map((m) => m.title.toLowerCase().split(/\s+/).slice(0, 4).join(" ")))].slice(0, 20);
+
+  return (
+    "\nIDEAS YA GENERADAS para este cliente (últimos 45 días) — PROHIBIDO repetir el tema, el ángulo o el gancho de cualquiera de estas; además VARIÁ el formato (si la mayoría son carrusel, proponé reel/estático/story):\n" +
+    rows.map((r) => `- [${r.format ?? "?"}] ${r.title}`).join("\n") +
+    (aperturas.length
+      ? "\n\nFÓRMULAS YA USADAS EN OTROS CLIENTES DE LA AGENCIA — PROHIBIDO abrir la idea con estos moldes (el equipo ve todas las cuentas y le resulta repetitivo). Buscá un ángulo propio de ESTE cliente:\n" +
+        aperturas.map((a) => `- "${a}…"`).join("\n")
+      : "")
+  );
+}
+
 const GROUNDING_RULE =
   "REGLA DURA: NUNCA inventes ubicaciones (ciudades, barrios, zonas), precios, nombres de proyectos ni datos del cliente. " +
   "Usá SOLO lugares y datos que aparezcan explícitamente en el contexto del cliente. " +
@@ -99,6 +135,43 @@ const GROUNDING_RULE =
 function clientLine(client: { name: string; industry: string | null; metadata: unknown }): string {
   const location = ((client.metadata as Record<string, unknown> | null)?.location as string | undefined)?.trim();
   return `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}${location ? ` — opera en: ${location} (cualquier referencia geográfica debe ser de acá)` : ""}`;
+}
+
+// Pedido 24/7: la idea sale CERRADA — el diseñador la produce sin preguntar
+// nada. Contrato compartido por la idea diaria y el plan de contenido.
+const IDEA_CERRADA_SPEC = [
+  'El campo "copy" lleva la idea COMPLETA Y CERRADA (bloques separados con \\n), lista para mandar a un diseñador sin que tenga que preguntar nada:',
+  "IDEA: qué es y por qué encaja con ESTE cliente (2-3 líneas).",
+  "COPY DEL POSTEO: el caption completo listo para publicar, en la voz del cliente (con hashtags si corresponden).",
+  'Si format=carrusel: bloque SLIDES de 5 a 8 placas, cada una así → "SLIDE N — Texto: [el texto EXACTO de la placa] / Visual: [qué se ve: foto del cliente, ilustración, dato grande, ícono...]". El slide 1 es la portada-gancho, el último es el CTA.',
+  'Si format=reel|video|clip corto: HOOK (las primeras 2 líneas textuales) + ESCENAS numeradas (qué se ve + VO o texto en pantalla) + duración objetivo.',
+  'Si format=imagen|post|story: PLACA con el texto exacto sobre la imagen + Visual con la descripción precisa de la imagen.',
+  "DISEÑO: indicaciones concretas para el diseñador (estilo, recursos reales del cliente a usar, referencia si hay).",
+  "CTA: el llamado a la acción final.",
+  "ANGULO: el id del angulo elegido, tal cual figura en la lista (ej: ANGULO: mito).",
+  "Una idea a la que el diseñador tenga que adivinarle algo NO está terminada.",
+].join("\n");
+
+/**
+ * Los ángulos que este cliente ya usó en sus últimas ideas.
+ *
+ * Se leen del texto guardado, no de una columna: las ideas viejas no tienen el
+ * campo y agregar una migración para rotar ángulos es de más. Si no encuentra
+ * ninguno devuelve vacío y la lista sale en su orden natural.
+ */
+async function angulosRecientes(db: Db, clientId: string): Promise<string[]> {
+  const filas = await db
+    .select({ copy: contentIdeas.copy })
+    .from(contentIdeas)
+    .where(eq(contentIdeas.clientId, clientId))
+    .orderBy(desc(contentIdeas.createdAt))
+    .limit(12);
+  const vistos: string[] = [];
+  for (const f of filas) {
+    const m = (f.copy ?? "").match(/ANGULO\s*:\s*([a-z-]+)/i);
+    if (m && !vistos.includes(m[1].toLowerCase())) vistos.push(m[1].toLowerCase());
+  }
+  return vistos.slice(0, 6);
 }
 
 export async function generateContentPlan(db: Db, clientId: string): Promise<{ batchId: string; created: number; ideas: GeneratedIdea[] }> {
@@ -124,10 +197,18 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     '- "posteo": contenido orgánico para redes — idea de post/reel, copy y formato.',
     "Tené en cuenta el Enfoque Técnico del cliente, su memoria, y qué hace la competencia (diferenciate, no copies).",
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
+    "TODO el texto va en ESPAÑOL. Está PROHIBIDO dejar palabras en inglés sueltas — el equipo lee esto tal cual y lo tiene que corregir a mano. Nada de 'strangers', 'pillows menu', 'linking', 'tactile', 'fiber'. Se dicen: desconocidos, menú de almohadas, se conecta, táctil, fibra. Revisá el texto antes de responder.",
     GROUNDING_RULE,
     "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
-    'Respondé SOLO con un array JSON: [{"kind":"pauta"|"posteo","format":"reel|carrusel|imagen|video|story|texto","title":"...","copy":"...","rationale":"por qué / en qué se diferencia de la competencia"}]',
-    "Generá 5 ideas de pauta y 5 de posteo (10 en total).",
+    'Respondé SOLO con un array JSON: [{"kind":"pauta"|"posteo","format":"<UNA de: Post|Photo Post|Story|Carrusel|Tips y Trucos|Guia|Clip corto|Reel|Video Largo|Vivo|Articulo|Blog>","title":"...","copy":"...","rationale":"por qué / en qué se diferencia de la competencia"}]',
+    IDEA_CERRADA_SPEC,
+    // Los 18 ángulos de Aguara. Sin esto el agente escribía siempre la misma
+    // forma: listas de errores y de tips. Mirando las 90 ideas de GRUPO MA se ve
+    // — "5 errores que…", "3 señales de…", "lo que nadie te cuenta". El ángulo
+    // es desde dónde se cuenta, y cambia la pieza entera (18/8).
+    bloqueDeAngulos(client.industry ?? null, await angulosRecientes(db, clientId).catch(() => [])),
+    "Cada una de las 6 ideas usa un ÁNGULO DISTINTO de la lista. Repetir ángulo es repetir la idea con otras palabras.",
+    "Generá 3 ideas de pauta y 3 de posteo (6 en total) — profundidad antes que cantidad.",
   ].join("\n");
 
   const user = [
@@ -135,6 +216,7 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     brain ? `\nContexto del cliente (Enfoque Técnico + memoria):\n${brain}` : "",
     `\nCompetencia:\n${compBlock}`,
     await videoRefsBlock(db, clientId),
+    await ideasRecientesBlock(db, clientId).catch(() => ""),
   ].join("\n");
 
   let ideas: GeneratedIdea[] = [];
@@ -184,6 +266,11 @@ function buildFieldResolver(fields: CuField[]) {
   for (const f of fields) byName.set(norm(f.name), f);
   return {
     fieldId(name: string): string | undefined { return byName.get(norm(name))?.id; },
+    /** ClickUp distingue `drop_down` (value = id suelto) de `labels`
+     *  (value = ARRAY de ids). Mandar un string a un campo labels no falla:
+     *  simplemente deja el campo VACÍO — así se perdía "Tipo de Contenido" en
+     *  cada idea (14/8). */
+    fieldType(name: string): string | undefined { return byName.get(norm(name))?.type; },
     optionId(fieldName: string, optionLabel: string): string | undefined {
       const f = byName.get(norm(fieldName));
       const opt = (f?.type_config?.options ?? []).find((o) => norm(o.name ?? o.label ?? "") === norm(optionLabel));
@@ -210,8 +297,9 @@ async function resolveSuperRedes(db: Db, clientId: string, H: Record<string, str
   if (!list) {
     // TODAS las ideas deben aparecer en Super Redes (pedido explícito del
     // usuario): si el folder no tiene la lista, la creamos en vez de dropear
-    // las ideas en silencio. Los custom fields no se pueden crear por API —
-    // las tareas salen con nombre+tags y el equipo agrega campos si quiere.
+    // las ideas en silencio. Los campos custom heredan del espacio "Clientes"
+    // (creables vía POST /v2/space/{id}/field — p.ej. Puntuación/Devolución,
+    // 2026-07-12); las tareas salen con nombre+tags y los campos del espacio.
     try {
       const created = (await (await fetch(`${CU_API}/folder/${folderId}/list`, {
         method: "POST", headers: H, body: JSON.stringify({ name: "Super Redes Sociales" }),
@@ -227,6 +315,32 @@ async function resolveSuperRedes(db: Db, clientId: string, H: Record<string, str
   };
   const have = new Set((existing.tasks ?? []).map((t) => norm(t.name)));
   return { listId: list.id, resolver, have };
+}
+
+/**
+ * Lleva el `format` que devolvió el modelo a UNA de las 12 opciones reales del
+ * dropdown "Tipo de Contenido" de ClickUp. Se pide en el prompt que elija de la
+ * lista, pero los modelos igual devuelven "video", "imagen" o "texto": si no se
+ * normaliza, `optionId` no encuentra la opción y el campo queda vacío otra vez.
+ */
+export function normalizarTipoContenido(format: string | undefined): string | null {
+  const f = (format ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  if (!f) return null;
+  if (/vivo|live/.test(f)) return "Vivo";
+  if (/video largo|largo/.test(f)) return "Video Largo";
+  if (/reel/.test(f)) return "Reel";
+  if (/clip|short/.test(f)) return "Clip corto";
+  if (/story|historia/.test(f)) return "Story";
+  if (/carrusel|carousel/.test(f)) return "Carrusel";
+  if (/tips|trucos/.test(f)) return "Tips y Trucos";
+  if (/guia/.test(f)) return "Guia";
+  if (/articulo|nota/.test(f)) return "Articulo";
+  if (/blog/.test(f)) return "Blog";
+  if (/photo post|foto/.test(f)) return "Photo Post";
+  if (/post|imagen|placa|feed|texto/.test(f)) return "Post";
+  // "video" a secas: un video sin más datos es un reel para redes.
+  if (/video/.test(f)) return "Reel";
+  return null;
 }
 
 /** Build the custom_fields payload per the LMTM "Super Redes Sociales"
@@ -252,6 +366,20 @@ function buildIdeaCustomFields(
   const aprId = resolver.fieldId("Aprobación de cliente");
   push(aprId, resolver.optionId("Aprobación de cliente", "PENDIENTE"));
 
+  // Tipo de Contenido (14/8): antes la idea salía con este campo VACÍO y el
+  // equipo lo completaba a mano. Ahora lo decide el agente al generarla, y de
+  // ese campo depende qué se genera después con la etiqueta "generar contenido"
+  // (Reel → 3 clips, Clip corto → 1 clip, Carrusel → N placas, Post → placa).
+  const tipo = normalizarTipoContenido(idea.format);
+  if (tipo) {
+    const tcId = resolver.fieldId("Tipo de Contenido");
+    const optId = resolver.optionId("Tipo de Contenido", tipo);
+    // "Tipo de Contenido" es `labels`: el value va como array o el campo queda
+    // vacío sin error (verificado contra ClickUp 14/8).
+    const esLabels = resolver.fieldType("Tipo de Contenido") === "labels";
+    push(tcId, optId != null ? (esLabels ? [optId] : optId) : undefined);
+  }
+
   return out;
 }
 
@@ -273,6 +401,83 @@ function looksBoilerplate(idea: GeneratedIdea): boolean {
   return false;
 }
 
+/**
+ * Palabras en inglés que MiniMax deja sueltas en el texto ESPAÑOL de la idea.
+ * Verificado en producción (15/8): "eluteando con strangers", "el pillows menu",
+ * "se linking con su conocimiento", "el detalle tactile". El equipo abre la
+ * tarjeta y lee eso: queda mal y hay que reescribirlo a mano.
+ *
+ * Solo se listan palabras que NO son parte del castellano de agencia — "reel",
+ * "story", "post", "carrusel", "marketing", "brief" y demás se usan a diario y
+ * no se tocan.
+ */
+const INGLES_SUELTO = /\b(strangers?|pillows?|linking|tactile|fiber|amazing|awesome|customers?|feelings?|insights?|thinking|building|shopping|winning|sharing|nowadays|actually|however|therefore|indeed)\b/i;
+
+/** Devuelve las palabras en inglés encontradas en el texto de la idea. */
+export function inglesEnIdea(idea: GeneratedIdea): string[] {
+  const texto = `${idea.title} ${idea.copy ?? ""} ${idea.rationale ?? ""}`;
+  const hits = new Set<string>();
+  for (const m of texto.matchAll(new RegExp(INGLES_SUELTO, "gi"))) hits.add(m[0].toLowerCase());
+  return [...hits];
+}
+
+/**
+ * Descarta las ideas que no son del negocio del cliente.
+ *
+ * MiniMax alucina a partir del NOMBRE cuando se parece a otra cosa: a BRACHETTA
+ * (baterías de auto) le escribió "El experto en bruschettas que no sabías que
+ * necesitabas", con copy de tomate y albahaca (17/8). El brain tenía el dato
+ * correcto — "empresa rosarina especializada en baterías" — así que no es falta
+ * de contexto: es que nadie revisaba la idea contra el negocio antes de subirla.
+ *
+ * Una sola llamada por cliente valida todo el lote. Ante la duda se deja pasar:
+ * perder una idea buena es peor que dejar una rara que el equipo descarta.
+ */
+async function ideasFueraDeRubro(
+  db: Db,
+  clientId: string,
+  clienteNombre: string,
+  ideas: GeneratedIdea[],
+): Promise<Set<number>> {
+  const fuera = new Set<number>();
+  if (ideas.length === 0) return fuera;
+
+  const [c] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
+  const [negocio] = await db.select({ content: clientMemory.content })
+    .from(clientMemory)
+    .where(and(eq(clientMemory.clientId, clientId), eq(clientMemory.key, "enfoque-tecnico")))
+    .limit(1);
+  const contexto = (negocio?.content ?? "").slice(0, 1200);
+  // Sin descripción del negocio no hay con qué comparar: no se filtra nada.
+  if (contexto.length < 80) return fuera;
+
+  const sistema = [
+    "Te dan la descripción de un negocio y una lista numerada de ideas de contenido.",
+    "Devolvé SOLO un JSON array con los NÚMEROS de las ideas que NO tienen nada que ver con ese negocio.",
+    "Una idea está BIEN si habla del rubro, sus clientes, sus productos, su equipo o efemérides generales.",
+    "Marcala como MALA solo si habla de otro rubro por completo (ej: recetas de cocina para una empresa de baterías).",
+    "Ante la duda, NO la marques. Si están todas bien devolvé [].",
+  ].join(" ");
+  const lista = ideas.map((x, i) => `${i + 1}. ${x.title}`).join("\n");
+  const salida = await aiNarrative(
+    sistema,
+    `Negocio: ${clienteNombre}${c?.industry ? ` (rubro ${c.industry})` : ""}\n${contexto}\n\nIdeas:\n${lista}`,
+  );
+  if (!salida) return fuera;
+  try {
+    const limpio = salida.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const nums = JSON.parse(limpio.slice(limpio.indexOf("["), limpio.lastIndexOf("]") + 1)) as unknown[];
+    // Si dice que TODAS están mal, casi seguro se confundió el modelo, no el
+    // agente de ideas: se ignora antes que borrar el lote entero.
+    if (!Array.isArray(nums) || nums.length >= ideas.length) return fuera;
+    for (const n of nums) {
+      const i = Number(n) - 1;
+      if (Number.isInteger(i) && i >= 0 && i < ideas.length) fuera.add(i);
+    }
+  } catch { /* respuesta ilegible: no se filtra */ }
+  return fuera;
+}
+
 async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedIdea[]): Promise<void> {
   const token = process.env.CLICKUP_API_TOKEN?.trim();
   if (!token || ideas.length === 0) return;
@@ -280,12 +485,38 @@ async function pushIdeasToSuperRedes(db: Db, clientId: string, ideas: GeneratedI
   const ctx = await resolveSuperRedes(db, clientId, H);
   if (!ctx) return;
 
-  for (const idea of ideas) {
+  const [cli] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId));
+  const fueraDeRubro = await ideasFueraDeRubro(db, clientId, cli?.name ?? "", ideas).catch(() => new Set<number>());
+
+  for (const [indice, idea] of ideas.entries()) {
+    if (fueraDeRubro.has(indice)) {
+      console.warn(`[ideas] descartada por no ser del rubro de ${cli?.name ?? clientId}: "${idea.title.slice(0, 60)}"`);
+      continue;
+    }
     if (looksBoilerplate(idea)) continue; // QA gate — don't mirror generic ideas
-    const name = idea.title.trim().slice(0, 250);
-    if (!name || ctx.have.has(norm(name))) continue; // never duplicate an existing idea
+    // Spanglish: se avisa en el log y la idea igual pasa (tiene valor aunque
+    // haya que corregir una palabra); bloquearla sería peor que dejarla.
+    const ingles = inglesEnIdea(idea);
+    if (ingles.length > 0) {
+      console.warn(`[ideas] "${idea.title.slice(0, 50)}" trae inglés suelto: ${ingles.join(", ")}`);
+    }
+    // El TÍTULO también se sanea. Se saneaba solo la descripción, y así quedó
+    // en ClickUp "El test de voltaje que revelará si tu batería está的命运"
+    // (17/8): MiniMax filtra chino y el título es justo lo que ve el equipo.
+    const name = idea.title.replace(new RegExp(NON_LATIN_RE.source, "g"), "").replace(/\s+/g, " ").trim().slice(0, 250);
+    if (name.length < 12 || ctx.have.has(norm(name))) continue; // never duplicate an existing idea
     const customFields = buildIdeaCustomFields(ctx.resolver, idea);
+    // La idea CERRADA viaja completa en la descripción (antes solo iba el
+    // título y el equipo veía un titular pelado — bug visto 24/7).
+    // Saneo determinista (26/7): sin caracteres no latinos ni links muertos —
+    // acá no hay agente al que devolverle el error, se limpia directo.
+    const { sanearTextoPipeline } = await import("./entrega-checks.js");
+    const description = await sanearTextoPipeline([
+      idea.copy?.trim() ?? "",
+      idea.rationale ? `\n---\nPor qué / diferencial: ${idea.rationale.trim()}` : "",
+    ].join("\n").trim());
     const body: Record<string, unknown> = { name, tags: ["idea-lmtm-os"] };
+    if (description) body.description = description;
     if (customFields.length) body.custom_fields = customFields;
     try {
       const res = await fetch(`${CU_API}/list/${ctx.listId}/task`, {
@@ -368,9 +599,11 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     "Tené en cuenta el Enfoque Técnico del cliente, su memoria, su rubro/tono y qué hace la competencia (diferenciate, no copies).",
     "Clasificá el objetivo en COMERCIAL (vender/convertir), ENGAGMENT (interacción/comunidad) o CONCEPTO (marca/valores/educativo).",
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
+    "TODO el texto va en ESPAÑOL. Está PROHIBIDO dejar palabras en inglés sueltas — el equipo lee esto tal cual y lo tiene que corregir a mano. Nada de 'strangers', 'pillows menu', 'linking', 'tactile', 'fiber'. Se dicen: desconocidos, menú de almohadas, se conecta, táctil, fibra. Revisá el texto antes de responder.",
     GROUNDING_RULE,
     "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
-    'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"reel|carrusel|post|story|clip corto|video","title":"la idea en una línea","copy":"desarrollo en 2-3 líneas: qué es, por qué encaja con la marca y cómo ejecutarla","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',
+    'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"<UNA de: Post|Photo Post|Story|Carrusel|Tips y Trucos|Guia|Clip corto|Reel|Video Largo|Vivo|Articulo|Blog>","title":"la idea en una línea","copy":"la idea CERRADA según el spec de abajo","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',
+    IDEA_CERRADA_SPEC,
   ].join("\n");
   const vids = await videoRefsBlock(db, clientId);
   const user = [
@@ -378,19 +611,39 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     brain ? `\nContexto del cliente (Enfoque Técnico + memoria):\n${brain}` : "",
     `\nCompetencia:\n${compBlock}`,
     vids,
+    await ideasRecientesBlock(db, clientId).catch(() => ""),
   ].join("\n");
 
   let idea: GeneratedIdea | null = null;
   const aiRaw = await aiNarrative(system, user).catch(() => null);
   if (aiRaw) idea = parseIdeas(aiRaw)[0] ?? null;
+  // Gate binario "idea cerrada" (curso reliable-agents 26/7): si el juez dice
+  // que la idea NO está lista para un diseñador, se regenera UNA vez con el
+  // motivo inyectado; el segundo intento queda (el equipo revisa igual).
+  if (idea?.copy) {
+    try {
+      const { gateBinario } = await import("./entrega-checks.js");
+      const v = await gateBinario({
+        criterio: "¿La idea está CERRADA para mandar a un diseñador sin adivinar nada? (copy completo y específico del cliente; si es carrusel, cada slide con su texto exacto; visual definido; CTA). Genérica o incompleta = false.",
+        contenido: `${idea.title}\n${idea.copy}`,
+      });
+      if (!v.ok && v.motivo) {
+        const retryRaw = await aiNarrative(
+          system + `\nOJO: tu intento anterior falló la verificación de calidad por esto: "${v.motivo}". Corregilo.`,
+          user,
+        ).catch(() => null);
+        const retry = retryRaw ? parseIdeas(retryRaw)[0] ?? null : null;
+        if (retry?.copy) idea = retry;
+      }
+    } catch { /* gate best-effort */ }
+  }
+  // Sin idea de la IA NO inventamos una genérica (30/7): el fallback fijo
+  // "Detrás de escena / proceso — X" se publicó 24 veces en 30 días y es la
+  // cara visible de "las ideas son repetitivas". Mejor ninguna que una de
+  // relleno — mañana vuelve a intentar.
   if (!idea) {
-    idea = {
-      kind: "posteo", format: "reel",
-      title: `Detrás de escena / proceso — ${client.name}`,
-      copy: "Reel mostrando el día a día o el proceso del cliente, con un hook fuerte en los primeros 3s. Completar con el ángulo real del cliente.",
-      objetivo: "ENGAGMENT",
-      rationale: "Orgánico de cercanía; suele tener buen alcance en el rubro.",
-    };
+    console.warn(`[content-ideas] sin idea de IA para ${client.name} — se omite (no se genera relleno)`);
+    return { created: false };
   }
   if (!idea.objetivo) idea.objetivo = "ENGAGMENT";
 
@@ -446,7 +699,25 @@ function dropdownLabel(f: SrCustomField | undefined): string | null {
   return (opt?.name ?? opt?.label ?? "").trim() || null;
 }
 
-type SrTask = { name: string; ours: boolean; aprobacion: string | null; estado: string | null; objetivo: string | null };
+type SrTask = {
+  id?: string;
+  name: string; ours: boolean; aprobacion: string | null; estado: string | null; objetivo: string | null;
+  /** "Puntuación" (1-5) que el equipo le puso a la idea — señal fina de calidad. */
+  score: number | null;
+  /** "Devolución" escrita del equipo — la señal de aprendizaje más fuerte. */
+  devolucion: string | null;
+};
+
+/** Numeric value of the "Puntuación" field regardless of how the team built it
+ *  (rating/emoji → number, number → number, dropdown → parse the option label). */
+function scoreOf(f: SrCustomField | undefined): number | null {
+  if (!f || f.value == null) return null;
+  if (typeof f.value === "number" && Number.isFinite(f.value)) return f.value;
+  if (typeof f.value === "string" && /^\d+([.,]\d+)?$/.test(f.value.trim())) return parseFloat(f.value.replace(",", "."));
+  const label = dropdownLabel(f);
+  const n = label ? parseInt(label, 10) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
 
 async function readSuperRedesTasks(db: Db, clientId: string): Promise<SrTask[] | null> {
   const token = process.env.CLICKUP_API_TOKEN?.trim();
@@ -460,21 +731,48 @@ async function readSuperRedesTasks(db: Db, clientId: string): Promise<SrTask[] |
   const list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
   if (!list) return null;
   const r = (await (await fetch(`${CU_API}/list/${list.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
-    tasks?: Array<{ name?: string; tags?: Array<{ name?: string }>; custom_fields?: SrCustomField[] }>;
+    tasks?: Array<{ id?: string; name?: string; tags?: Array<{ name?: string }>; custom_fields?: SrCustomField[] }>;
   };
-  return (r.tasks ?? [])
+  const mapped = (r.tasks ?? [])
     .map((t) => {
       const cfs = t.custom_fields ?? [];
       const byName = (n: string) => cfs.find((c) => norm(c.name ?? "") === norm(n));
+      const txt = (f: SrCustomField | undefined) =>
+        typeof f?.value === "string" && f.value.trim() ? f.value.trim().slice(0, 400) : null;
+      // El equipo escribe la devolución en cualquiera de los dos campos
+      // (30/7: "Comentario de cliente" se estaba perdiendo).
+      const devolucion = txt(byName("Devolución") ?? byName("Devolucion")) ?? txt(byName("Comentario de cliente"));
       return {
+        id: t.id ?? "",
         name: (t.name ?? "").trim(),
         ours: (t.tags ?? []).some((tg) => norm(tg.name ?? "") === OUR_TAG),
         aprobacion: dropdownLabel(byName("Aprobación de cliente")),
         estado: dropdownLabel(byName("Estado de producción")),
         objetivo: dropdownLabel(byName("Objetivo de contenido")),
+        score: scoreOf(byName("Puntuación") ?? byName("Puntuacion")),
+        devolucion,
       };
     })
     .filter((t) => t.name);
+
+  // Las devoluciones también llegan como COMENTARIOS de ClickUp (30/7: el
+  // equipo comenta la tarea en vez de llenar el campo). Se leen solo para las
+  // ideas del agente sin devolución cargada — 1 request por tarea, acotado.
+  const sinDev = mapped.filter((t) => t.ours && !t.devolucion && t.id).slice(0, 12);
+  for (const t of sinDev) {
+    try {
+      const cr = (await (await fetch(`${CU_API}/task/${t.id}/comment`, { headers: H })).json()) as {
+        comments?: Array<{ comment_text?: string; user?: { username?: string } }>;
+      };
+      const texto = (cr.comments ?? [])
+        .map((c) => (c.comment_text ?? "").trim())
+        .filter((c) => c.length > 15)
+        .join(" · ");
+      if (texto) t.devolucion = texto.slice(0, 400);
+    } catch { /* best-effort por tarea */ }
+    await new Promise((res) => setTimeout(res, 120));
+  }
+  return mapped;
 }
 
 const isApproved = (t: SrTask) => /aprobad/i.test(t.aprobacion ?? "");
@@ -515,20 +813,35 @@ export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{
   const ourRate = Math.round(((approved.length + taken.length) / ours.length) * 100);
   const teamRate = team.length ? Math.round((teamTaken.length / team.length) * 100) : 0;
 
+  // Puntuación (1-5) + Devolución escrita: la señal fina que el equipo carga
+  // por idea. Una devolución dice POR QUÉ algo funciona o no — pesa más que el
+  // destino binario aprobado/borrado.
+  const scored = ours.filter((t) => t.score != null);
+  const avgScore = scored.length ? scored.reduce((a, t) => a + (t.score as number), 0) / scored.length : null;
+  const withDevolucion = ours.filter((t) => t.devolucion);
+
   // Distill only when there's real signal — otherwise just store the tallies.
   let bullets = "";
-  if (approved.length + taken.length + discarded.length > 0) {
+  if (approved.length + taken.length + discarded.length + scored.length + withDevolucion.length > 0) {
     const system = [
       "Sos el editor de contenido de LMTM. Analizás qué pasó con ideas de posteo generadas por agentes IA en el ClickUp de un cliente, para que la próxima tanda sea mejor.",
       "Compará: (a) ideas del agente que el equipo aprobó o tomó en producción, (b) ideas del agente descartadas (borradas) o ignoradas, (c) posteos propios del equipo — el estándar a igualar o superar.",
+      "SEÑAL PRIORITARIA: las Puntuaciones (1-5) y Devoluciones escritas del equipo dicen POR QUÉ una idea funciona o no — pesalas por encima del destino binario. Citá las devoluciones al derivar patrones.",
       "Devolvé máximo 6 bullets accionables en español rioplatense: patrones de tema/ángulo/objetivo/formato que SÍ adopta el equipo, y qué evitar. Concreto, sin relleno — esto se inyecta como memoria para la próxima generación de ideas.",
     ].join("\n");
     const fmt = (ts: SrTask[]) => ts.slice(0, 25).map((t) => `- ${t.name}${t.objetivo ? ` [${t.objetivo}]` : ""}`).join("\n");
+    const fmtScored = (ts: SrTask[]) => ts.slice(0, 20)
+      .map((t) => `- ${t.name} → ${t.score != null ? `${t.score}/5` : "sin puntuar"}${t.devolucion ? ` — "${t.devolucion}"` : ""}`)
+      .join("\n");
+    const feedbackTasks = ours.filter((t) => t.score != null || t.devolucion);
     const user = [
+      feedbackTasks.length
+        ? `Puntuaciones y devoluciones del equipo (SEÑAL MÁS FUERTE, ${feedbackTasks.length}):\n${fmtScored(feedbackTasks)}\n`
+        : "",
       `Aprobadas/tomadas del agente (${approved.length + taken.length}):\n${fmt([...approved, ...taken]) || "(ninguna)"}`,
       `\nDescartadas o ignoradas del agente (${discarded.length + pending}):\n${[...discarded.slice(0, 15).map((n) => `- ${n} (borrada)`), ...fmt(ours.filter((t) => !isTaken(t)) as SrTask[]).split("\n").filter(Boolean).slice(0, 10)].join("\n") || "(ninguna)"}`,
       `\nPosteos del equipo tomados/aprobados (referencia de calidad, ${teamTaken.length}):\n${fmt(teamTaken) || "(sin posteos del equipo)"}`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
     bullets = (await aiNarrative(system, user).catch(() => null))?.trim() ?? "";
   }
 
@@ -584,11 +897,18 @@ export async function runSuperRedesFeedback(db: Db, clientId: string): Promise<{
     }
   } catch { /* resultados es best-effort */ }
 
+  // Devoluciones textuales del equipo: van verbatim a la memoria — es la voz
+  // directa de "qué queremos", más valiosa que cualquier destilado.
+  const devolucionLines = withDevolucion.slice(0, 6)
+    .map((t) => `  · "${t.name}"${t.score != null ? ` (${t.score}/5)` : ""}: ${t.devolucion}`);
+
   const today = new Date().toISOString().slice(0, 10);
   const content = [
     `Feedback Super Redes (auto, ${today}) — destino de las ideas del agente en la lista "Super Redes Sociales":`,
     `- Ideas del agente: ${ours.length} en la lista → ${approved.length} aprobadas, ${taken.length} tomadas (revisión/producción), ${pending} pendientes. Descartadas por el equipo (borradas/renombradas): ${discarded.length}.`,
     `- Tasa de adopción: agente ${ourRate}% vs equipo ${teamRate}%. Meta: igualar o superar al equipo de forma sostenida — ahí el pipeline pasa a 100% automático.`,
+    avgScore != null ? `- Puntuación del equipo: promedio ${avgScore.toFixed(1)}/5 sobre ${scored.length} idea${scored.length === 1 ? "" : "s"} puntuada${scored.length === 1 ? "" : "s"}.` : "",
+    devolucionLines.length ? `- Devoluciones del equipo (aplicar a rajatabla en la próxima tanda):\n${devolucionLines.join("\n")}` : "",
     resultados,
     bullets ? `\n${bullets}` : "",
   ].filter(Boolean).join("\n");
@@ -629,7 +949,7 @@ export async function sweepSuperRedesFeedback(db: Db, opts: { digest?: boolean }
         "",
         ...pendientes.slice(0, 15).map((p) => `• *${p.name}*: ${p.pending} pendiente${p.pending === 1 ? "" : "s"}`),
         "",
-        "_Aprobar (Aprobación de cliente → APROBADO) o borrar las malas. De eso aprende el agente: lo aprobado se repite, lo borrado no vuelve._",
+        "_Aprobar (Aprobación de cliente → APROBADO) o borrar las malas. Mejor todavía: puntuá 1-5 (campo Puntuación) y dejá una Devolución escrita — el agente aprende directo de esas palabras: lo bien puntuado se repite, lo criticado se corrige._",
       ];
       await sendWhatsAppToNumber(team, lines.join("\n")).catch(() => {});
     }

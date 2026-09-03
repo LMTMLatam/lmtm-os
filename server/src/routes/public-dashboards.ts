@@ -8,9 +8,10 @@
 // IMPORTANT: only data tied to the resolved client_id is exposed.
 // There is no company-wide or admin-only info in the response.
 
+import { microCache } from "../services/micro-cache.js";
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsCampaigns, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards } from "@paperclipai/db";
+import { adsAccountMappings, adsCampaigns, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards } from "@paperclipai/db";
 import { and, eq, gte, lte, or, sql } from "drizzle-orm";
 
 export function publicDashboardRoutes(db: Db): Router {
@@ -26,7 +27,7 @@ export function publicDashboardRoutes(db: Db): Router {
       .where(eq(publicDashboards.slug, slug));
     if (!row || !row.enabled) return null;
     const [client] = await db
-      .select({ id: clients.id, slug: clients.slug, name: clients.name, currency: clients.currency })
+      .select({ id: clients.id, slug: clients.slug, name: clients.name, currency: clients.currency, industry: clients.industry, metadata: clients.metadata })
       .from(clients)
       .where(eq(clients.id, row.clientId));
     if (!client) return null;
@@ -45,6 +46,11 @@ export function publicDashboardRoutes(db: Db): Router {
   function defaultUntil(): string {
     return new Date().toISOString().slice(0, 10);
   }
+  // Filtro de plataforma (28/7): ?platform=meta|google separa; sin param unifica.
+  function platformOf(req: Request): "meta" | "google" | null {
+    const p = String(req.query.platform ?? "");
+    return p === "meta" || p === "google" ? p : null;
+  }
   function windowOf(req: Request): { since: string; until: string } {
     return {
       since: (req.query.since as string) || defaultSince(),
@@ -58,8 +64,22 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
+      // CPL objetivo para el semáforo (review 27/7): explícito en la config del
+      // cliente (metadata.cplObjetivo), con fallback al CPL ideal del rubro.
+      const meta = (r.client.metadata ?? {}) as Record<string, unknown>;
+      let cplObjetivo = Number(meta.cplObjetivo) > 0 ? Number(meta.cplObjetivo) : null;
+      if (!cplObjetivo && r.client.industry) {
+        try {
+          const { learnings } = await import("@paperclipai/db");
+          const [b] = await db.select({ evidence: learnings.evidence }).from(learnings)
+            .where(and(eq(learnings.scope, "niche_benchmark"), eq(learnings.scopeKey, r.client.industry)))
+            .limit(1);
+          const ideal = Number((b?.evidence as Record<string, unknown> | undefined)?.idealCpl);
+          if (ideal > 0) cplObjetivo = ideal;
+        } catch { /* sin benchmark, sin semáforo */ }
+      }
       res.json({
-        client: { id: r.client.id, slug: r.client.slug, name: r.client.name, currency: r.client.currency },
+        client: { id: r.client.id, slug: r.client.slug, name: r.client.name, currency: r.client.currency, cplObjetivo },
         dashboard: {
           label: r.dashboard.label,
           enabled: r.dashboard.enabled,
@@ -73,12 +93,50 @@ export function publicDashboardRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/public/dashboards/:slug/audiencia — a QUIÉN le estamos hablando
+  // (6/8): edad, género, dispositivo y red. El dato más vendedor del reporte y
+  // no estaba en el tablero del cliente. Último snapshot por dimensión.
+  router.get("/dashboards/:slug/audiencia", microCache(10 * 60_000), async (req, res) => {
+    try {
+      const r = await resolve(req.params.slug);
+      if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
+      const { audienceDemographics } = await import("@paperclipai/db");
+      const rows = await db
+        .select({
+          dimension: audienceDemographics.dimension,
+          dimKey: audienceDemographics.dimKey,
+          spend: sql<string>`coalesce(sum(${audienceDemographics.spend}),0)`,
+          leads: sql<number>`coalesce(sum(${audienceDemographics.leads}),0)::int`,
+          impressions: sql<number>`coalesce(sum(${audienceDemographics.impressions}),0)::int`,
+        })
+        .from(audienceDemographics)
+        .where(and(
+          eq(audienceDemographics.clientId, r.client.id),
+          sql`${audienceDemographics.periodUntil} = (select max(period_until) from audience_demographics a2 where a2.client_id = ${r.client.id} and a2.dimension = ${audienceDemographics.dimension})`,
+        ))
+        .groupBy(audienceDemographics.dimension, audienceDemographics.dimKey);
+      const out: Record<string, Array<{ key: string; spend: number; leads: number; impressions: number; cpl: number | null }>> = {};
+      for (const row of rows) {
+        const spend = Number(row.spend);
+        (out[row.dimension] ??= []).push({
+          key: row.dimKey, spend, leads: row.leads, impressions: row.impressions,
+          cpl: row.leads > 0 ? spend / row.leads : null,
+        });
+      }
+      for (const k of Object.keys(out)) out[k].sort((a, b) => b.spend - a.spend);
+      res.json({ audiencia: out });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   // GET /api/public/dashboards/:slug/funnel?since&until
-  router.get("/dashboards/:slug/funnel", async (req, res) => {
+  router.get("/dashboards/:slug/funnel", microCache(3 * 60_000), async (req, res) => {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
       const { since, until } = windowOf(req);
+      const platform = platformOf(req);
       const [agg] = await db
         .select({
           impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
@@ -94,6 +152,7 @@ export function publicDashboardRoutes(db: Db): Router {
           eq(adsInsights.clientId, r.client.id),
           gte(adsInsights.date, since),
           lte(adsInsights.date, until),
+          ...(platform ? [eq(adsInsights.platform, platform)] : []),
         ));
       const impressions = Number(agg?.impressions ?? 0);
       const clicks = Number(agg?.clicks ?? 0);
@@ -131,11 +190,12 @@ export function publicDashboardRoutes(db: Db): Router {
   });
 
   // GET /api/public/dashboards/:slug/timeseries?since&until
-  router.get("/dashboards/:slug/timeseries", async (req, res) => {
+  router.get("/dashboards/:slug/timeseries", microCache(3 * 60_000), async (req, res) => {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
       const { since, until } = windowOf(req);
+      const platform = platformOf(req);
       const rows = await db
         .select({
           date: adsInsights.date,
@@ -152,6 +212,7 @@ export function publicDashboardRoutes(db: Db): Router {
           eq(adsInsights.clientId, r.client.id),
           gte(adsInsights.date, since),
           lte(adsInsights.date, until),
+          ...(platform ? [eq(adsInsights.platform, platform)] : []),
         ))
         .groupBy(adsInsights.date)
         .orderBy(adsInsights.date);
@@ -183,11 +244,12 @@ export function publicDashboardRoutes(db: Db): Router {
   });
 
   // GET /api/public/dashboards/:slug/campaigns?since&until
-  router.get("/dashboards/:slug/campaigns", async (req, res) => {
+  router.get("/dashboards/:slug/campaigns", microCache(3 * 60_000), async (req, res) => {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
       const { since, until } = windowOf(req);
+      const platform = platformOf(req);
       const campaignRows = await db
         .select({
           id: adsCampaigns.id, name: adsCampaigns.name, status: adsCampaigns.status,
@@ -196,7 +258,7 @@ export function publicDashboardRoutes(db: Db): Router {
           lifetimeBudget: adsCampaigns.lifetimeBudget,
         })
         .from(adsCampaigns)
-        .where(eq(adsCampaigns.clientId, r.client.id));
+        .where(and(eq(adsCampaigns.clientId, r.client.id), ...(platform ? [eq(adsCampaigns.platform, platform)] : [])));
       const insightRows = await db
         .select({
           campaignId: adsInsights.campaignId,
@@ -210,6 +272,7 @@ export function publicDashboardRoutes(db: Db): Router {
           eq(adsInsights.clientId, r.client.id),
           gte(adsInsights.date, since),
           lte(adsInsights.date, until),
+          ...(platform ? [eq(adsInsights.platform, platform)] : []),
         ))
         .groupBy(adsInsights.campaignId);
       const byCampaign = new Map(insightRows.map((row) => [row.campaignId ?? "", row]));
@@ -245,8 +308,71 @@ export function publicDashboardRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/public/dashboards/:slug/creatives?since&until&platform
+  // Los anuncios que mejor rindieron, CON la miniatura del creativo. La
+  // miniatura vive anidada en raw.creative (el sync pide
+  // "creative{thumbnail_url,image_url,...}"), no en el top level.
+  // Las URLs de fbcdn están firmadas y expiran ~36h después del sync; como el
+  // sync corre todas las noches se mantienen vivas. El front igual esconde la
+  // imagen si falla (onError) en vez de mostrar un roto.
+  router.get("/dashboards/:slug/creatives", microCache(3 * 60_000), async (req, res) => {
+    try {
+      const r = await resolve(req.params.slug);
+      if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
+      const { since, until } = windowOf(req);
+      const platform = platformOf(req);
+      const perf = await db
+        .select({
+          adId: adsInsights.adId,
+          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
+          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
+          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+        })
+        .from(adsInsights)
+        .where(and(
+          eq(adsInsights.clientId, r.client.id),
+          gte(adsInsights.date, since),
+          lte(adsInsights.date, until),
+          ...(platform ? [eq(adsInsights.platform, platform)] : []),
+        ))
+        .groupBy(adsInsights.adId);
+      const conGasto = perf.filter((p) => p.adId && Number(p.spend) > 0);
+      if (conGasto.length === 0) return res.json({ since, until, creatives: [] });
+      const creativeRows = await db
+        .select({ id: adsCreatives.id, name: adsCreatives.name, status: adsCreatives.status, raw: adsCreatives.raw })
+        .from(adsCreatives)
+        .where(and(eq(adsCreatives.clientId, r.client.id), ...(platform ? [eq(adsCreatives.platform, platform)] : [])));
+      const byId = new Map(creativeRows.map((c) => [c.id, c]));
+      const creatives = conGasto.map((p) => {
+        const c = byId.get(p.adId!);
+        const raw = (c?.raw ?? {}) as Record<string, any>;
+        const cr = (raw.creative ?? {}) as Record<string, any>;
+        const imp = p.impressions, clk = p.clicks, sp = Number(p.spend), ld = p.leads;
+        return {
+          id: p.adId!,
+          name: c?.name ?? "Anuncio",
+          status: c?.status ?? null,
+          imageUrl: (cr.image_url ?? cr.thumbnail_url ?? raw.image_url ?? raw.picture ?? null) as string | null,
+          copy: (cr.body ?? null) as string | null,
+          titulo: (cr.title ?? null) as string | null,
+          impressions: imp, clicks: clk, spend: sp, leads: ld,
+          ctr: imp > 0 ? clk / imp : 0,
+          cpl: ld > 0 ? sp / ld : 0,
+        };
+      })
+        // Ranking por leads primero (lo que le importa al cliente), después por
+        // inversión — así el podio de arriba son los que trajeron consultas.
+        .sort((a, b) => (b.leads - a.leads) || (b.spend - a.spend))
+        .slice(0, 12);
+      res.json({ since, until, creatives });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   // GET /api/public/dashboards/:slug/organic
-  router.get("/dashboards/:slug/organic", async (req, res) => {
+  router.get("/dashboards/:slug/organic", microCache(3 * 60_000), async (req, res) => {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });

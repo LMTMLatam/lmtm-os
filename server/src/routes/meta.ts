@@ -121,43 +121,30 @@ export function metaRoutes(db: Db) {
       res.json([]);
       return;
     }
-    const where = ids === "all" ? undefined : inArray(metaConnections.companyId, ids);
-    const rows = await (where
-      ? db
-          .select({
-            id: metaConnections.id,
-            companyId: metaConnections.companyId,
-            label: metaConnections.label,
-            businessId: metaConnections.businessId,
-            pageId: metaConnections.pageId,
-            adAccountId: metaConnections.adAccountId,
-            tokenType: metaConnections.tokenType,
-            scopes: metaConnections.scopes,
-            status: metaConnections.status,
-            expiresAt: metaConnections.expiresAt,
-            lastCheckAt: metaConnections.lastCheckAt,
-            lastError: metaConnections.lastError,
-            createdAt: metaConnections.createdAt,
-          })
-          .from(metaConnections)
-          .where(where)
-      : db
-          .select({
-            id: metaConnections.id,
-            companyId: metaConnections.companyId,
-            label: metaConnections.label,
-            businessId: metaConnections.businessId,
-            pageId: metaConnections.pageId,
-            adAccountId: metaConnections.adAccountId,
-            tokenType: metaConnections.tokenType,
-            scopes: metaConnections.scopes,
-            status: metaConnections.status,
-            expiresAt: metaConnections.expiresAt,
-            lastCheckAt: metaConnections.lastCheckAt,
-            lastError: metaConnections.lastError,
-            createdAt: metaConnections.createdAt,
-          })
-          .from(metaConnections));
+    // metaConnections aliases the shared ads_connections table (ALL platforms),
+    // so always constrain to platform=meta — otherwise this "Meta connections"
+    // list leaks Google/other connections (and the "all" branch returned
+    // literally every connection of every platform).
+    const metaOnly = eq(metaConnections.platform, "meta");
+    const where = ids === "all" ? metaOnly : and(inArray(metaConnections.companyId, ids), metaOnly);
+    const rows = await db
+      .select({
+        id: metaConnections.id,
+        companyId: metaConnections.companyId,
+        label: metaConnections.label,
+        businessId: metaConnections.businessId,
+        pageId: metaConnections.pageId,
+        adAccountId: metaConnections.adAccountId,
+        tokenType: metaConnections.tokenType,
+        scopes: metaConnections.scopes,
+        status: metaConnections.status,
+        expiresAt: metaConnections.expiresAt,
+        lastCheckAt: metaConnections.lastCheckAt,
+        lastError: metaConnections.lastError,
+        createdAt: metaConnections.createdAt,
+      })
+      .from(metaConnections)
+      .where(where);
     res.json(rows);
   });
 
@@ -182,6 +169,13 @@ export function metaRoutes(db: Db) {
       "email",
       "pages_show_list",
       "pages_read_engagement",
+      // Instagram organic reads: the meta-organic sweep hits /{ig-user}/media
+      // (needs instagram_basic) and per-media insights (instagram_manage_insights).
+      // Without these the IG sync fails with "(#10) does not have permission".
+      // NOTE: both require App Review approval on the Meta app for production
+      // pages the user doesn't own — the scope here is necessary but not enough.
+      "instagram_basic",
+      "instagram_manage_insights",
       "leads_retrieval",
       "ads_read",
       "ads_management",
@@ -273,15 +267,24 @@ export function metaRoutes(db: Db) {
       "email",
       "pages_show_list",
       "pages_read_engagement",
+      "instagram_basic",
+      "instagram_manage_insights",
       "leads_retrieval",
       "ads_read",
       "ads_management",
       "business_management",
     ];
+    // CRITICAL: filter by platform. metaConnections is an alias of the shared
+    // ads_connections table (ALL platforms), so filtering only by companyId would
+    // pick the company's most-recent connection of ANY platform. If that was a
+    // Google Ads connection, the Meta re-auth would overwrite ITS token and
+    // redirect the operator into a Google inventory load that dies with
+    // DEVELOPER_TOKEN_INVALID (Meta and Google getting crossed). Meta re-auth
+    // must only ever find/update Meta rows.
     const existing = await db
       .select({ id: metaConnections.id })
       .from(metaConnections)
-      .where(eq(metaConnections.companyId, state.companyId))
+      .where(and(eq(metaConnections.companyId, state.companyId), eq(metaConnections.platform, "meta")))
       .orderBy(desc(metaConnections.createdAt))
       .limit(1);
 
@@ -302,6 +305,7 @@ export function metaRoutes(db: Db) {
         .insert(metaConnections)
         .values({
           companyId: state.companyId,
+          platform: "meta",
           label: state.label ?? "Meta Ads",
           tokenType: "user",
           accessToken: ll.accessToken,
@@ -359,7 +363,7 @@ export function metaRoutes(db: Db) {
         createdAt: metaConnections.createdAt,
       })
       .from(metaConnections)
-      .where(eq(metaConnections.companyId, companyId));
+      .where(and(eq(metaConnections.companyId, companyId), eq(metaConnections.platform, "meta")));
     res.json(rows);
   });
 
@@ -657,7 +661,7 @@ export function metaRoutes(db: Db) {
         const rows = await db
           .select()
           .from(metaConnections)
-          .where(and(eq(metaConnections.companyId, q.company), eq(metaConnections.status, "active")))
+          .where(and(eq(metaConnections.companyId, q.company), eq(metaConnections.status, "active"), eq(metaConnections.platform, "meta")))
           .limit(1);
         conn = rows[0] ?? null;
         resolvedAdAccount = q.adAccount ?? conn?.adAccountId ?? null;

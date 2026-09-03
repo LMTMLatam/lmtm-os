@@ -3,7 +3,7 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
@@ -45,6 +45,7 @@ import {
 import { conflict, HttpError, notFound } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { publishLiveEvent } from "./live-events.js";
+import { registrarSkip } from "./wakeup-skip-log.js";
 import { getRunLogStore, type RunLogHandle } from "./run-log-store.js";
 import { getServerAdapter, listAdapterModelProfiles, runningProcesses } from "../adapters/index.js";
 import type {
@@ -8643,18 +8644,18 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     const continuationAttempt = readContinuationAttempt(enrichedContextSnapshot.livenessContinuationAttempt);
 
     const writeSkippedRequest = async (skipReason: string) => {
-      await db.insert(agentWakeupRequests).values({
+      // Los motivos rutinarios se agrupan por hora en vez de escribir una fila
+      // por decisión: ver wakeup-skip-log.ts.
+      await registrarSkip(db, {
         companyId: agent.companyId,
         agentId,
         source,
         triggerDetail,
         reason: skipReason,
         payload,
-        status: "skipped",
         requestedByActorType: opts.requestedByActorType ?? null,
         requestedByActorId: opts.requestedByActorId ?? null,
         idempotencyKey: opts.idempotencyKey ?? null,
-        finishedAt: new Date(),
       });
     };
 
@@ -8692,6 +8693,34 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     if (source === "timer" && !policy.enabled) {
       await writeSkippedRequest("heartbeat.disabled");
       return null;
+    }
+    // Idle throttle (30/7): un timer sin cola de trabajo gastaba una corrida
+    // igual — Ana hizo 335 corridas en 7 días para cerrar 5 issues. Sin trabajo
+    // asignado dejamos UNA corrida por día (la pasada proactiva: analizar
+    // clientes, detectar pendientes) y salteamos el resto. Los wakeups por
+    // asignación/automation/on-demand no pasan por acá.
+    if (source === "timer" && !issueId) {
+      const [pend] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(issues)
+        .where(and(
+          eq(issues.assigneeAgentId, agentId),
+          inArray(issues.status, ["todo", "in_progress", "in_review"] as never),
+        ));
+      if ((pend?.n ?? 0) === 0) {
+        const [reciente] = await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(heartbeatRuns)
+          .where(and(
+            eq(heartbeatRuns.agentId, agentId),
+            eq(heartbeatRuns.invocationSource, "timer"),
+            gte(heartbeatRuns.createdAt, new Date(Date.now() - 24 * 3_600_000)),
+          ));
+        if ((reciente?.n ?? 0) >= 1) {
+          await writeSkippedRequest("heartbeat.idle.noWork");
+          return null;
+        }
+      }
     }
     if (source !== "timer" && !policy.wakeOnDemand) {
       await writeSkippedRequest("heartbeat.wakeOnDemand.disabled");
@@ -8969,7 +8998,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         }
 
         if (!activeExecutionRun && dependencyReadiness && !dependencyReadiness.isDependencyReady && !blockedInteractionWake) {
-          await tx.insert(agentWakeupRequests).values({
+          await registrarSkip(tx, {
             companyId: agent.companyId,
             agentId,
             source,
@@ -8980,11 +9009,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
               issueId,
               unresolvedBlockerIssueIds: dependencyReadiness.unresolvedBlockerIssueIds,
             },
-            status: "skipped",
             requestedByActorType: opts.requestedByActorType ?? null,
             requestedByActorId: opts.requestedByActorId ?? null,
             idempotencyKey: opts.idempotencyKey ?? null,
-            finishedAt: new Date(),
           });
           return { kind: "skipped" as const };
         }

@@ -7,10 +7,13 @@
 // 512MB box. Mirrors the defensive scheduler pattern in agency-ops.
 
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings } from "@paperclipai/db";
+import { adsAccountMappings, adsConnections, syncLogs } from "@paperclipai/db";
+import { eq } from "drizzle-orm";
 import { adsAggregator } from "./ads/aggregator.js";
 
 const DAY = 24 * 60 * 60 * 1000;
+/** Errores que significan "el token murió, hace falta re-autorizar a mano". */
+const AUTH_DEAD_RE = /\b401\b|UNAUTHENTICATED|invalid_grant|OAuth ?2? access token|access token.*(expired|revoked)|Session has expired/i;
 
 export interface AutoSyncResult {
   mappings: number;
@@ -36,30 +39,74 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
     // Skip orphaned mappings (connection deleted/replaced → connection_id NULL).
     if (!m.connectionId) continue;
     const base = { connectionId: m.connectionId, mappingId: m.id, since, until };
+    let mRecords = 0;
+    let mErr: string | null = null;
     try {
-      records += await adsAggregator.syncCampaigns(db, { ...base, jobName: "campaigns" });
-      records += await adsAggregator.syncInsights(db, { ...base, jobName: "insights" });
+      mRecords += await adsAggregator.syncCampaigns(db, { ...base, jobName: "campaigns" });
+      // Creativos (nombre + miniatura de cada anuncio). Faltaba en el ciclo
+      // diario: solo se refrescaban con el botón manual, así que 19 cuentas
+      // tenían creativos congelados desde junio/julio mientras los insights
+      // seguían frescos — el reporte del cliente mostraba "Anuncio" sin imagen
+      // para los anuncios nuevos (11/8). Best-effort: no puede voltear el sync.
+      try {
+        mRecords += await adsAggregator.syncCreatives(db, { ...base, jobName: "creatives" });
+      } catch (e) {
+        console.warn(`[ads-autosync] creatives ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      mRecords += await adsAggregator.syncInsights(db, { ...base, jobName: "insights" });
       // Demographics snapshot (age/gender/platform/device) — Meta-only, two
       // light account-level Graph calls. Best-effort: it never throws, so a
       // breakdown permission gap can't fail the mapping's core sync.
       try {
-        records += await adsAggregator.syncAudience(db, { ...base, jobName: "audience" });
+        mRecords += await adsAggregator.syncAudience(db, { ...base, jobName: "audience" });
       } catch (e) {
         console.warn(`[ads-autosync] audience ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
       // Organic posts (FB + IG) with inline engagement. Best-effort: mappings
       // without a pageId (or pages without access) must not fail the ad sync.
       try {
-        records += await adsAggregator.syncOrganic(db, { ...base, jobName: "organic" });
+        mRecords += await adsAggregator.syncOrganic(db, { ...base, jobName: "organic" });
       } catch (e) {
         console.warn(`[ads-autosync] organic ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
       ok++;
     } catch (e) {
       failed++;
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push({ mappingId: m.id, error: msg.slice(0, 300) });
-      console.warn(`[ads-autosync] mapping ${m.id} failed: ${msg}`);
+      mErr = e instanceof Error ? e.message : String(e);
+      errors.push({ mappingId: m.id, error: mErr.slice(0, 300) });
+      console.warn(`[ads-autosync] mapping ${m.id} failed: ${mErr}`);
+    }
+    records += mRecords;
+    // Persist a per-account sync status so the niche panel can tell "sin pauta
+    // real" (sync ok, 0 spend) apart from "cuenta con error de sync / sin acceso
+    // del token" (sync failed) — otherwise a failed account looks identical to
+    // one that simply didn't spend, and shows a silent false "sin pauta activa".
+    try {
+      await db.insert(syncLogs).values({
+        companyId: m.companyId,
+        clientId: m.clientId,
+        connectionId: m.connectionId,
+        platform: m.platform,
+        jobName: "ads-autosync",
+        status: mErr ? "failed" : "completed",
+        completedAt: new Date(),
+        recordsSynced: mRecords,
+        error: mErr ? mErr.slice(0, 500) : null,
+        metadata: { adAccountId: m.adAccountId },
+      });
+    } catch (e) {
+      console.warn(`[ads-autosync] sync-log write for ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    // Token muerto = la conexión queda marcada, no solo el log. Google Ads
+    // estuvo 12 días sin sincronizar con status 'active' y last_error vacío
+    // porque nadie escribía el estado: en el panel se veía sana (11/8). Meta ya
+    // hace esto en su health-check; acá faltaba para el resto.
+    if (mErr && AUTH_DEAD_RE.test(mErr)) {
+      try {
+        await db.update(adsConnections)
+          .set({ status: "error", lastError: mErr.slice(0, 500), lastCheckAt: new Date() })
+          .where(eq(adsConnections.id, m.connectionId));
+      } catch { /* marcar es best-effort */ }
     }
     // Be gentle with Meta's rate limits between accounts.
     await new Promise((r) => setTimeout(r, 1500));

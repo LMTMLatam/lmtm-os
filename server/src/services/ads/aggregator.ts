@@ -74,8 +74,8 @@ async function logJobEnd(
 }
 
 async function syncCampaigns(db: Db, opts: SyncOptions): Promise<number> {
-  const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
+  const provider = getAdsProvider(resolvePlatform(connection));
   const campaigns = await provider.syncCampaigns(connection, mapping, opts.since, opts.until);
   if (campaigns.length === 0) return 0;
   // Delete existing rows for this platform/adAccount, then insert fresh.
@@ -109,8 +109,8 @@ async function syncCampaigns(db: Db, opts: SyncOptions): Promise<number> {
 }
 
 async function syncAdsets(db: Db, opts: SyncOptions): Promise<number> {
-  const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
+  const provider = getAdsProvider(resolvePlatform(connection));
   const allAdsets = await provider.syncAdSets(connection, mapping, opts.since, opts.until);
   if (allAdsets.length === 0) return 0;
   // Apply the Make.com-style "included adsets" filter from the mapping.
@@ -154,8 +154,8 @@ async function syncAdsets(db: Db, opts: SyncOptions): Promise<number> {
 }
 
 async function syncCreatives(db: Db, opts: SyncOptions): Promise<number> {
-  const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
+  const provider = getAdsProvider(resolvePlatform(connection));
   const ads = await provider.syncAds(connection, mapping, opts.since, opts.until);
   if (ads.length === 0) return 0;
   await db.delete(adsCreatives)
@@ -179,8 +179,8 @@ async function syncCreatives(db: Db, opts: SyncOptions): Promise<number> {
 }
 
 async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
-  const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
+  const provider = getAdsProvider(resolvePlatform(connection));
   const allInsights = await provider.syncInsights(connection, mapping, opts.since, opts.until);
   if (allInsights.length === 0) return 0;
   // Apply the Make.com-style "included adsets" filter from the mapping.
@@ -245,8 +245,8 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
 }
 
 async function syncOrganic(db: Db, opts: SyncOptions): Promise<number> {
-  const provider = getAdsProvider(resolvePlatform(opts));
   const [connection, mapping] = await loadConnectionAndMapping(db, opts.connectionId, opts.mappingId);
+  const provider = getAdsProvider(resolvePlatform(connection));
   if (!mapping.pageId) return 0;
   const posts = await provider.syncOrganicPosts(connection, mapping, opts.since, opts.until);
   if (posts.length === 0) return 0;
@@ -312,12 +312,14 @@ async function loadConnectionAndMapping(
   return [await withFreshAccessToken(db, connection), mapping];
 }
 
-function resolvePlatform(opts: SyncOptions): AdsPlatform {
-  if (!isKnownAdsPlatform("meta")) throw new Error("unreachable");
-  // We don't have access to the connection at this point, so this is a
-  // placeholder; the real platform resolution happens inside the provider
-  // dispatch. The type is here so the registry can validate.
-  return "meta";
+// La plataforma sale de la CONEXIÓN. El placeholder anterior devolvía "meta"
+// hardcodeado → toda conexión google/tiktok/linkedin sincronizaba contra la
+// Graph API de Meta y fallaba en silencio (visto 23/7 con Google Ads).
+function resolvePlatform(connection: { platform: string }): AdsPlatform {
+  if (!isKnownAdsPlatform(connection.platform)) {
+    throw new Error(`unknown ads platform on connection: ${connection.platform}`);
+  }
+  return connection.platform;
 }
 
 /**
