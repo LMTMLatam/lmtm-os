@@ -63,6 +63,8 @@ export interface AuditoriaKeywords {
   cliente: string;
   cuenta: string;
   desde: string;
+  /** Ventana analizada, en días. */
+  dias: number;
   terminos: number;
   gastoTotal: number;
   conversionesTotal: number;
@@ -72,6 +74,26 @@ export interface AuditoriaKeywords {
   ampliaCara: KeywordActiva[];
   /** Plata que se libera si se aplican las negativas propuestas. */
   ahorroMensual: number;
+  /** Gasto en búsquedas DE MARCA que no registraron conversión. No es
+   *  desperdicio: es la medida de cuánto no está viendo el píxel. */
+  gastoMarcaSinConversion: number;
+}
+
+/** Minúsculas y sin acentos, para comparar términos con el nombre del cliente. */
+const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+/**
+ * ¿El término de búsqueda nombra a la propia marca?
+ *
+ * Se compara contra las palabras del nombre del cliente de 4 letras o más: las
+ * cortas ("de", "sa", "srl") aparecen en cualquier búsqueda y darían falsos
+ * positivos que esconderían desperdicio real.
+ */
+export function esTerminoDeMarca(nombreCliente: string, termino: string): boolean {
+  const tokens = normalizar(nombreCliente).split(/\s+/).filter((p) => p.length >= 4);
+  if (tokens.length === 0) return false;
+  const t = normalizar(termino);
+  return tokens.some((tok) => t.includes(tok));
 }
 
 const num = (v: unknown): number => {
@@ -171,11 +193,28 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
   const conversionesTotal = terminos.reduce((a, t) => a + t.conversiones, 0);
   const yaSonKeyword = new Set(keywords.map((k) => k.texto.toLowerCase().trim()));
 
-  // 1. Negativas: gastó, tuvo clics suficientes para juzgarlo, y cero conversiones.
+  // Términos DE MARCA: el que busca "<cliente> <barrio>" ya te está buscando a
+  // vos. Que no registren conversión casi nunca es desperdicio — la conversión
+  // pasa por teléfono, WhatsApp o el mostrador y el píxel no la ve. Proponerlos
+  // como negativas apaga el mejor tráfico de la cuenta.
+  // Distrillantas, 3/9/26: la auditoría proponía negativizar "distrillantas
+  // pilar", "distrillantas beiro", "distrillantas merlo", "distrillantas
+  // liniers" y "distrillantas avellaneda" — todas con calidad 10/10 de Google.
+  const esMarca = (s: string) => esTerminoDeMarca(cliente.name, s);
+
+  // 1. Negativas: gastó, tuvo clics suficientes para juzgarlo, cero conversiones
+  //    y NO es una búsqueda de marca.
   const negativas = terminos
-    .filter((t) => t.conversiones === 0 && t.costo >= GASTO_MIN_NEGATIVA && t.clics >= CLICS_MIN)
+    .filter((t) => t.conversiones === 0 && t.costo >= GASTO_MIN_NEGATIVA && t.clics >= CLICS_MIN && !esMarca(t.termino))
     .sort((a, b) => b.costo - a.costo)
     .slice(0, 15);
+
+  // Lo que gastó la marca sin registrar conversión. No se propone tocarlo: se
+  // informa, porque si el número es grande el problema es la MEDICIÓN, no las
+  // keywords, y optimizar sobre datos ciegos rompe cuentas sanas.
+  const gastoMarcaSinConversion = Math.round(
+    terminos.filter((t) => esMarca(t.termino) && t.conversiones === 0).reduce((a, t) => a + t.costo, 0),
+  );
 
   // 2. Keywords nuevas: convirtió y todavía no está como keyword propia. Es la
   //    plata más barata de la cuenta — ya sabés que ese término trae clientes.
@@ -184,9 +223,9 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     .sort((a, b) => b.conversiones - a.conversiones)
     .slice(0, 12);
 
-  // 3. Keywords que gastan sin convertir.
+  // 3. Keywords que gastan sin convertir — sin las de marca, por lo mismo de arriba.
   const pausar = keywords
-    .filter((k) => k.conversiones === 0 && k.costo >= GASTO_MIN_NEGATIVA && k.clics >= CLICS_MIN)
+    .filter((k) => k.conversiones === 0 && k.costo >= GASTO_MIN_NEGATIVA && k.clics >= CLICS_MIN && !esMarca(k.texto))
     .sort((a, b) => b.costo - a.costo)
     .slice(0, 10);
 
@@ -201,11 +240,13 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     cliente: cliente.name,
     cuenta: customerId,
     desde,
+    dias,
     terminos: terminos.length,
     gastoTotal: Math.round(gastoTotal),
     conversionesTotal: Math.round(conversionesTotal * 10) / 10,
     negativas, nuevas, pausar, ampliaCara,
     ahorroMensual: Math.round(negativas.reduce((a, t) => a + t.costo, 0)),
+    gastoMarcaSinConversion,
   };
 }
 
@@ -222,12 +263,21 @@ const plata = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo: string } {
   const p: string[] = [];
 
-  p.push(`Auditoría de keywords de **${a.cliente}** — últimos ${a.desde.slice(5)} a hoy.`);
+  p.push(`Auditoría de keywords de **${a.cliente}** — últimos ${a.dias} días (desde el ${a.desde}).`);
   p.push(`Se revisaron ${a.terminos} términos de búsqueda por ${plata(a.gastoTotal)} de inversión y ${a.conversionesTotal} conversiones.`);
   p.push("");
 
+  // Si la marca gastó fuerte sin registrar una sola conversión, el problema no
+  // son las keywords: es que no se está midiendo. Va ARRIBA de todo porque
+  // aplicar el resto de la guía sobre datos ciegos hace daño.
+  if (a.gastoMarcaSinConversion >= a.gastoTotal * 0.3 && a.gastoMarcaSinConversion > 0) {
+    p.push(`> ⚠️ **Antes de tocar nada:** ${plata(a.gastoMarcaSinConversion)} de esta inversión son búsquedas de la propia marca que no registraron ni una conversión. Gente que ya te estaba buscando por nombre. Eso casi siempre significa que el seguimiento de conversiones está roto o incompleto —llamadas, WhatsApp y visitas al local no llegan al píxel—, no que el tráfico sea malo. **Revisar la medición primero**: optimizar con números ciegos apaga lo que funciona.`);
+    p.push("");
+  }
+
+  let n = 0;
   if (a.negativas.length) {
-    p.push(`### 1. Sumar ${a.negativas.length} palabras clave negativas — libera ${plata(a.ahorroMensual)}/mes`);
+    p.push(`### ${++n}. Sumar ${a.negativas.length} palabras clave negativas — libera ${plata(a.ahorroMensual)}/mes`);
     p.push("Estas búsquedas gastaron plata y no trajeron una sola conversión. En Google Ads: **Campañas → Palabras clave → Palabras clave negativas → +**, y agregar cada una en *concordancia de frase*:");
     p.push("");
     for (const t of a.negativas) p.push(`- \`${t.termino}\` — ${plata(t.costo)} en ${t.clics} clics, 0 conversiones (campaña ${t.campana})`);
@@ -237,7 +287,7 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
   }
 
   if (a.nuevas.length) {
-    p.push(`### 2. Sumar ${a.nuevas.length} keywords que ya están convirtiendo`);
+    p.push(`### ${++n}. Sumar ${a.nuevas.length} keywords que ya están convirtiendo`);
     p.push("La gente buscó esto, convirtió, y todavía no lo tenemos como keyword propia — o sea que estamos pagando por ellas al precio de la concordancia amplia en vez del suyo. Agregarlas en **concordancia de frase** al grupo de anuncios que mejor les calce:");
     p.push("");
     for (const t of a.nuevas) p.push(`- \`${t.termino}\` — ${t.conversiones} conversión(es) por ${plata(t.costo)} (campaña ${t.campana})`);
@@ -245,7 +295,7 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
   }
 
   if (a.pausar.length) {
-    p.push(`### 3. Pausar ${a.pausar.length} keywords que solo gastan`);
+    p.push(`### ${++n}. Pausar ${a.pausar.length} keywords que solo gastan`);
     p.push("Tienen clics suficientes para juzgarlas y ninguna conversión. Pausar (no borrar: el historial sirve):");
     p.push("");
     for (const k of a.pausar) {
@@ -256,7 +306,7 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
   }
 
   if (a.ampliaCara.length) {
-    p.push(`### 4. Bajar ${a.ampliaCara.length} keywords de amplia a frase`);
+    p.push(`### ${++n}. Bajar ${a.ampliaCara.length} keywords de amplia a frase`);
     p.push("Están en concordancia amplia, se llevan una parte grande del presupuesto y no convierten. La amplia trae volumen pero también búsquedas que no tienen nada que ver:");
     p.push("");
     for (const k of a.ampliaCara) p.push(`- \`${k.texto}\` — ${plata(k.costo)} sin conversiones (campaña ${k.campana})`);
