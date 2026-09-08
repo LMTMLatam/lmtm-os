@@ -196,7 +196,10 @@ export async function runOperationalAudit(db: Db): Promise<{
 
   // Low-balance accounts (folded into this same weekly report).
   const balances = await fetchAccountBalances(db).catch(() => [] as BalanceInfo[]);
-  const lowBalances = balances.filter((b) => b.low);
+  // Solo cuentas que venían gastando. Sin esto el digest arrastra las cuentas
+  // dormidas con el tope consumido hace meses (medidas el 3/9/26: 9 de ellas,
+  // contra 1 sola real) y el aviso se vuelve ilegible justo cuando importa.
+  const lowBalances = balances.filter((b) => b.low && b.activaReciente);
 
   // Build + deliver the WEEKLY digest. Per the boss: WhatsApp carries ONLY two
   // things — (1) low balance, (2) clients that had posts planned but they are
@@ -217,11 +220,25 @@ export async function runOperationalAudit(db: Db): Promise<{
       lines.push("");
     }
 
-    if (lowBalances.length > 0) {
-      lines.push("💰 *Saldo bajo en cuentas de Meta:*");
-      for (const b of lowBalances.slice(0, 15)) {
-        const left = b.remaining ?? 0;
-        lines.push(`• *${b.clientName}*: quedan ${fmt(left, b.currency)} antes del tope${left <= 0 ? " (¡FRENADA!)" : ""}`);
+    // Frenadas primero y aparte: una cuenta en cero no tiene "saldo bajo", ya
+    // dejó de entregar. Mezclarlas hacía que la urgente se leyera como una más
+    // de la lista (Distrillantas, 14 días sin entregar).
+    const donde = (b: BalanceInfo) => (b.platform === "google" ? "Google Ads" : "Meta");
+    const frenadas = lowBalances.filter((b) => (b.remaining ?? 0) < 1);
+    const bajas = lowBalances.filter((b) => (b.remaining ?? 0) >= 1);
+
+    if (frenadas.length > 0) {
+      lines.push("🛑 *Cuentas FRENADAS — no están entregando:*");
+      for (const b of frenadas.slice(0, 15)) {
+        lines.push(`• *${b.clientName}* (${donde(b)}): consumió el tope de ${fmt(b.spendCap, b.currency)}. Las campañas siguen activas pero no se muestran.`);
+      }
+      lines.push("_Recargá el presupuesto de la cuenta para que vuelva a entregar._", "");
+    }
+
+    if (bajas.length > 0) {
+      lines.push("💰 *Saldo bajo:*");
+      for (const b of bajas.slice(0, 15)) {
+        lines.push(`• *${b.clientName}* (${donde(b)}): quedan ${fmt(b.remaining ?? 0, b.currency)} antes del tope`);
       }
       lines.push("_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._", "");
     }
