@@ -17,6 +17,7 @@
 import type { Db } from "@paperclipai/db";
 import { agents, clients, issueComments, issues } from "@paperclipai/db";
 import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { costoPorCliente, ordenarPorCosto, type CostoCliente } from "./costo-de-no-hacer.js";
 
 const DIA = 86_400_000;
 /** Un bloqueo que ya lleva esto sin moverse deja de ser "el agente está
@@ -106,7 +107,18 @@ export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: 
       diasParado: Math.floor((ahora - new Date(r.updatedAt).getTime()) / DIA),
     }));
 
-  return { filas: filas.slice(0, TOPE_VISIBLE), total: filas.length };
+  // Ordenar por lo que cuesta no hacerlo. La cola se corta en TOPE_VISIBLE, así
+  // que el orden decide qué ve una persona: por antigüedad, una cuenta frenada
+  // que le para $43.000 por día a un cliente quedaba debajo de una consulta de
+  // julio. El costo sale de la caída de gasto y ya está en la DB, así que esto
+  // no depende de que Meta ni Make contesten.
+  const costos = await costoPorCliente(db).catch((e) => {
+    console.warn("[cola-humana] sin costos, se ordena por antigüedad:", e instanceof Error ? e.message : e);
+    return new Map<string, CostoCliente>();
+  });
+  const ordenadas = ordenarPorCosto(filas, costos);
+
+  return { filas: ordenadas.slice(0, TOPE_VISIBLE), total: ordenadas.length };
 }
 
 function primeraFrase(texto: string): string {
