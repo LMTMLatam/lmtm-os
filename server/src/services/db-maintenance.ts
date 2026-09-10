@@ -58,6 +58,15 @@ export function initDbMaintenance(db: Db): void {
         }
       })
       .catch((e) => console.warn("[db-maintenance] barrido de bloqueados failed:", e));
+    // La cadena de publicación medida por EFECTO y no por estado: quién no
+    // tiene destino en Make, a quién dejó de despachar, y de quién no estamos
+    // viendo la red. Es lo único que habría cazado los 8 días de MAERS.
+    await import("./cadena-publicacion.js")
+      .then(({ avisarCadenaRota }) => avisarCadenaRota(db))
+      .then((r) => {
+        if (r.rotas) console.log(`[db-maintenance] cadena de publicación: ${r.rotas} eslabones rotos${r.entregado ? " (avisados)" : ""}`);
+      })
+      .catch((e) => console.warn("[db-maintenance] verificador de cadena failed:", e));
     // Publicaciones que salieron dos veces en la misma red. Las corridas de
     // Make figuran en verde igual, así que si no se mira acá se entera el
     // cliente antes que nosotros (MAERS, 26/8/26).

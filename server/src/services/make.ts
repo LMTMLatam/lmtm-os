@@ -47,6 +47,44 @@ export async function makeListScenarios(): Promise<MakeScenario[]> {
   return r.scenarios ?? [];
 }
 
+/** Datastore donde el despachador (escenario 1427144) busca a dónde mandar el
+ *  post de cada cliente. Un cliente que NO está acá no tiene destino: el
+ *  despachador lo descarta en silencio y la tarea igual queda etiquetada. */
+export const DATASTORE_DESTINOS = Number(process.env.MAKE_DATASTORE_DESTINOS) || 19767;
+
+export interface DestinoCliente {
+  cliente: string;
+  webhook: string;
+  /** Lo escribe Make cuando despacha de verdad. Es señal más honesta que la
+   *  etiqueta de ClickUp, que la pone ClickUp antes de que Make haga nada. */
+  ultimoEnvio: Date | null;
+}
+
+/** Los destinos configurados. Make corta cualquier pg[limit] mayor a 100. */
+export async function makeDestinos(): Promise<DestinoCliente[]> {
+  const out: DestinoCliente[] = [];
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const r = await makeGet<{ records?: Array<{ data?: Record<string, unknown> }> }>(
+      `/data-stores/${DATASTORE_DESTINOS}/data`,
+      { "pg[limit]": 100, "pg[offset]": offset },
+    );
+    const lote = r.records ?? [];
+    for (const rec of lote) {
+      const d = rec.data ?? {};
+      const cliente = String(d["Client name"] ?? "").trim();
+      if (!cliente) continue;
+      const enviado = d["Last sent date"] ? new Date(String(d["Last sent date"])) : null;
+      out.push({
+        cliente,
+        webhook: String(d.webhook ?? ""),
+        ultimoEnvio: enviado && !Number.isNaN(enviado.getTime()) ? enviado : null,
+      });
+    }
+    if (lote.length < 100) break;
+  }
+  return out;
+}
+
 export interface MakeLog {
   id: string;
   status: number; // Make execution status: 1 = success, 2 = warning, 3 = error
