@@ -532,6 +532,28 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_cliente_listo_para_producir",
+      description:
+        "Verificar si tiene sentido producir contenido para un cliente ANTES de generarlo. Devuelve listo=false cuando el cliente no tiene destino de publicación en Make: en ese caso lo que se genere se descarta en silencio al llegar su fecha, así que NO hay que producir — hay que abrir un issue para dar de alta el destino y avisar. Consultala siempre antes de armar un plan de contenido, ideas, placas o calendario. Si devuelve sinVerificar=true no se pudo comprobar y se puede producir igual.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_cadena_publicacion",
+      description:
+        "Estado de la cadena de publicación de toda la agencia, medido por EFECTO real (destino en Make, último despacho que escribió Make, posts que devolvió la red) y no por etiquetas ni estados de corrida. Devuelve por cliente el PRIMER eslabón roto: sin_destino (lo que se le programe no va a ningún lado), despachador_mudo (Make no despacha hace días), sync_ciego (no estamos viendo su red, hay que arreglar el sync antes de concluir nada) o red_muda (Make dice que publicó y no está). Usala para saber dónde está roto el flujo antes de prometerle nada a un cliente.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_auditoria_keywords_google",
       description:
         "Auditar las keywords de Google Ads de un cliente: lee el informe de términos de búsqueda de los últimos N días y devuelve qué negativizar, qué keyword nueva sumar, qué pausar y qué bajar de amplia a frase, con los números que justifican cada una. NO toca nada, solo lee. Es la ÚNICA fuente válida de términos para add_negative_keywords y pause_keywords_google — no inventes términos. Si el reporte arranca con una advertencia de gasto de marca sin conversiones, el problema es la MEDICIÓN: informá eso y no propongas optimizaciones sobre esos datos.",
@@ -1705,6 +1727,34 @@ export function agentToolsRoutes(
         if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
         if (!r.ok) return reply(false, r.error ?? "No se pudo pausar.");
         return reply(true, `Pausado: ${r.entity?.type} "${r.entity?.name}" (${r.entity?.id}). Acción registrada.`);
+      }
+
+      if (tool === "get_cliente_listo_para_producir") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        try {
+          const { puedeProducir } = await import("../services/cadena-publicacion.js");
+          const p = await puedeProducir(db, clientId);
+          return reply(true, JSON.stringify(p));
+        } catch (e) {
+          return reply(false, `get_cliente_listo_para_producir: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "get_cadena_publicacion") {
+        try {
+          const { revisarCadena } = await import("../services/cadena-publicacion.js");
+          const r = await revisarCadena(db);
+          if (r.ciego) return reply(false, "No se pudo leer Make, así que no se puede afirmar nada del estado de la cadena. No asumas que está sana.");
+          return reply(true, JSON.stringify({
+            revisados: r.revisados,
+            rotos: r.rotas.length,
+            porEslabon: r.rotas.reduce<Record<string, number>>((a, x) => { a[x.eslabon] = (a[x.eslabon] ?? 0) + 1; return a; }, {}),
+            clientes: r.rotas.map((x) => ({ cliente: x.cliente, clientId: x.clientId, eslabon: x.eslabon, diasSin: x.diasSin })),
+          }));
+        } catch (e) {
+          return reply(false, `get_cadena_publicacion: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       if (tool === "get_auditoria_keywords_google") {

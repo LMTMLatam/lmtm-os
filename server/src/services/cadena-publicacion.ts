@@ -184,6 +184,73 @@ const TITULO: Record<Eslabon, string> = {
   sync_ciego: "🙈 Sync orgánico parado — no estamos viendo si publican",
 };
 
+// ── Precondición: no producir hacia un caño roto ───────────────────────────
+//
+// Un colega no escribe posts todo el mes para un cliente cuyo canal de
+// publicación no existe: arregla el caño primero. Hoy la flota le genera
+// contenido a 15 clientes que no tienen destino en Make, y ese contenido se
+// descarta en silencio. Esto se consulta ANTES de producir.
+
+/** El listado de destinos cambia poco y la precondición se consulta una vez por
+ *  cliente: sin este caché, generar para 59 clientes son 59 llamadas a Make. */
+const CACHE_MS = 5 * 60_000;
+let cacheDestinos: { at: number; valor: Awaited<ReturnType<typeof makeDestinos>> } | null = null;
+
+async function destinosCacheados(): Promise<Awaited<ReturnType<typeof makeDestinos>>> {
+  if (cacheDestinos && Date.now() - cacheDestinos.at < CACHE_MS) return cacheDestinos.valor;
+  const valor = await makeDestinos();
+  cacheDestinos = { at: Date.now(), valor };
+  return valor;
+}
+
+export interface Precondicion {
+  listo: boolean;
+  motivo: string;
+  /** null cuando la cadena está sana o cuando no se pudo verificar. */
+  eslabon: Eslabon | null;
+  /** true = no se pudo comprobar. Se deja producir: frenar la agencia entera
+   *  porque Make no contesta sería peor que el problema que esto evita. */
+  sinVerificar: boolean;
+}
+
+/**
+ * ¿Tiene sentido producir contenido para este cliente?
+ *
+ * Solo mira el eslabón que hace inútil producir: si no hay destino, lo que se
+ * genere se descarta. Que el despachador esté callado o que el sync esté ciego
+ * NO frena la producción — son problemas a resolver, pero el contenido que se
+ * genere mientras tanto sí va a salir cuando se destrabe.
+ */
+export async function puedeProducir(db: Db, clientId: string): Promise<Precondicion> {
+  if (!makeConfigured()) {
+    return { listo: true, motivo: "Make no está configurado: no se puede verificar, se deja producir.", eslabon: null, sinVerificar: true };
+  }
+  const [c] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
+  if (!c) return { listo: false, motivo: "No existe ese cliente.", eslabon: null, sinVerificar: false };
+
+  let destinos: Awaited<ReturnType<typeof makeDestinos>>;
+  try {
+    destinos = await destinosCacheados();
+  } catch (e) {
+    console.warn("[cadena] precondición sin verificar:", e instanceof Error ? e.message : e);
+    return { listo: true, motivo: "No se pudo leer Make: se deja producir.", eslabon: null, sinVerificar: true };
+  }
+  if (destinos.length === 0) {
+    return { listo: true, motivo: "El datastore de Make vino vacío: se deja producir.", eslabon: null, sinVerificar: true };
+  }
+
+  const objetivo = norm(c.name);
+  if (destinos.some((d) => norm(d.cliente) === objetivo)) {
+    return { listo: true, motivo: "Tiene destino de publicación configurado.", eslabon: null, sinVerificar: false };
+  }
+  return {
+    listo: false,
+    eslabon: "sin_destino",
+    sinVerificar: false,
+    motivo: `${c.name} no tiene destino de publicación en Make: cualquier contenido que se le genere se va a descartar en silencio al llegar su fecha. Antes de producir hay que darlo de alta en el datastore de destinos (y crearle el escenario si no lo tiene).`,
+  };
+}
+
 /** Aviso diario. Corre en el tick de db-maintenance. */
 export async function avisarCadenaRota(db: Db): Promise<{ rotas: number; entregado: boolean }> {
   const { rotas, ciego } = await revisarCadena(db);

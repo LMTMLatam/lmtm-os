@@ -174,11 +174,21 @@ async function angulosRecientes(db: Db, clientId: string): Promise<string[]> {
   return vistos.slice(0, 6);
 }
 
-export async function generateContentPlan(db: Db, clientId: string): Promise<{ batchId: string; created: number; ideas: GeneratedIdea[] }> {
+export async function generateContentPlan(db: Db, clientId: string): Promise<{ batchId: string; created: number; ideas: GeneratedIdea[]; motivo?: string }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { batchId: "", created: 0, ideas: [] };
   const companyId = await resolveCompanyId(db, clientId);
   if (!companyId) return { batchId: "", created: 0, ideas: [] };
+
+  // Precondición: si el cliente no tiene a dónde publicar, generarle ideas es
+  // trabajo que se descarta en silencio. Se arregla el caño primero. Al 10/9/26
+  // eran 15 clientes activos en esa situación.
+  const { puedeProducir } = await import("./cadena-publicacion.js");
+  const pre = await puedeProducir(db, clientId).catch(() => null);
+  if (pre && !pre.listo) {
+    console.warn(`[content] no se genera para ${client.name}: ${pre.motivo}`);
+    return { batchId: "", created: 0, ideas: [], motivo: pre.motivo };
+  }
 
   const comps = await db.select().from(competitors).where(eq(competitors.clientId, clientId));
   const brain = await getBrainContext(db, clientId, 2500).catch(() => "");
