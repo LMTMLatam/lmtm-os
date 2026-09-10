@@ -6,13 +6,19 @@
 // informed by what actually happened, not by whether the idea sounded good.
 
 import type { Db } from "@paperclipai/db";
-import { agentActions, adsInsights } from "@paperclipai/db";
-import { and, eq, gte, isNull, lte, lt, sql } from "drizzle-orm";
+import { agentActions, adsInsights, learnings } from "@paperclipai/db";
+import { and, eq, gte, inArray, isNull, lte, lt, sql } from "drizzle-orm";
 import { aggInsights, dayStr } from "./agency-ops.js";
 import { upsertMemory } from "./customer-brain.js";
 import { resolveCompanyId } from "./intel-common.js";
 
 const DAY = 86_400_000;
+
+/** Toda acción de escritura que la flota ejecuta se mide igual: qué le pasó al
+ *  CPL del cliente en la semana siguiente. Cuando se sumó la escritura en
+ *  Google (negativas y pausa de keywords) esas acciones quedaron sin evaluar —
+ *  o sea que la capacidad más nueva era la única sin feedback. */
+export const KINDS_EVALUABLES = ["pause_ad_entity", "add_negative_keywords", "pause_keywords"] as const;
 
 interface PauseOutcome {
   entitySpend7dBefore: number;
@@ -29,31 +35,38 @@ interface PauseOutcome {
 export async function evaluatePauseOutcomes(db: Db): Promise<{ evaluated: number }> {
   const cutoff = new Date(Date.now() - 7 * DAY);
   const pending = await db.select().from(agentActions).where(and(
-    eq(agentActions.kind, "pause_ad_entity"),
+    inArray(agentActions.kind, [...KINDS_EVALUABLES] as string[]),
     isNull(agentActions.outcome),
     lt(agentActions.createdAt, cutoff),
   )).limit(50);
 
   let evaluated = 0;
   for (const action of pending) {
-    if (!action.clientId || !action.entityId) continue;
+    if (!action.clientId) continue;
+    const esPausaDeEntidad = action.kind === "pause_ad_entity";
+    if (esPausaDeEntidad && !action.entityId) continue;
     try {
       const pausedAt = new Date(action.createdAt);
       const dBefore = dayStr(new Date(pausedAt.getTime() - 7 * DAY));
       const dPause = dayStr(pausedAt);
       const dAfter = dayStr(new Date(pausedAt.getTime() + 7 * DAY));
 
-      // What the paused entity was burning in its final week.
+      // What the paused entity was burning in its final week. Solo aplica a la
+      // pausa de campaña/conjunto: una keyword no tiene fila propia en
+      // ads_insights, así que ahí el gasto de la entidad queda en cero y el
+      // veredicto sale del efecto sobre el cliente, que es lo que importa.
       const entityCol = action.entityType === "adset" ? adsInsights.adsetId : adsInsights.campaignId;
-      const [ent] = await db.select({
-        spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
-        leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-      }).from(adsInsights).where(and(
-        eq(adsInsights.clientId, action.clientId),
-        eq(entityCol, action.entityId),
-        gte(adsInsights.date, dBefore),
-        lte(adsInsights.date, dPause),
-      ));
+      const [ent] = esPausaDeEntidad
+        ? await db.select({
+            spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
+            leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+          }).from(adsInsights).where(and(
+            eq(adsInsights.clientId, action.clientId),
+            eq(entityCol, action.entityId as string),
+            gte(adsInsights.date, dBefore),
+            lte(adsInsights.date, dPause),
+          ))
+        : [{ spend: "0", leads: 0 }];
 
       // Client blended performance, week before vs week after.
       const before = await aggInsights(db, action.clientId, dBefore, dPause);
@@ -103,7 +116,95 @@ export async function evaluatePauseOutcomes(db: Db): Promise<{ evaluated: number
       console.warn(`[action-outcomes] evaluate ${action.id} failed:`, e instanceof Error ? e.message : e);
     }
   }
+  if (evaluated > 0) await destilarLecciones(db).catch((e) => console.warn("[action-outcomes] destilar falló:", e));
   return { evaluated };
+}
+
+/**
+ * Lo que el resultado de una acción le enseña a TODA la flota.
+ *
+ * El outcome ya se escribía en el brain del cliente, así que el que trabaja esa
+ * cuenta lo ve — pero el de al lado no. Acá el mismo dato se agrega por tipo de
+ * acción sobre todos los clientes y queda en `learnings`, que es lo que lee
+ * `get_team_lessons`. Sin esto la flota actúa todas las semanas y nunca se
+ * entera de si su forma de actuar funciona.
+ *
+ * Se exige un mínimo de casos antes de escribir nada: una lección sacada de dos
+ * pausas es una anécdota, y una anécdota con formato de regla es peor que no
+ * tener nada.
+ */
+export const MINIMO_PARA_LECCION = 5;
+
+export interface Tally { mejor: number; peor: number; igual: number; total: number }
+
+/**
+ * La lección que deja una acción, en la forma en que la va a leer un agente.
+ *
+ * El texto tiene que decir QUÉ HACER con el dato, no solo cuál es el dato: una
+ * lección que no cambia una decisión no sirve de nada, y una que dice "mejoró
+ * el 40%" sin decir qué se espera de eso se lee como aprobación.
+ */
+export function leccionDe(kind: string, e: Tally): string {
+  const pctMejor = Math.round((100 * e.mejor) / e.total);
+  const pctPeor = Math.round((100 * e.peor) / e.total);
+  if (pctPeor > pctMejor) {
+    return `La acción "${kind}" empeoró el CPL del cliente en ${pctPeor}% de los casos y lo mejoró en ${pctMejor}% (${e.total} medidos). Antes de proponerla, justificá por qué este caso es distinto.`;
+  }
+  if (pctMejor >= 50) {
+    return `La acción "${kind}" mejoró el CPL del cliente en ${pctMejor}% de los casos (${e.total} medidos). Es una palanca que viene funcionando.`;
+  }
+  return `La acción "${kind}" salió neutra en la mayoría de los casos: mejoró ${pctMejor}%, empeoró ${pctPeor}% (${e.total} medidos). No esperes que mueva la aguja sola.`;
+}
+
+export async function destilarLecciones(db: Db): Promise<{ lecciones: number }> {
+  // `clients` no tiene company_id: la empresa se resuelve por los mapeos de
+  // pauta (ver resolveCompanyId). Como todas las acciones caen bajo la misma
+  // empresa, alcanza con resolverla una vez a partir de la primera fila.
+  const filas = await db
+    .select({
+      kind: agentActions.kind,
+      clientId: agentActions.clientId,
+      verdict: sql<string>`${agentActions.outcome}->>'verdict'`,
+    })
+    .from(agentActions)
+    .where(sql`${agentActions.outcome} is not null and ${agentActions.outcome}->>'verdict' is not null`);
+  if (filas.length === 0) return { lecciones: 0 };
+
+  const companyId = filas[0].clientId ? await resolveCompanyId(db, filas[0].clientId) : null;
+  if (!companyId) return { lecciones: 0 };
+
+  const porKind = new Map<string, { companyId: string; mejor: number; peor: number; igual: number; total: number }>();
+  for (const f of filas) {
+    if (f.verdict === "insufficient_data") continue;
+    const e = porKind.get(f.kind) ?? { companyId, mejor: 0, peor: 0, igual: 0, total: 0 };
+    if (f.verdict === "improved") e.mejor += 1;
+    else if (f.verdict === "worse") e.peor += 1;
+    else e.igual += 1;
+    e.total += 1;
+    porKind.set(f.kind, e);
+  }
+
+  let lecciones = 0;
+  for (const [kind, e] of porKind) {
+    if (e.total < MINIMO_PARA_LECCION) continue;
+    const pattern = leccionDe(kind, e);
+
+    await db.insert(learnings).values({
+      companyId: e.companyId, scope: "global", scopeKey: `accion:${kind}`, pattern,
+      evidence: { kind, mejor: e.mejor, peor: e.peor, igual: e.igual, total: e.total },
+      metricImpact: "cpl", confidence: String(Math.min(0.9, 0.4 + e.total / 50)),
+      occurrences: e.total, lastSeenAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [learnings.scope, learnings.scopeKey, learnings.pattern],
+      set: {
+        evidence: { kind, mejor: e.mejor, peor: e.peor, igual: e.igual, total: e.total },
+        confidence: String(Math.min(0.9, 0.4 + e.total / 50)),
+        occurrences: e.total, lastSeenAt: new Date(),
+      },
+    });
+    lecciones += 1;
+  }
+  return { lecciones };
 }
 
 let outcomeTimer: ReturnType<typeof setInterval> | null = null;
