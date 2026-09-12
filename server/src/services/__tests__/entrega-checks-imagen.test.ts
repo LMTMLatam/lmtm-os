@@ -101,3 +101,44 @@ describe("firma", () => {
     expect(verificarImagen.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// El flag existe porque las placas del pipeline salen SIN texto a propósito
+// (los modelos escriben con faltas, el texto lo monta diseño). Sin avisarle al
+// verificador, marca "no tiene texto ni logo" como problema en TODAS: medido
+// contra una imagen real, mismo archivo, ok:false sin el flag y ok:true con él.
+describe("sinTextoEsperado", () => {
+  it("le dice al modelo que la ausencia de texto y logo no es un problema", async () => {
+    const capturadas: string[] = [];
+    vi.doMock("../nvidia-modelos.js", () => ({
+      nvidiaConfigurado: () => true,
+      verImagen: async (instruccion: string) => {
+        capturadas.push(instruccion);
+        return { texto: JSON.stringify({ descripcion: "x", legible: true, marcaAjena: null, idiomaTextoOk: true, problemas: [] }) };
+      },
+    }));
+    const { verificarImagen: fn } = await import("../entrega-checks.js");
+
+    await fn("https://ejemplo.test/a.jpg", { nombreCliente: "MAERS", sinTextoEsperado: true });
+    expect(capturadas[0]).toContain("SIN texto");
+    expect(capturadas[0]).toContain("NO es un problema");
+    // Con el flag, "legible" pasa a significar solo render fallado.
+    expect(capturadas[0]).toContain("render falló");
+
+    await fn("https://ejemplo.test/a.jpg", { nombreCliente: "MAERS" });
+    expect(capturadas[1]).not.toContain("NO es un problema");
+    expect(capturadas[1]).toContain("texto está cortado");
+  });
+
+  it("aun con el flag sigue detectando la marca de otro cliente", async () => {
+    // Lo que NO se relaja: la contaminación entre cuentas es el riesgo caro y
+    // no depende de que la pieza lleve texto.
+    vi.doMock("../nvidia-modelos.js", () => ({
+      nvidiaConfigurado: () => true,
+      verImagen: async () => ({ texto: JSON.stringify({ descripcion: "x", legible: true, marcaAjena: "BOERO", idiomaTextoOk: true, problemas: [] }) }),
+    }));
+    const { verificarImagen: fn } = await import("../entrega-checks.js");
+    const r = await fn("https://ejemplo.test/a.jpg", { nombreCliente: "MAERS", otrosClientes: ["BOERO"], sinTextoEsperado: true });
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join(" ")).toContain("BOERO");
+  });
+});

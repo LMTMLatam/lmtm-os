@@ -623,11 +623,19 @@ async function entregarPlacas(
     },
   });
 
+  // Mirar la pieza antes de que la aprueben. Hasta acá nadie la veía: el
+  // pipeline valida el TEXTO del entregable y la pieza es una imagen, así que
+  // un render deforme o —lo caro— una referencia de marca de OTRO cliente
+  // llegaba al equipo sin una sola señal. No bloquea la entrega: el comentario
+  // aparece justo donde se decide si la pieza va, que es el momento útil.
+  const revision = await revisarPlacas(db, cliente, placas);
+
   const lineas = [
     plan.formato === "carrusel"
       ? `🎨 Carrusel generado — ${subidas.length} placa(s) en la carpeta PLACAS del cliente`
       : `🎨 Placa generada — en la carpeta PLACAS del cliente`,
     "",
+    ...revision,
     ...subidas.map((s) => `• Slide ${s.slide}: ${s.link}${s.texto ? `\n   Texto que va encima: "${s.texto}"` : ""}`),
     "",
     sheetMsg,
@@ -900,4 +908,55 @@ export function initVideoHiggsfield(db: Db): void {
   setTimeout(tick, 90_000).unref?.();
   setInterval(tick, 10 * 60_000).unref?.();
   console.log(`[higgsfield] generación de contenido activa (etiqueta ClickUp: "${TAG_PEDIDO}").`);
+}
+
+/** Cuántas placas de un carrusel se miran. Un carrusel puede tener 10 y cada
+ *  mirada es una llamada al modelo de visión: con las 4 primeras ya se detecta
+ *  un problema de estilo o una marca ajena, que es lo que se busca acá. */
+export const MAX_PLACAS_A_MIRAR = 4;
+
+/**
+ * Pasa las placas por el verificador visual y devuelve las líneas para el
+ * comentario de ClickUp. Devuelve [] cuando no hay nada que decir: un
+ * comentario que dice "revisado, todo bien" en cada pieza se vuelve ruido y a
+ * la semana nadie lo lee.
+ */
+async function revisarPlacas(
+  db: Db,
+  cliente: { id: string; name: string },
+  placas: Array<{ url: string; slide: number }>,
+): Promise<string[]> {
+  try {
+    const { verificarImagen } = await import("./entrega-checks.js");
+    const otros = (await db.select({ name: clients.name }).from(clients).where(eq(clients.status, "active")))
+      .map((c) => c.name)
+      .filter((n) => n !== cliente.name);
+
+    const hallazgos: string[] = [];
+    let sinVerificar = 0;
+    for (const p of placas.slice(0, MAX_PLACAS_A_MIRAR)) {
+      const r = await verificarImagen(p.url, {
+        nombreCliente: cliente.name,
+        otrosClientes: otros,
+        // Las placas salen sin texto a propósito; sin esto el verificador
+        // reporta "no tiene texto ni logo" en todas.
+        sinTextoEsperado: true,
+      });
+      if (r.sinVerificar) { sinVerificar += 1; continue; }
+      for (const problema of r.problemas) hallazgos.push(`• Slide ${p.slide}: ${problema}`);
+    }
+
+    if (hallazgos.length > 0) {
+      return ["⚠️ *Revisión visual — mirar antes de aprobar:*", ...hallazgos, ""];
+    }
+    // Que no se haya podido mirar SÍ se dice. Callarlo deja al equipo creyendo
+    // que la pieza pasó un control que nunca corrió.
+    if (sinVerificar > 0) {
+      return [`_(No se pudo revisar visualmente ${sinVerificar} placa(s): el modelo de visión no respondió.)_`, ""];
+    }
+    return [];
+  } catch (e) {
+    console.warn("[higgsfield] revisión visual falló:", e instanceof Error ? e.message : e);
+    return [];
+  }
 }

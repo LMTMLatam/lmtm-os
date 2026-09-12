@@ -164,7 +164,15 @@ export interface ChecksImagen extends ResultadoChecks {
  */
 export async function verificarImagen(
   imagenUrl: string,
-  opts: { nombreCliente?: string; otrosClientes?: string[] } = {},
+  opts: {
+    nombreCliente?: string;
+    otrosClientes?: string[];
+    /** Las placas del pipeline salen SIN texto A PROPÓSITO: los modelos
+     *  escriben con faltas y el texto lo monta diseño después. Sin avisarle,
+     *  el verificador marca "no tiene texto ni logo" como problema en TODAS —
+     *  medido el 11/9/26 en la primera prueba contra una placa real. */
+    sinTextoEsperado?: boolean;
+  } = {},
 ): Promise<ChecksImagen> {
   const { verImagen, nvidiaConfigurado } = await import("./nvidia-modelos.js");
   if (!nvidiaConfigurado()) {
@@ -178,10 +186,17 @@ export async function verificarImagen(
     "",
     `La pieza es del cliente: ${opts.nombreCliente ?? "(sin especificar)"}.`,
     otros.length ? `Otros clientes de la agencia, NO deben aparecer: ${otros.join(", ")}.` : "",
+    opts.sinTextoEsperado
+      ? "IMPORTANTE: esta pieza va SIN texto y SIN logo a propósito — el texto lo monta diseño después. Que no tenga texto ni marca NO es un problema y no lo reportes. Evaluá solo la imagen."
+      : "",
     "",
-    "legible=false si el texto está cortado, encimado, ilegible o el render falló.",
+    opts.sinTextoEsperado
+      ? "legible=false SOLO si el render falló: manos o cuerpos deformes, objetos derretidos, artefactos, imagen rota."
+      : "legible=false si el texto está cortado, encimado, ilegible o el render falló.",
     "marcaAjena = el nombre si ves el logo o el nombre de otro cliente de la lista; null si no.",
-    "idiomaTextoOk=false si el texto visible NO está en español.",
+    opts.sinTextoEsperado
+      ? "idiomaTextoOk=true siempre (no se espera texto)."
+      : "idiomaTextoOk=false si el texto visible NO está en español.",
     "problemas = una frase por cada cosa concreta a corregir. Vacío si está todo bien.",
   ].filter(Boolean).join("\n");
 
