@@ -391,6 +391,21 @@ async function minimaxOnce(systemPrompt: string, userContent: string): Promise<s
 }
 
 export async function aiNarrative(systemPrompt: string, userContent: string): Promise<string | null> {
+  // DeepSeek primero: no devuelve reasoning_content (así que no se come el
+  // presupuesto) y en las pruebas del 11/9/26 no filtró CJK, que es el problema
+  // crónico de MiniMax en español y el motivo del reintento de abajo. Si no
+  // está configurado o falla, sigue el camino de siempre sin cambiar nada.
+  try {
+    const { analizarTexto, nvidiaConfigurado } = await import("./nvidia-modelos.js");
+    if (nvidiaConfigurado()) {
+      const r = await analizarTexto(`${systemPrompt}\n\n${LANG_RULE}`, userContent, { maxTokens: 4000, temperature: 0.5 });
+      if (r.texto && !CJK_RE.test(r.texto)) return r.texto;
+      if (r.motivo) console.warn(`[aiNarrative] deepseek sin texto (${r.motivo}): ${r.detalle ?? ""} — sigo con MiniMax`);
+    }
+  } catch (e) {
+    console.warn("[aiNarrative] deepseek falló, sigo con MiniMax:", e instanceof Error ? e.message : e);
+  }
+
   const first = await minimaxOnce(systemPrompt, userContent);
   if (first && CJK_RE.test(first)) {
     const retry = await minimaxOnce(

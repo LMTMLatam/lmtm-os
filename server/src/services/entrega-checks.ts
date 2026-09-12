@@ -137,3 +137,89 @@ export async function gateBinario(args: { criterio: string; contenido: string; c
     return { ok: true, motivo: "" };
   }
 }
+
+// ── Check visual: mirar la placa antes de que salga ────────────────────────
+//
+// Todo lo de arriba lee TEXTO. La pieza que ve el cliente es una imagen, y
+// hasta ahora nadie la miraba: una placa con el logo de otro cliente, con el
+// texto cortado o con un render fallado pasaba todos los checks. Es el mismo
+// riesgo de contaminación entre cuentas que ya cubre el check de texto — el más
+// caro de una agencia — pero en el soporte donde de verdad se ve.
+//
+// kimi-k3 es lo único de la flota que puede mirar una imagen.
+
+export interface ChecksImagen extends ResultadoChecks {
+  /** true = no se pudo mirar la imagen. NO es lo mismo que "está bien": si el
+   *  modelo no contestó, decir que no hay problemas es mentir en verde. */
+  sinVerificar: boolean;
+  /** Lo que el modelo dijo que ve, para que quede en el issue. */
+  descripcion?: string;
+}
+
+/**
+ * Mira una placa/creatividad antes de entregarla.
+ *
+ * `nombreCliente` y `otrosClientes` se pasan explícitos para que el modelo pueda
+ * detectar la marca equivocada: sin la lista, "veo un logo" no dice nada.
+ */
+export async function verificarImagen(
+  imagenUrl: string,
+  opts: { nombreCliente?: string; otrosClientes?: string[] } = {},
+): Promise<ChecksImagen> {
+  const { verImagen, nvidiaConfigurado } = await import("./nvidia-modelos.js");
+  if (!nvidiaConfigurado()) {
+    return { ok: true, problemas: [], sinVerificar: true };
+  }
+
+  const otros = (opts.otrosClientes ?? []).filter((n) => n && n !== opts.nombreCliente).slice(0, 40);
+  const instruccion = [
+    "Sos el control de calidad de una agencia de marketing. Mirá la imagen y respondé ÚNICAMENTE con JSON:",
+    '{"descripcion":"qué se ve, 1 frase","legible":true|false,"marcaAjena":null|"nombre","idiomaTextoOk":true|false,"problemas":["..."]}',
+    "",
+    `La pieza es del cliente: ${opts.nombreCliente ?? "(sin especificar)"}.`,
+    otros.length ? `Otros clientes de la agencia, NO deben aparecer: ${otros.join(", ")}.` : "",
+    "",
+    "legible=false si el texto está cortado, encimado, ilegible o el render falló.",
+    "marcaAjena = el nombre si ves el logo o el nombre de otro cliente de la lista; null si no.",
+    "idiomaTextoOk=false si el texto visible NO está en español.",
+    "problemas = una frase por cada cosa concreta a corregir. Vacío si está todo bien.",
+  ].filter(Boolean).join("\n");
+
+  const r = await verImagen(instruccion, imagenUrl);
+  if (!r.texto) {
+    console.warn(`[entrega-checks] no se pudo mirar la imagen (${r.motivo}): ${r.detalle ?? ""}`);
+    return { ok: true, problemas: [], sinVerificar: true };
+  }
+
+  const parsed = parsearJson(r.texto);
+  if (!parsed) return { ok: true, problemas: [], sinVerificar: true, descripcion: r.texto.slice(0, 200) };
+
+  const problemas: string[] = [];
+  if (parsed.legible === false) problemas.push("La imagen tiene texto cortado, encimado o ilegible: revisá el render antes de entregarla.");
+  if (typeof parsed.marcaAjena === "string" && parsed.marcaAjena.trim()) {
+    problemas.push(`La imagen muestra la marca de OTRO cliente ("${parsed.marcaAjena.trim()}"). No se entrega así.`);
+  }
+  if (parsed.idiomaTextoOk === false) problemas.push("El texto de la imagen no está en español.");
+  for (const p of Array.isArray(parsed.problemas) ? parsed.problemas : []) {
+    if (typeof p === "string" && p.trim()) problemas.push(p.trim().slice(0, 300));
+  }
+
+  return {
+    ok: problemas.length === 0,
+    problemas: [...new Set(problemas)].slice(0, 8),
+    sinVerificar: false,
+    descripcion: typeof parsed.descripcion === "string" ? parsed.descripcion.slice(0, 300) : undefined,
+  };
+}
+
+/** El modelo suele envolver el JSON en prosa o en un bloque de código. */
+function parsearJson(raw: string): Record<string, unknown> | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}

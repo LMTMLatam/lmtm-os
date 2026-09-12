@@ -21,6 +21,24 @@ model_list:
       model: openai/z-ai/glm-5.2
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY_2
+  # Kimi K3 en NVIDIA: el ÚNICO modelo de la flota que ve imágenes. Verificado
+  # 11/9/26 (describió una foto correctamente en español). OJO: es un modelo de
+  # RAZONAMIENTO — con max_tokens chico devuelve content vacío y el texto queda
+  # en reasoning_content, con HTTP 200. Medido: 16 tokens falla, 4096 anda.
+  # No le pongas un cap bajo a este model_name.
+  - model_name: lmtm-vision
+    litellm_params:
+      model: openai/moonshotai/kimi-k3
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY_VISION
+      max_tokens: 4096
+  # DeepSeek V4 Pro: texto y análisis. No devuelve reasoning_content y no filtró
+  # CJK en las pruebas, que es el defecto crónico de MiniMax en español.
+  - model_name: lmtm-deepseek
+    litellm_params:
+      model: openai/deepseek-ai/deepseek-v4-pro-0813
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY_TEXTO
   # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).
   - model_name: lmtm-minimax
     litellm_params:
@@ -44,7 +62,10 @@ model_list:
 
 litellm_settings:
   # If the primary (NVIDIA) errors/times out, retry the request on MiniMax.
-  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}]
+  # lmtm-vision NO tiene fallback a propósito: MiniMax y GLM no ven imágenes, y
+  # caer a un modelo ciego devolvería una descripción inventada con cara de
+  # respuesta válida. Mejor que falle y se note.
+  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}, {"lmtm-deepseek": ["lmtm-minimax"]}]
   drop_params: true
   request_timeout: 600
   num_retries: 1
