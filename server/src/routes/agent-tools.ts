@@ -1750,7 +1750,7 @@ export function agentToolsRoutes(
             revisados: r.revisados,
             rotos: r.rotas.length,
             porEslabon: r.rotas.reduce<Record<string, number>>((a, x) => { a[x.eslabon] = (a[x.eslabon] ?? 0) + 1; return a; }, {}),
-            clientes: r.rotas.map((x) => ({ cliente: x.cliente, clientId: x.clientId, eslabon: x.eslabon, diasSin: x.diasSin })),
+            clientes: r.rotas.map((x) => ({ cliente: x.cliente, clientId: x.clientId, eslabon: x.eslabon, diasSin: x.diasSin, detalle: x.detalle })),
           }));
         } catch (e) {
           return reply(false, `get_cadena_publicacion: ${e instanceof Error ? e.message : String(e)}`);
