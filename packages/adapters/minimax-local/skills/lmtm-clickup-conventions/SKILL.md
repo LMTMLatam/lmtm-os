@@ -38,7 +38,7 @@ Estas reglas son LEY para leer o crear posts:
    - **Sin** etiqueta y con el start_date vencido → eso SÍ es un problema real:
      nunca se disparó.
    - **Con** etiqueta → no concluyas nada. Para saber si salió de verdad,
-     `get_cadena_publicacion` (mide el efecto: destino en Make, contenido listo,
+     `lmtmGetCadenaPublicacion` (mide el efecto: destino en Make, contenido listo,
      despacho real y posteos en la red).
    **Tampoco midas publicación por el status de ClickUp**: son custom por cliente
    y no son confiables.

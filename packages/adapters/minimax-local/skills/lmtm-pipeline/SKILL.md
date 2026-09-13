@@ -69,7 +69,7 @@ Cuando "un post no salió" o "un dato no llegó", recorré el pipeline en orden 
    **Las operaciones por corrida dicen dónde murió**: 7 = publicó · 3 = llegó pero no había pieza en
    Drive · 1-2 = lo frenó un filtro · ninguna corrida = el despachador nunca le mandó.
    Una corrida en SUCCESS no prueba nada: un filtro que no pasa termina en verde sin correr un solo
-   módulo aguas abajo. Atajo para todo esto: `get_cadena_publicacion`.
+   módulo aguas abajo. Atajo para todo esto: `lmtmGetCadenaPublicacion`.
 4. **Publicación** — verificá la red real (ver fallback de posteos en `lmtm-tool-reference`: `lmtmGetClientOrganicPosts` o browser).
 
 Reportá en qué paso se cortó y qué viste, no solo "no salió".
