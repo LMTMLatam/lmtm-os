@@ -24,6 +24,16 @@ import { sql } from "drizzle-orm";
 export const DIAS_REFERENCIA = 30;
 /** Ventana "ahora". Corta: una cuenta frenada se nota en días, no en semanas. */
 export const DIAS_RECIENTES = 4;
+/**
+ * Días recientes que NO se cuentan porque todavía están entrando.
+ *
+ * El día en curso es parcial: medido el 13/9/26 a media mañana, ads_insights
+ * tenía 3 clientes y $744 para hoy contra 16 clientes y $375.628 de ayer.
+ * Incluirlo en la ventana "actual" y dividir igual por los 4 días deflactaba el
+ * gasto actual entre **25% y 33% en TODOS los clientes**, y esa deflación se
+ * reportaba como plata parada que no existía.
+ */
+export const DIAS_IGNORADOS = 1;
 /** Por debajo de esto no se reporta. Sin piso, el redondeo de cuentas dormidas
  *  genera costos de $12/día que ensucian el orden. */
 export const PISO_ARS_POR_DIA = 500;
@@ -49,21 +59,33 @@ export function plataParada(gastoDiarioPrevio: number, gastoDiarioActual: number
   return caida < PISO_ARS_POR_DIA ? 0 : Math.round(caida);
 }
 
-/** Costo por cliente, en una sola consulta. */
+/** Costo por cliente, en una sola consulta.
+ *
+ *  Las dos ventanas terminan `DIAS_IGNORADOS` días atrás para no mezclar el día
+ *  en curso, que está a medio sincronizar. Los cortes son:
+ *    actual = los `DIAS_RECIENTES` días completos más nuevos
+ *    previo = los `DIAS_REFERENCIA - DIAS_RECIENTES` días anteriores a esos
+ */
 export async function costoPorCliente(db: Db): Promise<Map<string, CostoCliente>> {
+  const finVentana = DIAS_IGNORADOS;                       // hasta acá se ignora
+  const inicioActual = DIAS_IGNORADOS + DIAS_RECIENTES;    // arranque de "ahora"
+  const inicioPrevio = DIAS_IGNORADOS + DIAS_REFERENCIA;   // arranque de la referencia
+  const dias = (n: number) => sql.raw(String(n));
+
   const filas = await db
     .select({
       clientId: adsInsights.clientId,
       previo: sql<string>`coalesce(sum(${adsInsights.spend}) filter (
-        where ${adsInsights.date} > (current_date - ${sql.raw(String(DIAS_REFERENCIA))}::int)
-          and ${adsInsights.date} <= (current_date - ${sql.raw(String(DIAS_RECIENTES))}::int)
+        where ${adsInsights.date} > (current_date - ${dias(inicioPrevio)}::int)
+          and ${adsInsights.date} <= (current_date - ${dias(inicioActual)}::int)
       ), 0)`,
       actual: sql<string>`coalesce(sum(${adsInsights.spend}) filter (
-        where ${adsInsights.date} > (current_date - ${sql.raw(String(DIAS_RECIENTES))}::int)
+        where ${adsInsights.date} > (current_date - ${dias(inicioActual)}::int)
+          and ${adsInsights.date} <= (current_date - ${dias(finVentana)}::int)
       ), 0)`,
     })
     .from(adsInsights)
-    .where(sql`${adsInsights.date} > (current_date - ${sql.raw(String(DIAS_REFERENCIA))}::int)`)
+    .where(sql`${adsInsights.date} > (current_date - ${dias(inicioPrevio)}::int)`)
     .groupBy(adsInsights.clientId);
 
   const out = new Map<string, CostoCliente>();

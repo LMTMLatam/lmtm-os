@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PISO_ARS_POR_DIA, ordenarPorCosto, plataParada, type CostoCliente } from "../costo-de-no-hacer.js";
+import { DIAS_IGNORADOS, DIAS_RECIENTES, DIAS_REFERENCIA, PISO_ARS_POR_DIA, ordenarPorCosto, plataParada, type CostoCliente } from "../costo-de-no-hacer.js";
 
 describe("plataParada", () => {
   it("mide la caída de gasto diario", () => {
@@ -51,5 +51,28 @@ describe("ordenarPorCosto", () => {
   it("el cliente sin costo medido queda en cero, no rompe", () => {
     const r = ordenarPorCosto([{ id: "x", clientId: "desconocido", diasParado: 1 }], costos);
     expect(r[0].arsPorDia).toBe(0);
+  });
+});
+
+// El día en curso está a medio sincronizar: medido el 13/9/26 a media mañana,
+// ads_insights tenía 3 clientes y $744 para hoy contra 16 y $375.628 de ayer.
+// Contarlo y dividir igual por los 4 días deflactaba el gasto actual 25-33% en
+// TODOS los clientes, y esa deflación se reportaba como plata parada inventada.
+// El total cayó de ARS 122.231/día a 63.819 al excluirlo.
+describe("DIAS_IGNORADOS — el día en curso no se cuenta", () => {
+  it("ignora al menos el día en curso", () => {
+    expect(DIAS_IGNORADOS).toBeGreaterThanOrEqual(1);
+  });
+
+  it("las dos ventanas son contiguas y no se pisan", () => {
+    const finVentana = DIAS_IGNORADOS;
+    const inicioActual = DIAS_IGNORADOS + DIAS_RECIENTES;
+    const inicioPrevio = DIAS_IGNORADOS + DIAS_REFERENCIA;
+    // actual = (inicioActual, finVentana] ; previo = (inicioPrevio, inicioActual]
+    expect(inicioActual).toBeGreaterThan(finVentana);
+    expect(inicioPrevio).toBeGreaterThan(inicioActual);
+    // Los días de cada ventana tienen que coincidir con el divisor que se usa.
+    expect(inicioActual - finVentana).toBe(DIAS_RECIENTES);
+    expect(inicioPrevio - inicioActual).toBe(DIAS_REFERENCIA - DIAS_RECIENTES);
   });
 });
