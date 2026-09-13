@@ -13,6 +13,8 @@ const sano: EstadoCliente = {
   tieneSyncOrganico: true,
   diasDesdeSync: 0,
   diasDesdeUltimoPost: 1,
+  postsFuturos: 5,
+  postsFuturosListos: 5,
 };
 
 describe("diagnosticar — primer eslabón roto de la cadena", () => {
@@ -68,5 +70,44 @@ describe("diagnosticar — primer eslabón roto de la cadena", () => {
     expect(diagnosticar({
       ...sano, diasDesdeDespacho: 8, diasDesdeSync: 0, diasDesdeUltimoPost: 6,
     })).toBeNull();
+  });
+});
+
+describe("diagnosticar — el contenido que viene", () => {
+  it("sin calendario cargado avisa antes de que deje de publicar", () => {
+    expect(diagnosticar({ ...sano, postsFuturos: 0, postsFuturosListos: 0 })).toBe("sin_calendario");
+  });
+
+  // El caso COSA PROPIEDADES del 11/9/26: 11 posts programados, ninguno
+  // completo. Todos se iban a descartar en silencio y la tarea igual quedaba
+  // etiquetada como enviada, así que ningún tablero lo mostraba.
+  it("con calendario pero ningún post completo, avisa que van a fallar", () => {
+    expect(diagnosticar({ ...sano, postsFuturos: 11, postsFuturosListos: 0 })).toBe("contenido_incompleto");
+  });
+
+  it("alcanza con UNO listo para no acusar: el resto se completa a tiempo", () => {
+    expect(diagnosticar({ ...sano, postsFuturos: 11, postsFuturosListos: 1 })).toBeNull();
+  });
+
+  // Si el despachador está mudo Y no hay nada cargado, el problema es la carga.
+  // Reportar "Make no despacha" manda a revisar el escenario y se pierde la tarde.
+  it("la falta de contenido gana sobre el despachador mudo, porque es su causa", () => {
+    expect(diagnosticar({
+      ...sano, postsFuturos: 0, postsFuturosListos: 0, diasDesdeDespacho: 245,
+    })).toBe("sin_calendario");
+  });
+
+  it("pero sin destino sigue ganando sobre todo: no hay a dónde mandar nada", () => {
+    expect(diagnosticar({
+      ...sano, tieneDestino: false, postsFuturos: 0, postsFuturosListos: 0,
+    })).toBe("sin_destino");
+  });
+
+  // No ver no es lo mismo que no haber: si ClickUp no respondió, null.
+  it("si no se pudo leer ClickUp no inventa un problema de contenido", () => {
+    expect(diagnosticar({ ...sano, postsFuturos: null, postsFuturosListos: null })).toBeNull();
+    expect(diagnosticar({
+      ...sano, postsFuturos: null, postsFuturosListos: null, diasDesdeDespacho: 99,
+    })).toBe("despachador_mudo");
   });
 });

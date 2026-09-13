@@ -288,12 +288,25 @@ export interface RedesCalendarItem {
    *  valor, educativo, comercial…). Null when the task hasn't set it. */
   objective: string | null;
   url: string | null;
+  /** Si al llegar su fecha va a pasar las compuertas del despachador: aprobado,
+   *  con copy y con la pieza cargada. Un post que no está listo se descarta en
+   *  silencio — y la tarea igual queda etiquetada como enviada. */
+  readyToPublish: boolean;
+  /** Qué le falta, para poder avisarlo sin que nadie abra la tarea. */
+  missing: string[];
 }
 
 const PLATAFORMAS_RE = /plataforma/i;
 const TIPO_CONTENIDO_RE = /tipo\s*de\s*contenido/i;
 const OBJETIVO_RE = /objetivo\s*del?\s*contenido/i; // "Objetivo del/de Contenido"
 const FORMAT_TAG_RE = /reel|carrusel|carousel|story|historia|est[aá]tico|foto|video/i;
+
+// Las tres compuertas que el despachador (escenario 1427144) exige al llegar la
+// fecha del post. Si falta una, descarta el bundle en silencio — y la tarea
+// igual queda etiquetada "mandado a make", porque esa etiqueta la pone ClickUp.
+const APROBACION_RE = /aprobaci[oó]n/i;
+const COPY_RE = /copy/i;                                    // "Copy o/y Subtitulo"
+const PIEZA_RE = /enlace\s*de\s*publicaci|imagen\s*o\s*video/i;
 
 interface CuLabelField {
   name?: string;
@@ -310,6 +323,28 @@ function labelsFromField(cf: CuLabelField | undefined): string[] {
   const ids = Array.isArray(val) ? val.map(String) : val != null && val !== "" ? [String(val)] : [];
   return ids.map((id) => byId.get(id) ?? "").filter(Boolean);
 }
+
+/** Un drop_down de ClickUp guarda el uuid de la opción o su índice, según cómo
+ *  se haya creado la lista. Resolvemos las dos formas y devolvemos la etiqueta.
+ *  El despachador compara contra el índice 2 ("APROBADO") — eso se rompe en
+ *  cuanto alguien reordena las opciones de una lista, así que acá miramos el
+ *  texto. */
+function dropdownLabel(cf: CuLabelField | undefined): string | null {
+  if (!cf || cf.value === null || cf.value === undefined || cf.value === "") return null;
+  const opts = cf.type_config?.options ?? [];
+  const v = String(cf.value);
+  const porId = opts.find((o) => o.id === v);
+  if (porId) return (porId.label ?? porId.name ?? "").trim() || null;
+  const i = Number(v);
+  if (Number.isInteger(i) && i >= 0 && i < opts.length) {
+    const o = opts[i];
+    return (o.label ?? o.name ?? "").trim() || null;
+  }
+  return null;
+}
+
+const tieneTexto = (cf: CuLabelField | undefined): boolean =>
+  cf?.value != null && String(cf.value).trim() !== "";
 
 /**
  * The client's "Redes Sociales" list as a content calendar: one entry per task
@@ -352,6 +387,11 @@ export async function getRedesCalendar(
     const objective = labelsFromField(cfs.find((c) => OBJETIVO_RE.test(c.name ?? "")))[0] ?? null;
     const sName = t.status?.status ?? "sin estado";
     const sentToMake = hasSentToMakeTag(t.tags);
+    const aprobacion = dropdownLabel(cfs.find((c) => APROBACION_RE.test(c.name ?? "")));
+    const missing: string[] = [];
+    if (!/aprobad/i.test(aprobacion ?? "")) missing.push("aprobación");
+    if (!tieneTexto(cfs.find((c) => COPY_RE.test(c.name ?? "")))) missing.push("copy");
+    if (!tieneTexto(cfs.find((c) => PIEZA_RE.test(c.name ?? "")))) missing.push("pieza");
     out.push({
       id: t.id,
       name: t.name,
@@ -363,6 +403,8 @@ export async function getRedesCalendar(
       format,
       objective,
       url: t.url ?? null,
+      readyToPublish: missing.length === 0,
+      missing,
     });
   }
   out.sort((a, b) => a.date.localeCompare(b.date));

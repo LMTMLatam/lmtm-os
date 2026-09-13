@@ -24,6 +24,7 @@ import type { Db } from "@paperclipai/db";
 import { clients, organicPosts } from "@paperclipai/db";
 import { eq, sql } from "drizzle-orm";
 import { makeConfigured, makeDestinos } from "./make.js";
+import { getRedesCalendar } from "./clickup-sync.js";
 import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
 
 const DIA = 86_400_000;
@@ -42,7 +43,17 @@ export const DIAS_DESPACHO_SIN_RED = 5;
  *  todos esto. No ver no es lo mismo que no haber pasado. */
 export const DIAS_SYNC_CONFIABLE = 3;
 
-export type Eslabon = "sin_destino" | "despachador_mudo" | "red_muda" | "sync_ciego";
+/** Cuánto futuro tiene que haber cargado para no avisar. Con menos que esto el
+ *  cliente se queda sin contenido antes de que nadie lo note. */
+export const DIAS_CALENDARIO_MINIMO = 7;
+
+export type Eslabon =
+  | "sin_destino"
+  | "sin_calendario"
+  | "contenido_incompleto"
+  | "despachador_mudo"
+  | "red_muda"
+  | "sync_ciego";
 
 export interface CadenaRota {
   clientId: string;
@@ -68,6 +79,11 @@ export interface EstadoCliente {
   tieneSyncOrganico: boolean;
   diasDesdeSync: number | null;
   diasDesdeUltimoPost: number | null;
+  /** Posts con fecha de acá en adelante. null = no se pudo leer ClickUp, y en
+   *  ese caso no se acusa: no ver no es lo mismo que no haber. */
+  postsFuturos: number | null;
+  /** De esos, cuántos pasarían las compuertas hoy (aprobado + copy + pieza). */
+  postsFuturosListos: number | null;
 }
 
 /**
@@ -77,6 +93,15 @@ export interface EstadoCliente {
  */
 export function diagnosticar(e: EstadoCliente): Eslabon | null {
   if (!e.tieneDestino) return "sin_destino";
+  // El contenido va ANTES del despacho porque es su causa: un despachador mudo
+  // con el calendario vacío no es un problema de Make, y mandar a revisar el
+  // escenario es hacer perder la tarde. Medido el 11/9/26: COSA PROPIEDADES
+  // tenía 11 posts programados y ninguno completo — todos se iban a descartar
+  // en silencio, con la tarea igual etiquetada como enviada.
+  if (e.postsFuturos !== null) {
+    if (e.postsFuturos === 0) return "sin_calendario";
+    if (e.postsFuturosListos === 0) return "contenido_incompleto";
+  }
   const d = e.diasDesdeDespacho;
   if (d === null || d === undefined || d > DIAS_SIN_DESPACHO) return "despachador_mudo";
   if (!e.tieneSyncOrganico) return null;
@@ -142,35 +167,67 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
     const dSync = tieneSync ? dias(ultimoSync.get(c.id) ?? null) : null;
     const dRed = tieneSync ? dias(ultimoEnRed.get(c.id) ?? null) : null;
 
+    // Lo que viene: sin esto solo se ve el pasado, y un cliente con el
+    // calendario vacío o con los posts a medio cargar aparece sano hasta que
+    // deja de publicar. Si ClickUp falla queda en null y NO se acusa.
+    let futuros: number | null = null;
+    let listos: number | null = null;
+    let proximo: string | null = null;
+    let falta: string[] = [];
+    try {
+      const cal = await getRedesCalendar(db, c.id, Date.now(), Date.now() + 30 * DIA);
+      if (cal) {
+        futuros = cal.length;
+        const ok = cal.filter((p) => p.readyToPublish);
+        listos = ok.length;
+        proximo = cal[0]?.date?.slice(0, 10) ?? null;
+        falta = [...new Set(cal.flatMap((p) => p.missing))];
+      }
+    } catch (e) {
+      console.warn(`[cadena] no se pudo leer el calendario de ${c.name}:`, e instanceof Error ? e.message : e);
+    }
+
     const eslabon = diagnosticar({
       tieneDestino: Boolean(destino),
       diasDesdeDespacho: dDespacho,
       tieneSyncOrganico: tieneSync,
       diasDesdeSync: dSync,
       diasDesdeUltimoPost: dRed,
+      postsFuturos: futuros,
+      postsFuturosListos: listos,
     });
     if (!eslabon) continue;
 
-    const diasSin = eslabon === 'sin_destino' ? null
+    const diasSin = eslabon === 'sin_destino' || eslabon === 'sin_calendario' || eslabon === 'contenido_incompleto' ? null
       : eslabon === 'despachador_mudo' ? dDespacho
       : eslabon === 'sync_ciego' ? dSync : dRed;
-    rotas.push({ clientId: c.id, cliente: c.name, eslabon, diasSin, detalle: DETALLE[eslabon]({ dDespacho, dSync, dRed }) });
+    rotas.push({
+      clientId: c.id, cliente: c.name, eslabon, diasSin,
+      detalle: DETALLE[eslabon]({ dDespacho, dSync, dRed, futuros, listos, proximo, falta }),
+    });
   }
 
   return { rotas, revisados: activos.length, ciego: false };
 }
 
-interface Contexto { dDespacho: number | null; dSync: number | null; dRed: number | null }
+interface Contexto {
+  dDespacho: number | null; dSync: number | null; dRed: number | null;
+  futuros?: number | null; listos?: number | null; proximo?: string | null; falta?: string[];
+}
 
 /** El detalle dice QUÉ mirar, no solo que algo falla: cada eslabón se arregla
  *  en un lugar distinto y sin esto el equipo abre el escenario equivocado. */
 const DETALLE: Record<Eslabon, (c: Contexto) => string> = {
   sin_destino: () =>
     "No está en el datastore de Make: el despachador no tiene a dónde mandarle los posts. Todo lo que se le programe se descarta en silencio.",
+  sin_calendario: (c) =>
+    `No tiene ningún post con fecha de acá en adelante${c.dDespacho !== null ? ` (el último despacho fue hace ${c.dDespacho} días)` : ""}. No hay nada que publicar: se carga en la planilla del cliente, no en ClickUp — el script nocturno pisa lo que se edite acá.`,
+  contenido_incompleto: (c) =>
+    `Tiene ${c.futuros} posts programados y ninguno va a salir: les falta ${c.falta?.length ? c.falta.join(" / ") : "aprobación, copy o pieza"}. El primero es el ${c.proximo ?? "próximo"}. Al llegar la fecha el despachador los descarta en silencio y la tarea igual queda etiquetada como enviada — hay que completarlos ANTES, aprobar después no sirve.`,
   despachador_mudo: (c) =>
     c.dDespacho === null
-      ? "Tiene destino configurado pero Make nunca despachó un post."
-      : `Make no despacha hace ${c.dDespacho} días. O no hay contenido programado, o las compuertas (APROBADO + Copy) lo están frenando.`,
+      ? "Tiene destino y contenido listo, pero Make nunca despachó un post. Revisar la automatización de ClickUp de su lista de Redes."
+      : `Make no despacha hace ${c.dDespacho} días y sí hay contenido listo por delante: el problema está en el caño, no en la carga.`,
   sync_ciego: (c) =>
     `El sync orgánico de este cliente no trae datos hace ${c.dSync ?? "siempre"} días. No sabemos si publica o no — arreglar el sync antes de sacar conclusiones (suele ser el token o el permiso de la página).`,
   red_muda: (c) =>
@@ -179,6 +236,8 @@ const DETALLE: Record<Eslabon, (c: Contexto) => string> = {
 
 const TITULO: Record<Eslabon, string> = {
   sin_destino: "🚫 Sin destino en Make — lo que se les programe no va a ningún lado",
+  sin_calendario: "📭 Sin calendario cargado — se quedan sin publicar",
+  contenido_incompleto: "⏳ Tienen calendario pero ningún post está completo",
   despachador_mudo: "🔇 Make no despacha hace días",
   red_muda: "👻 Make dice que publicó y en la red no está",
   sync_ciego: "🙈 Sync orgánico parado — no estamos viendo si publican",
