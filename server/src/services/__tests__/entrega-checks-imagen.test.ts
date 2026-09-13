@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { verificarImagen } from "../entrega-checks.js";
+import { marcasAjenas, verificarImagen } from "../entrega-checks.js";
 
 const IMG = "https://ejemplo.test/placa.jpg";
 
@@ -23,7 +23,7 @@ async function correr(url = IMG, opts = { nombreCliente: "MAERS", otrosClientes:
 
 describe("verificarImagen", () => {
   it("una placa sana pasa sin problemas", async () => {
-    modeloDice(JSON.stringify({ descripcion: "Placa con logo de MAERS", legible: true, marcaAjena: null, idiomaTextoOk: true, problemas: [] }));
+    modeloDice(JSON.stringify({ descripcion: "Placa con logo de MAERS", legible: true, marcasVisibles: [], idiomaTextoOk: true, problemas: [] }));
     const r = await correr();
     expect(r.ok).toBe(true);
     expect(r.sinVerificar).toBe(false);
@@ -34,7 +34,7 @@ describe("verificarImagen", () => {
   // El riesgo más caro de una agencia, y el único que solo se ve MIRANDO la
   // pieza: el check de texto no puede detectar un logo.
   it("detecta la marca de otro cliente en la imagen", async () => {
-    modeloDice(JSON.stringify({ descripcion: "Placa", legible: true, marcaAjena: "Distrillantas", idiomaTextoOk: true, problemas: [] }));
+    modeloDice(JSON.stringify({ descripcion: "Placa", legible: true, marcasVisibles: ["Distrillantas"], idiomaTextoOk: true, problemas: [] }));
     const r = await correr();
     expect(r.ok).toBe(false);
     expect(r.problemas.join(" ")).toContain("Distrillantas");
@@ -42,7 +42,7 @@ describe("verificarImagen", () => {
   });
 
   it("marca el render fallado y el idioma equivocado", async () => {
-    modeloDice(JSON.stringify({ descripcion: "Placa", legible: false, marcaAjena: null, idiomaTextoOk: false, problemas: [] }));
+    modeloDice(JSON.stringify({ descripcion: "Placa", legible: false, marcasVisibles: [], idiomaTextoOk: false, problemas: [] }));
     const r = await correr();
     expect(r.ok).toBe(false);
     expect(r.problemas.some((p) => p.includes("ilegible"))).toBe(true);
@@ -73,7 +73,7 @@ describe("verificarImagen", () => {
 
   it("no repite el mismo problema dos veces", async () => {
     modeloDice(JSON.stringify({
-      descripcion: "x", legible: false, marcaAjena: null, idiomaTextoOk: true,
+      descripcion: "x", legible: false, marcasVisibles: [], idiomaTextoOk: true,
       problemas: ["La imagen tiene texto cortado, encimado o ilegible: revisá el render antes de entregarla."],
     }));
     const r = await correr();
@@ -113,7 +113,7 @@ describe("sinTextoEsperado", () => {
       nvidiaConfigurado: () => true,
       verImagen: async (instruccion: string) => {
         capturadas.push(instruccion);
-        return { texto: JSON.stringify({ descripcion: "x", legible: true, marcaAjena: null, idiomaTextoOk: true, problemas: [] }) };
+        return { texto: JSON.stringify({ descripcion: "x", legible: true, marcasVisibles: [], idiomaTextoOk: true, problemas: [] }) };
       },
     }));
     const { verificarImagen: fn } = await import("../entrega-checks.js");
@@ -134,11 +134,53 @@ describe("sinTextoEsperado", () => {
     // no depende de que la pieza lleve texto.
     vi.doMock("../nvidia-modelos.js", () => ({
       nvidiaConfigurado: () => true,
-      verImagen: async () => ({ texto: JSON.stringify({ descripcion: "x", legible: true, marcaAjena: "BOERO", idiomaTextoOk: true, problemas: [] }) }),
+      verImagen: async () => ({ texto: JSON.stringify({ descripcion: "x", legible: true, marcasVisibles: ["BOERO"], idiomaTextoOk: true, problemas: [] }) }),
     }));
     const { verificarImagen: fn } = await import("../entrega-checks.js");
     const r = await fn("https://ejemplo.test/a.jpg", { nombreCliente: "MAERS", otrosClientes: ["BOERO"], sinTextoEsperado: true });
     expect(r.ok).toBe(false);
     expect(r.problemas.join(" ")).toContain("BOERO");
+  });
+});
+
+// El cruce se sacó del prompt: antes la lista de clientes iba recortada a 40 y
+// la agencia tiene 59, así que 18 marcas quedaban fuera del control en silencio
+// — en el check cuyo único trabajo es detectar exactamente eso.
+describe("marcasAjenas", () => {
+  const otros = ["Distrillantas", "MA PROPIEDADES", "BOERO", "Gala"];
+
+  it("detecta una marca de otro cliente", () => {
+    expect(marcasAjenas(["Distrillantas"], "MAERS", otros)).toEqual(["Distrillantas"]);
+  });
+
+  it("no acusa a la marca del propio cliente", () => {
+    expect(marcasAjenas(["MAERS"], "MAERS", otros)).toEqual([]);
+  });
+
+  it("aguanta variantes de escritura del mismo nombre", () => {
+    expect(marcasAjenas(["MA Propiedades S.A."], "MAERS", otros)).toEqual(["MA PROPIEDADES"]);
+    expect(marcasAjenas(["boero"], "MAERS", otros)).toEqual(["BOERO"]);
+  });
+
+  it("una marca de un tercero no es problema nuestro", () => {
+    // Una Coca-Cola en una góndola no es contaminación entre cuentas.
+    expect(marcasAjenas(["Coca-Cola", "Pepsi"], "MAERS", otros)).toEqual([]);
+  });
+
+  // Sin el mínimo de largo, un cliente llamado "Gala" matchea dentro de
+  // "regalado" y cada paisaje sale acusado.
+  it("no matchea nombres cortos dentro de otras palabras", () => {
+    expect(marcasAjenas(["regalado"], "MAERS", otros)).toEqual([]);
+  });
+
+  it("sin marcas visibles no reporta nada, y aguanta basura", () => {
+    expect(marcasAjenas([], "MAERS", otros)).toEqual([]);
+    expect(marcasAjenas(null, "MAERS", otros)).toEqual([]);
+    expect(marcasAjenas("no es un array", "MAERS", otros)).toEqual([]);
+    expect(marcasAjenas([null, 42, ""], "MAERS", otros)).toEqual([]);
+  });
+
+  it("no repite el mismo cliente aunque aparezca dos veces", () => {
+    expect(marcasAjenas(["BOERO", "boero pinturas"], "MAERS", otros)).toEqual(["BOERO"]);
   });
 });

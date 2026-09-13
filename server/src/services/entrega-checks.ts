@@ -159,8 +159,8 @@ export interface ChecksImagen extends ResultadoChecks {
 /**
  * Mira una placa/creatividad antes de entregarla.
  *
- * `nombreCliente` y `otrosClientes` se pasan explícitos para que el modelo pueda
- * detectar la marca equivocada: sin la lista, "veo un logo" no dice nada.
+ * `otrosClientes` NO se le manda al modelo: el modelo reporta toda marca que
+ * ve y el cruce contra la lista lo hace el código (ver `marcasAjenas`).
  */
 export async function verificarImagen(
   imagenUrl: string,
@@ -179,13 +179,17 @@ export async function verificarImagen(
     return { ok: true, problemas: [], sinVerificar: true };
   }
 
-  const otros = (opts.otrosClientes ?? []).filter((n) => n && n !== opts.nombreCliente).slice(0, 40);
+  // NO se le manda la lista de clientes. Antes se mandaba recortada a 40 y la
+  // agencia tiene 59: 18 marcas quedaban fuera del control sin que nada lo
+  // dijera, en el check cuyo único trabajo es detectar justamente eso. Ahora el
+  // modelo reporta CUALQUIER marca que vea y el cruce lo hace el código, que no
+  // tiene límite de contexto y además no depende de que el modelo lea bien una
+  // lista de 59 nombres.
   const instruccion = [
     "Sos el control de calidad de una agencia de marketing. Mirá la imagen y respondé ÚNICAMENTE con JSON:",
-    '{"descripcion":"qué se ve, 1 frase","legible":true|false,"marcaAjena":null|"nombre","idiomaTextoOk":true|false,"problemas":["..."]}',
+    '{"descripcion":"qué se ve, 1 frase","legible":true|false,"marcasVisibles":["nombres de marcas/logos que se lean o reconozcan"],"idiomaTextoOk":true|false,"problemas":["..."]}',
     "",
     `La pieza es del cliente: ${opts.nombreCliente ?? "(sin especificar)"}.`,
-    otros.length ? `Otros clientes de la agencia, NO deben aparecer: ${otros.join(", ")}.` : "",
     opts.sinTextoEsperado
       ? "IMPORTANTE: esta pieza va SIN texto y SIN logo a propósito — el texto lo monta diseño después. Que no tenga texto ni marca NO es un problema y no lo reportes. Evaluá solo la imagen."
       : "",
@@ -193,7 +197,7 @@ export async function verificarImagen(
     opts.sinTextoEsperado
       ? "legible=false SOLO si el render falló: manos o cuerpos deformes, objetos derretidos, artefactos, imagen rota."
       : "legible=false si el texto está cortado, encimado, ilegible o el render falló.",
-    "marcaAjena = el nombre si ves el logo o el nombre de otro cliente de la lista; null si no.",
+    "marcasVisibles = TODA marca, logo o nombre comercial que se vea en la imagen, aunque te parezca irrelevante. [] si no hay ninguna.",
     opts.sinTextoEsperado
       ? "idiomaTextoOk=true siempre (no se espera texto)."
       : "idiomaTextoOk=false si el texto visible NO está en español.",
@@ -211,8 +215,8 @@ export async function verificarImagen(
 
   const problemas: string[] = [];
   if (parsed.legible === false) problemas.push("La imagen tiene texto cortado, encimado o ilegible: revisá el render antes de entregarla.");
-  if (typeof parsed.marcaAjena === "string" && parsed.marcaAjena.trim()) {
-    problemas.push(`La imagen muestra la marca de OTRO cliente ("${parsed.marcaAjena.trim()}"). No se entrega así.`);
+  for (const ajena of marcasAjenas(parsed.marcasVisibles, opts.nombreCliente, opts.otrosClientes ?? [])) {
+    problemas.push(`La imagen muestra la marca de OTRO cliente ("${ajena}"). No se entrega así.`);
   }
   if (parsed.idiomaTextoOk === false) problemas.push("El texto de la imagen no está en español.");
   for (const p of Array.isArray(parsed.problemas) ? parsed.problemas : []) {
@@ -237,4 +241,57 @@ function parsearJson(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Cuáles de las marcas que el modelo vio son de OTRO cliente de la agencia.
+ *
+ * El cruce se hace acá y no en el prompt porque la lista tiene 59 nombres: no
+ * entra recortada sin dejar agujeros silenciosos, y el código no se distrae.
+ *
+ * Se compara por contención en los dos sentidos ("Grupo MA" ↔ "GRUPO MA S.A.")
+ * y se exige un mínimo de largo: sin eso, un cliente llamado "Gala" matchearía
+ * dentro de "regalado" y cada paisaje saldría acusado.
+ */
+export function marcasAjenas(
+  vistas: unknown,
+  nombreCliente: string | undefined,
+  otrosClientes: string[],
+): string[] {
+  if (!Array.isArray(vistas) || vistas.length === 0) return [];
+
+  // Se normaliza CONSERVANDO los espacios y se compara por palabras completas.
+  // Con includes() a secas, el cliente "Gala" matcheaba dentro de "regalado" y
+  // cada paisaje salia acusado de contaminacion entre cuentas — lo cazo su
+  // propio test. Un minimo de largo no alcanza: "Gala" tiene 4 letras.
+  const norm = (s: string) =>
+    " " +
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ").trim() +
+    " ";
+  /** a contiene a b como secuencia de palabras completas. */
+  const contiene = (a: string, b: string) => b.trim().length > 0 && a.includes(b);
+
+  const propio = nombreCliente ? norm(nombreCliente) : "";
+  const otros = otrosClientes
+    .map((n) => ({ nombre: n, clave: norm(n) }))
+    .filter((o) => o.clave.trim().length >= 3 && o.clave !== propio);
+
+  const encontradas = new Set<string>();
+  for (const v of vistas) {
+    if (typeof v !== "string" || !v.trim()) continue;
+    const clave = norm(v);
+    if (clave.trim().length < 3) continue;
+    // La marca del propio cliente es lo esperado, no un problema.
+    if (propio && (contiene(clave, propio) || contiene(propio, clave))) continue;
+    for (const o of otros) {
+      if (contiene(clave, o.clave) || contiene(o.clave, clave)) {
+        encontradas.add(o.nombre);
+        break;
+      }
+    }
+    // Una marca de un tercero (Coca-Cola en una gondola) no es problema
+    // nuestro: solo se reportan las que son de OTRO cliente de la agencia.
+  }
+  return [...encontradas];
 }
