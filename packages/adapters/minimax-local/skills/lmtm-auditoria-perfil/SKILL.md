@@ -38,5 +38,5 @@ En el perfil de IG mirá las historias destacadas: ¿existen?, ¿cubren lo esenc
 
 ## Reglas
 - Trabajá por TANDAS (3 clientes por corrida, los menos auditados primero — guardá en memoria cuáles hiciste). NUNCA los ~67 en una corrida.
-- Atrasos de publicación: SOLO el campo `overdue`/`atrasosReales` (fecha de inicio + etiqueta mandado a make). No inventes criterios.
+- Atrasos de publicación: SOLO el campo `overdue`/`atrasosReales` (fecha de inicio vencida y sin etiqueta = el webhook nunca disparó). No inventes criterios. OJO con el converso: sin atrasos NO significa que esté publicando — la etiqueta no prueba publicación. Si el punto es si el cliente publica, `lmtmGetCadenaPublicacion`.
 - Si el perfil público no carga, reportá "sin verificar" esa dimensión — no bloquees la auditoría entera.

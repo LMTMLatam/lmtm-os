@@ -1,7 +1,7 @@
 ---
 name: lmtm-clickup-conventions
 displayName: Convenciones de ClickUp
-description: Cómo LMTM usa ClickUp — estructura del workspace, las listas por cliente, y las convenciones CRÍTICAS del calendario de contenido (start_date = disparo a Make, etiqueta "mandado a make" = publicado, campos de Super Redes). Leela antes de crear o interpretar tareas de contenido.
+description: Cómo LMTM usa ClickUp — estructura del workspace, las listas por cliente, y las convenciones CRÍTICAS del calendario de contenido (start_date = disparo a Make, por qué la etiqueta "mandado a make" NO prueba que se publicó, campos de Super Redes). Leela antes de crear o interpretar tareas de contenido.
 required: false
 ---
 
@@ -29,10 +29,19 @@ Estas reglas son LEY para leer o crear posts:
 1. **`start_date` (Fecha de inicio) = cuándo se dispara el post a Make** (Make
    es quien publica). Es LA fecha del calendario. Posts sin start_date no
    aparecen en el calendario del panel.
-2. **Publicado = etiqueta `mandado a make` (o `enviado a make`)**. Es la ÚNICA
-   señal de que el post salió. **NUNCA midas publicación por el status de
-   ClickUp** (los statuses son custom por cliente y no confiables — "en curso"
-   con etiqueta = ya salió). Pasó su start_date SIN etiqueta = nunca se disparó.
+2. **La etiqueta `mandado a make` (o `enviado a make`) NO prueba que se publicó.**
+   La pone ClickUp al llegar la fecha, ANTES de que Make haga nada, y queda puesta
+   igual si el post se descartó en silencio. Lo único que significa es
+   "ClickUp disparó el webhook". Medido el 11/9/26: en 14 clientes la etiqueta no
+   coincidía con el despacho real, y uno figuraba "enviado hoy" llevando 245 días
+   sin publicar.
+   - **Sin** etiqueta y con el start_date vencido → eso SÍ es un problema real:
+     nunca se disparó.
+   - **Con** etiqueta → no concluyas nada. Para saber si salió de verdad,
+     `get_cadena_publicacion` (mide el efecto: destino en Make, contenido listo,
+     despacho real y posteos en la red).
+   **Tampoco midas publicación por el status de ClickUp**: son custom por cliente
+   y no son confiables.
 3. **Redes destino = custom field `Plataformas`** (labels: Instagram, Facebook,
    Tiktok, YouTube, LinkedIn…). Las etiquetas de tarea NO son la red.
 4. **Formato = custom field `Tipo de Contenido`** (Post, Story, Carrusel, Reel,

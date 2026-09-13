@@ -25,8 +25,10 @@ ruidoso tampoco. El estándar: **proactivo con criterio**.
      rinde, activar pauta) — ejecutar una de esas vale más que inventar.
    - **Feedback Super Redes** (en el brain): si tus ideas vienen con baja adopción,
      tu trabajo proactivo es generar UNA idea mejor alineada a lo que el equipo aprueba.
-   - Y lo clásico: caída de CPL, contenido sin publicar (etiqueta "mandado a make"
-     ausente con fecha vencida), cliente sin ideas, campaña por vencer, competidor moviéndose.
+   - Y lo clásico: caída de CPL, contenido sin publicar (fecha vencida y SIN la
+     etiqueta "mandado a make" = nunca se disparó; que la etiqueta esté NO prueba
+     que haya salido — para eso `lmtmGetCadenaPublicacion`), cliente sin ideas,
+     campaña por vencer, competidor moviéndose.
 4. **Convertilo en acción**, en este orden de preferencia:
    - **Tarea concreta** → `lmtmCreateClientTask` (título accionable, descripción con el dato
      que la justifica). Es la moneda del equipo: lo que no es tarea no avanza.

@@ -915,8 +915,14 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmGetCadenaPublicacion",
+      "Estado de la cadena de publicación de TODA la agencia medido por EFECTO real (destino en Make, despacho que Make escribió, posts que devolvió la red), no por etiquetas ni por corridas en verde. Devuelve por cliente el PRIMER eslabón roto y un detalle con qué hacer y dónde: sin_destino, sin_calendario, contenido_incompleto, despachador_mudo, sync_ciego (no lo estamos viendo: no concluyas que no publica) o red_muda. Usala para la revisión de publicación en vez de la etiqueta 'mandado a make', que no prueba que se haya publicado.",
+      z.object({}),
+      async () => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_cadena_publicacion", parameters: {} } }),
+    ),
+    makeTool(
       "lmtmGetClientScheduledContent",
-      "Contenido PROGRAMADO del cliente (lista de Redes Sociales de ClickUp): qué se planeó publicar, cuándo, estado y si está marcado como publicado. Cruzalo con lmtmGetClientOrganicPosts para ver si el plan se cumple.",
+      "Contenido PROGRAMADO del cliente (lista de Redes Sociales de ClickUp): qué se planeó publicar, cuándo, estado y si está marcado como enviado a Make. OJO: 'enviado' NO prueba que se publicó — la etiqueta la pone ClickUp antes de que Make actúe. Para saber si salió de verdad, lmtmGetCadenaPublicacion o lmtmGetClientOrganicPosts.",
       z.object({
         clientId: z.string().min(1),
         sinceHours: z.number().int().positive().optional(),

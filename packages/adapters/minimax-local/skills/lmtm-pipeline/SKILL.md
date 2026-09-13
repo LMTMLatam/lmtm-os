@@ -59,13 +59,17 @@ Cuando "un post no salió" o "un dato no llegó", recorré el pipeline en orden 
 
 1. **Sheet** — `sheets_metadata` + `sheets_read` del tab de planificación. ¿La fila existe y está completa (fecha, copy, asset)?
 2. **ClickUp** — `clickup search_tasks` / `list_tasks` en la lista "Redes Sociales". ¿Se creó la tarea para esa fila? ¿Tiene la fecha de inicio bien?
-   **CRITERIO CLAVE — la etiqueta `mandado a make`**: si la tarea la tiene, el posteo YA SE DISPARÓ
-   (Make es quien publica). NO reportes como "sin publicar" una tarea con esa etiqueta — aunque el
-   status siga "en curso" (muchas veces solo falta actualizar el estado). Sin la etiqueta y con la
-   fecha vencida → eso sí es un posteo que nunca se disparó.
+   **La etiqueta `mandado a make` NO cierra el caso**: la pone ClickUp al llegar la fecha, antes de
+   que Make haga nada, y queda puesta igual si el post se descartó. Con etiqueta no descartes el
+   problema — seguí al paso 3. Sin la etiqueta y con la fecha vencida → nunca se disparó, ahí frenás.
+   (El status de ClickUp no dice nada: es custom por cliente.)
 3. **Make** — `executions_list` + `executions_get-detail` del scenario AutoPoster del cliente. ¿Disparó el webhook? ¿Falló un módulo?
    Si una tarea tiene `mandado a make` hace ≥3 días y no aparece publicada en la red
    (`lmtmGetClientOrganicPosts`), acá es donde buscás: una ejecución fallida del scenario.
+   **Las operaciones por corrida dicen dónde murió**: 7 = publicó · 3 = llegó pero no había pieza en
+   Drive · 1-2 = lo frenó un filtro · ninguna corrida = el despachador nunca le mandó.
+   Una corrida en SUCCESS no prueba nada: un filtro que no pasa termina en verde sin correr un solo
+   módulo aguas abajo. Atajo para todo esto: `get_cadena_publicacion`.
 4. **Publicación** — verificá la red real (ver fallback de posteos en `lmtm-tool-reference`: `lmtmGetClientOrganicPosts` o browser).
 
 Reportá en qué paso se cortó y qué viste, no solo "no salió".
