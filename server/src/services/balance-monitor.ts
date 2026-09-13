@@ -17,7 +17,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsConnections, adsInsights, clients } from "@paperclipai/db";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { sendWhatsAppToNumber, alertsNumber, dayStr } from "./agency-ops.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
 import { searchStream } from "./ads/providers/google.js";
@@ -66,12 +66,19 @@ export async function fetchAccountBalances(
     .leftJoin(clients, eq(clients.id, adsAccountMappings.clientId))
     .where(opts.clientId ? eq(adsAccountMappings.clientId, opts.clientId) : undefined);
 
-  // Last-7d spend per ad account → daily burn rate (for pacing). One query.
-  const since7 = dayStr(new Date(Date.now() - 7 * 86_400_000));
+  // Ritmo de gasto: los 7 días COMPLETOS más recientes, sin el día en curso.
+  //
+  // Incluir el día que todavía está entrando y dividir igual por 7 subestima el
+  // consumo diario (medido el 13/9/26: hoy tenía 3 cuentas y $744 contra 16 y
+  // $375.628 de ayer), y como `daysLeft = remaining / dailySpend`, un consumo
+  // subestimado da MÁS días de los que quedan: el aviso de "se agota" llega
+  // tarde, justo en las cuentas que están por frenarse.
+  const finVentana = dayStr(new Date(Date.now() - 86_400_000));
+  const since7 = dayStr(new Date(Date.now() - 8 * 86_400_000));
   const spendRows = await db
     .select({ adAccountId: adsInsights.adAccountId, spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric,0)` })
     .from(adsInsights)
-    .where(gte(adsInsights.date, since7))
+    .where(and(gte(adsInsights.date, since7), lte(adsInsights.date, finVentana)))
     .groupBy(adsInsights.adAccountId);
   const bare = (a: string) => a.replace(/^act_/, "");
   const spend7ByAccount = new Map(spendRows.map((r) => [bare(r.adAccountId), Number(r.spend)]));
