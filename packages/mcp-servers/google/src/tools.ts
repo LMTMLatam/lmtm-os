@@ -31,7 +31,36 @@ export const sheetsAppendSchema = z.object({
   range: z.string().describe("Target range/tab, e.g. 'Hoja 1!A1'. Rows are appended after the last row with data."),
   values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).describe("Rows to append; each row is an array of cell values."),
 });
+/**
+ * Escribir en una planilla está APAGADO por decisión del usuario (14/9/26:
+ * "todavía no activemos lo de escribir en las planillas").
+ *
+ * Por qué acá y no solo en el handler de la tool: este módulo es la capa que
+ * comparten LAS DOS superficies —los `sheets_*` en `routes/agent-tools.ts` y el
+ * MCP de Google que usan los agentes por `claude-mcp.json`—. Cerrar una sola
+ * dejaba la otra abierta, y el MCP no tiene acceso a la DB para chequear de
+ * quién es la planilla.
+ *
+ * Lo que está en juego: la planilla MANDA sobre ClickUp. El Apps Script
+ * nocturno pisa la fecha y el horario de cada tarea con lo que diga el Sheet,
+ * así que una fila mal puesta le cambia el calendario a un cliente y se propaga
+ * sola esa misma noche.
+ *
+ * Para habilitarlo: `LMTM_PERMITIR_ESCRIBIR_PLANILLAS=true`. Cuando llegue ese
+ * día, que sea con compuerta de aprobación (el patrón de ads-actions.ts:
+ * propone, un humano aprueba, recién ahí escribe).
+ */
+function escrituraHabilitada(): boolean {
+  return process.env.LMTM_PERMITIR_ESCRIBIR_PLANILLAS === "true";
+}
+
+const MSG_APAGADO =
+  "Escribir en planillas de Google está desactivado en LMTM-OS. La planilla manda sobre ClickUp " +
+  "(el script de la noche pisa fecha y horario con lo que diga el Sheet), así que se habilita " +
+  "recién cuando exista la compuerta de aprobación. Si hay que cambiar algo, pedilo en el issue.";
+
 export async function sheetsAppend(i: z.infer<typeof sheetsAppendSchema>) {
+  if (!escrituraHabilitada()) throw new Error(MSG_APAGADO);
   return gFetch(`${SHEETS}/${i.spreadsheetId}/values/${encodeURIComponent(i.range)}:append`, {
     method: "POST",
     query: { valueInputOption: "USER_ENTERED", insertDataOption: "INSERT_ROWS" },
@@ -45,6 +74,8 @@ export const sheetsUpdateSchema = z.object({
   values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))),
 });
 export async function sheetsUpdate(i: z.infer<typeof sheetsUpdateSchema>) {
+  // Pisar celdas es más destructivo que agregar filas: mismo candado.
+  if (!escrituraHabilitada()) throw new Error(MSG_APAGADO);
   return gFetch(`${SHEETS}/${i.spreadsheetId}/values/${encodeURIComponent(i.range)}`, {
     method: "PUT",
     query: { valueInputOption: "USER_ENTERED" },

@@ -1451,6 +1451,9 @@ export function agentToolsRoutes(
         const range = typeof params.range === "string" ? params.range : "";
         const values = Array.isArray(params.values) ? (params.values as unknown[][]) : null;
         if (!spreadsheetId || !range || !values) return reply(false, "Faltan spreadsheetId, range o values.");
+        const { motivoPlanillaProtegida } = await import("../services/planillas-protegidas.js");
+        const bloqueo = await motivoPlanillaProtegida(db, spreadsheetId);
+        if (bloqueo) return reply(false, bloqueo);
         try {
           const r = await googleTools.sheetsAppend({ spreadsheetId, range, values });
           return reply(true, JSON.stringify(r));
