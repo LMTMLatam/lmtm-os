@@ -120,15 +120,17 @@ describe("verImagen", () => {
 });
 
 describe("analizarTexto", () => {
-  it("usa el modelo de texto y respeta el presupuesto pedido", async () => {
+  it("usa el modelo de texto y le aplica el piso de razonamiento", async () => {
     vi.stubEnv("NVIDIA_API_KEY_TEXTO", "nvapi-y");
     const f = respondeCon({ choices: [{ message: { content: "LISTO" } }] });
     const r = await analizarTexto("sos analista", "decí LISTO", { maxTokens: 256 });
     expect(r.texto).toBe("LISTO");
     const body = JSON.parse(f.mock.calls[0][1].body as string);
     expect(body.model).toBe(MODELO_TEXTO);
-    // No es de razonamiento: no se le sube el presupuesto por las dudas.
-    expect(body.max_tokens).toBe(256);
+    // Se le aplica el piso A PROPOSITO: no aplicarselo a un modelo que razona
+    // pierde la respuesta entera en silencio, y aplicarselo a uno que no razona
+    // solo le da mas aire. El costo de equivocarse es asimetrico.
+    expect(body.max_tokens).toBe(MIN_TOKENS_RAZONAMIENTO);
     expect(body.messages.map((m: { role: string }) => m.role)).toEqual(["system", "user"]);
   });
 

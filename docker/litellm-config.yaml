@@ -32,11 +32,13 @@ model_list:
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY_VISION
       max_tokens: 4096
-  # DeepSeek V4 Pro: texto y análisis. No devuelve reasoning_content y no filtró
-  # CJK en las pruebas, que es el defecto crónico de MiniMax en español.
+  # DeepSeek V4 Flash: texto y análisis, sin fuga de CJK. Reemplaza al -pro-0813,
+  # que llegó a su end of life el 14/9/26 (HTTP 410) tres días después de
+  # integrarlo. OJO: flash SÍ devuelve reasoning_content, así que necesita
+  # presupuesto de tokens amplio o vuelve vacío con HTTP 200.
   - model_name: lmtm-deepseek
     litellm_params:
-      model: openai/deepseek-ai/deepseek-v4-pro-0813
+      model: openai/deepseek-ai/deepseek-v4-flash-0731
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY_TEXTO
   # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).

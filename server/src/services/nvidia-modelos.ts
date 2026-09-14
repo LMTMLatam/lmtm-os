@@ -21,7 +21,14 @@
 const BASE = (process.env.NVIDIA_BASE_URL?.trim() || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
 
 export const MODELO_VISION = process.env.NVIDIA_MODEL_VISION?.trim() || "moonshotai/kimi-k3";
-export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "deepseek-ai/deepseek-v4-pro-0813";
+/**
+ * OJO: los modelos del catálogo de NVIDIA SE MUEREN con aviso corto.
+ * `deepseek-v4-pro-0813` se integró el 11/9/26 y llegó a su end of life el
+ * 14/9 a las 08:00 UTC — tres días. Devuelve HTTP **410 Gone** con el detalle,
+ * no un 404, así que se ve claro en `detalle` si vuelve a pasar. El reemplazo
+ * es flash, verificado el mismo día.
+ */
+export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "deepseek-ai/deepseek-v4-flash-0731";
 
 /** Piso de tokens para un modelo de razonamiento. Por debajo de esto el
  *  razonamiento se come la respuesta y `content` vuelve vacío. Medido: 16 falla,
@@ -130,7 +137,19 @@ export async function verImagen(
   }], { ...opts, esDeRazonamiento: true });
 }
 
-/** Análisis de texto. No es de razonamiento, así que no necesita el piso. */
+/**
+ * Análisis de texto.
+ *
+ * Se trata como modelo de razonamiento A PROPÓSITO, aunque alguno no lo sea:
+ * aplicarle el piso de tokens a un modelo que no razona no cuesta nada (solo le
+ * da más aire), y NO aplicárselo a uno que sí razona pierde la respuesta entera
+ * en silencio con HTTP 200. El costo de equivocarse es asimétrico, así que se
+ * elige el lado barato.
+ *
+ * Esto no es teórico: `deepseek-v4-pro` no devolvía `reasoning_content` y su
+ * reemplazo `deepseek-v4-flash` SÍ. Con el flag en false, cambiar de modelo
+ * habría reintroducido el bug del content vacío sin tocar una línea del guard.
+ */
 export async function analizarTexto(
   system: string,
   usuario: string,
@@ -141,5 +160,5 @@ export async function analizarTexto(
   return llamar(MODELO_TEXTO, clave, [
     { role: "system", content: system },
     { role: "user", content: usuario },
-  ], { ...opts, esDeRazonamiento: false });
+  ], { ...opts, esDeRazonamiento: true });
 }

@@ -210,6 +210,10 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     "TODO el texto va en ESPAÑOL. Está PROHIBIDO dejar palabras en inglés sueltas — el equipo lee esto tal cual y lo tiene que corregir a mano. Nada de 'strangers', 'pillows menu', 'linking', 'tactile', 'fiber'. Se dicen: desconocidos, menú de almohadas, se conecta, táctil, fibra. Revisá el texto antes de responder.",
     GROUNDING_RULE,
     "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
+    // La voz de la marca, aprendida de lo que el cliente YA publicó. Sin esto el
+    // copy salía correcto pero genérico: la misma pieza le servía a una
+    // inmobiliaria y a una peluquería. Ver marca-aprendida.ts.
+    await bloqueDeMarca(db, clientId),
     'Respondé SOLO con un array JSON: [{"kind":"pauta"|"posteo","format":"<UNA de: Post|Photo Post|Story|Carrusel|Tips y Trucos|Guia|Clip corto|Reel|Video Largo|Vivo|Articulo|Blog>","title":"...","copy":"...","rationale":"por qué / en qué se diferencia de la competencia"}]',
     IDEA_CERRADA_SPEC,
     // Los 18 ángulos de Aguara. Sin esto el agente escribía siempre la misma
@@ -1140,4 +1144,32 @@ export function initContentIdeas(db: Db): void {
   };
   contentTimer = setInterval(() => { void tick(); }, 3 * 3600 * 1000);
   console.log("[content-ideas] scheduled DAILY idea generation (1/client/day)");
+}
+
+/**
+ * La voz de la marca como bloque de prompt, o "" si todavía no se aprendió.
+ *
+ * Devolver "" en vez de un texto genérico es a propósito: una instrucción de
+ * marca inventada es peor que ninguna, porque el modelo la obedece igual y
+ * produce una voz que el cliente no tiene.
+ */
+async function bloqueDeMarca(db: Db, clientId: string): Promise<string> {
+  try {
+    const { clientBrand } = await import("@paperclipai/db");
+    const [m] = await db.select().from(clientBrand).where(eq(clientBrand.clientId, clientId)).limit(1);
+    if (!m) return "";
+    const partes: string[] = [];
+    if (m.tono) partes.push(`Tono de la marca: ${m.tono}`);
+    if (m.publico) partes.push(`Le habla a: ${m.publico}`);
+    if (m.mensaje) partes.push(`Promete: ${m.mensaje}`);
+    if (m.diferencial) partes.push(`Se diferencia por: ${m.diferencial}`);
+    const si = (m.palabrasSi ?? []).slice(0, 12);
+    const no = (m.palabrasNo ?? []).slice(0, 12);
+    if (si.length) partes.push(`Palabras y expresiones que ESTA marca usa de verdad: ${si.join(", ")}. Escribí con esas, no con sinónimos.`);
+    if (no.length) partes.push(`Registros que NO usa: ${no.join(", ")}.`);
+    if (partes.length === 0) return "";
+    return ["", "VOZ DE LA MARCA (aprendida de lo que el cliente ya publicó — respetala):", ...partes].join("\n");
+  } catch {
+    return "";
+  }
 }
