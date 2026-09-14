@@ -292,11 +292,18 @@ export interface RedesCalendarItem {
    *  con copy y con la pieza cargada. Un post que no está listo se descarta en
    *  silencio — y la tarea igual queda etiquetada como enviada. */
   readyToPublish: boolean;
+  /** Caracteres del copy cargado, para validarlo contra el tope de cada red. */
+  copyLargo: number;
   /** Qué le falta, para poder avisarlo sin que nadie abra la tarea. */
   missing: string[];
 }
 
-const PLATAFORMAS_RE = /plataforma/i;
+// OJO con aflojar este regex: la misma lista tiene "Plataforma de ecommerce
+// (Ingreso)", de tipo texto, y con /plataforma/i el .find() agarraba ESE
+// primero. Como no tiene opciones, labelsFromField devolvia [] y networks salia
+// VACIO en todos los posts de la agencia — sin error, sin aviso. Medido el
+// 14/9/26: 53 de 53 posts sin redes.
+const PLATAFORMAS_RE = /^plataformass*$/i;
 const TIPO_CONTENIDO_RE = /tipo\s*de\s*contenido/i;
 const OBJETIVO_RE = /objetivo\s*del?\s*contenido/i; // "Objetivo del/de Contenido"
 const FORMAT_TAG_RE = /reel|carrusel|carousel|story|historia|est[aá]tico|foto|video/i;
@@ -346,6 +353,12 @@ function dropdownLabel(cf: CuLabelField | undefined): string | null {
 const tieneTexto = (cf: CuLabelField | undefined): boolean =>
   cf?.value != null && String(cf.value).trim() !== "";
 
+/** Largo del texto de un campo. Se expone para poder validarlo contra el tope
+ *  de cada red ANTES de la fecha: el despachador no lo chequea y la red rechaza
+ *  el post sin que nadie se entere. */
+const largoTexto = (cf: CuLabelField | undefined): number =>
+  cf?.value == null ? 0 : String(cf.value).trim().length;
+
 /**
  * The client's "Redes Sociales" list as a content calendar: one entry per task
  * that has a start_date within [sinceMs, untilMs], carrying its target networks
@@ -381,7 +394,7 @@ export async function getRedesCalendar(
     const startMs = Number(t.start_date ?? 0) || Number(t.due_date ?? 0);
     if (!startMs || startMs < sinceMs || startMs > untilMs) continue;
     const cfs = t.custom_fields ?? [];
-    const networks = labelsFromField(cfs.find((c) => PLATAFORMAS_RE.test(c.name ?? "")));
+    const networks = labelsFromField(campoDeEtiquetas(cfs, PLATAFORMAS_RE));
     let format: string | null = labelsFromField(cfs.find((c) => TIPO_CONTENIDO_RE.test(c.name ?? "")))[0] ?? null;
     if (!format) format = (t.tags ?? []).map((x) => x.name ?? "").find((n) => FORMAT_TAG_RE.test(n)) ?? null;
     const objective = labelsFromField(cfs.find((c) => OBJETIVO_RE.test(c.name ?? "")))[0] ?? null;
@@ -404,6 +417,7 @@ export async function getRedesCalendar(
       objective,
       url: t.url ?? null,
       readyToPublish: missing.length === 0,
+      copyLargo: largoTexto(cfs.find((c) => COPY_RE.test(c.name ?? ""))),
       missing,
     });
   }
@@ -834,4 +848,19 @@ export async function getVideoTasks(db: Db, clientId: string): Promise<VideoTask
       tieneGuion,
     };
   });
+}
+
+/**
+ * El campo de etiquetas que matchea `re`, prefiriendo el que de verdad TIENE
+ * opciones.
+ *
+ * `cfs.find()` a secas devuelve el primero que matchea, y en estas listas
+ * conviven campos con nombres parecidos de tipos distintos ("Plataformas" de
+ * tipo labels y "Plataforma de ecommerce (Ingreso)" de tipo texto). Elegir el
+ * de texto no da error: da una lista vacía, que se lee como "este post no tiene
+ * redes" y nadie se entera.
+ */
+function campoDeEtiquetas(cfs: CuLabelField[], re: RegExp): CuLabelField | undefined {
+  const candidatos = cfs.filter((c) => re.test(c.name ?? ""));
+  return candidatos.find((c) => (c.type_config?.options ?? []).length > 0) ?? candidatos[0];
 }

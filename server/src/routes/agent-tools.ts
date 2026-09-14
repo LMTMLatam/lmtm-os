@@ -532,6 +532,22 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_validacion_redes",
+      description:
+        "Revisar el calendario de un cliente y devolver qué posts VAN A FALLAR cuando lleguen a su fecha, por no cumplir las reglas de la red destino: copy más largo que el tope (Pinterest 500, X 280, Instagram 2200, LinkedIn 3000), YouTube/TikTok con un formato que no es video, carrusel con más piezas de las que la red acepta. El despachador de Make NO chequea nada de esto: descarta el post en silencio y la tarea igual queda etiquetada como enviada. Usala ANTES de dar por cerrado un calendario, y cuando escribas copy usá el campo topeDeTexto, que es el límite de la red más chica entre las elegidas. También avisa de redes cargadas que el despachador no sabe entregar (WhatsApp, Reddit) y de redes mal escritas.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          dias: { type: "number", description: "Cuántos días hacia adelante mirar (default 30)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_cliente_listo_para_producir",
       description:
         "Verificar si tiene sentido producir contenido para un cliente ANTES de generarlo. Devuelve listo=false cuando el cliente no tiene destino de publicación en Make: en ese caso lo que se genere se descarta en silencio al llegar su fecha, así que NO hay que producir — hay que abrir un issue para dar de alta el destino y avisar. Consultala siempre antes de armar un plan de contenido, ideas, placas o calendario. Si devuelve sinVerificar=true no se pudo comprobar y se puede producir igual.",
@@ -1727,6 +1743,42 @@ export function agentToolsRoutes(
         if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
         if (!r.ok) return reply(false, r.error ?? "No se pudo pausar.");
         return reply(true, `Pausado: ${r.entity?.type} "${r.entity?.name}" (${r.entity?.id}). Acción registrada.`);
+      }
+
+      if (tool === "get_validacion_redes") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const dias = typeof params.dias === "number" && params.dias > 0 ? Math.min(params.dias, 90) : 30;
+        try {
+          const { getRedesCalendar } = await import("../services/clickup-sync.js");
+          const { validarPieza, topeDeTexto } = await import("../services/redes-reglas.js");
+          const ahora = Date.now();
+          const cal = await getRedesCalendar(db, clientId, ahora, ahora + dias * 86_400_000);
+          if (cal === null) return reply(false, "El cliente no tiene lista de Redes Sociales mapeada en ClickUp.");
+
+          const conProblemas = [];
+          const sinRuta = new Set<string>();
+          const desconocidas = new Set<string>();
+          for (const p of cal) {
+            const v = validarPieza({ redes: p.networks, largoTexto: p.copyLargo, formato: p.format });
+            v.redesSinRuta.forEach((r) => sinRuta.add(r));
+            v.redesDesconocidas.forEach((r) => desconocidas.add(r));
+            if (v.problemas.length === 0) continue;
+            conProblemas.push({
+              tarea: p.name, fecha: p.date.slice(0, 10), url: p.url,
+              redes: p.networks, problemas: v.problemas.map((x) => x.problema),
+              topeDeTexto: topeDeTexto(p.networks),
+            });
+          }
+          return reply(true, JSON.stringify({
+            revisados: cal.length, conProblemas: conProblemas.length,
+            posts: conProblemas.slice(0, 25),
+            redesSinRutaEnMake: [...sinRuta],
+            redesMalEscritas: [...desconocidas],
+          }));
+        } catch (e) {
+          return reply(false, `get_validacion_redes: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       if (tool === "get_cliente_listo_para_producir") {
