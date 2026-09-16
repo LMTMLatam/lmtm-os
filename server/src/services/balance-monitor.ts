@@ -42,9 +42,39 @@ export interface BalanceInfo {
   daysLeft: number | null; // remaining / dailySpend; null when uncapped or not spending
   accountStatus: number;
   low: boolean;
+  /** Tenemos filas de ads_insights de esta cuenta en los últimos 30 días.
+   *
+   *  Separa "la cuenta no gastó" (un hecho: está dormida o frenada) de "no
+   *  tenemos datos de gasto" (ignorancia: el mapping está mal, el sync se cayó,
+   *  o la cuenta se conectó recién). El `group by` no devuelve fila para una
+   *  cuenta sin datos, así que `.get()` da `undefined` y no `0` — la diferencia
+   *  ya estaba en los datos y un `?? 0` la tiraba a la basura. */
+  gastoConocido: boolean;
   /** Gastó algo en los últimos 30 días. Una cuenta dormida con el presupuesto
-   *  agotado no es un problema que alguien tenga que ir a resolver hoy. */
+   *  agotado no es un problema que alguien tenga que ir a resolver hoy.
+   *  Solo es una afirmación cuando `gastoConocido` es true. */
   activaReciente: boolean;
+}
+
+/**
+ * ¿Este saldo tiene que aparecer en el aviso al equipo?
+ *
+ * Tres estados, no dos:
+ *   - gastó en los últimos 30 días  → sí, es una cuenta viva con el saldo corto
+ *   - NO gastó (y lo sabemos)       → no, está dormida; avisarlo todos los días
+ *                                     llena el reporte y tapa lo accionable
+ *   - no tenemos datos de gasto     → SÍ, porque no poder juzgar si está dormida
+ *                                     no es motivo para ocultar un saldo en cero
+ *
+ * El tercero es el que faltaba hasta el 16/9/26: se lo trataba como el segundo
+ * y la cuenta desaparecía sola del aviso. El saldo viene de la API de la
+ * plataforma y no depende de nuestro sync, así que es reportable aunque
+ * nuestros propios datos de consumo estén rotos.
+ */
+export function mereceAvisoDeSaldo(b: Pick<BalanceInfo, "low" | "activaReciente" | "gastoConocido">): boolean {
+  if (!b.low) return false;
+  if (!b.gastoConocido) return true;
+  return b.activaReciente;
 }
 
 export async function fetchAccountBalances(
@@ -117,6 +147,7 @@ export async function fetchAccountBalances(
       const spendCap = Number(j.spend_cap ?? 0) / 100;
       const amountSpent = Number(j.amount_spent ?? 0) / 100;
       const remaining = spendCap > 0 ? spendCap - amountSpent : null;
+      const gasto30 = spend30ByAccount.get(bare(acct));
       const dailySpend = (spend7ByAccount.get(bare(acct)) ?? 0) / 7;
       const daysLeft = remaining !== null && dailySpend > 0 ? remaining / dailySpend : null;
       out.push({
@@ -132,7 +163,8 @@ export async function fetchAccountBalances(
         daysLeft,
         accountStatus: Number(j.account_status ?? 0),
         low: remaining !== null && remaining < threshold,
-        activaReciente: (spend30ByAccount.get(bare(acct)) ?? 0) > 0,
+        gastoConocido: gasto30 !== undefined,
+        activaReciente: (gasto30 ?? 0) > 0,
       });
     } catch { /* skip this account */ }
     await new Promise((res) => setTimeout(res, 400));
@@ -189,6 +221,7 @@ async function saldoGoogle(
     if (!mejor) return null;
 
     const remaining = mejor.limite - mejor.servido;
+    const gasto30 = spend30ByAccount.get(customerId);
     const dailySpend = (spend7ByAccount.get(customerId) ?? 0) / 7;
     return {
       account: customerId,
@@ -203,7 +236,8 @@ async function saldoGoogle(
       daysLeft: dailySpend > 0 ? remaining / dailySpend : null,
       accountStatus: 1,
       low: remaining < threshold,
-      activaReciente: (spend30ByAccount.get(customerId) ?? 0) > 0,
+      gastoConocido: gasto30 !== undefined,
+      activaReciente: (gasto30 ?? 0) > 0,
     };
   } catch (e) {
     console.warn(`[balance-monitor] google ${customerId} falló:`, e instanceof Error ? e.message : e);

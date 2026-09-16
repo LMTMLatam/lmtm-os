@@ -14,7 +14,7 @@ import { and, eq, or, inArray, gte, lte } from "drizzle-orm";
 import { getRedesPostStats } from "./clickup-sync.js";
 import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
 import { activeClients } from "./intel-common.js";
-import { fetchAccountBalances, type BalanceInfo } from "./balance-monitor.js";
+import { fetchAccountBalances, type BalanceInfo, mereceAvisoDeSaldo } from "./balance-monitor.js";
 
 export interface AuditFinding {
   client: string;
@@ -199,7 +199,15 @@ export async function runOperationalAudit(db: Db): Promise<{
   // Solo cuentas que venían gastando. Sin esto el digest arrastra las cuentas
   // dormidas con el tope consumido hace meses (medidas el 3/9/26: 9 de ellas,
   // contra 1 sola real) y el aviso se vuelve ilegible justo cuando importa.
-  const lowBalances = balances.filter((b) => b.low && b.activaReciente);
+  //
+  // PERO "no gastó" y "no sabemos cuánto gastó" no son lo mismo, y hasta el
+  // 16/9/26 este filtro los trataba igual: una cuenta con el mapping roto o el
+  // sync caído daba gasto 0, se leía como dormida y DESAPARECÍA del aviso —
+  // con el saldo en cero y nadie enterándose. Los mappings que fallan en
+  // silencio no son hipotéticos acá (26 de ellos el 8/7/26). El saldo lo
+  // devuelve la API de la plataforma y no depende de nuestro sync, así que
+  // cuando no podemos juzgar si está dormida, el saldo se reporta igual.
+  const lowBalances = balances.filter(mereceAvisoDeSaldo);
 
   // Build + deliver the WEEKLY digest. Per the boss: WhatsApp carries ONLY two
   // things — (1) low balance, (2) clients that had posts planned but they are
@@ -224,13 +232,24 @@ export async function runOperationalAudit(db: Db): Promise<{
     // dejó de entregar. Mezclarlas hacía que la urgente se leyera como una más
     // de la lista (Distrillantas, 14 días sin entregar).
     const donde = (b: BalanceInfo) => (b.platform === "google" ? "Google Ads" : "Meta");
-    const frenadas = lowBalances.filter((b) => (b.remaining ?? 0) < 1);
-    const bajas = lowBalances.filter((b) => (b.remaining ?? 0) >= 1);
+    // El saldo es de la plataforma y es firme; lo que no podemos juzgar sin
+    // datos de gasto es si la cuenta está viva. Se dice, no se oculta ni se
+    // adivina: el equipo decide si vale una recarga o si está dormida de verdad.
+    const sinDatos = (b: BalanceInfo) =>
+      b.gastoConocido ? "" : " ⚠️ sin datos de consumo nuestros (revisar el mapping/sync de esta cuenta antes de recargar).";
+    // `remaining === null` NO es cero: es una cuenta sin tope de gasto. Con el
+    // `?? 0` que había acá, una cuenta sin tope se leía como FRENADA y mandaba a
+    // recargar algo que no hacía falta. Hoy no llega ninguna (el filtro `low` ya
+    // las descarta), así que esto no cambia ningún aviso — se escribe explícito
+    // para que aflojar aquel filtro no reviva el bug. Misma forma que `agotada`
+    // en balance-monitor.ts.
+    const frenadas = lowBalances.filter((b) => b.remaining !== null && b.remaining < 1);
+    const bajas = lowBalances.filter((b) => b.remaining !== null && b.remaining >= 1);
 
     if (frenadas.length > 0) {
       lines.push("🛑 *Cuentas FRENADAS — no están entregando:*");
       for (const b of frenadas.slice(0, 15)) {
-        lines.push(`• *${b.clientName}* (${donde(b)}): consumió el tope de ${fmt(b.spendCap, b.currency)}. Las campañas siguen activas pero no se muestran.`);
+        lines.push(`• *${b.clientName}* (${donde(b)}): consumió el tope de ${fmt(b.spendCap, b.currency)}. Las campañas siguen activas pero no se muestran.${sinDatos(b)}`);
       }
       lines.push("_Recargá el presupuesto de la cuenta para que vuelva a entregar._", "");
     }
@@ -238,7 +257,7 @@ export async function runOperationalAudit(db: Db): Promise<{
     if (bajas.length > 0) {
       lines.push("💰 *Saldo bajo:*");
       for (const b of bajas.slice(0, 15)) {
-        lines.push(`• *${b.clientName}* (${donde(b)}): quedan ${fmt(b.remaining ?? 0, b.currency)} antes del tope`);
+        lines.push(`• *${b.clientName}* (${donde(b)}): quedan ${fmt(b.remaining ?? 0, b.currency)} antes del tope${sinDatos(b)}`);
       }
       lines.push("_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._", "");
     }
