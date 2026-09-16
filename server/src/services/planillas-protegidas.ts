@@ -80,3 +80,59 @@ export async function cuantasProtegidas(db: Db): Promise<number> {
   if (PERMITIDO) return 0;
   return (await planillasDeClientes(db)).size;
 }
+
+// ── La otra puerta a la misma ruta: las listas de Redes en ClickUp ─────────
+//
+// Cerrar la escritura en las planillas (arriba) dejaba abierta una puerta al
+// mismo lugar: `clickup_create_task` aceptaba CUALQUIER listId sin chequear
+// nada, así que un agente podía crear una tarea directamente en la lista de
+// Redes de un cliente. Esa tarea no existe en la planilla Cronopost —que es la
+// fuente de verdad— y sin embargo queda en la lista que mira el despachador.
+//
+// Es el mismo criterio que las planillas y no una regla nueva: lo que define
+// qué se publica se carga en la planilla y lo baja el script de la noche. Las
+// tareas de trabajo interno (`create_client_task`) no pasan por acá.
+
+/** Las listas de Redes de todos los clientes. Mismo caché y misma razón. */
+let cacheListas: { at: number; ids: Set<string> } | null = null;
+
+async function listasDeRedes(db: Db): Promise<Set<string>> {
+  if (cacheListas && Date.now() - cacheListas.at < TTL_MS) return cacheListas.ids;
+  const filas = await db
+    .select({ id: clients.clickupListRedesId })
+    .from(clients)
+    .where(isNotNull(clients.clickupListRedesId));
+  const ids = new Set(filas.map((f) => (f.id ?? "").trim()).filter(Boolean));
+  cacheListas = { at: Date.now(), ids };
+  return ids;
+}
+
+/**
+ * Devuelve el motivo del bloqueo, o null si en esa lista se puede crear.
+ *
+ * Ante una falla de DB **bloquea**, igual que las planillas: no poder comprobar
+ * si una lista es la ruta de publicación de un cliente no es permiso para
+ * escribir en ella. Con el caché caliente ni siquiera se consulta la DB y se
+ * usa el último set conocido — que también deja la puerta cerrada; lo que
+ * nunca pasa es que una caída de DB la abra.
+ */
+export async function motivoListaProtegida(db: Db, listId: string): Promise<string | null> {
+  if (PERMITIDO) return null;
+  const id = (listId ?? "").trim();
+  if (!id) return null; // el handler ya valida que no venga vacío
+
+  let ids: Set<string>;
+  try {
+    ids = await listasDeRedes(db);
+  } catch (e) {
+    console.warn("[listas] no se pudo verificar, bloqueo por las dudas:", e instanceof Error ? e.message : e);
+    return "No se pudo verificar si esa lista es la de Redes de un cliente, así que no se crea la tarea. Probá de nuevo o pedí ayuda a una persona.";
+  }
+
+  if (!ids.has(id)) return null;
+  return [
+    "Esa es la lista de Redes de un cliente y crear tareas ahí está DESACTIVADO.",
+    "El calendario de publicación se carga en la planilla Cronopost, que es la fuente de verdad: una tarea puesta directo en la lista no está en la planilla y el despachador igual la ve.",
+    "Si hay que sumar un post, decilo en el issue para que una persona lo cargue en la planilla.",
+  ].join(" ");
+}
