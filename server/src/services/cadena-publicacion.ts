@@ -43,15 +43,26 @@ export const DIAS_DESPACHO_SIN_RED = 5;
  *  todos esto. No ver no es lo mismo que no haber pasado. */
 export const DIAS_SYNC_CONFIABLE = 3;
 
-/** Cuánto futuro tiene que haber cargado para no avisar. Con menos que esto el
- *  cliente se queda sin contenido antes de que nadie lo note. */
-export const DIAS_CALENDARIO_MINIMO = 7;
+// NO hay un umbral de "días de calendario por delante", y es a propósito.
+//
+// Existió como `DIAS_CALENDARIO_MINIMO = 7`, declarado y documentado, sin que
+// ninguna función lo leyera nunca: decidía cero. Auditado el 16/9/26 se vio que
+// cablearlo habría sido peor que dejarlo muerto — las planillas Cronopost se
+// cargan UNA VEZ POR MES, así que los últimos días de cada mes TODOS los
+// clientes tienen menos de 7 días cargados. El aviso diario habría traído los
+// 59 cada fin de mes y habría tapado lo accionable, que es el modo en que estas
+// listas se mueren (ver el patrón "cementerio" en los paneles).
+//
+// La pregunta útil no es "cuántos días le quedan" sino "¿ya está cargada la
+// planilla del mes que viene?", que es otra señal y se mide en otro lado.
+// `sin_calendario` sigue cubriendo el caso terminal: cero posts por delante.
 
 export type Eslabon =
   | "sin_destino"
   | "sin_calendario"
   | "contenido_incompleto"
   | "despachador_mudo"
+  | "despacho_sin_registro"
   | "red_muda"
   | "sync_ciego";
 
@@ -103,7 +114,15 @@ export function diagnosticar(e: EstadoCliente): Eslabon | null {
     if (e.postsFuturosListos === 0) return "contenido_incompleto";
   }
   const d = e.diasDesdeDespacho;
-  if (d === null || d === undefined || d > DIAS_SIN_DESPACHO) return "despachador_mudo";
+  // "Nunca despachó" NO es "dejó de despachar", y hasta el 16/9/26 se reportaban
+  // como lo mismo: el título del aviso decía "Make no despacha hace días" para un
+  // cliente del que no tenemos NINGUNA fecha. Eso es anunciar una ignorancia como
+  // si fuera una medición — la misma falla que ya está arreglada un renglón más
+  // abajo con sync_ciego. Un registro vacío puede ser un cliente recién dado de
+  // alta o un caño que nunca se conectó: son dos acciones distintas, así que van
+  // separados y sin inventarles una antigüedad.
+  if (d === null || d === undefined) return "despacho_sin_registro";
+  if (d > DIAS_SIN_DESPACHO) return "despachador_mudo";
   if (!e.tieneSyncOrganico) return null;
   // No ver no es lo mismo que no haber pasado: se chequea ANTES que la red.
   if (e.diasDesdeSync === null || e.diasDesdeSync > DIAS_SYNC_CONFIABLE) return "sync_ciego";
@@ -198,7 +217,7 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
     });
     if (!eslabon) continue;
 
-    const diasSin = eslabon === 'sin_destino' || eslabon === 'sin_calendario' || eslabon === 'contenido_incompleto' ? null
+    const diasSin = eslabon === 'sin_destino' || eslabon === 'sin_calendario' || eslabon === 'contenido_incompleto' || eslabon === 'despacho_sin_registro' ? null
       : eslabon === 'despachador_mudo' ? dDespacho
       : eslabon === 'sync_ciego' ? dSync : dRed;
     rotas.push({
@@ -225,9 +244,9 @@ const DETALLE: Record<Eslabon, (c: Contexto) => string> = {
   contenido_incompleto: (c) =>
     `Tiene ${c.futuros} posts programados y ninguno va a salir: les falta ${c.falta?.length ? c.falta.join(" / ") : "aprobación, copy o pieza"}. El primero es el ${c.proximo ?? "próximo"}. Al llegar la fecha el despachador los descarta en silencio y la tarea igual queda etiquetada como enviada — hay que completarlos ANTES, aprobar después no sirve.`,
   despachador_mudo: (c) =>
-    c.dDespacho === null
-      ? "Tiene destino y contenido listo, pero Make nunca despachó un post. Revisar la automatización de ClickUp de su lista de Redes."
-      : `Make no despacha hace ${c.dDespacho} días y sí hay contenido listo por delante: el problema está en el caño, no en la carga.`,
+    `Make no despacha hace ${c.dDespacho} días y sí hay contenido listo por delante: el problema está en el caño, no en la carga.`,
+  despacho_sin_registro: () =>
+    "Tiene destino y contenido listo, pero Make no tiene registrado NINGÚN despacho para este cliente. Puede ser un alta reciente que todavía no llegó a su primera fecha, o un escenario que nunca se conectó: no lo sabemos, y por eso no se declara hace cuánto. Mirar la automatización de ClickUp de su lista de Redes y cuándo cae su próxima fecha.",
   sync_ciego: (c) =>
     `El sync orgánico de este cliente no trae datos hace ${c.dSync ?? "siempre"} días. No sabemos si publica o no — arreglar el sync antes de sacar conclusiones (suele ser el token o el permiso de la página).`,
   red_muda: (c) =>
@@ -239,6 +258,7 @@ const TITULO: Record<Eslabon, string> = {
   sin_calendario: "📭 Sin calendario cargado — se quedan sin publicar",
   contenido_incompleto: "⏳ Tienen calendario pero ningún post está completo",
   despachador_mudo: "🔇 Make no despacha hace días",
+  despacho_sin_registro: "❔ Sin ningún despacho registrado — puede ser alta nueva o caño sin conectar",
   red_muda: "👻 Make dice que publicó y en la red no está",
   sync_ciego: "🙈 Sync orgánico parado — no estamos viendo si publican",
 };
@@ -310,6 +330,22 @@ export async function puedeProducir(db: Db, clientId: string): Promise<Precondic
   };
 }
 
+/** Orden de lectura del aviso: primero lo que miente (Make dice que publicó y no
+ *  está), después lo que no estamos viendo, después los caños rotos y al final la
+ *  carga. Es un Record y no un array a propósito: hasta el 16/9/26 era un array
+ *  suelto con cuatro eslabones, y cuando se sumaron sin_calendario y
+ *  contenido_incompleto nadie los agregó — el aviso diario los omitió en silencio.
+ *  Un `as Eslabon[]` no avisa de lo que falta; un Record sin una clave no compila. */
+const ORDEN_AVISO: Record<Eslabon, number> = {
+  red_muda: 1,
+  sync_ciego: 2,
+  sin_destino: 3,
+  despachador_mudo: 4,
+  despacho_sin_registro: 5,
+  contenido_incompleto: 6,
+  sin_calendario: 7,
+};
+
 /** Aviso diario. Corre en el tick de db-maintenance. */
 export async function avisarCadenaRota(db: Db): Promise<{ rotas: number; entregado: boolean }> {
   const { rotas, ciego } = await revisarCadena(db);
@@ -320,7 +356,8 @@ export async function avisarCadenaRota(db: Db): Promise<{ rotas: number; entrega
   if (rotas.length === 0) return { rotas: 0, entregado: false };
 
   const lineas: string[] = ["*Cadena de publicación — eslabones rotos*", ""];
-  for (const eslabon of ["red_muda", "sync_ciego", "sin_destino", "despachador_mudo"] as Eslabon[]) {
+  const orden = (Object.keys(ORDEN_AVISO) as Eslabon[]).sort((a, b) => ORDEN_AVISO[a] - ORDEN_AVISO[b]);
+  for (const eslabon of orden) {
     const grupo = rotas.filter((r) => r.eslabon === eslabon);
     if (grupo.length === 0) continue;
     lineas.push(`*${TITULO[eslabon]}*`);

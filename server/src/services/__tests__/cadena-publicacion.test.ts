@@ -31,9 +31,26 @@ describe("diagnosticar — primer eslabón roto de la cadena", () => {
     })).toBe("sin_destino");
   });
 
-  it("con destino pero sin despachos, es el despachador", () => {
+  it("dejar de despachar es un hecho medido", () => {
     expect(diagnosticar({ ...sano, diasDesdeDespacho: DIAS_SIN_DESPACHO + 1 })).toBe("despachador_mudo");
-    expect(diagnosticar({ ...sano, diasDesdeDespacho: null })).toBe("despachador_mudo");
+  });
+
+  // Hasta el 16/9/26 estos dos casos devolvían lo mismo, y el aviso los juntaba
+  // bajo "🔇 Make no despacha hace días" — un título que declara una antigüedad
+  // que en el segundo caso NO tenemos. "Nunca hubo un despacho" no es una
+  // medición vieja: es la falta de una medición, y se arregla en otro lado
+  // (el alta del escenario, no el caño que se tapó).
+  it("no tener NINGÚN despacho registrado se reporta aparte, sin inventar días", () => {
+    expect(diagnosticar({ ...sano, diasDesdeDespacho: null })).toBe("despacho_sin_registro");
+    expect(diagnosticar({ ...sano, diasDesdeDespacho: undefined })).toBe("despacho_sin_registro");
+  });
+
+  it("y sigue perdiendo contra sus causas: sin destino y sin contenido van antes", () => {
+    // Si no hay a dónde mandar, o no hay qué mandar, que no haya despacho es
+    // la consecuencia — mandar a revisar el alta del escenario es perder la tarde.
+    expect(diagnosticar({ ...sano, diasDesdeDespacho: null, tieneDestino: false })).toBe("sin_destino");
+    expect(diagnosticar({ ...sano, diasDesdeDespacho: null, postsFuturos: 0 })).toBe("sin_calendario");
+    expect(diagnosticar({ ...sano, diasDesdeDespacho: null, postsFuturosListos: 0 })).toBe("contenido_incompleto");
   });
 
   it("justo en el umbral de despacho todavía no acusa", () => {

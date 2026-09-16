@@ -563,7 +563,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_cadena_publicacion",
       description:
-        "Estado de la cadena de publicación de toda la agencia, medido por EFECTO real (destino en Make, último despacho que escribió Make, posts que devolvió la red) y no por etiquetas ni estados de corrida. Devuelve por cliente el PRIMER eslabón roto: sin_destino (lo que se le programe no va a ningún lado), despachador_mudo (Make no despacha hace días), sync_ciego (no estamos viendo su red, hay que arreglar el sync antes de concluir nada) o red_muda (Make dice que publicó y no está). Usala para saber dónde está roto el flujo antes de prometerle nada a un cliente.",
+        "Estado de la cadena de publicación de toda la agencia, medido por EFECTO real (destino en Make, último despacho que escribió Make, posts que devolvió la red) y no por etiquetas ni estados de corrida. Devuelve por cliente el PRIMER eslabón roto: sin_destino (lo que se le programe no va a ningún lado), sin_calendario, contenido_incompleto (tiene fechas pero ningún post pasa las compuertas), despachador_mudo (venía despachando y dejó de hacerlo hace días), despacho_sin_registro (NUNCA hubo un despacho: puede ser un alta nueva que todavía no llegó a su fecha o un escenario que nunca se conectó — no afirmes que está caído), sync_ciego (no estamos viendo su red, hay que arreglar el sync antes de concluir nada) o red_muda (Make dice que publicó y no está). Usala para saber dónde está roto el flujo antes de prometerle nada a un cliente.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -1413,6 +1413,11 @@ export function agentToolsRoutes(
         const listId = typeof params.listId === "string" ? params.listId : "";
         const name = typeof params.name === "string" ? params.name.trim() : "";
         if (!listId || !name) return reply(false, "Faltan listId o name.");
+        {
+          const { motivoListaProtegida } = await import("../services/planillas-protegidas.js");
+          const motivo = await motivoListaProtegida(db, listId);
+          if (motivo) return reply(false, motivo);
+        }
         try {
           const r = await clickupTools.createTask({
             listId,
