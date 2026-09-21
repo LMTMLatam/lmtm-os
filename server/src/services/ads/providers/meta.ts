@@ -126,26 +126,51 @@ function intNum(v: unknown): number {
   return n ?? 0;
 }
 
-function leadsFromActions(actions: Array<{ action_type?: string; value?: string }> | undefined): number {
+/** Conversaciones de WhatsApp/Messenger iniciadas: el "Resultado" que muestra
+ *  Ads Manager para una campaña de mensajes. */
+const ACCION_CONVERSACION = "onsite_conversion.messaging_conversation_started_7d";
+
+/** Formularios y leads de sitio. Meta devuelve EL MISMO evento bajo varios
+ *  nombres, asi que entre estos se toma el mayor, nunca la suma. */
+const ACCIONES_FORMULARIO = ["lead", "onsite_conversion.lead_grouped", "leadgen_other"];
+
+/**
+ * El resultado de la campaña, definido como lo define Meta.
+ *
+ * ANTES SE SUMABAN LOS CUATRO action_type y daba de mas por dos motivos:
+ *
+ *   1. `lead` y `onsite_conversion.lead_grouped` son ALIAS del mismo evento.
+ *      Medido el 21/9/26 en Distrillantas LINIERS: 124 y 124 — los mismos 124
+ *      contados dos veces.
+ *   2. A una campaña de mensajes se le sumaban ademas los leads de pixel, que
+ *      no son su resultado: Ads Manager muestra solo el evento que la campaña
+ *      optimiza.
+ *
+ * El efecto lo reporto el equipo: el panel decia 548 consultas donde Meta
+ * decia 312, y el CPL salia barato en la misma proporcion.
+ *
+ * REGLA: si hubo conversaciones, ESE es el resultado. Si no hubo, son los
+ * formularios, deduplicados. Nunca se suman las dos familias.
+ *
+ * Verificado contra las 6 campañas de Distrillantas del 1 al 21/9/26: da
+ * exacto en las 6 (312, 433, 330, 263, 84, 164). Y sigue cubriendo el caso
+ * que motivo incluir conversaciones (MAERS 8/7/26: 7 conversaciones reales
+ * que se reportaban como 0 leads), porque sin formularios las conversaciones
+ * siguen siendo el resultado.
+ */
+export function leadsFromActions(actions: Array<{ action_type?: string; value?: string }> | undefined): number {
   if (!actions) return 0;
-  let total = 0;
+  let conversaciones = 0;
+  let formularios = 0;
   for (const a of actions) {
     if (!a.action_type) continue;
-    // "Leads" = el RESULTADO que optimiza la campaña, no solo formularios.
-    // Muchos clientes corren campañas de mensajes: su resultado en Ads Manager
-    // es "conversaciones iniciadas" (messaging_conversation_started_7d).
-    // Contarlas evita falsas alarmas de "gasto sin conversiones" (MAERS,
-    // 2026-07-08: 7 conversaciones reales reportadas como 0 leads).
-    if ([
-      "lead",
-      "onsite_conversion.lead_grouped",
-      "leadgen_other",
-      "onsite_conversion.messaging_conversation_started_7d",
-    ].includes(a.action_type)) {
-      total += intNum(a.value);
+    if (a.action_type === ACCION_CONVERSACION) conversaciones += intNum(a.value);
+    else if (ACCIONES_FORMULARIO.includes(a.action_type)) {
+      // max, no suma: son el mismo evento con distinto nombre.
+      formularios = Math.max(formularios, intNum(a.value));
     }
   }
-  return total;
+  return conversaciones > 0 ? conversaciones : formularios;
 }
 
 function conversionsFromActions(actions: Array<{ action_type?: string; value?: string }> | undefined): number {
