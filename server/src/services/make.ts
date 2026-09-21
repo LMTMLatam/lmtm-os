@@ -116,7 +116,7 @@ function norm(s: string): string {
 
 /** Match a client to their AutoPoster scenario by name. Excludes the generic
  *  template/connection scenarios so a client never matches "Plantilla". */
-function matchScenario(clientName: string, scenarios: MakeScenario[]): MakeScenario | null {
+export function matchScenario(clientName: string, scenarios: MakeScenario[]): MakeScenario | null {
   const cn = norm(clientName);
   if (!cn) return null;
   const cand = scenarios.filter((s) => !/plantilla|template|autoposter|conexi[oó]n/i.test(s.name ?? ""));

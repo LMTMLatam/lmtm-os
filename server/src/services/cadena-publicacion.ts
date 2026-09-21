@@ -23,7 +23,7 @@
 import type { Db } from "@paperclipai/db";
 import { clients, organicPosts } from "@paperclipai/db";
 import { eq, sql } from "drizzle-orm";
-import { makeConfigured, makeDestinos } from "./make.js";
+import { makeConfigured, makeDestinos, makeListScenarios, matchScenario } from "./make.js";
 import { getRedesCalendar } from "./clickup-sync.js";
 import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
 
@@ -59,6 +59,7 @@ export const DIAS_SYNC_CONFIABLE = 3;
 
 export type Eslabon =
   | "sin_destino"
+  | "destino_sin_escenario"
   | "sin_calendario"
   | "contenido_incompleto"
   | "despachador_mudo"
@@ -86,6 +87,11 @@ export interface EstadoCliente {
   /** null = el cliente no figura en el datastore de Make. */
   diasDesdeDespacho: number | null | undefined;
   tieneDestino: boolean;
+  /** ¿Hay un escenario ACTIVO detrás de ese destino? Una fila en el datastore
+   *  no es un caño: se puede cargar un webhook sin escenario, o con el
+   *  escenario apagado, y el destino queda de papel. null = no se pudo leer la
+   *  lista de escenarios, y entonces no se acusa. */
+  destinoConEscenario: boolean | null;
   /** false = el cliente no tiene sync orgánico; no se puede juzgar su red. */
   tieneSyncOrganico: boolean;
   diasDesdeSync: number | null;
@@ -104,6 +110,17 @@ export interface EstadoCliente {
  */
 export function diagnosticar(e: EstadoCliente): Eslabon | null {
   if (!e.tieneDestino) return "sin_destino";
+  // Tener fila en el datastore NO es tener caño. Medido el 20/9/26: de los 15
+  // clientes que figuraban sin_destino el 13/9, doce quedaron "arreglados"
+  // cargándoles la fila y nada más — nueve sin escenario y tres con el
+  // escenario apagado. Como el verificador solo miraba la fila, esos doce
+  // pasaron a sin_calendario, o sea que un problema técnico se reclasificó solo
+  // como trabajo pendiente del CM. Se exige que NUNCA haya despachado para no
+  // acusar por un nombre de escenario que no matchea: si despachó alguna vez,
+  // algo hay detrás.
+  if (e.tieneDestino && e.destinoConEscenario === false && (e.diasDesdeDespacho === null || e.diasDesdeDespacho === undefined)) {
+    return "destino_sin_escenario";
+  }
   // El contenido va ANTES del despacho porque es su causa: un despachador mudo
   // con el calendario vacío no es un problema de Make, y mandar a revisar el
   // escenario es hacer perder la tarde. Medido el 11/9/26: COSA PROPIEDADES
@@ -153,6 +170,16 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
 
   const porCliente = new Map(destinos.map((d) => [norm(d.cliente), d]));
 
+  // Los escenarios, para saber si detrás del destino hay un caño de verdad.
+  // Si no se pueden leer queda null y el eslabón no se evalúa: no poder mirar
+  // no habilita a acusar (es la misma regla que sync_ciego).
+  let escenarios: Awaited<ReturnType<typeof makeListScenarios>> | null = null;
+  try {
+    escenarios = await makeListScenarios();
+  } catch (e) {
+    console.warn("[cadena] no se pudo listar los escenarios de Make:", e instanceof Error ? e.message : e);
+  }
+
   const activos = await db
     .select({ id: clients.id, name: clients.name })
     .from(clients)
@@ -182,6 +209,18 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
     const destino = porCliente.get(norm(c.name));
 
     const dDespacho = destino ? dias(destino.ultimoEnvio) : null;
+
+    // Qué hay en Make detrás del destino. Se distingue "apagado" de "no existe"
+    // porque son dos acciones distintas: encenderlo o crearlo.
+    let conEscenario: boolean | null = null;
+    let queEscenario: string | null = null;
+    if (destino && escenarios) {
+      const sc = matchScenario(c.name, escenarios);
+      conEscenario = Boolean(sc?.isActive);
+      queEscenario = sc
+        ? (sc.isActive ? null : `el escenario "${sc.name}" está APAGADO`)
+        : "no existe ningún escenario a su nombre";
+    }
     const tieneSync = ultimoEnRed.has(c.id);
     const dSync = tieneSync ? dias(ultimoSync.get(c.id) ?? null) : null;
     const dRed = tieneSync ? dias(ultimoEnRed.get(c.id) ?? null) : null;
@@ -208,6 +247,7 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
 
     const eslabon = diagnosticar({
       tieneDestino: Boolean(destino),
+      destinoConEscenario: conEscenario,
       diasDesdeDespacho: dDespacho,
       tieneSyncOrganico: tieneSync,
       diasDesdeSync: dSync,
@@ -222,7 +262,7 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
       : eslabon === 'sync_ciego' ? dSync : dRed;
     rotas.push({
       clientId: c.id, cliente: c.name, eslabon, diasSin,
-      detalle: DETALLE[eslabon]({ dDespacho, dSync, dRed, futuros, listos, proximo, falta }),
+      detalle: DETALLE[eslabon]({ dDespacho, dSync, dRed, futuros, listos, proximo, falta, escenario: queEscenario }),
     });
   }
 
@@ -232,6 +272,9 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
 interface Contexto {
   dDespacho: number | null; dSync: number | null; dRed: number | null;
   futuros?: number | null; listos?: number | null; proximo?: string | null; falta?: string[];
+  /** Qué se encontró en Make para ese cliente: "el escenario X está apagado" o
+   *  "no hay escenario". Sin esto el aviso no dice si hay que encender o crear. */
+  escenario?: string | null;
 }
 
 /** El detalle dice QUÉ mirar, no solo que algo falla: cada eslabón se arregla
@@ -239,6 +282,8 @@ interface Contexto {
 const DETALLE: Record<Eslabon, (c: Contexto) => string> = {
   sin_destino: () =>
     "No está en el datastore de Make: el despachador no tiene a dónde mandarle los posts. Todo lo que se le programe se descarta en silencio.",
+  destino_sin_escenario: (c) =>
+    `Tiene el destino cargado en el datastore pero ${c.escenario ?? "no hay un escenario activo"} detrás, y nunca despachó un post. La fila sola no publica: el despachador manda el post a ese webhook y no lo recibe nadie. Hay que crear o encender el escenario del cliente en Make — cargarle la fila no alcanza.`,
   sin_calendario: (c) =>
     `No tiene ningún post con fecha de acá en adelante${c.dDespacho !== null ? ` (el último despacho fue hace ${c.dDespacho} días)` : ""}. No hay nada que publicar: se carga en la planilla del cliente, no en ClickUp — el script nocturno pisa lo que se edite acá.`,
   contenido_incompleto: (c) =>
@@ -255,6 +300,7 @@ const DETALLE: Record<Eslabon, (c: Contexto) => string> = {
 
 const TITULO: Record<Eslabon, string> = {
   sin_destino: "🚫 Sin destino en Make — lo que se les programe no va a ningún lado",
+  destino_sin_escenario: "🪧 Destino de papel — la fila está cargada pero no hay escenario que publique",
   sin_calendario: "📭 Sin calendario cargado — se quedan sin publicar",
   contenido_incompleto: "⏳ Tienen calendario pero ningún post está completo",
   despachador_mudo: "🔇 Make no despacha hace días",
@@ -340,10 +386,11 @@ const ORDEN_AVISO: Record<Eslabon, number> = {
   red_muda: 1,
   sync_ciego: 2,
   sin_destino: 3,
-  despachador_mudo: 4,
-  despacho_sin_registro: 5,
-  contenido_incompleto: 6,
-  sin_calendario: 7,
+  destino_sin_escenario: 4,
+  despachador_mudo: 5,
+  despacho_sin_registro: 6,
+  contenido_incompleto: 7,
+  sin_calendario: 8,
 };
 
 /** Aviso diario. Corre en el tick de db-maintenance. */

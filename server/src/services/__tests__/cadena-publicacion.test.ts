@@ -9,6 +9,7 @@ import {
 
 const sano: EstadoCliente = {
   tieneDestino: true,
+  destinoConEscenario: true,
   diasDesdeDespacho: 1,
   tieneSyncOrganico: true,
   diasDesdeSync: 0,
@@ -126,5 +127,40 @@ describe("diagnosticar — el contenido que viene", () => {
     expect(diagnosticar({
       ...sano, postsFuturos: null, postsFuturosListos: null, diasDesdeDespacho: 99,
     })).toBe("despachador_mudo");
+  });
+});
+
+describe("destino_sin_escenario — la fila en el datastore no es un caño", () => {
+  // El caso real del 20/9/26: doce clientes quedaron "arreglados" cargándoles
+  // la fila del datastore sin escenario detrás, y como el verificador solo
+  // miraba la fila, se reclasificaron solos como problema de carga del CM.
+  const dePapel: EstadoCliente = {
+    ...sano,
+    destinoConEscenario: false,
+    diasDesdeDespacho: null,
+    postsFuturos: 0,
+    postsFuturosListos: 0,
+  };
+
+  it("acusa al destino sin escenario ANTES que al calendario vacío", () => {
+    expect(diagnosticar(dePapel)).toBe("destino_sin_escenario");
+  });
+
+  it("no acusa si hay escenario activo: ahí el calendario vacío sí es el problema", () => {
+    expect(diagnosticar({ ...dePapel, destinoConEscenario: true })).toBe("sin_calendario");
+  });
+
+  it("no acusa cuando no se pudieron leer los escenarios", () => {
+    // No poder mirar no habilita a acusar — misma regla que sync_ciego.
+    expect(diagnosticar({ ...dePapel, destinoConEscenario: null })).toBe("sin_calendario");
+  });
+
+  it("no acusa a un cliente que YA despachó alguna vez, aunque el nombre no matchee", () => {
+    // Si despachó, algo hay detrás: el que falló es el match por nombre, no el caño.
+    expect(diagnosticar({ ...dePapel, diasDesdeDespacho: 2, postsFuturos: 5, postsFuturosListos: 5 })).toBeNull();
+  });
+
+  it("sin destino gana sobre destino sin escenario", () => {
+    expect(diagnosticar({ ...dePapel, tieneDestino: false })).toBe("sin_destino");
   });
 });
