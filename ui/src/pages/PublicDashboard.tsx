@@ -321,12 +321,31 @@ function useForceLightTheme() {
 function PublicDashboardInner({ slug, client, dashboard }: { slug: string; client: PublicClient; dashboard: PublicHeader }) {
   useForceLightTheme();
   const today = useMemo(() => new Date(), []);
+  /** Tope de lo que se puede elegir a mano: hoy. Distinto del default. */
+  const maxFecha = useMemo(() => today.toISOString().slice(0, 10), [today]);
+  // El rango por defecto TERMINA AYER, no hoy.
+  //
+  // ads_insights del dia en curso esta a medio sincronizar, y eso ya rompio dos
+  // calculos internos (la plata parada se inflaba 2x, el aviso de saldo llegaba
+  // tarde). Aca hacia dos cosas peores, porque las ve el cliente:
+  //   1. el ultimo punto de TODOS los graficos caia siempre, todos los dias,
+  //      y se lee como "la campana se cayo hoy";
+  //   2. el delta "vs periodo anterior" comparaba un periodo con un dia a
+  //      medias contra uno completo, asi que salia sistematicamente peor.
+  // De paso arregla un off-by-one: [hoy-30, hoy] son 31 dias, no 30.
+  // Es ademas lo que hace Meta con su preset "Ultimos 30 dias", asi que el
+  // panel ahora COINCIDE con el Administrador de anuncios en vez de diferir.
+  // Elegir hoy a mano sigue siendo posible.
+  const defaultUntil = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }, [today]);
   const defaultSince = useMemo(() => {
     const d = new Date(today);
     d.setDate(d.getDate() - 30);
     return d.toISOString().slice(0, 10);
   }, [today]);
-  const defaultUntil = useMemo(() => today.toISOString().slice(0, 10), [today]);
 
   const [range, setRange] = useState({ since: defaultSince, until: defaultUntil });
   const [platform, setPlatform] = useState<"all" | "meta" | "google">("all");
@@ -457,7 +476,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
         </div>
         {/* Date range + section nav */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-4 flex items-center gap-3 flex-wrap">
-          <DateRangePicker since={range.since} until={range.until} defaultUntil={defaultUntil} onChange={setRange} />
+          <DateRangePicker since={range.since} until={range.until} defaultUntil={maxFecha} onChange={setRange} />
           <div className="flex gap-1">
             {(["all", "meta", "google"] as const).map((p) => (
               <button
@@ -566,12 +585,12 @@ function ResumenPublic({ series, campaigns, totalSpend, totalImpr, totalClicks, 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi title="Impresiones" value={fmt.fmtCompact(totalImpr)} icon={Eye} accent="rose"
           delta={<Delta curr={totalImpr} prev={prevFunnel?.impressions ?? 0} goodWhen="up" />}
-          sub={`${fmt.fmtCompact(funnel?.reach ?? 0)} personas alcanzadas`} spark={series.map((p: TimeseriesPoint) => p.impressions)} sparkId="s-impr" />
+          sub={(funnel?.reach ?? 0) > 0 ? `${fmt.fmtCompact(funnel!.reach)} personas alcanzadas` : undefined} spark={series.map((p: TimeseriesPoint) => p.impressions)} sparkId="s-impr" />
         <Kpi title="Clics" value={fmt.fmtInt(totalClicks)} icon={MousePointerClick} accent="violet"
           delta={<Delta curr={totalClicks} prev={prevFunnel?.clicks ?? 0} goodWhen="up" />} spark={series.map((p: TimeseriesPoint) => p.clicks)} sparkId="s-clicks" />
         <Kpi title="CPM" value={fmt.fmtMoney(cpm, 0)} icon={Activity} accent="amber"
           delta={<Delta curr={cpm} prev={prevCpm} goodWhen="down" />}
-          sub={`Frecuencia ${frequency.toFixed(2)}`} spark={series.map((p: TimeseriesPoint) => p.cpm)} sparkId="s-cpm" />
+          sub={frequency >= 1 ? `Frecuencia ${frequency.toFixed(2)}` : undefined} spark={series.map((p: TimeseriesPoint) => p.cpm)} sparkId="s-cpm" />
         <Kpi title="Campañas activas" value={fmt.fmtInt(activeCampaigns)} icon={Megaphone} accent="blue" sub={`${campaigns.length} totales`} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -969,7 +988,18 @@ function AudienciaPublic({ data, fmt }: { data: Record<string, AudFila[]>; fmt: 
   }
   // Titular: el segmento que mejor convierte (más leads con CPL más bajo).
   const edades = (data.age ?? []).filter((a) => a.leads > 0);
-  const mejorEdad = [...edades].sort((a, b) => (a.cpl ?? 9e9) - (b.cpl ?? 9e9))[0];
+  // "El mas eficiente" es una comparacion, y una comparacion necesita contra
+  // que. Con un solo rango con consultas, el ganador lo es por default; y con
+  // dos o tres consultas el CPL es ruido —una sola consulta mas lo mueve a la
+  // mitad—, pero sale impreso en negrita en el panel del cliente. Si no hay
+  // con que comparar, no se afirma nada: la frase de genero (que es un conteo
+  // crudo, no una inferencia) se muestra igual.
+  const MIN_LEADS_EDAD = 5;
+  const ordenEdades = [...edades].sort((a, b) => (a.cpl ?? 9e9) - (b.cpl ?? 9e9));
+  const candidata = ordenEdades[0];
+  const mejorEdad = edades.length >= 2 && candidata && candidata.cpl != null && candidata.leads >= MIN_LEADS_EDAD
+    ? candidata
+    : null;
   const genero = (data.gender ?? []).filter((g) => g.leads > 0);
   const mejorGenero = [...genero].sort((a, b) => b.leads - a.leads)[0];
 
@@ -980,7 +1010,7 @@ function AudienciaPublic({ data, fmt }: { data: Record<string, AudFila[]>; fmt: 
           <h3 className="text-sm font-semibold mb-1">¿A quién le está hablando tu pauta?</h3>
           <p className="text-sm text-muted-foreground">
             {mejorGenero && <>El público que más responde es <strong className="text-foreground">{lindo(mejorGenero.key).toLowerCase()}</strong>{" "}({fmt.fmtInt(mejorGenero.leads)} consultas). </>}
-            {mejorEdad && <>El rango <strong className="text-foreground">{mejorEdad.key}</strong> es el más eficiente, con un costo por consulta de <strong className="text-foreground">{fmt.fmtMoney(mejorEdad.cpl ?? 0)}</strong>.</>}
+            {mejorEdad && <>El rango <strong className="text-foreground">{mejorEdad.key}</strong> es el más eficiente, con un costo por consulta de <strong className="text-foreground">{fmt.fmtMoney(mejorEdad.cpl!)}</strong> sobre {fmt.fmtInt(mejorEdad.leads)} consultas.</>}
           </p>
         </Card>
       )}
@@ -1136,7 +1166,7 @@ function LeadsPublic({ funnel, prevFunnel, fmt }: { funnel?: FunnelData; prevFun
           delta={<Delta curr={funnel.rates.ctr} prev={prevFunnel?.rates?.ctr ?? 0} goodWhen="up" />} />
         <Kpi title="Clic → Lead" value={fmt.fmtPct(funnel.rates.clickToLead, 2)} icon={Target} accent="violet" />
         <Kpi title="Lead → Venta" value={fmt.fmtPct(funnel.rates.leadToSale, 2)} icon={Target} accent="green" />
-        <Kpi title="CPL" value={fmt.fmtMoney(funnel.cpls.cpl)} icon={DollarSign} accent="amber"
+        <Kpi title="CPL" value={funnel.cpls.cpl > 0 ? fmt.fmtMoney(funnel.cpls.cpl) : "—"} icon={DollarSign} accent="amber"
           delta={<Delta curr={funnel.cpls.cpl} prev={prevFunnel?.cpls?.cpl ?? 0} goodWhen="down" />}
           sub={funnel.cpls.cpa > 0 ? `CPA ${fmt.fmtMoney(funnel.cpls.cpa)}` : undefined} />
       </div>

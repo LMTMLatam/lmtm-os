@@ -43,8 +43,14 @@ export function publicDashboardRoutes(db: Db): Router {
     const d = new Date(); d.setUTCDate(d.getUTCDate() - 30);
     return d.toISOString().slice(0, 10);
   }
+  // Termina AYER: el dia en curso esta a medio sincronizar y arrastra hacia
+  // abajo el ultimo punto de las series y los deltas contra el periodo
+  // anterior (que si esta completo). Mismo criterio que balance-monitor.ts y
+  // que el preset "Ultimos 30 dias" de Meta. Pedir hoy con ?until= sigue
+  // andando: esto es solo el default.
   function defaultUntil(): string {
-    return new Date().toISOString().slice(0, 10);
+    const d = new Date(); d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
   }
   // Filtro de plataforma (28/7): ?platform=meta|google separa; sin param unifica.
   function platformOf(req: Request): "meta" | "google" | null {
