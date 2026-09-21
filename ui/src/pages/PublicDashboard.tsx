@@ -837,7 +837,13 @@ function AnunciosPublic({ creatives, loading, fmt }: { creatives: Creative[]; lo
               </span>
             </div>
             <div className="p-3 flex-1 flex flex-col gap-2">
-              <p className="text-xs font-medium line-clamp-2" title={c.name}>{c.titulo || c.name}</p>
+              {/* El NOMBRE del anuncio manda sobre el titular. El titular es copy
+                  comercial y se repite entre anuncios distintos: el 21/9/26 el
+                  panel mostraba dos anuncios como "Repará 4 llantas y pagá 3",
+                  imposibles de distinguir. El nombre es el que los identifica
+                  —es el que usa el equipo y el que muestra el panel interno—,
+                  así que el titular pasa al hover. */}
+              <p className="text-xs font-medium line-clamp-2" title={c.titulo || c.name}>{c.name || c.titulo}</p>
               <div className="mt-auto grid grid-cols-3 gap-2 text-center pt-2 border-t">
                 <div>
                   <p className="text-lg font-bold leading-none tabular-nums" style={{ color: "var(--pv-c3)" }}>{fmt.fmtInt(c.leads)}</p>
@@ -862,7 +868,7 @@ function AnunciosPublic({ creatives, loading, fmt }: { creatives: Creative[]; lo
           <h3 className="text-sm font-semibold mb-1">Costo por consulta de cada anuncio</h3>
           <p className="text-[10px] text-muted-foreground mb-4">Verde = compra consultas más baratas que el promedio</p>
           <BarsVsRef
-            rows={conLeads.slice(0, 8).map((c) => ({ label: c.titulo || c.name, value: c.cpl }))}
+            rows={conLeads.slice(0, 8).map((c) => ({ label: c.name || c.titulo || "Anuncio", value: c.cpl }))}
             ref={cplRef}
             refLabel="Promedio de la cuenta"
             fmtValue={(n: number) => fmt.fmtMoney(n)}
@@ -878,7 +884,7 @@ function AnunciosPublic({ creatives, loading, fmt }: { creatives: Creative[]; lo
               <div key={c.id} className="flex items-center gap-3">
                 <Thumb src={c.imageUrl} alt={c.name} className="h-11 w-11 rounded-md shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium truncate" title={c.name}>{c.titulo || c.name}</p>
+                  <p className="text-xs font-medium truncate" title={c.titulo || c.name}>{c.name || c.titulo}</p>
                   <div className="flex items-center gap-1.5 mt-1">
                     <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${Math.max((c.leads / maxLeads) * 100, 1)}%`, background: "var(--pv-c3)" }} />
