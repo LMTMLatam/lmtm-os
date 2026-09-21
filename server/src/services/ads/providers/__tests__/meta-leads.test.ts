@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leadsFromActions } from "../meta.js";
+import { conversionsFromActions, leadsFromActions } from "../meta.js";
 
 // El equipo reportó el 21/9/26 que el panel decía 548 consultas donde Meta
 // decía 312 (Distrillantas, WP - MENSAJES LINIERS). La causa: se sumaban
@@ -48,5 +48,40 @@ describe("leadsFromActions", () => {
   it("tolera valores rotos sin explotar", () => {
     expect(leadsFromActions([{ action_type: CONVERSACION, value: undefined }])).toBe(0);
     expect(leadsFromActions([{ value: "5" } as never])).toBe(0);
+  });
+});
+
+// -- Ventas --------------------------------------------------------------
+// Auditoria del 21/9/26: "conversiones" contaba TODO evento de pixel, no las
+// ventas. 190.978 guardadas contra 437 compras reales en toda la base.
+
+describe("conversionsFromActions", () => {
+  it("EL BUG: una vista de producto no es una venta", () => {
+    // Fila real: Distrillantas tenia 1 compra y guardabamos 4.
+    expect(conversionsFromActions([
+      a("offsite_conversion.fb_pixel_view_content", 3),
+      a("offsite_conversion.fb_pixel_search", 1),
+      a("offsite_conversion.fb_pixel_add_to_cart", 2),
+    ])).toBe(0);
+  });
+
+  it("los alias de compra son la misma compra: se toma el mayor", () => {
+    // Medido en la base: omni/onsite_web/onsite_web_app dan 325 los tres, y
+    // purchase/fb_pixel/web_in_store dan 56 los tres. Sumarlos multiplica.
+    expect(conversionsFromActions([
+      a("omni_purchase", 325),
+      a("onsite_web_purchase", 325),
+      a("purchase", 56),
+      a("offsite_conversion.fb_pixel_purchase", 56),
+    ])).toBe(325);
+  });
+
+  it("cuenta la compra aunque venga sola por el pixel", () => {
+    expect(conversionsFromActions([a("offsite_conversion.fb_pixel_purchase", 7)])).toBe(7);
+  });
+
+  it("cero es la respuesta correcta para quien no vende online", () => {
+    expect(conversionsFromActions([a("link_click", 40), a("post_engagement", 900)])).toBe(0);
+    expect(conversionsFromActions(undefined)).toBe(0);
   });
 });

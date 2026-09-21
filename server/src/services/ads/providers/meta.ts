@@ -173,16 +173,46 @@ export function leadsFromActions(actions: Array<{ action_type?: string; value?: 
   return conversaciones > 0 ? conversaciones : formularios;
 }
 
-function conversionsFromActions(actions: Array<{ action_type?: string; value?: string }> | undefined): number {
+/** Compras. Meta reporta LA MISMA compra bajo una decena de nombres segun el
+ *  canal (omni_* es el paraguas, onsite_* la app/web propia, offsite_* el
+ *  pixel), asi que entre estos se toma el mayor, nunca la suma. */
+const ACCIONES_COMPRA = [
+  "omni_purchase",
+  "purchase",
+  "onsite_web_purchase",
+  "onsite_web_app_purchase",
+  "onsite_app_purchase",
+  "onsite_conversion.purchase",
+  "offsite_conversion.fb_pixel_purchase",
+  "web_in_store_purchase",
+];
+
+/**
+ * Ventas. NO "cualquier evento de pixel".
+ *
+ * Hasta el 21/9/26 esto contaba todo action_type que EMPEZARA con
+ * "offsite_conversion", que en el pixel de Meta son tambien las vistas de
+ * producto, las busquedas y los carritos. Medido sobre la base entera:
+ * **190.978 "conversiones" guardadas contra 437 compras reales** —
+ * 156.405 eran fb_pixel_view_content. Distrillantas figuraba con 142.890
+ * ventas habiendo tenido 425.
+ *
+ * Eso alimentaba el KPI "Conversiones" del panel del cliente, la tasa
+ * "Lead -> Venta" (daba >1000%) y el CPA, que salia regalado.
+ *
+ * Cero es la respuesta correcta para un cliente de generacion de leads que no
+ * vende online: no hay ventas que medir. Inventarlas con vistas de pagina es
+ * peor que informar cero.
+ */
+export function conversionsFromActions(actions: Array<{ action_type?: string; value?: string }> | undefined): number {
   if (!actions) return 0;
-  let total = 0;
+  let compras = 0;
   for (const a of actions) {
     if (!a.action_type) continue;
-    if (a.action_type.startsWith("offsite_conversion") || a.action_type === "purchase") {
-      total += intNum(a.value);
-    }
+    // max, no suma: son la misma compra contada por distintos canales.
+    if (ACCIONES_COMPRA.includes(a.action_type)) compras = Math.max(compras, intNum(a.value));
   }
-  return total;
+  return compras;
 }
 
 export const metaProvider: AdsProvider = {
