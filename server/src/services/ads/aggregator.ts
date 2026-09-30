@@ -61,6 +61,44 @@ async function logJobStart(
   return { logId: row.id };
 }
 
+// Postgres acepta 65534 parametros de bind por sentencia. Con ~24 columnas,
+// un insert de una sola tanda revienta pasadas las ~2.700 filas. El sync de
+// Distrillantas (90 dias a nivel anuncio) viene fallando todas las noches
+// desde el 21/09 con MAX_PARAMETERS_EXCEEDED.
+//
+// Y el agujero real no es la falla sino el orden: el delete y el insert no
+// estaban en la misma transaccion, asi que cada falla borraba 90 dias y no
+// reponia nada. El cliente veia sus 122 campanas listadas con todo en cero
+// hasta el siguiente sync manual. Se perdieron julio y agosto enteros asi.
+export const MAX_BIND_PARAMS = 65534;
+
+/** Cuantas filas entran en un solo insert sin pasarse de parametros. */
+export function filasPorTanda(columnas: number): number {
+  return Math.max(1, Math.floor(MAX_BIND_PARAMS / Math.max(1, columnas)));
+}
+
+/**
+ * Reemplaza las filas que matchean `where` por `rows`: todo dentro de una
+ * transaccion, y el insert partido en tandas que respetan el limite de
+ * parametros. Si algo falla, la tabla queda como estaba — nunca vacia.
+ */
+async function replaceRows(
+  db: Db,
+  table: any,
+  where: any,
+  rows: Array<Record<string, unknown>>,
+  opts?: { ignoreConflicts?: boolean },
+): Promise<void> {
+  const tanda = filasPorTanda(Object.keys(rows[0] ?? {}).length);
+  await db.transaction(async (tx: any) => {
+    await tx.delete(table).where(where);
+    for (let i = 0; i < rows.length; i += tanda) {
+      const q = tx.insert(table).values(rows.slice(i, i + tanda));
+      await (opts?.ignoreConflicts ? q.onConflictDoNothing() : q);
+    }
+  });
+}
+
 async function logJobEnd(
   db: Db,
   logId: string,
@@ -86,25 +124,28 @@ async function syncCampaigns(db: Db, opts: SyncOptions): Promise<number> {
   // NULL y un delete por conexión no las toca → el insert choca con la PK
   // (26 mappings fallando en silencio, 2026-07-08). La cuenta identifica
   // los datos, la conexión es solo el credencial que los trajo.
-  await db.delete(adsCampaigns)
-    .where(and(eq(adsCampaigns.platform, connection.platform), eq(adsCampaigns.adAccountId, mapping.adAccountId)));
-  await db.insert(adsCampaigns).values(campaigns.map((c) => ({
-    id: c.id,
-    companyId: connection.companyId,
-    clientId: mapping.clientId ?? null,
-    connectionId: connection.id,
-    platform: connection.platform,
-    adAccountId: mapping.adAccountId,
-    name: c.name,
-    status: c.status,
-    objective: c.objective ?? null,
-    dailyBudget: c.dailyBudget?.toString() ?? null,
-    lifetimeBudget: c.lifetimeBudget?.toString() ?? null,
-    startTime: c.startTime ?? null,
-    stopTime: c.stopTime ?? null,
-    syncedAt: new Date(),
-    raw: c.raw,
-  })));
+  await replaceRows(
+    db,
+    adsCampaigns,
+    and(eq(adsCampaigns.platform, connection.platform), eq(adsCampaigns.adAccountId, mapping.adAccountId)),
+    campaigns.map((c) => ({
+      id: c.id,
+      companyId: connection.companyId,
+      clientId: mapping.clientId ?? null,
+      connectionId: connection.id,
+      platform: connection.platform,
+      adAccountId: mapping.adAccountId,
+      name: c.name,
+      status: c.status,
+      objective: c.objective ?? null,
+      dailyBudget: c.dailyBudget?.toString() ?? null,
+      lifetimeBudget: c.lifetimeBudget?.toString() ?? null,
+      startTime: c.startTime ?? null,
+      stopTime: c.stopTime ?? null,
+      syncedAt: new Date(),
+      raw: c.raw,
+    })),
+  );
   return campaigns.length;
 }
 
@@ -124,32 +165,33 @@ async function syncAdsets(db: Db, opts: SyncOptions): Promise<number> {
   if (adsets.length === 0) return 0;
   // If a filter is set, only delete the rows for the included adset IDs to
   // avoid wiping data the user is excluding on purpose.
-  if (includeSet) {
-    await db.delete(adsAdsets)
-      .where(and(
+  const alcance = includeSet
+    ? and(
         eq(adsAdsets.platform, connection.platform),
         eq(adsAdsets.adAccountId, mapping.adAccountId),
         inArray(adsAdsets.id, Array.from(includeSet)),
-      ));
-  } else {
-    await db.delete(adsAdsets)
-      .where(and(eq(adsAdsets.platform, connection.platform), eq(adsAdsets.adAccountId, mapping.adAccountId)));
-  }
-  await db.insert(adsAdsets).values(adsets.map((a) => ({
-    id: a.id,
-    companyId: connection.companyId,
-    clientId: mapping.clientId ?? null,
-    connectionId: connection.id,
-    platform: connection.platform,
-    campaignId: a.campaignId,
-    adAccountId: mapping.adAccountId,
-    name: a.name,
-    status: a.status,
-    dailyBudget: a.dailyBudget?.toString() ?? null,
-    lifetimeBudget: a.lifetimeBudget?.toString() ?? null,
-    syncedAt: new Date(),
-    raw: a.raw,
-  })));
+      )
+    : and(eq(adsAdsets.platform, connection.platform), eq(adsAdsets.adAccountId, mapping.adAccountId));
+  await replaceRows(
+    db,
+    adsAdsets,
+    alcance,
+    adsets.map((a) => ({
+      id: a.id,
+      companyId: connection.companyId,
+      clientId: mapping.clientId ?? null,
+      connectionId: connection.id,
+      platform: connection.platform,
+      campaignId: a.campaignId,
+      adAccountId: mapping.adAccountId,
+      name: a.name,
+      status: a.status,
+      dailyBudget: a.dailyBudget?.toString() ?? null,
+      lifetimeBudget: a.lifetimeBudget?.toString() ?? null,
+      syncedAt: new Date(),
+      raw: a.raw,
+    })),
+  );
   return adsets.length;
 }
 
@@ -158,23 +200,26 @@ async function syncCreatives(db: Db, opts: SyncOptions): Promise<number> {
   const provider = getAdsProvider(resolvePlatform(connection));
   const ads = await provider.syncAds(connection, mapping, opts.since, opts.until);
   if (ads.length === 0) return 0;
-  await db.delete(adsCreatives)
-    .where(and(eq(adsCreatives.platform, connection.platform), eq(adsCreatives.adAccountId, mapping.adAccountId)));
-  await db.insert(adsCreatives).values(ads.map((a) => ({
-    id: a.id,
-    companyId: connection.companyId,
-    clientId: mapping.clientId ?? null,
-    connectionId: connection.id,
-    platform: connection.platform,
-    adsetId: a.adsetId ?? null,
-    campaignId: a.campaignId ?? null,
-    adAccountId: mapping.adAccountId,
-    name: a.name,
-    status: a.status,
-    creativeId: a.creativeId ?? null,
-    syncedAt: new Date(),
-    raw: a.raw,
-  })));
+  await replaceRows(
+    db,
+    adsCreatives,
+    and(eq(adsCreatives.platform, connection.platform), eq(adsCreatives.adAccountId, mapping.adAccountId)),
+    ads.map((a) => ({
+      id: a.id,
+      companyId: connection.companyId,
+      clientId: mapping.clientId ?? null,
+      connectionId: connection.id,
+      platform: connection.platform,
+      adsetId: a.adsetId ?? null,
+      campaignId: a.campaignId ?? null,
+      adAccountId: mapping.adAccountId,
+      name: a.name,
+      status: a.status,
+      creativeId: a.creativeId ?? null,
+      syncedAt: new Date(),
+      raw: a.raw,
+    })),
+  );
   return ads.length;
 }
 
@@ -196,15 +241,16 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
   // then insert fresh. The unique index on ads_insights_uniq would reject duplicates
   // anyway, but deleting-then-inserting is faster than conflict resolution at scale.
   // Sin connectionId en el scope (ver nota en syncCampaigns).
-  await db.delete(adsInsights)
-    .where(and(
+  await replaceRows(
+    db,
+    adsInsights,
+    and(
       eq(adsInsights.platform, connection.platform),
       eq(adsInsights.adAccountId, mapping.adAccountId),
       gte(adsInsights.date, opts.since.toISOString().slice(0, 10)),
       lte(adsInsights.date, opts.until.toISOString().slice(0, 10)),
-    ));
-  await db.insert(adsInsights)
-    .values(insights.map((i) => ({
+    ),
+    insights.map((i) => ({
       companyId: connection.companyId,
       clientId: mapping.clientId ?? null,
       connectionId: connection.id,
@@ -227,20 +273,20 @@ async function syncInsights(db: Db, opts: SyncOptions): Promise<number> {
       conversionValue: i.conversionValue?.toString() ?? null,
       videoViews: i.videoViews ?? 0,
       raw: i.raw,
-    })))
-    .onConflictDoNothing()
-    .catch((e) => {
-      // Drizzle's PostgresError is at e.cause. Surface it loudly.
-      const cause = e?.cause;
-      const causeStr = cause
-        ? `${cause.code ?? "?"} ${cause.severity ?? "?"} ${cause.message ?? cause}`
-        : String(e);
-      console.error("[syncInsights] insert failed (full cause):", causeStr);
-      console.error("[syncInsights] first row:", JSON.stringify(insights[0] ?? {}).slice(0, 1000));
-      // Build a new error with the cause message as the main message.
-      const e2 = new Error(`DB: ${causeStr.slice(0, 1200)} | sample: ${JSON.stringify(insights[0] ?? {}).slice(0, 500)}`);
-      throw e2;
-    });
+    })),
+    { ignoreConflicts: true },
+  ).catch((e: any) => {
+    // Drizzle's PostgresError is at e.cause. Surface it loudly.
+    const cause = e?.cause;
+    const causeStr = cause
+      ? `${cause.code ?? "?"} ${cause.severity ?? "?"} ${cause.message ?? cause}`
+      : String(e);
+    console.error("[syncInsights] insert failed (full cause):", causeStr);
+    console.error("[syncInsights] first row:", JSON.stringify(insights[0] ?? {}).slice(0, 1000));
+    // Build a new error with the cause message as the main message.
+    const e2 = new Error(`DB: ${causeStr.slice(0, 1200)} | sample: ${JSON.stringify(insights[0] ?? {}).slice(0, 500)}`);
+    throw e2;
+  });
   return insights.length;
 }
 
