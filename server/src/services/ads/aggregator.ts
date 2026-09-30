@@ -381,7 +381,8 @@ async function syncAudience(db: Db, opts: SyncOptions): Promise<number> {
   // unmapped account has nowhere to land — skip it (also avoids unbounded
   // NULL-client rows that the unique index can never dedupe: Postgres treats
   // NULLs as distinct).
-  if (!mapping.clientId) return 0;
+  const clientId = mapping.clientId;
+  if (!clientId) return 0;
   if (!mapping.pageId && !mapping.adAccountId) return 0;
   const rows = await fetchMetaAudience(connection, mapping, opts.since, opts.until);
   // Don't wipe a good snapshot on a transient fetch failure: fetchMetaAudience
@@ -390,40 +391,45 @@ async function syncAudience(db: Db, opts: SyncOptions): Promise<number> {
   if (rows.length === 0) return 0;
   // Replace this connection's snapshot for the client (scoped by connection so a
   // second ad account for the same client doesn't wipe the first one's rows).
-  await db.delete(audienceDemographics).where(and(
-    eq(audienceDemographics.clientId, mapping.clientId),
-    eq(audienceDemographics.connectionId, connection.id),
-  ));
+  // En una transacción: si el insert falla, la pestaña Audiencia del cliente no
+  // puede quedar vacía. Mismo motivo que replaceRows, pero acá el insert lleva
+  // onConflictDoUpdate propio y las filas son decenas, no miles.
   const since = opts.since.toISOString().slice(0, 10);
   const until = opts.until.toISOString().slice(0, 10);
-  await db.insert(audienceDemographics).values(rows.map((r) => ({
-    companyId: connection.companyId,
-    clientId: mapping.clientId ?? null,
-    connectionId: connection.id,
-    platform: connection.platform,
-    adAccountId: mapping.adAccountId ?? null,
-    dimension: r.dimension,
-    dimKey: r.key,
-    impressions: r.impressions,
-    clicks: r.clicks,
-    spend: r.spend.toFixed(2),
-    leads: r.leads,
-    reach: r.reach,
-    periodSince: since,
-    periodUntil: until,
-    syncedAt: new Date(),
-  }))).onConflictDoUpdate({
-    target: [audienceDemographics.clientId, audienceDemographics.connectionId, audienceDemographics.dimension, audienceDemographics.dimKey],
-    set: {
-      impressions: sql`excluded.impressions`,
-      clicks: sql`excluded.clicks`,
-      spend: sql`excluded.spend`,
-      leads: sql`excluded.leads`,
-      reach: sql`excluded.reach`,
-      periodSince: sql`excluded.period_since`,
-      periodUntil: sql`excluded.period_until`,
+  await db.transaction(async (tx: any) => {
+    await tx.delete(audienceDemographics).where(and(
+      eq(audienceDemographics.clientId, clientId),
+      eq(audienceDemographics.connectionId, connection.id),
+    ));
+    await tx.insert(audienceDemographics).values(rows.map((r) => ({
+      companyId: connection.companyId,
+      clientId,
+      connectionId: connection.id,
+      platform: connection.platform,
+      adAccountId: mapping.adAccountId ?? null,
+      dimension: r.dimension,
+      dimKey: r.key,
+      impressions: r.impressions,
+      clicks: r.clicks,
+      spend: r.spend.toFixed(2),
+      leads: r.leads,
+      reach: r.reach,
+      periodSince: since,
+      periodUntil: until,
       syncedAt: new Date(),
-    },
+    }))).onConflictDoUpdate({
+      target: [audienceDemographics.clientId, audienceDemographics.connectionId, audienceDemographics.dimension, audienceDemographics.dimKey],
+      set: {
+        impressions: sql`excluded.impressions`,
+        clicks: sql`excluded.clicks`,
+        spend: sql`excluded.spend`,
+        leads: sql`excluded.leads`,
+        reach: sql`excluded.reach`,
+        periodSince: sql`excluded.period_since`,
+        periodUntil: sql`excluded.period_until`,
+        syncedAt: new Date(),
+      },
+    });
   });
   return rows.length;
 }

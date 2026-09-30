@@ -4,7 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { metaAdAccountMappings, syncLogs, metaAdsInsights } from "@paperclipai/db";
 import { assertAuthenticated } from "./authz.js";
 import {
-  syncCampaigns, syncAdsets, syncAds, syncAdsInsights,
+  syncCampaigns, syncAdsets, syncAds,
   syncPagePosts, getDashboardData, getCampaignsData, getAdsetsData,
   getAdsData, getPostsData, getAlerts, updateAlertStatus, evaluateAlerts,
 } from "../services/meta-sync.js";
@@ -26,17 +26,24 @@ export function metaSyncRoutes(db: Db) {
         case "campaigns":        result = await syncCampaigns(db, companyId); break;
         case "adsets":           result = await syncAdsets(db, companyId); break;
         case "ads":              result = await syncAds(db, companyId); break;
-        case "ads-insights":     result = await syncAdsInsights(db, { companyId, since, until }); break;
+        // DESHABILITADO (30/09/2026): syncAdsInsights se eliminó — escribía
+        // ads_insights (metaAdsInsights es un alias de esa tabla) con la fórmula
+        // vieja de leads, sin clientId y sin raw. Ver la nota en meta-sync.ts.
+        // El camino bueno es POST /api/integrations/sync/insights (aggregator).
+        case "ads-insights":
+          return res.status(410).json({
+            error: "Deshabilitado: escribía ads_insights con la fórmula vieja de leads y sin clientId. Usá POST /api/integrations/sync/insights.",
+          });
         case "page-posts":       result = await syncPagePosts(db, companyId); break;
         case "all": {
           // Full refresh: ads pipeline + organic posts. Aggregate counts/errors
           // so a failure in one step (e.g. organic page access) doesn't block
           // the rest. Used by the dashboard's automatic background sync.
+          // syncAdsInsights queda FUERA a propósito — ver el case de arriba.
           const steps = await Promise.allSettled([
             syncCampaigns(db, companyId),
             syncAdsets(db, companyId),
             syncAds(db, companyId),
-            syncAdsInsights(db, { companyId, since, until }),
             syncPagePosts(db, companyId),
           ]);
           let synced = 0;

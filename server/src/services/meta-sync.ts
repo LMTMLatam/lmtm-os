@@ -305,98 +305,20 @@ export async function syncAds(db: Db, companyId?: string) {
   return { synced: total, errors };
 }
 
-// ── syncAdsInsights ───────────────────────────────────────────────────────────
-
-export async function syncAdsInsights(db: Db, opts: { companyId?: string; since?: string; until?: string } = {}) {
-  const pairs = await resolveConnectionMappings(db, opts.companyId);
-  const since = opts.since ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const until = opts.until ?? new Date().toISOString().slice(0, 10);
-  let total = 0;
-  const errors: string[] = [];
-
-  if (pairs.length === 0) {
-    errors.push(`No connections found for companyId=${opts.companyId ?? "all"}. Check meta_ad_account_mappings and connection status.`);
-  }
-
-  for (const { connection: conn, accounts } of pairs) {
-    const logCompanyId = accounts[0]?.companyId ?? conn.companyId;
-    console.log(`[meta-sync] syncAdsInsights: conn=${conn.id} status=${conn.status} accounts=${accounts.map(a => a.adAccountId).join(",")}`);
-    const logId = await startLog(db, "ads_insights", logCompanyId, conn.id);
-    let count = 0;
-    try {
-      for (const { adAccountId: account, companyId: accountCompanyId } of accounts) {
-        console.log(`[meta-sync] syncing insights for account=${account} companyId=${accountCompanyId} since=${since} until=${until}`);
-        // Delete existing rows for the period before inserting fresh data.
-        // Avoids onConflictDoUpdate issues with nullable columns in the unique index.
-        await db.delete(metaAdsInsights).where(
-          and(
-            eq(metaAdsInsights.connectionId, conn.id),
-            eq(metaAdsInsights.adAccountId, account),
-            gte(metaAdsInsights.date, since),
-            lte(metaAdsInsights.date, until),
-          ),
-        );
-
-        const allValues: (typeof metaAdsInsights.$inferInsert)[] = [];
-        for await (const page of paginate(`/${account}/insights`, {
-          access_token: conn.accessToken,
-          fields: "campaign_id,campaign_name,adset_id,ad_id,date_start,impressions,clicks,spend,reach,ctr,cpc,cpm,frequency,actions,cost_per_action_type,action_values",
-          level: "ad",
-          time_range: JSON.stringify({ since, until }),
-          time_increment: "1",
-        })) {
-          for (const r of page) {
-            const actions = (r.actions as Array<{ action_type: string; value: string }> | undefined) ?? [];
-            // Meta reports leads under multiple action_types depending on objective
-            const leadTypes = ["lead", "onsite_conversion.lead_grouped", "leadgen_other"];
-            const leads = leadTypes.reduce((sum, t) => {
-              const v = actions.find(a => a.action_type === t)?.value;
-              return sum + (v ? parseInt(v, 10) : 0);
-            }, 0);
-            allValues.push({
-              companyId: accountCompanyId,
-              connectionId: conn.id,
-              adAccountId: account,
-              campaignId: r.campaign_id as string | undefined,
-              campaignName: r.campaign_name as string | undefined,
-              adsetId: r.adset_id as string | undefined,
-              adId: r.ad_id as string | undefined,
-              date: r.date_start as string,
-              impressions: parseInt(String(r.impressions ?? 0), 10),
-              clicks: parseInt(String(r.clicks ?? 0), 10),
-              spend: String(r.spend ?? "0"),
-              reach: parseInt(String(r.reach ?? 0), 10),
-              ctr: r.ctr ? String(r.ctr) : null,
-              cpc: r.cpc ? String(r.cpc) : null,
-              cpm: r.cpm ? String(r.cpm) : null,
-              leads,
-              conversions: 0,
-              conversionValue: null,
-              videoViews: 0,
-              syncedAt: new Date(),
-            });
-          }
-        }
-
-        console.log(`[meta-sync] account=${account}: fetched ${allValues.length} insight rows from Meta API`);
-        if (allValues.length > 0) {
-          // Insert in batches of 500; onConflictDoNothing guards against any remaining duplicates
-          for (let i = 0; i < allValues.length; i += 500) {
-            await db.insert(metaAdsInsights).values(allValues.slice(i, i + 500)).onConflictDoNothing();
-          }
-        }
-        count += allValues.length;
-      }
-      await endLog(db, logId, "completed", count);
-    } catch (e) {
-      const msg = String(e);
-      await endLog(db, logId, "failed", count, msg);
-      errors.push(msg);
-    }
-    total += count;
-  }
-  return { synced: total, errors };
-}
+// syncAdsInsights se ELIMINO el 30/09/2026.
+//
+// Escribia en metaAdsInsights, que es un ALIAS de ads_insights: la misma tabla
+// que ve el panel de los 59 clientes. Pero con el codigo viejo: sumaba los alias
+// de leads de Meta en vez de tomar el maximo (inflaba 43%), mandaba conversions
+// y videoViews en 0, y no escribia ni clientId ni raw — filas invisibles para el
+// panel (filtra por clientId) e irrecuperables por la auditoria (recomputa desde
+// raw). Ademas borraba el rango antes de insertar, sin transaccion.
+//
+// No corria desde la migracion a Railway (14/07): ningun sync_log con job_name
+// "ads_insights". El camino vivo y correcto es adsAggregator.syncInsights
+// (services/ads/aggregator.ts), via POST /api/integrations/sync/insights.
+// Las lecturas de metaAdsInsights mas abajo (getDashboardData y compania) siguen
+// intactas: leer la tabla esta bien, escribirla con este codigo no.
 
 // ── page auto-detection ─────────────────────────────────────────────────────
 //
