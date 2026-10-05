@@ -35,6 +35,11 @@ begin
   execute format('grant select (%s) on ads_connections to lmtm_lectura', cols);
 end $$;
 
+-- Las tablas tienen row level security activada SIN políticas (herencia de
+-- Supabase): un rol que no es dueño ve 0 filas en todo. Sin esto el rol "anda"
+-- y devuelve clients=0, que es peor que un error.
+alter role lmtm_lectura bypassrls;
+
 -- Que una consulta pesada desde la nube no frene producción.
 alter role lmtm_lectura set statement_timeout = '60s';
 alter role lmtm_lectura set default_transaction_read_only = on;
