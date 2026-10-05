@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { elegirObjetivo, razon, LEADS_MIN_HISTORIAL } from "../index.js";
+import { conversionesDudosas, elegirObjetivo, razon, LEADS_MIN_HISTORIAL } from "../index.js";
+
+describe("conversionesDudosas", () => {
+  it("Google convirtiendo más de un tercio de los clics no son leads; Meta nunca se marca", () => {
+    expect(conversionesDudosas("google", 3857, 4364)).toBe(true); // MA PROPIEDADES, búsqueda
+    expect(conversionesDudosas("google", 339, 4697)).toBe(false); // COSA, 7%
+    expect(conversionesDudosas("google", 5, 0)).toBe(false);
+    expect(conversionesDudosas("meta", 900, 1000)).toBe(false); // mensajes: conversación ≈ clic
+  });
+});
 import { avisoInconsistencia } from "../consistencia.js";
 
 describe("razon", () => {

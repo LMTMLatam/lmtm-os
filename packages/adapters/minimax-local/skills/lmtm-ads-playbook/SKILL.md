@@ -29,11 +29,11 @@ tuvieras Adspirer, con una diferencia clave que define TODO tu output:
 
 | Querés hacer (Adspirer) | En LMTM lo hacés con |
 |---|---|
-| Ver performance de campañas (`get_*_campaign_performance`) | `lmtmGetClientAdsPerformance` (spend, impresiones, clicks, leads, CTR, CPL, CPC reales de Meta) |
+| Ver performance de campañas (`get_*_campaign_performance`) | `lmtmGetClientCampaigns`: cada campaña y conjunto con id, estado, fin, presupuesto, gasto, leads, CPL y `gastoSobreObjetivo`. `lmtmGetClientAdsPerformance` es el TOTAL del cliente (sin campañas ni ids) |
 | Estado de conexiones (`get_connections_status`) | La cuenta ya está mapeada en LMTM; si `lmtmGetClientAdsPerformance` da 0/vacío, ese cliente no está mapeado o no tiene pauta — no es outage. Chequeá `lmtmPortfolioSnapshot` antes de escalar |
 | Saldo / pacing de presupuesto (`analyze budget pacing`) | `lmtmGetClientBalance` (spendCap, amountSpent, remaining). Saldo bajo/por-agotarse → `lmtmSendBalanceAlert` |
-| Gasto desperdiciado (`analyze_wasted_spend`) | Analizá `lmtmGetClientAdsPerformance` por campaña/aviso: gasto con 0 leads, CTR bajo, CPL en alza → recomendá pausar/reasignar |
-| Fatiga de creatividad (`detect_meta_creative_fatigue`) | El motor de alertas de LMTM ya detecta el aviso que cayó ≥40% de CTR y sigue gastando; además cruzá `lmtmGetClientAdsPerformance` por aviso. Refresco → copy nuevo con tus skills de creatividad |
+| Gasto desperdiciado (`analyze_wasted_spend`) | `lmtmGetClientCampaigns`: campañas o conjuntos con gasto y 0 leads, CPL muy arriba del objetivo, activas con gasto 0 → proponé pausar/reasignar (ver `lmtm-ad-actions`) |
+| Fatiga de creatividad (`detect_meta_creative_fatigue`) | El motor de alertas de LMTM ya detecta el aviso que cayó ≥40% de CTR y sigue gastando. No hay tool con datos por aviso: trabajá a nivel conjunto con `lmtmGetClientCampaigns`. Refresco → copy nuevo con tus skills de creatividad |
 | Keyword research (`research_keywords`) | `WebSearch` + la skill `lmtm-google-trends` + browser (`WebFetch`). No hay tool de volúmenes de Google Ads; estimá con Trends + búsquedas y marcá que son estimaciones |
 | Research competitivo (`WebSearch`/`WebFetch` + `analyze_search_terms`) | `lmtmGetClientCompetitors` + `WebSearch`/`WebFetch` (ver skill `lmtm-web-search`). Es tu fuerte: mirá qué hace la competencia y buscá el ángulo que NO cubren |
 | Audiencias (`get_meta_audience_insights`) | `lmtmGetClientAdsPerformance` + los datos demográficos del panel (audience). Recomendá segmentos a escalar/cortar |
@@ -82,13 +82,13 @@ Igual que Adspirer, combiná web + data de la plataforma:
 ## Fatiga de creatividad y refresco
 
 1. Identificá el aviso fatigado: alta frecuencia + CTR en caída, +30 días sin refresco, o CTR bajo el promedio
-   de su campaña (usá la alerta de fatiga de LMTM + `lmtmGetClientAdsPerformance` por aviso).
+   de su campaña (usá la alerta de fatiga de LMTM; los números por conjunto, de `lmtmGetClientCampaigns`).
 2. Generá 3-5 variaciones de copy nuevas (con tus skills de copywriting/creatividad, filtradas por la voz de
    marca del brain). Entregalas como spec para que el humano las cargue.
 
 ## Optimización de presupuesto / gasto desperdiciado
 
-- Buscá en `lmtmGetClientAdsPerformance`: keywords/avisos/campañas con gasto y 0 (o pocas) conversiones,
+- Buscá en `lmtmGetClientCampaigns`: campañas/conjuntos con gasto y 0 (o pocas) conversiones,
   CTR muy bajo, CPL disparado. Recomendá pausar, reasignar presupuesto, o sumar negativas.
 - Pacing: cruzá `lmtmGetClientBalance` (remaining) con el ritmo de gasto; si se agota antes de fin de período,
   avisá por WhatsApp.

@@ -49,6 +49,21 @@ export interface MetricasCliente {
     presupuestoMensual: number | null;
   };
   frescura: Array<{ fuente: Fuente; ultimoDato: string | null; estado: EstadoFuente }>;
+  /** Plataformas cuyos leads están en el total pero no son confiables (ver conversionesDudosas). */
+  leadsDudosos: Array<"google">;
+}
+
+/**
+ * Google cuenta como "conversión" toda acción marcada como principal en la
+ * cuenta, sea o no un lead. Ninguna campaña de captación convierte un tercio de
+ * sus clics: en la agencia los reales van de 0,1% a 7%, y las cuentas con
+ * acciones mal configuradas dan ~53% (MA PROPIEDADES, SEBASTIAN RAMASCO
+ * PADILLA). El número no se toca —no sabemos cuál es el real—, se marca y no se
+ * usa para calcular objetivos.
+ */
+export const LIMITE_CONVERSION_GOOGLE = 0.3;
+export function conversionesDudosas(plataforma: string, leads: number, clics: number): boolean {
+  return plataforma === "google" && clics > 0 && leads / clics > LIMITE_CONVERSION_GOOGLE;
 }
 
 /** El historial alcanza para proponer un objetivo con al menos esta cantidad de leads en 30 días. */
@@ -75,6 +90,17 @@ export function elegirObjetivo(input: {
   }
   if (input.idealRubro != null && input.idealRubro > 0) return { tcpl: input.idealRubro, tcplFuente: "rubro" };
   return { tcpl: null, tcplFuente: null };
+}
+
+/** ¿Hay una cuenta de pauta conectada para lo pedido? Sin ella, todo es null. */
+export function hayPautaConectada(
+  salud: Array<{ fuente: Fuente; estado: EstadoFuente }>,
+  plataforma?: "meta" | "google",
+): boolean {
+  const conectada = (f: Fuente) => salud.some((s) => s.fuente === f && s.estado !== "sin_conexion");
+  if (plataforma === "meta") return conectada("meta_ads");
+  if (plataforma === "google") return conectada("google_ads");
+  return conectada("meta_ads") || conectada("google_ads");
 }
 
 type Fila = Record<string, unknown>;
@@ -109,9 +135,11 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
       select exists(select 1 from ads_insights where client_id = ${clientId} and platform = 'meta'
                     and conversions > 0 and date > current_date - 180) as hay`),
     db.execute(sql`
-      select coalesce(sum(spend), 0) as inversion, coalesce(sum(leads), 0) as leads
+      select platform, coalesce(sum(spend), 0) as inversion, coalesce(sum(leads), 0) as leads,
+             coalesce(sum(clicks), 0) as clics
       from ads_insights
-      where client_id = ${clientId} and date between ${desdeHist} and ${v.hasta} ${plat}`),
+      where client_id = ${clientId} and date between ${desdeHist} and ${v.hasta} ${plat}
+      group by platform`),
     db.execute(sql`
       select c.metadata, b.evidence as benchmark
       from clients c
@@ -121,10 +149,7 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
   ]);
 
   const frescura = salud.map((s) => ({ fuente: s.fuente, ultimoDato: s.ultimoDato, estado: s.estado }));
-  const conectada = (f: Fuente) => salud.some((s) => s.fuente === f && s.estado !== "sin_conexion");
-  const hayPauta = v.plataforma === "meta" ? conectada("meta_ads")
-    : v.plataforma === "google" ? conectada("google_ads")
-    : conectada("meta_ads") || conectada("google_ads");
+  const hayPauta = hayPautaConectada(salud, v.plataforma);
 
   const a = filas(agregado)[0] ?? {};
   const inversion = hayPauta ? n(a.inversion) : null;
@@ -134,10 +159,18 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
 
   const c = filas(cliente)[0] ?? {};
   const meta = (c.metadata ?? {}) as Record<string, unknown>;
-  const h = filas(historial)[0] ?? {};
+  const porPlat = filas(historial);
+  const leadsDudosos = porPlat
+    .filter((p) => conversionesDudosas(String(p.platform), n(p.leads), n(p.clics)))
+    .map(() => "google" as const);
+  const confiables = porPlat.filter((p) => !conversionesDudosas(String(p.platform), n(p.leads), n(p.clics)));
+  const h = {
+    inversion: confiables.reduce((s, p) => s + n(p.inversion), 0),
+    leads: confiables.reduce((s, p) => s + n(p.leads), 0),
+  };
   const objetivo = elegirObjetivo({
     cplCliente: posNum(meta.cplObjetivo),
-    historial: hayPauta ? { inversion: n(h.inversion), leads: n(h.leads) } : null,
+    historial: hayPauta ? h : null,
     idealRubro: posNum((c.benchmark as Record<string, unknown> | null)?.idealCpl),
   });
 
@@ -155,5 +188,6 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
     costoPorVenta: razon(inversion, ventas),
     objetivo: { ...objetivo, presupuestoMensual: posNum(meta.presupuestoMensual) },
     frescura,
+    leadsDudosos: hayPauta ? leadsDudosos : [],
   };
 }

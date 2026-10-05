@@ -13,7 +13,10 @@ adset de Meta de un cliente. Es la única acción de escritura sobre pauta que e
 
 ## Cuándo pausar
 
-Señales claras, con números en la mano (sacalos de `lmtmGetClientAdsPerformance`):
+Señales claras, con números en la mano. Sacalos de `lmtmGetClientCampaigns`: es la
+única que trae cada campaña y conjunto con su id, gasto, leads, CPL y `gastoSobreObjetivo`
+(`lmtmGetClientAdsPerformance` da solo el total del cliente, sin ids). Si una campaña
+viene con `leadsDudosos`, su CPL no sirve para decidir nada.
 - Aviso/adset con gasto y **0 (o casi 0) conversiones** sostenido.
 - CTR muy por debajo del promedio de su campaña y del benchmark del rubro (`lmtmGetNicheIntel`).
 - CPL disparado vs el rubro sin señal de mejora.
@@ -22,12 +25,15 @@ No pauses por ruido de un día: mirá una ventana razonable (7-14d) antes de pro
 
 ## Flujo obligatorio (mueve plata real)
 
-1. **Detectá y fundamentá**: qué entidad, cuánto gastó, cuántas conversiones, vs qué benchmark.
-2. **Proponé en el issue** la pausa con esa justificación concreta. NO ejecutes todavía.
-3. **Esperá OK humano** explícito en el issue.
-4. Recién ahí ejecutá: `lmtmPauseAdEntity({clientId, entityType:"campaign"|"adset", entityId, approved:true})`.
-   - Sin `approved:true` la tool te devuelve "requiere OK humano" y no hace nada — es a propósito.
+1. **Detectá y fundamentá**: qué entidad (id de `lmtmGetClientCampaigns`), cuánto gastó,
+   cuántos leads, contra qué objetivo.
+2. **Dejá la propuesta armada**: `lmtmPauseAdEntity({clientId, entityType:"campaign"|"adset", entityId, justificacion})`
+   SIN `approved`. El server la guarda lista para que una persona la apruebe con un click y
+   la ejecuta él mismo al aprobarla. No hace falta que vuelvas a llamar la tool.
+   - Sin `justificacion` no se arma nada: poné los números (gasto, leads, CPL vs objetivo).
    - El server verifica que la entidad sea de ESE cliente; si no, rechaza.
+3. Nombrá la propuesta en el issue (la tool te devuelve el id) para que la persona llegue directo.
+4. `approved:true` solo si una persona lo aprobó explícitamente en el issue.
 
 ## Después de pausar
 

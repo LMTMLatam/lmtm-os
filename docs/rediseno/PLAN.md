@@ -111,11 +111,25 @@ Fuentes (Meta, Google, CRM, ClickUp, Make, WhatsApp, Sheets)
     objetivo: { tcpl: number | null, tcplFuente: "cliente" | "historial" | "rubro" | null, presupuestoMensual: number | null },
     frescura: Array<{ fuente: "meta_ads" | "google_ads" | "organico"; ultimoDato: string | null;
                       estado: "sin_conexion" | "fallando" | "sin_entrega" | "atrasada" | "ok" }>,
+    leadsDudosos: Array<"google">,            // leads en el total, pero no confiables (ver abajo)
   }>
+
+  // server/src/metricas/campanas.ts — null si no hay cuenta conectada
+  metricasCampanas(db, clientId, { desde, hasta, plataforma? }) => Promise<Array<{
+    plataforma, campaignId, nombre, estado, objetivoCampana, presupuestoDiario: number | null, fin: string | null,
+    inversion, impresiones, clics, leads, cpl: number | null, diasConGasto, ultimoDiaConGasto,
+    leadsDudosos: boolean,
+    conjuntos: Array<{ adsetId, nombre, estado, presupuestoDiario, inversion, impresiones, clics, leads, cpl }>,
+  }> | null>
   ```
   `null` cuando no se puede medir: sin cuenta conectada, inversión y leads son
   null, no 0. Las conversiones de Google no cuentan como ventas (en varias
-  cuentas son cualquier acción).
+  cuentas son cualquier acción). Cuando Google "convierte" más de un tercio de
+  los clics de un cliente (MA PROPIEDADES y SEBASTIAN RAMASCO PADILLA, ~53%), sus
+  leads se marcan en `leadsDudosos`: el número queda como lo da Google, pero no
+  entra en el objetivo de historial y no se muestra como CPL comparable.
+  `metricasCampanas` incluye las campañas con gasto en la ventana y las activas
+  sin gasto (prendidas sin entregar), salvo las que pasaron su fecha de fin.
 - Objetivo por cliente, en orden: el que fijó una persona
   (`clients.metadata.cplObjetivo`, que ya tiene ruta de escritura y lector);
   si no hay, CPL de 30 días × 0,8 cuando hay al menos 10 leads (`historial`); si

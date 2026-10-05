@@ -229,6 +229,22 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_client_campaigns",
+      description:
+        "Pauta del cliente CAMPAÑA POR CAMPAÑA (y conjunto por conjunto en Meta): id, estado, fecha de fin, presupuesto diario, gasto, leads, CPL, días con gasto. Da los ids para pause_ad_entity / set_budget / shift_budget. Trae el objetivo de CPL.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          sinceDays: { type: "number", description: "Ventana en días, termina ayer (default 14, máximo 90)" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_client_scores",
       description: "Devuelve el último score de Salud de cuenta (ads) y Operativo (cumplimiento) del cliente, 0-100.",
       parameters: {
@@ -1286,6 +1302,9 @@ export function agentToolsRoutes(
               ? "El objetivo es una propuesta nuestra (CPL de 30 días × 0,8), no lo pidió el cliente. Decilo así."
               : undefined,
             frescura: total.frescura,
+            notaLeadsDudosos: total.leadsDudosos.length
+              ? "Los leads de Google de este cliente NO son confiables: la cuenta cuenta como conversión acciones que no son leads (más de un tercio de los clics 'convierten'). Están en el total tal cual los da Google; no los uses para el CPL ni para comparar plataformas, y avisá que hay que corregir las conversiones en la cuenta de Google Ads. El objetivo ya se calculó sin ellos."
+              : undefined,
             plataformas,
             notaPlataformas: plataformas.length > 1
               ? "Este cliente tiene MÁS DE UNA plataforma: analizá y recomendá sobre cada una por separado. No compares sus CPL entre sí (Google capta demanda existente, Meta la genera)."
@@ -1297,6 +1316,60 @@ export function agentToolsRoutes(
             ...resumen("total", total),
             reach: null,
             cpc: total.clics ? r2(total.inversion! / total.clics) : null,
+          }),
+        );
+      }
+
+      if (tool === "get_client_campaigns") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const days =
+          typeof params.sinceDays === "number" && params.sinceDays > 0 ? Math.min(90, params.sinceDays) : 14;
+        const { metricasCliente } = await import("../metricas/index.js");
+        const { metricasCampanas } = await import("../metricas/campanas.js");
+        const ayer = new Date(Date.now() - 86_400_000);
+        const hasta = ayer.toISOString().slice(0, 10);
+        const desde = new Date(ayer.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+        const [total, campanas] = await Promise.all([
+          metricasCliente(db, clientId, { desde, hasta }),
+          metricasCampanas(db, clientId, { desde, hasta }),
+        ]);
+        if (campanas == null) {
+          return reply(true, "(Este cliente no tiene cuenta de pauta conectada: no se puede saber qué campañas tiene. No es que no tenga.)");
+        }
+        const tcpl = total.objetivo.tcpl;
+        const r2 = (n: number | null) => (n == null ? null : Number(n.toFixed(2)));
+        const numerosDe = (x: { inversion: number; impresiones: number; clics: number; leads: number; cpl: number | null }) => ({
+          gasto: Math.round(x.inversion), impresiones: x.impresiones, clics: x.clics, leads: x.leads, cpl: r2(x.cpl),
+        });
+        return reply(
+          true,
+          JSON.stringify({
+            desde, hasta,
+            objetivo: total.objetivo,
+            notaObjetivo: total.objetivo.tcplFuente === "historial"
+              ? "El objetivo es una propuesta nuestra (CPL de 30 días × 0,8), no lo pidió el cliente."
+              : undefined,
+            frescura: total.frescura,
+            notas: [
+              "Entran las campañas que gastaron en la ventana y las activas aunque no hayan gastado (activa con gasto 0 = prendida sin entregar: es un hallazgo).",
+              "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivo de CPL (cuántos leads 'deberías' tener).",
+              "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
+              ...(total.leadsDudosos.length
+                ? ["leadsDudosos=true: Google cuenta como lead acciones que no lo son (convierte más de un tercio de los clics). NO uses ese CPL para comparar, escalar ni mover plata: avisá que la cuenta tiene mal configuradas las conversiones."]
+                : []),
+            ],
+            campanas: campanas.map((c) => ({
+              plataforma: c.plataforma, campaignId: c.campaignId, nombre: c.nombre, estado: c.estado,
+              fin: c.fin, presupuestoDiario: c.presupuestoDiario, objetivoCampana: c.objetivoCampana,
+              ...numerosDe(c),
+              gastoSobreObjetivo: tcpl && !c.leadsDudosos ? Number((c.inversion / tcpl).toFixed(1)) : null,
+              diasConGasto: c.diasConGasto, ultimoDiaConGasto: c.ultimoDiaConGasto,
+              ...(c.leadsDudosos ? { leadsDudosos: true } : {}),
+              conjuntos: c.conjuntos.map((a) => ({
+                adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
+              })),
+            })),
           }),
         );
       }

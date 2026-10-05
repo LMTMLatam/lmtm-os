@@ -633,6 +633,15 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmGetClientCampaigns",
+      "Pauta del cliente CAMPAÑA POR CAMPAÑA (y conjunto por conjunto en Meta): id, estado, fecha de fin, presupuesto diario, gasto, leads, CPL, días con gasto. Es la que da los ids para proponer pausar o mover presupuesto. Trae el objetivo de CPL del cliente.",
+      z.object({ clientId: z.string().min(1), sinceDays: z.number().int().positive().max(90).optional() }),
+      async ({ clientId, sinceDays }) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_client_campaigns", parameters: { clientId, ...(sinceDays ? { sinceDays } : {}) } },
+        }),
+    ),
+    makeTool(
       "lmtmGetClientCompetitors",
       "Lista los competidores cargados del cliente.",
       z.object({ clientId: z.string().min(1) }),

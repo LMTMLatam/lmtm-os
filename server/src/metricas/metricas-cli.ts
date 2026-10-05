@@ -1,6 +1,7 @@
 // Imprime las métricas de un cliente y el chequeo de consistencia. Solo lectura.
 //
 //   DATABASE_URL_RO=... npx tsx src/metricas/metricas-cli.ts "<nombre del cliente>" 2026-08-31 2026-09-29 [meta|google]
+//   DATABASE_URL_RO=... npx tsx src/metricas/metricas-cli.ts "<nombre del cliente>" <desde> <hasta> --campanas
 //   DATABASE_URL_RO=... npx tsx src/metricas/metricas-cli.ts --consistencia
 //
 // Nunca imprime la URL.
@@ -9,6 +10,7 @@ import { createDb } from "@paperclipai/db";
 import { sql } from "drizzle-orm";
 import { metricasCliente } from "./index.js";
 import { chequeoConsistencia } from "./consistencia.js";
+import { metricasCampanas } from "./campanas.js";
 
 const url = process.env.DATABASE_URL_RO || process.env.DATABASE_URL;
 if (!url) {
@@ -22,7 +24,7 @@ if (process.argv.includes("--consistencia")) {
   process.exit(0);
 }
 
-const [nombre, desde, hasta, plataforma] = process.argv.slice(2);
+const [nombre, desde, hasta, plataforma] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 if (!nombre || !desde || !hasta) {
   console.error('Uso: metricas-cli.ts "<cliente>" <desde> <hasta> [meta|google]');
   process.exit(1);
@@ -33,6 +35,9 @@ if (!id) {
   console.error(`No encontré el cliente "${nombre}".`);
   process.exit(1);
 }
-const m = await metricasCliente(db, id, { desde, hasta, plataforma: plataforma as "meta" | "google" | undefined });
+const ventana = { desde, hasta, plataforma: plataforma as "meta" | "google" | undefined };
+const m = process.argv.includes("--campanas")
+  ? await metricasCampanas(db, id, ventana)
+  : await metricasCliente(db, id, ventana);
 console.log(JSON.stringify(m, null, 2));
 process.exit(0);
