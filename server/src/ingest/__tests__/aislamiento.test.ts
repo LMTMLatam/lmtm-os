@@ -1,7 +1,7 @@
 // Las tres fugas que llevaron una inmobiliaria a las sugerencias de Distrillantas.
 import { describe, expect, it } from "vitest";
 import { mencionesDeOtrosClientes, patronesDeClientes, resumenContaminacion } from "../contaminacion.js";
-import { normalizarNombre, sinPlantilla } from "../plantilla-clickup.js";
+import { nacioConLaCarpeta, normalizarNombre, sinPlantilla } from "../plantilla-clickup.js";
 import { aplicaAlRubro, efemeridesProximasPorRubro } from "../../services/efemerides.js";
 
 describe("efemérides por rubro", () => {
@@ -56,6 +56,24 @@ describe("contenido de la plantilla de ClickUp", () => {
 
   it("sin mapa de plantilla (ClickUp caído) no se corta nada", () => {
     expect(sinPlantilla(distrillantas, (n) => n, new Map(), "x")).toHaveLength(3);
+  });
+});
+
+describe("lo que nació con la carpeta (la copia)", () => {
+  // Randstad, fechas reales de ClickUp: OnBoarding y la idea de Cliente Natural.
+  const nacimiento = 1787797610831;
+
+  it("una idea creada 6 minutos después de nacer la carpeta vino en la copia", () => {
+    expect(nacioConLaCarpeta(1787797978655, nacimiento)).toBe(true);
+  });
+
+  it("lo que llega horas después es del cliente", () => {
+    expect(nacioConLaCarpeta(nacimiento + 3 * 3600_000, nacimiento)).toBe(false);
+  });
+
+  it("sin fecha de nacimiento o de la tarea no se descarta nada", () => {
+    expect(nacioConLaCarpeta(1787797978655, null)).toBe(false);
+    expect(nacioConLaCarpeta(null, nacimiento)).toBe(false);
   });
 });
 

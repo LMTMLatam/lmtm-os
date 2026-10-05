@@ -42,6 +42,54 @@ export function sinPlantilla<T>(items: T[], nombre: (t: T) => string, plantilla:
   });
 }
 
+// ── Lo que nació con la carpeta ──────────────────────────────────────────────
+//
+// El filtro por nombre no alcanza: Randstad (27/08) se creó duplicando la carpeta
+// de Cliente Natural cuando era el sandbox, con 70 ideas de prueba
+// ("…un producto de Cliente Natural…", etiqueta idea-lmtm-os) que después se
+// borraron del origen. Ya no hay contra qué comparar el nombre.
+//
+// Lo que sí queda es la huella de la copia: todo lo duplicado se crea en bloque
+// en los minutos en que nace la carpeta (Distrillantas: OnBoarding 08:03:58,
+// Super Redes 08:07:26). Las ideas y posteos reales llegan horas o días después.
+
+/** Minutos después del nacimiento de la carpeta en los que una tarea cuenta como copiada. */
+export const VENTANA_COPIA_MIN = 30;
+
+/** ¿La tarea se creó en el bloque de la copia de la carpeta? Pura. */
+export function nacioConLaCarpeta(creadaMs: number | null, nacimientoMs: number | null): boolean {
+  if (creadaMs == null || nacimientoMs == null) return false; // sin dato no se descarta nada
+  return creadaMs - nacimientoMs < VENTANA_COPIA_MIN * 60_000;
+}
+
+const nacimientos = new Map<string, number | null>();
+
+/**
+ * Cuándo nació la carpeta: la tarea más vieja de su lista OnBoarding (que siempre
+ * viene en la copia). Se cachea: el nacimiento no cambia. Null si no se puede saber.
+ */
+export async function nacimientoCarpeta(token: string, folderId: string): Promise<number | null> {
+  if (nacimientos.has(folderId)) return nacimientos.get(folderId)!;
+  const H = { Authorization: token, "Content-Type": "application/json" };
+  try {
+    const lists = (await (await fetch(`${CU_API}/folder/${folderId}/list?archived=false`, { headers: H })).json()) as {
+      lists?: Array<{ id: string; name: string }>;
+    };
+    const onboarding = (lists.lists ?? []).find((l) => /onboarding/i.test(l.name));
+    if (!onboarding) { nacimientos.set(folderId, null); return null; }
+    const r = (await (await fetch(
+      `${CU_API}/list/${onboarding.id}/task?include_closed=true&subtasks=true&order_by=created&reverse=true&page=0`,
+      { headers: H },
+    )).json()) as { tasks?: Array<{ date_created?: string }> };
+    const fechas = (r.tasks ?? []).map((t) => Number(t.date_created)).filter((n) => Number.isFinite(n) && n > 0);
+    const nacimiento = fechas.length ? Math.min(...fechas) : null;
+    nacimientos.set(folderId, nacimiento);
+    return nacimiento;
+  } catch {
+    return null; // no se cachea: se reintenta en la próxima pasada
+  }
+}
+
 let cache: { at: number; nombres: Map<string, string> } | null = null;
 const TTL_MS = 6 * 3600_000;
 

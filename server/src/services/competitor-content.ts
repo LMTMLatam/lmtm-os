@@ -745,13 +745,15 @@ async function readSuperRedesTasks(db: Db, clientId: string): Promise<SrTask[] |
   const list = (lists.lists ?? []).find((l) => /super\s*redes/i.test(l.name));
   if (!list) return null;
   const r = (await (await fetch(`${CU_API}/list/${list.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
-    tasks?: Array<{ id?: string; name?: string; tags?: Array<{ name?: string }>; custom_fields?: SrCustomField[] }>;
+    tasks?: Array<{ id?: string; name?: string; date_created?: string; tags?: Array<{ name?: string }>; custom_fields?: SrCustomField[] }>;
   };
-  // Sin los posteos de la plantilla: si no, la devolución "aprobada" de las
-  // ideas nuevas copia el estilo de otro cliente (LoMasFundas terminó con
-  // contenido de suplementos naturales).
-  const { nombresDePlantilla, sinPlantilla } = await import("../ingest/plantilla-clickup.js");
-  const propias = sinPlantilla(r.tasks ?? [], (t) => t.name ?? "", await nombresDePlantilla(token), client.folderId);
+  // Sin lo que vino copiado de otra carpeta: si no, la devolución "aprobada" de
+  // las ideas nuevas copia el estilo de otro cliente (Randstad: 70 ideas de
+  // Cliente Natural llegaron con la copia de su carpeta).
+  const { nombresDePlantilla, sinPlantilla, nacimientoCarpeta, nacioConLaCarpeta } = await import("../ingest/plantilla-clickup.js");
+  const nacimiento = await nacimientoCarpeta(token, client.folderId);
+  const noCopiadas = (r.tasks ?? []).filter((t) => !nacioConLaCarpeta(Number(t.date_created) || null, nacimiento));
+  const propias = sinPlantilla(noCopiadas, (t) => t.name ?? "", await nombresDePlantilla(token), client.folderId);
   const mapped = propias
     .map((t) => {
       const cfs = t.custom_fields ?? [];
@@ -1047,18 +1049,23 @@ async function readClientPostNames(db: Db, clientId: string): Promise<string[]> 
   // listas donde vive el contexto real del cliente (pedido explícito del
   // usuario: SIEMPRE tomar contexto de redes Y producción de video).
   const targets = (lists.lists ?? []).filter((l) => /redes\s*sociales/i.test(l.name) || /produ\S*\s+de\s+v[ií]deos?/i.test(l.name));
+  // Los posteos que vinieron con la copia de otra carpeta no son del cliente:
+  // así entró "productos naturales" a la memoria de 7 clientes (07/07). Se
+  // descartan por nombre (idénticos a las carpetas de origen) y por fecha
+  // (creados en el bloque en que nació la carpeta).
+  const { nombresDePlantilla, sinPlantilla, nacimientoCarpeta, nacioConLaCarpeta } = await import("../ingest/plantilla-clickup.js");
+  const nacimiento = await nacimientoCarpeta(token, folderId);
   const names: string[] = [];
   for (const l of targets) {
     try {
       const r = (await (await fetch(`${CU_API}/list/${l.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
-        tasks?: Array<{ name: string }>;
+        tasks?: Array<{ name: string; date_created?: string }>;
       };
-      for (const t of r.tasks ?? []) if (t.name) names.push(t.name.trim());
+      for (const t of r.tasks ?? []) {
+        if (t.name && !nacioConLaCarpeta(Number(t.date_created) || null, nacimiento)) names.push(t.name.trim());
+      }
     } catch { /* best-effort per list */ }
   }
-  // Los posteos que vinieron con la plantilla de ClickUp no son del cliente:
-  // así entró "productos naturales" a la memoria de 7 clientes (07/07).
-  const { nombresDePlantilla, sinPlantilla } = await import("../ingest/plantilla-clickup.js");
   return sinPlantilla(names, (n) => n, await nombresDePlantilla(token), folderId).slice(0, 120);
 }
 
