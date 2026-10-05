@@ -29,6 +29,37 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 05/10 19:45: A5, línea de base de la flota y el reloj que despertaba a nadie
+
+**Inventario de 14 días** (base para "el rol nuevo supera al viejo"). Costo
+nominal total ≈ USD 764 (~1.640/mes, coincide con el ritmo del plan).
+
+| Agente | Corridas | Por reloj | USD nom. | Entregables | Comentarios | Cerrados |
+|---|---|---|---|---|---|---|
+| Milo | 302 | 151 | 169 | 10 | 225 | 42 |
+| Pablo | 227 | 64 | 129 | 0 | 240 | 100 |
+| Delfina | 167 | 167 | 96 | 0 | 0 | 0 |
+| Caro | 104 | 13 | 86 | 91 | 114 | 65 |
+| Esteban | 105 | 46 | 73 | 0 | 80 | 12 |
+| Nicolas | 76 | 50 | 62 | 0 | 37 | 5 |
+| Luna | 91 | 47 | 53 | 189 | 48 | 27 |
+| Carlos | 45 | 23 | 28 | 5 | 29 | 17 |
+| Dario | 59 | 55 | 24 | 0 | 5 | 1 |
+| Bianca, Carla, Sergio, Roxana, Ana | 14–27 c/u | | 5–13 | 0–4 | 0–15 | 0–6 |
+
+Consulta: `docs/rediseno/inventario-flota.sql`.
+
+**Hallazgo.** El reloj despierta a los agentes SIN issue: 698 corridas por reloj,
+ninguna con issue, al menos 328 terminaron en "contame qué necesitás" (los 4 de
+`lmtm-glm` casi siempre; los de MiniMax improvisan trabajo). El idle throttle no
+frenaba porque contaba como trabajo un `todo` abandonado (Delfina, LMTM-5156 desde
+el 21/09). Arreglo `675f1e1`: solo cuentan issues con movimiento en 7 días, y si hay
+uno vigente la corrida lo lleva. Simulado: 10 agentes pasan a una pasada por día
+(373 → ~140 corridas en 14 días); hoy no se revive ningún issue viejo.
+
+**Para verificar el 06/10:** corridas por reloj por agente en 24 h (≤ 1 para esos
+10) y skips `heartbeat.idle.noWork` en `wakeup_skip_log`.
+
 ### 05/10 17:20: A4, el media buyer no tenía qué mirar
 
 **Hallazgo.** Los agentes tienen pausar / presupuesto / mover plata, y existe el ciclo
