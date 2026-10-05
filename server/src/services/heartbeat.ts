@@ -1558,6 +1558,8 @@ function parseIssueAssigneeAdapterOverrides(
  * simpler `agentRuntimeState.sessionId` fallback.
  */
 const HEARTBEAT_TASK_KEY = "__heartbeat__";
+/** Un issue sin movimiento en más días que esto no lo revive el reloj ni lo cuenta como trabajo. */
+const DIAS_ISSUE_VIGENTE = 7;
 
 function deriveTaskKey(
   contextSnapshot: Record<string, unknown> | null | undefined,
@@ -8699,6 +8701,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // asignado dejamos UNA corrida por día (la pasada proactiva: analizar
     // clientes, detectar pendientes) y salteamos el resto. Los wakeups por
     // asignación/automation/on-demand no pasan por acá.
+    // Un issue que nadie toca hace más de DIAS_ISSUE_VIGENTE no cuenta como
+    // trabajo: si no, un `todo` abandonado mantiene el reloj despierto para siempre.
     if (source === "timer" && !issueId) {
       const [pend] = await db
         .select({ n: sql<number>`count(*)::int` })
@@ -8706,6 +8710,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         .where(and(
           eq(issues.assigneeAgentId, agentId),
           inArray(issues.status, ["todo", "in_progress", "in_review"] as never),
+          gte(issues.updatedAt, new Date(Date.now() - DIAS_ISSUE_VIGENTE * 86_400_000)),
         ));
       if ((pend?.n ?? 0) === 0) {
         const [reciente] = await db
@@ -9826,6 +9831,25 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         const elapsedMs = now.getTime() - baseline;
         if (elapsedMs < policy.intervalSec * 1000) continue;
 
+        // El reloj despertaba SIN issue: el agente leía un PAPERCLIP_TASK_ID vacío
+        // y contestaba "contame qué necesitás" a nadie, mientras su issue en `todo`
+        // seguía ahí (Delfina: 167 corridas en 14 días, LMTM-5156 intacto desde el
+        // 21/09). Y como el idle throttle cuenta ese issue como "trabajo", nunca
+        // frenaba. Si hay uno pendiente y VIGENTE, la corrida lo lleva, por el
+        // mismo camino que el despertar por asignación. `in_review` no: espera a
+        // una persona. Los viejos tampoco: había un "Plan B (baja ordenada)" de
+        // septiembre y posteos que salían el 16/09; revivirlos solos es peligroso.
+        const [pendiente] = await db
+          .select({ id: issues.id })
+          .from(issues)
+          .where(and(
+            eq(issues.assigneeAgentId, agent.id),
+            eq(issues.companyId, agent.companyId),
+            inArray(issues.status, ["todo", "in_progress"] as never),
+            gte(issues.updatedAt, new Date(now.getTime() - DIAS_ISSUE_VIGENTE * 86_400_000)),
+          ))
+          .orderBy(sql`(${issues.status} = 'in_progress') desc`, asc(issues.createdAt))
+          .limit(1);
         const run = await enqueueWakeup(agent.id, {
           source: "timer",
           triggerDetail: "system",
@@ -9836,6 +9860,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             source: "scheduler",
             reason: "interval_elapsed",
             now: now.toISOString(),
+            ...(pendiente ? { issueId: pendiente.id } : {}),
           },
         });
         if (run) enqueued += 1;
