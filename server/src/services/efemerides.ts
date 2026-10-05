@@ -45,14 +45,25 @@ export function upcomingEfemerides(from: Date, days = 14): Array<{ name: string;
   return out;
 }
 
+/** ¿Esta efeméride de nicho aplica al rubro del cliente? Pura.
+ *  Antes se comparaba también `r.includes(rubro)`: con el rubro vacío eso da
+ *  siempre verdadero ("inmobiliaria".includes("") === true), así que a todo
+ *  cliente sin rubro cargado le tocaban TODAS las efemérides de nicho. */
+export function aplicaAlRubro(rubrosEfemeride: string[] | undefined, industry: string | null | undefined): boolean {
+  if (!rubrosEfemeride?.length) return true; // genérica: para todos
+  const rubro = (industry ?? "").trim().toLowerCase();
+  if (!rubro) return false; // sin rubro no se puede afirmar que una de nicho aplique
+  return rubrosEfemeride.some((r) => rubro.includes(r) || (rubro.length >= 5 && r.includes(rubro)));
+}
+
 /** Efemérides próximas filtradas por rubro del cliente (pedido 18/7): las
  *  etiquetadas con rubros solo aplican a esos; las genéricas, a todos. */
-export function efemeridesProximasPorRubro(industry: string | null | undefined, days = 21): Array<{ name: string; date: string; inDays: number; angulo?: string }> {
-  const rubro = (industry ?? "").toLowerCase();
-  const base = upcomingEfemerides(new Date(), days);
-  return base.filter((u) => {
-    const def = EFEMERIDES.find((e) => e.name === u.name);
-    if (!def?.rubros?.length) return true;
-    return def.rubros.some((r) => rubro.includes(r) || r.includes(rubro));
-  }).map((u) => ({ ...u, angulo: EFEMERIDES.find((e) => e.name === u.name)?.angulo }));
+export function efemeridesProximasPorRubro(
+  industry: string | null | undefined,
+  days = 21,
+  from: Date = new Date(),
+): Array<{ name: string; date: string; inDays: number; angulo?: string }> {
+  return upcomingEfemerides(from, days)
+    .filter((u) => aplicaAlRubro(EFEMERIDES.find((e) => e.name === u.name)?.rubros, industry))
+    .map((u) => ({ ...u, angulo: EFEMERIDES.find((e) => e.name === u.name)?.angulo }));
 }

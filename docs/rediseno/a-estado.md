@@ -6,15 +6,36 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 
 | Fase | Estado | Rama / PR |
 |---|---|---|
-| A1. Salud de fuentes | PR abierto, falta deploy | `rediseno/a-salud-fuentes` |
-| A2. Métricas + objetivos | siguiente | |
-| A3. Aislamiento por cliente | pendiente | |
+| A1. Salud de fuentes | mergeado a main (`583f74c`), deploy en curso | PR #1 |
+| A2. Métricas + objetivos | listo, se integra después de verificar A1 | `rediseno/a-metricas` |
+| A3. Aislamiento por cliente | siguiente | |
 | A4. Agentes con objetivo (piloto, motor actual) | pendiente | |
 | A5. Resto de los roles | pendiente | |
 
-**Esperando a Nazareno:** deploy de A1 (no tiene migraciones).
+**Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
+suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
+
+### 05/10: A2 métricas y objetivos
+
+**Hecho.** `metricasCliente()` con el contrato de PLAN.md y dos ajustes avisados a
+B: inversión y leads son `null` sin cuenta conectada, y se suma
+`objetivo.tcplFuente`. El objetivo va en cascada: el del cliente
+(`metadata.cplObjetivo`), si no el historial (CPL de 30 días × 0,8 con 10 leads o
+más), si no el rubro. Sin tabla nueva. Chequeo diario de consistencia desde `raw`,
+con aviso de nivel 4 si algo no cierra.
+
+**Verificado contra producción (solo lectura):**
+- Distrillantas 31/08-29/09 Meta, medido en el mismo momento: métricas = panel
+  público (ARS 2.519.657,84, 2.422 leads, 29.195 clics). Objetivo propuesto: ARS
+  832 (historial). Ventas: 171 compras de Meta.
+- Cliente sin cuentas (Agencia LMTM): inversión, leads, CPL y objetivo en `null`.
+- Consistencia: 25.214 filas, 0 diferencias en leads, 0 en ventas, 0 huérfanas.
+- Tests: 20 entre `metricas` e `ingest`; tsc limpio.
+
+**Pendiente:** leads calificados (el CRM vive en otra base); alcance y frecuencia
+del período (hace falta que la ingesta los traiga sin `time_increment`).
 
 ### 05/10: A1 salud de fuentes
 

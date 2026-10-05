@@ -34,6 +34,14 @@ function gGet<T = unknown>(path: string, params: Record<string, string>, token: 
   });
 }
 
+/** Si Meta pide "reduce the amount of data", el próximo tamaño de página; si
+ *  no corresponde (otro error o ya en el mínimo), null. Pura. */
+export function limiteReducido(limiteActual: number, cuerpoError: string): number | null {
+  if (!/reduce the amount of data/i.test(cuerpoError)) return null;
+  if (limiteActual <= 5) return null; // ya no hay de dónde achicar: que falle y quede registrado
+  return Math.max(5, Math.floor(limiteActual / 2));
+}
+
 async function* paginate<T = Record<string, unknown>>(
   path: string,
   params: Record<string, string>,
@@ -42,11 +50,23 @@ async function* paginate<T = Record<string, unknown>>(
   let url: string | null = `${GRAPH}${path}?limit=${PAGE_LIMIT}&access_token=${encodeURIComponent(token)}`;
   for (const [k, v] of Object.entries(params)) url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
   let retryCount = 0;
+  let limite = PAGE_LIMIT;
   while (url) {
-    const r: { data: T[]; paging?: { next?: string; cursors?: { after?: string } } } = await fetch(url).then(async (res) => {
+    const r: { data: T[]; paging?: { next?: string; cursors?: { after?: string } } } | null = await fetch(url).then(async (res) => {
       if (res.ok) return res.json();
-      // Rate-limit (code 4) and transient 5xx: exponential backoff, up to 5 tries.
       const text = await res.text().catch(() => "");
+      // "Please reduce the amount of data you're asking for": la página es muy
+      // pesada (cuentas con mucho historial pidiendo el creativo completo). Antes
+      // tiraba el sync entero: MA PROPIEDADES y HANSHI se quedaban sin creativos
+      // y el panel mostraba "Anuncio" sin nombre. Se achica la página y se sigue.
+      const nuevo = limiteReducido(limite, text);
+      if (nuevo != null) {
+        limite = nuevo;
+        url = url!.replace(/([?&])limit=\d+/, `$1limit=${limite}`);
+        console.warn(`[meta-paginate] ${path} → página muy pesada, sigo de a ${limite}`);
+        return null;
+      }
+      // Rate-limit (code 4) and transient 5xx: exponential backoff, up to 5 tries.
       const isRateLimit = res.status === 429 || (res.status === 403 && /limit reached|too many/i.test(text));
       // Meta ships its "Service temporarily unavailable" transient (code 2 /
       // subcode 1504044) as a 400 — and even mislabels it is_transient:false —

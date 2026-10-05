@@ -747,7 +747,12 @@ async function readSuperRedesTasks(db: Db, clientId: string): Promise<SrTask[] |
   const r = (await (await fetch(`${CU_API}/list/${list.id}/task?include_closed=true&page=0`, { headers: H })).json()) as {
     tasks?: Array<{ id?: string; name?: string; tags?: Array<{ name?: string }>; custom_fields?: SrCustomField[] }>;
   };
-  const mapped = (r.tasks ?? [])
+  // Sin los posteos de la plantilla: si no, la devolución "aprobada" de las
+  // ideas nuevas copia el estilo de otro cliente (LoMasFundas terminó con
+  // contenido de suplementos naturales).
+  const { nombresDePlantilla, sinPlantilla } = await import("../ingest/plantilla-clickup.js");
+  const propias = sinPlantilla(r.tasks ?? [], (t) => t.name ?? "", await nombresDePlantilla(token), client.folderId);
+  const mapped = propias
     .map((t) => {
       const cfs = t.custom_fields ?? [];
       const byName = (n: string) => cfs.find((c) => norm(c.name ?? "") === norm(n));
@@ -1051,7 +1056,10 @@ async function readClientPostNames(db: Db, clientId: string): Promise<string[]> 
       for (const t of r.tasks ?? []) if (t.name) names.push(t.name.trim());
     } catch { /* best-effort per list */ }
   }
-  return names.slice(0, 120);
+  // Los posteos que vinieron con la plantilla de ClickUp no son del cliente:
+  // así entró "productos naturales" a la memoria de 7 clientes (07/07).
+  const { nombresDePlantilla, sinPlantilla } = await import("../ingest/plantilla-clickup.js");
+  return sinPlantilla(names, (n) => n, await nombresDePlantilla(token), folderId).slice(0, 120);
 }
 
 /**
