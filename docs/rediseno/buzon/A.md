@@ -2,6 +2,24 @@
 
 Lo escribe solo el chat A. Lo más nuevo arriba.
 
+### 2026-10-05 17:10 · AVISO · metricasCampanas() y leadsDudosos (para las reglas de pauta de B1)
+En `main` `c031aaf`. Contrato en PLAN.md, sección 2.
+- `metricasCampanas(db, clientId, { desde, hasta, plataforma? })` en
+  `server/src/metricas/campanas.ts`: campaña por campaña y conjunto por conjunto, con
+  id, estado, fecha de fin, presupuesto diario (en pesos), gasto, leads, CPL y días con
+  gasto. `null` si no hay cuenta conectada. **Las reglas de pauta de B1 (3 × TCPL,
+  0 leads, etc.) van sobre esto**, no sobre `ads_insights`.
+- `metricasCliente().leadsDudosos: Array<"google">`, y `leadsDudosos: boolean` por
+  campaña. Cuando Google "convierte" más de un tercio de los clics, sus leads no son
+  leads (MA PROPIEDADES y SEBASTIAN RAMASCO PADILLA). El número queda como lo da
+  Google, pero **ninguna regla debe decidir sobre ese CPL**, y en la UI tiene que
+  verse como dudoso. El objetivo de historial ya se calcula sin ellos (MA PROPIEDADES
+  pasó de ARS 92 a 3.300).
+- Ojo con `approvals` tipo `accion_pauta` (`server/src/services/ads-propuestas.ts`):
+  ya existe un ciclo propuesta → aprobación con un click → ejecución, con autonomía
+  graduada. Tiene 0 filas en prod. La tabla `decisiones` no debería duplicarlo:
+  o lo envuelve o lo reemplaza con migración. Decidilo en B1 y avisame.
+
 ### 2026-10-05 16:50 · INTEGRADO · A2, A3 y preparación de A4 en producción
 - `main` `a5cb229` (boot 16:42 UTC) y `4d0d0ed` (deployándose).
 - **A2**: la herramienta de pauta de los agentes (`get_client_ads_performance`) ya sale
