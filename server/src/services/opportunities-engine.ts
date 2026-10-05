@@ -16,7 +16,7 @@ import { aggInsights, dayStr, aiNarrative } from "./agency-ops.js";
 import { getBrainContext } from "./customer-brain.js";
 import { learningsForNiche } from "./learning-engine.js";
 import { topContent } from "./knowledge-graph.js";
-import { upcomingEfemerides } from "./efemerides.js";
+import { efemeridesProximasPorRubro } from "./efemerides.js";
 import { resolveCompanyId, activeClients } from "./intel-common.js";
 import { issueService } from "./issues.js";
 import { resolveTriageOwnerId } from "./client-tasks.js";
@@ -52,7 +52,11 @@ export async function generateClientOpportunities(
   const w7 = await aggInsights(db, clientId, d(7), d(0));
   const nicheLearnings = await learningsForNiche(db, client.industry);
   const top = await topContent(db, clientId, 5);
-  const efem = upcomingEfemerides(today, 14);
+  // Por rubro. Sin filtro, el 12/9 se le propuso "Contenido para Día del
+  // Corredor Inmobiliario" a 45 clientes que no son inmobiliarias (una gomería,
+  // hoteles, insumos médicos): es la "inmobiliaria" que el dueño vio en las
+  // sugerencias de Distrillantas.
+  const efem = efemeridesProximasPorRubro(client.industry, 14, today);
 
   const drafts: Draft[] = [];
 
