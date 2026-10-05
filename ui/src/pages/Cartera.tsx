@@ -46,7 +46,7 @@ export function Cartera() {
     <LmtmPantalla
       titulo="Clientes"
       subtitulo={data ? `Semana del ${fechaCorta(data.semana.desde)} al ${fechaCorta(data.semana.hasta)} · ${data.clientes.length} activos` : undefined}
-      panel="/hoy"
+      panel="/dashboard"
     >
       {isLoading && <p className="text-[14px] text-l-tinta-3">Leyendo las métricas de cada cliente…</p>}
       {error && (

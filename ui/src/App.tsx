@@ -7,7 +7,6 @@ import { Dashboard } from "./pages/Dashboard";
 import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
 import { Clients } from "./pages/Clients";
-import { PaidMediaHub } from "./pages/PaidMediaHub";
 import { Finance } from "./pages/Finance";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
@@ -85,7 +84,9 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Clients />} />
-      <Route path="paid-media" element={<PaidMediaHub />} />
+      {/* Pauta se retiró en B4: qué cliente mirar está en Clientes (Cartera) y el
+          detalle de pauta en Cliente → Dashboard, con selector de cliente. */}
+      <Route path="paid-media" element={<Navigate to="/cartera" replace />} />
       <Route path="finance" element={<Finance />} />
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />
@@ -171,7 +172,8 @@ function boardRoutes() {
       <Route path="inbox/requests" element={<JoinRequestQueue />} />
       <Route path="inbox/new" element={<Navigate to="/inbox/mine" replace />} />
       <Route path="u/:userSlug" element={<UserProfile />} />
-      <Route path="design-guide" element={<DesignGuide />} />
+      {/* La guía de componentes de Paperclip es para quien desarrolla (B4). */}
+      {import.meta.env.DEV ? <Route path="design-guide" element={<DesignGuide />} /> : null}
       <Route path="instance/settings/adapters" element={<AdapterManager />} />
       <Route path=":pluginRoutePath/*" element={<PluginPage />} />
       <Route path="*" element={<NotFoundPage scope="board" />} />
@@ -312,7 +314,9 @@ export function App() {
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
         <Route path="cli-auth/:id" element={<CliAuthPage />} />
         <Route path="invite/:token" element={<InviteLandingPage />} />
-        <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
+        {/* Fixture de performance: solo en desarrollo (B4). Antes se abría en
+            producción sin login, antes de la compuerta de acceso. */}
+        {import.meta.env.DEV ? <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} /> : null}
         <Route path="connect-ads" element={<ConnectAds />} />
         <Route path="public/dashboards/:slug" element={<PublicDashboard />} />
         {/* El panel viejo, como "ver el detalle" del informe (B3), hasta B4. */}

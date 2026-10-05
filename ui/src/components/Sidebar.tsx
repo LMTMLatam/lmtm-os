@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Sun,
   DollarSign,
-  Megaphone,
   History,
   Search,
   SquarePen,
@@ -130,7 +129,9 @@ export function Sidebar() {
           {/* "Clientes" es la Cartera (B3): todos por plata en riesgo y contra
               su objetivo. Las fichas viejas siguen en "Más". */}
           <SidebarNavItem to="/cartera" label="Clientes" icon={Building2} />
-          <SidebarNavItem to="/paid-media" label="Pauta" icon={Megaphone} />
+          {/* Operación (la pantalla de Nazareno, PLAN §5) vuelve arriba en el lugar
+              de Pauta, que se retiró en B4. */}
+          <SidebarNavItem to="/dashboard" label="Operación" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
           <SidebarNavItem to="/company/settings" label="Config" icon={Settings} />
 
@@ -163,9 +164,6 @@ export function Sidebar() {
           label="Sistema"
           collapsible={{ open: sistemaAbierto, onOpenChange: setSistemaAbierto }}
         >
-          {/* Para quien mantiene la maquinaria: agentes, corridas, cartera vieja.
-              Las fallas siguen a la vista en Bandeja. */}
-          <SidebarNavItem to="/dashboard" label="Operación" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
           <SidebarNavItem to="/routines" label="Rutinas" icon={Repeat} />
           <SidebarNavItem to="/goals" label="Objetivos" icon={Target} />

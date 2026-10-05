@@ -209,57 +209,6 @@ function CargaEquipo() {
   );
 }
 
-interface SemaforoCliente {
-  id: string; name: string; slug: string; industry: string | null;
-  score: number; semaforo: "verde" | "amarillo" | "rojo"; oportunidades: string[];
-}
-
-/** Tablero master de pauta: cada cliente en semáforo + oportunidades, con el
- *  texto del análisis listo para copiar y reenviar al cliente. */
-function SemaforoPauta() {
-  const [expandido, setExpandido] = useState<string | null>(null);
-  const { data } = useQuery({
-    queryKey: ["growth", "semaforo"],
-    queryFn: () => api.get<{ clientes: SemaforoCliente[] }>("/growth/semaforo-pauta"),
-    staleTime: 10 * 60_000,
-    retry: false,
-  });
-  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : "bg-rose-500";
-  const copiar = async (slug: string, name: string) => {
-    const a = await api.get<{ resumen: string[] }>(`/clients/${slug}/analisis-estrategico`);
-    await navigator.clipboard.writeText([`📊 Análisis de pauta — ${name}`, "", ...(a.resumen ?? [])].join("\n"));
-  };
-  if (!data?.clientes.length) return null;
-  return (
-    <Card className="p-5 space-y-2">
-      <div className="flex items-center gap-2">
-        <h2 className="font-medium">Semáforo de pauta — master</h2>
-        <span className="text-[11px] text-muted-foreground">salud minada a diario · los peores primero · "copiar" arma el mensaje para el cliente</span>
-      </div>
-      <div className="grid md:grid-cols-2 gap-1.5">
-        {data.clientes.map((c) => (
-          <div key={c.id} className="rounded-md border border-border p-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${dot(c.semaforo)}`} />
-              <Link to={`/c/${c.slug}`} className="font-medium hover:underline truncate">{c.name}</Link>
-              <span className="text-muted-foreground">{c.score}/100</span>
-              <button onClick={() => void copiar(c.slug, c.name)} className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">Copiar</button>
-              {c.oportunidades.length > 0 && (
-                <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">{c.oportunidades.length} opp</button>
-              )}
-            </div>
-            {expandido === c.id && (
-              <ul className="list-disc ml-6 mt-1 text-muted-foreground">
-                {c.oportunidades.map((o, i) => <li key={i}>{o}</li>)}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
 export function Growth() {
   const { setBreadcrumbs } = useBreadcrumbs();
   useEffect(() => { setBreadcrumbs([{ label: "Growth" }]); }, [setBreadcrumbs]);
@@ -306,8 +255,6 @@ export function Growth() {
           <CotizadoVsRealizado />
 
           <CargaEquipo />
-
-          <SemaforoPauta />
 
           <Card className="p-5">
             <h2 className="font-medium mb-3">Pauta agregada — últimos 30 días</h2>

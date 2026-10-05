@@ -31,7 +31,7 @@ export function Hoy() {
   });
 
   return (
-    <LmtmPantalla titulo="Hoy" subtitulo={fechaLarga(new Date())} panel="/clients">
+    <LmtmPantalla titulo="Hoy" subtitulo={fechaLarga(new Date())} panel="/dashboard">
       {isLoading && <p className="text-[14px] text-l-tinta-3">Cargando…</p>}
       {error && (
         <p className="flex gap-1.5 text-[14px] text-l-critico-texto" role="alert">

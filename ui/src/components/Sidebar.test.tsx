@@ -30,7 +30,8 @@ const RUTAS_ORIGINALES = [
   "/licitaciones",
   "/niches",
   "/org",
-  "/paid-media",
+  // "/paid-media" (Pauta) se retiró en B4: la cubren Clientes (Cartera) y
+  // Cliente → Dashboard. La ruta redirige a /cartera, así que no queda huérfana.
   "/readiness",
   "/routines",
   "/search",
@@ -94,7 +95,8 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
       "/inbox",
       // "/cartera" reemplazó a "/clients" arriba (B3); las fichas siguen en "Más".
       "/cartera",
-      "/paid-media",
+      // Operación vuelve arriba en el lugar de Pauta, que se retiró (B4).
+      "/dashboard",
       "/contenido",
       "/company/settings",
     ]);
@@ -104,5 +106,11 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
     // Si arrancan abiertos no se ordenó nada: se ven las 22 igual.
     expect(SIDEBAR).toContain('useSeccionAbierta("sidebar:mas", false)');
     expect(SIDEBAR).toContain('useSeccionAbierta("sidebar:sistema", false)');
+  });
+});
+
+describe("lo retirado no deja links muertos", () => {
+  it("Pauta redirige a Clientes: un link guardado a /paid-media sigue llevando a algún lado", () => {
+    expect(APP).toMatch(/path="paid-media" element=\{<Navigate to="\/cartera" replace \/>\}/);
   });
 });

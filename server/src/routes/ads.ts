@@ -3287,48 +3287,8 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  router.get("/growth/semaforo-pauta", async (_req, res) => {
-    const { accountScores: scores, opportunities: opps } = await import("@paperclipai/db");
-    const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
-      .from(clients).where(eq(clients.status, "active"));
-    const hoy = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
-    const scoreRows = await db.select().from(scores).where(gte(scores.date, hoy)).orderBy(desc(scores.date));
-    const latest = new Map<string, number>();
-    // Un cliente SIN pauta puntúa 0 y se pintaba de rojo junto a los que sí
-    // tienen pauta andando mal: 40 de 58 en rojo con 0/100 (18/8). No es lo
-    // mismo "la pauta va mal" que "no hay pauta" — el segundo no es un problema
-    // a atender en Paid Media, es un cliente que no contrató el servicio.
-    const sinPauta = new Set<string>();
-    for (const s of scoreRows) {
-      if (latest.has(s.clientId)) continue;
-      latest.set(s.clientId, Number(s.healthScore ?? 0));
-      if ((s.components as { noAds?: boolean } | null)?.noAds === true) sinPauta.add(s.clientId);
-    }
-    const oppRows = await db.select({ clientId: opps.clientId, title: opps.title, priority: opps.priority })
-      .from(opps).where(sql`${opps.status} not in ('done','dismissed','descartada')`).orderBy(desc(opps.priority)).limit(300);
-    const oppsByClient = new Map<string, string[]>();
-    for (const o of oppRows) {
-      if (!o.clientId) continue;
-      const arr = oppsByClient.get(o.clientId) ?? [];
-      if (arr.length < 3) arr.push(o.title);
-      oppsByClient.set(o.clientId, arr);
-    }
-    const rows = activos
-      .filter((c) => latest.has(c.id))
-      .map((c) => {
-        const score = latest.get(c.id)!;
-        return {
-          id: c.id, name: c.name, slug: c.slug, industry: c.industry,
-          score,
-          sinPauta: sinPauta.has(c.id),
-          semaforo: sinPauta.has(c.id) ? "sin-pauta"
-            : score >= 70 ? "verde" : score >= 40 ? "amarillo" : "rojo",
-          oportunidades: oppsByClient.get(c.id) ?? [],
-        };
-      })
-      .sort((a, b) => a.score - b.score);
-    res.json({ clientes: rows });
-  });
+  // (B4) /growth/semaforo-pauta se retiró con Pauta y su tarjeta de Growth:
+  // la Cartera mide a cada cliente contra su objetivo.
 
   // ── Cotizado vs realizado (planilla del equipo × datos reales) ─────────────
   router.get("/growth/cotizado", async (req, res) => {
