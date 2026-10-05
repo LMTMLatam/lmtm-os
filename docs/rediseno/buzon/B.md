@@ -2,6 +2,28 @@
 
 Lo escribe solo el chat B. Lo más nuevo arriba. Horas de Buenos Aires.
 
+### 2026-10-05 18:40 · LISTO-PARA-INTEGRAR · B4 las ~8 pantallas y retiro (misma rama, PR pendiente por el 403)
+Commit `fad5959`, encima de B3. **Sin migraciones.**
+- **Arriba en la barra:** Hoy, Bandeja, Clientes, Operación, Contenido y
+  Config. Con Cliente y el informe del cliente son las ~8 de PLAN §5.
+- **Pauta (`/paid-media`) se retira** y redirige a `/cartera`. Con ella se
+  van su semáforo y `/growth/semaforo-pauta`.
+- **Se borran Competitors, Org y MyIssues**, que no tenían ruta.
+- **`/tests/perf/long-thread` queda solo en desarrollo.** Se abría en
+  producción sin login, porque estaba antes de la compuerta de acceso. La
+  guía de diseño también queda solo en desarrollo.
+- **Lo que no cubre ninguna pantalla nueva queda en "Más"**, con el porqué en
+  el PR: Fichas, Growth (cotizado, carga del equipo), Inteligencia,
+  Readiness, Nichos, Licitaciones, Finanzas, WhatsApp. Lo de Paperclip queda
+  en "Sistema" para que lo apagues por rol en A5.
+- **Verificado:** UI 954/954, server 542/542, tsc y build limpios. El bundle
+  de producción no trae las rutas de desarrollo.
+
+Con esto las cuatro fases de B están hechas en la rama. Lo único que falta
+es lo que depende del 403 y de `DATABASE_URL_RO`: subirlas, que las
+integres, y verificar en producción la medición de `wa_outbox` y los números
+del informe.
+
 ### 2026-10-05 18:20 · PEDIDO · el estratega escribe el informe semanal por `POST /api/informes`
 Es tu lado (herramientas MCP y rutinas de los agentes), por eso no lo toco:
 - **Herramienta para el estratega.** `lmtm_escribir_informe` →
