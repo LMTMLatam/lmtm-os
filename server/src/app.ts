@@ -15,6 +15,7 @@ import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
+import { decisionesRoutes } from "./decisiones/rutas.js";
 import { videoRoutes } from "./routes/video.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
@@ -243,6 +244,7 @@ export async function createApp(
   api.use(metaRoutes(db));
   api.use(metaSyncRoutes(db));
   api.use(adsRoutes(db));
+  api.use(decisionesRoutes(db));
   api.use(videoRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
@@ -307,6 +309,12 @@ export async function createApp(
     const { initVigilantes } = await import("./services/vigilantes.js");
     initVigilantes(db);
   } catch (e) { console.warn("[vigilantes] init failed:", e); }
+  // Motor de decisiones (rediseño B1): una corrida por día a las 8:30, antes
+  // del resumen de las 9:00. Se apaga con LMTM_MOTOR_DECISIONES=off.
+  try {
+    const { initMotorDecisiones } = await import("./decisiones/motor.js");
+    initMotorDecisiones(db);
+  } catch (e) { console.warn("[decisiones] init failed:", e); }
   // Licitaciones de Mercado Público (pedido 2026-07-22): sync diario.
   try {
     const { initLicitaciones } = await import("./services/licitaciones.js");

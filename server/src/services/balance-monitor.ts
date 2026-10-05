@@ -256,6 +256,20 @@ const HALTED_STATUS: Record<number, string> = {
   7: "en revisión de riesgo de pago",
 };
 
+/**
+ * Por qué una cuenta no entrega pauta, o null si entrega. Mismo criterio que
+ * `runBalanceCheck`: estado de Meta que frena, o el tope consumido en una
+ * cuenta que venía gastando. Lo usa el motor de decisiones para no tener una
+ * segunda definición de "frenada".
+ */
+export function motivoFrenada(b: Pick<BalanceInfo, "accountStatus" | "remaining" | "activaReciente" | "spendCap" | "currency">): string | null {
+  if (HALTED_STATUS[b.accountStatus]) return HALTED_STATUS[b.accountStatus];
+  if (b.remaining !== null && b.remaining < 1 && b.activaReciente) {
+    return `consumió el tope de ${b.currency} ${Math.round(b.spendCap).toLocaleString("es-AR")}: las campañas siguen activas pero no se muestran`;
+  }
+  return null;
+}
+
 /** Persist each client's ad-account health snapshot in clients.metadata so the
  *  dashboard can EXPLAIN an empty window ("frenada por deuda", "sin saldo")
  *  instead of rendering an unexplained wall of zeros — the exact confusion
@@ -295,7 +309,7 @@ export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Pr
   // una sola impresión, y quedaría avisada como "saldo bajo: quedan $0", que
   // suena a que todavía hay margen.
   const agotada = (b: BalanceInfo) => b.remaining !== null && b.remaining < 1 && b.activaReciente;
-  const halted = all.filter((b) => HALTED_STATUS[b.accountStatus] != null || agotada(b));
+  const halted = all.filter((b) => motivoFrenada(b) != null);
   // Sin las agotadas: ya salen arriba como frenadas, no hace falta repetirlas.
   const low = all.filter((b) => b.low && b.activaReciente && !agotada(b));
   // Pacing: healthy balance now, but at the current burn rate it runs out within

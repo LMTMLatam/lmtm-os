@@ -488,11 +488,38 @@ export async function createClientReportTask(
   title: string,
   markdown: string,
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
+  return crearTareaEnListaDelCliente(db, clientId, {
+    lista: { buscar: /reportes?/i, nombre: "📊 Reportes" },
+    titulo: title,
+    markdown,
+  });
+}
+
+/**
+ * Crea una tarea en una lista de la carpeta del cliente, que se crea la
+ * primera vez. Es lo que usaba el informe semanal ("📊 Reportes") y ahora
+ * también las decisiones ("✅ Decisiones").
+ *
+ * Pasa por la misma guarda que `clickup_create_task`: nunca escribe en la lista
+ * de Redes de un cliente, aunque el nombre buscado matchee por casualidad. Con
+ * `ensayo` resuelve carpeta y lista (solo lecturas) y no crea nada.
+ */
+export async function crearTareaEnListaDelCliente(
+  db: Db,
+  clientId: string,
+  input: { lista: { buscar: RegExp; nombre: string }; titulo: string; markdown: string; ensayo?: boolean },
+): Promise<{ ok: boolean; url?: string; error?: string; detalle?: string }> {
+  const { lista: buscada, titulo: title, markdown } = input;
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { ok: false, error: "client not found" };
 
   let folderId = client.clickupFolderId;
   if (!folderId) {
+    // El ensayo no detecta: detectar guarda los ids de ClickUp en el cliente,
+    // y un ensayo no escribe nada.
+    if (input.ensayo) {
+      return { ok: true, detalle: "El cliente no tiene la carpeta de ClickUp guardada: al ejecutar se la busca por nombre." };
+    }
     // Try to detect the folder first.
     try {
       const r = await detectClientClickUpLists(db, clientId);
@@ -505,14 +532,27 @@ export async function createClientReportTask(
 
   try {
     const lists = await listListsInFolder(folderId);
-    let reportes = lists.find((l) => /reportes?/i.test(l.name));
-    if (!reportes) {
-      reportes = await cu<CuList>(`/folder/${encodeURIComponent(folderId)}/list`, {
+    let destino = lists.find((l) => buscada.buscar.test(l.name));
+    if (destino) {
+      const { motivoListaProtegida } = await import("./planillas-protegidas.js");
+      const motivo = await motivoListaProtegida(db, destino.id);
+      if (motivo) return { ok: false, error: motivo };
+    }
+    if (input.ensayo) {
+      return {
+        ok: true,
+        detalle: destino
+          ? `Se crearía la tarea en la lista "${destino.name}" de la carpeta del cliente.`
+          : `Se crearía la lista "${buscada.nombre}" en la carpeta del cliente y la tarea adentro.`,
+      };
+    }
+    if (!destino) {
+      destino = await cu<CuList>(`/folder/${encodeURIComponent(folderId)}/list`, {
         method: "POST",
-        body: { name: "📊 Reportes" },
+        body: { name: buscada.nombre },
       });
     }
-    const task = await cu<{ id: string; url?: string }>(`/list/${encodeURIComponent(reportes.id)}/task`, {
+    const task = await cu<{ id: string; url?: string }>(`/list/${encodeURIComponent(destino.id)}/task`, {
       method: "POST",
       body: { name: title, markdown_description: markdown },
     });
