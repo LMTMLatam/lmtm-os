@@ -27,8 +27,8 @@ import {
   propuestasDeCosto,
   propuestasDeSaldo,
 } from "./reglas/existentes.js";
-import { reglaCalificados, reglaCostoCalificado, reglaEscalar, reglaFrecuencia, reglaSinLeads } from "./reglas/pauta.js";
-import { anunciosPorCliente, conjuntosEscalables, fechaLocal, ventanas } from "./motor-datos.js";
+import { reglaCalificados, reglaCostoCalificado, reglaEscalar, reglaFrecuencia, reglaSinLeads, type ClienteVentana } from "./reglas/pauta.js";
+import { anunciosPorCliente, conjuntosEscalables, contextoPauta, fechaLocal, unidadesSinLeads, ventanas, type ContextoPauta } from "./motor-datos.js";
 import { metricasCliente, type MetricasCliente } from "../metricas/index.js";
 import { aFila } from "./store.js";
 import { avisarIncidentes, type IncidenteNuevo } from "../avisos/incidentes.js";
@@ -132,20 +132,29 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   }));
 
   // ── Pauta ──────────────────────────────────────────────────────────────
-  // Una lectura de metricasCliente() por cliente activo, en la ventana de 14
-  // días: de ahí salen el objetivo (con su fuente) y los números de calidad.
-  // Si falla para un cliente, ese cliente queda afuera de las reglas de pauta
-  // y la regla se marca como no evaluada: no se cierra nada de lo que no se miró.
+  // Todo número de pauta sale de `metricas` (A2): metricasCliente() para la
+  // calidad y el objetivo, metricasCampanas() para lo que se juzga campaña por
+  // campaña. Si falla para un cliente, la regla se marca como no evaluada: no
+  // se cierra nada de lo que no se miró.
   const metricas = new Map<string, MetricasCliente>();
+  const contextos = new Map<string, ContextoPauta>();
   let metricasIncompletas = false;
   for (const c of activos) {
     try {
       metricas.set(c.id, await metricasCliente(db, c.id, { desde: v.desde14, hasta: v.hasta }));
+      contextos.set(c.id, await contextoPauta(db, { id: c.id, nombre: c.name.trim() }, v));
     } catch (e) {
       metricasIncompletas = true;
       console.warn(`[decisiones] sin métricas de ${c.name.trim()}:`, e instanceof Error ? e.message : e);
     }
   }
+  const ventanaDe = (c: { id: string; name: string }, plataforma: "meta" | "google"): ClienteVentana | null => {
+    const cp = contextos.get(c.id);
+    const tcpl = cp?.ctx.tcpl[plataforma];
+    if (!cp || tcpl == null) return null;
+    return { clientId: c.id, cliente: c.name.trim(), tcpl, tcplFuente: cp.fuente[plataforma], plataforma, desde: v.desde14, hasta: v.hasta };
+  };
+  // Para la calidad (CRM): el objetivo general del cliente, como hasta ahora.
   const conObjetivo = activos
     .map((c) => ({ c, m: metricas.get(c.id) }))
     .filter(({ m }) => m != null && m.objetivo.tcpl != null && (m.objetivo.tcplFuente === "cliente" || m.objetivo.tcplFuente === "historial"))
@@ -157,29 +166,39 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
       desde: v.desde14,
       hasta: v.hasta,
     }));
-  const ids = conObjetivo.map((c) => c.clientId);
   const sinMetricas = { propuestas: [] as Propuesta[], evaluada: false, nota: "No se pudieron leer las métricas de todos los clientes." };
-
-  // Los anuncios se leen para TODOS los activos: la fatiga no depende del
-  // objetivo, así que la regla de frecuencia no lo espera.
-  let anuncios: Awaited<ReturnType<typeof anunciosPorCliente>> | null = null;
-  const anunciosDe = async () => (anuncios ??= await anunciosPorCliente(db, [...activosIds], v));
 
   resultados.push(await correrRegla("pauta_sin_leads", hoy, async () => {
     if (metricasIncompletas) return sinMetricas;
-    const a = await anunciosDe();
-    return conObjetivo.map((c) => reglaSinLeads(c, a.get(c.clientId) ?? [])).filter((p): p is Propuesta => p != null);
+    const out: Propuesta[] = [];
+    for (const c of activos) {
+      for (const plataforma of ["meta", "google"] as const) {
+        const cv = ventanaDe(c, plataforma);
+        if (!cv) continue;
+        const p = reglaSinLeads(cv, unidadesSinLeads(contextos.get(c.id)!, plataforma));
+        if (p) out.push(p);
+      }
+    }
+    return out;
   }));
+  // La frecuencia se mide por anuncio (metricas no trae alcance todavía) y
+  // para TODOS los activos: la fatiga no depende del objetivo.
   resultados.push(await correrRegla("pauta_frecuencia", hoy, async () => {
-    const a = await anunciosDe();
+    const a = await anunciosPorCliente(db, [...activosIds], v);
     return activos.flatMap((c) =>
       reglaFrecuencia({ clientId: c.id, cliente: c.name.trim(), tcpl: null, desde: v.desde14, hasta: v.hasta }, a.get(c.id) ?? []),
     );
   }));
   resultados.push(await correrRegla("pauta_escalar", hoy, async () => {
     if (metricasIncompletas) return sinMetricas;
-    const conj = await conjuntosEscalables(db, ids, v);
-    return conObjetivo.map((c) => reglaEscalar(c, conj.get(c.clientId) ?? [], ahora)).filter((p): p is Propuesta => p != null);
+    const out: Propuesta[] = [];
+    for (const c of activos) {
+      const cv = ventanaDe(c, "meta");
+      if (!cv) continue;
+      const p = reglaEscalar(cv, await conjuntosEscalables(db, contextos.get(c.id)!, v), ahora);
+      if (p) out.push(p);
+    }
+    return out;
   }));
 
   // Calidad: necesita calificados del CRM. Hoy metricasCliente() los devuelve

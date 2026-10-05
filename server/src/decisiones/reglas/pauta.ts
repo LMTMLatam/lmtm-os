@@ -13,7 +13,9 @@
 // nadie tiene que creer que lo pidió el cliente.
 //
 // Las funciones de este archivo son puras: reciben los números ya sumados y
-// devuelven propuestas. La consulta vive en `motor-datos.ts`.
+// devuelven propuestas. Los números salen de `metricasCampanas()` (A2) y la
+// consulta vive en `motor-datos.ts`; solo la frecuencia se lee por anuncio de
+// `ads_insights`, porque `metricas` todavía no trae el alcance.
 
 import type { Accion, Dato, Propuesta } from "../tipos.js";
 
@@ -63,12 +65,32 @@ export interface AnuncioVentana {
   alcance7: number;
 }
 
+/**
+ * Una campaña o un conjunto (grupo de anuncios en Google) con sus números de
+ * `metricasCampanas()`: la regla de "sin leads" juzga a este nivel, el mismo
+ * que usa el evaluador del piloto de A, para que el motor y los agentes
+ * midan con la misma vara.
+ */
+export interface UnidadPauta {
+  id: string;
+  nivel: "campana" | "conjunto";
+  plataforma: "meta" | "google";
+  nombre: string | null;
+  campana: string | null;
+  gasto14: number;
+  leads14: number;
+  /** Gasto de los últimos 3 días completos: separa lo que sigue quemando de lo que ya se apagó. */
+  gasto3: number;
+}
+
 export interface ClienteVentana {
   clientId: string;
   cliente: string;
   tcpl: number | null;
   /** De dónde sale el objetivo. "historial" = lo propusimos nosotros. */
   tcplFuente?: "cliente" | "historial" | null;
+  /** El objetivo es por plataforma (A2): Google no se mide con el de Meta. Sin esto, Meta. */
+  plataforma?: "meta" | "google";
   desde: string;
   hasta: string;
 }
@@ -88,56 +110,78 @@ function lista(anuncios: AnuncioVentana[], max = 3): string {
   return anuncios.length > max ? `${n} y ${anuncios.length - max} más` : n;
 }
 
+/** "el conjunto «Venta Pilar»", "la campaña «Marca»", "el grupo «Deptos»" (Google). */
+export function nombreUnidad(u: Pick<UnidadPauta, "id" | "nivel" | "plataforma" | "nombre">): string {
+  // Sin nombre (todavía no lo trajo el sync) se dice así y el id va entre
+  // paréntesis, para que el equipo lo pueda buscar en el administrador.
+  const nombre = u.nombre?.trim() ? `«${u.nombre.trim()}»` : `sin nombre (${u.id})`;
+  if (u.nivel === "campana") return `la campaña ${nombre}`;
+  return u.plataforma === "google" ? `el grupo ${nombre}` : `el conjunto ${nombre}`;
+}
+
+/** "de" + "el conjunto…" se contrae: "del conjunto…". */
+const de = (frase: string) => (frase.startsWith("el ") ? `del ${frase.slice(3)}` : `de ${frase}`);
+
+function listaUnidades(us: UnidadPauta[], max = 3): string {
+  const n = us.slice(0, max).map(nombreUnidad).join(", ");
+  return us.length > max ? `${n} y ${us.length - max} más` : n;
+}
+
 /**
  * 0 leads con 3×TCPL gastado → cambiar el concepto.
  *
- * Solo cuenta lo que SIGUE gastando (gasto en los últimos 3 días): un anuncio
- * que ya se apagó no tiene nada que decidir, y si se lo contara la decisión no
- * se podría verificar nunca — la ventana de 14 días lo seguiría mostrando
- * muerto una semana después de reemplazado.
+ * Juzga campañas y conjuntos de `metricasCampanas()` que ya pasaron el filtro
+ * del evaluador de A (motor-datos): objetivo de leads, no la de marca, sin
+ * conversiones dudosas de Google y con objetivo en ESA plataforma.
  *
- * Una decisión por cliente, no por anuncio: tres anuncios muertos del mismo
- * cliente son un solo "hay que renovar los conceptos", y en el celular son una
- * fila, no tres.
+ * Solo cuenta lo que SIGUE gastando (gasto en los últimos 3 días): algo que ya
+ * se apagó no tiene nada que decidir, y si se lo contara la decisión no se
+ * podría verificar nunca — la ventana de 14 días lo seguiría mostrando muerto
+ * una semana después de reemplazado.
+ *
+ * Una decisión por cliente y plataforma, no por conjunto: tres conjuntos
+ * muertos del mismo cliente son un solo "hay que renovar los conceptos", y en
+ * el celular son una fila, no tres.
  */
-export function reglaSinLeads(c: ClienteVentana, anuncios: AnuncioVentana[]): Propuesta | null {
+export function reglaSinLeads(c: ClienteVentana, unidades: UnidadPauta[]): Propuesta | null {
   if (c.tcpl == null) return null;
   const umbral = MULTIPLO_DATOS * c.tcpl;
-  const muertos = anuncios
-    .filter((a) => a.gasto14 >= umbral && a.leads14 === 0 && a.gasto3 > 0)
+  const muertos = unidades
+    .filter((u) => u.gasto14 >= umbral && u.leads14 === 0 && u.gasto3 > 0)
     .sort((a, b) => b.gasto14 - a.gasto14);
   if (muertos.length === 0) return null;
 
-  const gasto14 = muertos.reduce((s, a) => s + a.gasto14, 0);
-  // La plata en juego es lo que esos anuncios queman HOY por día.
-  const arsPorDia = Math.round(muertos.reduce((s, a) => s + a.gasto3, 0) / 3);
+  const gasto14 = muertos.reduce((s, u) => s + u.gasto14, 0);
+  // La plata en juego es lo que eso quema HOY por día.
+  const arsPorDia = Math.round(muertos.reduce((s, u) => s + u.gasto3, 0) / 3);
   const uno = muertos.length === 1;
+  const enGoogle = c.plataforma === "google" ? " en Google" : "";
   const que = uno
-    ? `Cambiar el concepto de ${nombreAnuncio(muertos[0])}: gastó ${pesos(gasto14)} en 14 días sin traer un lead`
-    : `Cambiar el concepto de ${muertos.length} anuncios que gastaron ${pesos(gasto14)} en 14 días sin traer un lead`;
+    ? `Cambiar el concepto ${de(nombreUnidad(muertos[0]))}${enGoogle}: gastó ${pesos(gasto14)} en 14 días sin traer un lead`
+    : `Cambiar el concepto de ${muertos.length} ${muertos.every((u) => u.nivel === "campana") ? "campañas" : "conjuntos"}${enGoogle} que gastaron ${pesos(gasto14)} en 14 días sin traer un lead`;
 
   const datos: Dato[] = [
     { etiqueta: "Gasto sin leads (14 días)", valor: Math.round(gasto14), unidad: "ars" },
     { etiqueta: etiquetaObjetivo(c), valor: c.tcpl, unidad: "ars" },
-    { etiqueta: "Gasto mínimo para juzgar un anuncio (3 veces el objetivo)", valor: Math.round(umbral), unidad: "ars" },
-    ...muertos.slice(0, 5).map((a): Dato => ({ etiqueta: `${nombreAnuncio(a)} · gasto 14 días`, valor: Math.round(a.gasto14), unidad: "ars" })),
+    { etiqueta: "Gasto mínimo para juzgar (3 veces el objetivo)", valor: Math.round(umbral), unidad: "ars" },
+    ...muertos.slice(0, 5).map((u): Dato => ({ etiqueta: `${nombreUnidad(u)} · gasto 14 días`, valor: Math.round(u.gasto14), unidad: "ars" })),
   ];
 
   const accion: Accion = {
     tipo: "tarea",
-    titulo: `${c.cliente}: reemplazar ${uno ? "un anuncio sin leads" : `${muertos.length} anuncios sin leads`} por conceptos nuevos`,
+    titulo: `${c.cliente}: renovar los anuncios ${uno ? de(nombreUnidad(muertos[0])) : `de ${muertos.length} conjuntos sin leads`}${enGoogle}`,
     descripcion:
-      `Anuncios que gastaron 3 veces el objetivo por lead (${pesos(umbral)}) sin traer ninguno: ${lista(muertos, 10)}.\n` +
+      `Gastaron 3 veces el objetivo por lead (${pesos(umbral)}) sin traer ninguno: ${listaUnidades(muertos, 10)}.\n` +
       "El concepto está muerto: no iterarlo, cambiarlo. Dejar listo el reemplazo antes de pausar (nunca pausar sin reemplazo).",
   };
 
   return {
     clientId: c.clientId,
     tipo: "pauta:sin_leads",
-    clave: `pauta:sin_leads:${c.clientId}`,
+    clave: `pauta:sin_leads:${c.clientId}${c.plataforma === "google" ? ":google" : ""}`,
     que,
     porque: {
-      resumen: `${uno ? "Un anuncio sigue" : `${muertos.length} anuncios siguen`} gastando sin traer leads: ${lista(muertos)}.`,
+      resumen: `${uno ? `${nombreUnidad(muertos[0])[0].toUpperCase()}${nombreUnidad(muertos[0]).slice(1)} sigue` : `${muertos.length} siguen`} gastando sin traer leads${uno ? "" : `: ${listaUnidades(muertos)}`}.`,
       datos,
       ventana: { desde: c.desde, hasta: c.hasta },
     },

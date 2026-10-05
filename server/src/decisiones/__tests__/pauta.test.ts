@@ -12,7 +12,10 @@ import {
   type AnuncioVentana,
   type ClienteVentana,
   type ConjuntoEscalable,
+  type UnidadPauta,
 } from "../reglas/pauta.js";
+import { unidadesSinLeads, type ContextoPauta } from "../motor-datos.js";
+import type { MetricasCampana } from "../../metricas/campanas.js";
 
 const cliente = (tcpl: number | null = 10_000): ClienteVentana => ({
   clientId: "c1",
@@ -34,35 +37,117 @@ const anuncio = (o: Partial<AnuncioVentana> = {}): AnuncioVentana => ({
   ...o,
 });
 
+const unidad = (o: Partial<UnidadPauta> = {}): UnidadPauta => ({
+  id: "s1",
+  nivel: "conjunto",
+  plataforma: "meta",
+  nombre: "Neumáticos 4x4",
+  campana: "Prospección AMBA",
+  gasto14: 0,
+  leads14: 0,
+  gasto3: 0,
+  ...o,
+});
+
 describe("sin leads con 3×TCPL gastado", () => {
   it("sin TCPL no afirma nada", () => {
-    expect(reglaSinLeads(cliente(null), [anuncio({ gasto14: 900_000, gasto3: 10_000 })])).toBeNull();
+    expect(reglaSinLeads(cliente(null), [unidad({ gasto14: 900_000, gasto3: 10_000 })])).toBeNull();
   });
 
   it("por debajo de 3×TCPL es esperar, no decidir", () => {
-    expect(reglaSinLeads(cliente(), [anuncio({ gasto14: 29_999, gasto3: 3_000 })])).toBeNull();
+    expect(reglaSinLeads(cliente(), [unidad({ gasto14: 29_999, gasto3: 3_000 })])).toBeNull();
   });
 
   it("con 3×TCPL y cero leads, cambiar el concepto, con la plata que quema hoy", () => {
-    const p = reglaSinLeads(cliente(), [anuncio({ gasto14: 30_000, gasto3: 6_000 })]);
+    const p = reglaSinLeads(cliente(), [unidad({ gasto14: 30_000, gasto3: 6_000 })]);
     expect(p?.tipo).toBe("pauta:sin_leads");
     expect(p?.arsPorDia).toBe(2_000); // 6.000 en 3 días
-    expect(p?.que).toContain("Cambiar el concepto");
+    expect(p?.que).toBe("Cambiar el concepto del conjunto «Neumáticos 4x4»: gastó $30.000 en 14 días sin traer un lead");
+    expect(p?.porque.resumen).toBe("El conjunto «Neumáticos 4x4» sigue gastando sin traer leads.");
     expect(p?.accion?.tipo).toBe("tarea");
   });
 
-  it("un anuncio que ya se apagó no pide nada (y si lo pidiera no se podría verificar nunca)", () => {
-    expect(reglaSinLeads(cliente(), [anuncio({ gasto14: 90_000, gasto3: 0 })])).toBeNull();
+  it("algo que ya se apagó no pide nada (y si lo pidiera no se podría verificar nunca)", () => {
+    expect(reglaSinLeads(cliente(), [unidad({ gasto14: 90_000, gasto3: 0 })])).toBeNull();
   });
 
-  it("varios anuncios muertos del mismo cliente son UNA decisión", () => {
+  it("varios conjuntos muertos del mismo cliente son UNA decisión", () => {
     const p = reglaSinLeads(cliente(), [
-      anuncio({ adId: "a1", gasto14: 40_000, gasto3: 3_000 }),
-      anuncio({ adId: "a2", nombre: "Llantas - carrusel", gasto14: 50_000, gasto3: 3_000 }),
-      anuncio({ adId: "a3", gasto14: 50_000, leads14: 2, gasto3: 3_000 }),
+      unidad({ id: "s1", gasto14: 40_000, gasto3: 3_000 }),
+      unidad({ id: "s2", nombre: "Llantas - carrusel", gasto14: 50_000, gasto3: 3_000 }),
+      unidad({ id: "s3", gasto14: 50_000, leads14: 2, gasto3: 3_000 }),
     ]);
     expect(p?.clave).toBe("pauta:sin_leads:c1");
-    expect(p?.que).toContain("2 anuncios");
+    expect(p?.que).toContain("2 conjuntos");
+  });
+
+  it("sin nombre todavía, lo dice y deja el id para buscarlo", () => {
+    const p = reglaSinLeads(cliente(), [unidad({ id: "238490", nombre: null, gasto14: 30_000, gasto3: 3_000 })]);
+    expect(p?.que).toContain("del conjunto sin nombre (238490)");
+  });
+
+  it("Google va aparte, con su objetivo y su propia decisión", () => {
+    const p = reglaSinLeads({ ...cliente(), plataforma: "google" }, [unidad({ plataforma: "google", gasto14: 30_000, gasto3: 3_000 })]);
+    expect(p?.clave).toBe("pauta:sin_leads:c1:google");
+    expect(p?.que).toContain("el grupo «Neumáticos 4x4» en Google");
+  });
+});
+
+describe("qué se puede juzgar por leads (la misma vara que el evaluador de A)", () => {
+  const camp = (o: Partial<MetricasCampana> = {}): MetricasCampana => ({
+    plataforma: "meta",
+    campaignId: "c-1",
+    nombre: "Prospección AMBA",
+    estado: "ACTIVE",
+    objetivoCampana: "OUTCOME_LEADS",
+    presupuestoDiario: null,
+    fin: null,
+    diasConGasto: 14,
+    ultimoDiaConGasto: "2026-10-04",
+    leadsDudosos: false,
+    inversion: 60_000,
+    impresiones: 50_000,
+    clics: 900,
+    leads: 0,
+    cpl: null,
+    conjuntos: [],
+    ...o,
+  });
+  const contexto = (campanas: MetricasCampana[], tcpl = { meta: 10_000 as number | null, google: null as number | null }): ContextoPauta => ({
+    ctx: { tcpl, esMarca: (n) => /marca/i.test(n) },
+    fuente: { meta: "cliente", google: null },
+    campanas14: campanas,
+    campanas3: campanas.map((c) => ({ ...c, inversion: 6_000, conjuntos: c.conjuntos.map((a) => ({ ...a, inversion: 3_000 })) })),
+  });
+
+  it("una campaña de leads sin leads entra, con su gasto de los últimos 3 días", () => {
+    const [u] = unidadesSinLeads(contexto([camp()]), "meta");
+    expect(u).toMatchObject({ id: "c-1", nivel: "campana", gasto14: 60_000, gasto3: 6_000 });
+  });
+
+  it("tráfico, catálogo o alcance no se miden por leads: 0 leads es lo esperable", () => {
+    expect(unidadesSinLeads(contexto([camp({ objetivoCampana: "OUTCOME_TRAFFIC" })]), "meta")).toEqual([]);
+    expect(unidadesSinLeads(contexto([camp({ objetivoCampana: "PRODUCT_CATALOG_SALES" })]), "meta")).toEqual([]);
+  });
+
+  it("la campaña de marca no se corta por CPL", () => {
+    expect(unidadesSinLeads(contexto([camp({ nombre: "Marca - búsqueda" })]), "meta")).toEqual([]);
+  });
+
+  it("Google con conversiones dudosas o sin objetivo propio no se juzga", () => {
+    const g = camp({ plataforma: "google", leadsDudosos: true });
+    expect(unidadesSinLeads(contexto([g], { meta: 10_000, google: 8_000 }), "google")).toEqual([]);
+    // Sin objetivo de Google, no se lo mide con el de Meta.
+    expect(unidadesSinLeads(contexto([camp({ plataforma: "google" })]), "google")).toEqual([]);
+  });
+
+  it("con conjuntos, se juzga cada conjunto y no la campaña entera", () => {
+    const conjuntos = [
+      { adsetId: "s-1", nombre: "Muerto", estado: "ACTIVE", presupuestoDiario: 5_000, inversion: 40_000, impresiones: 1, clics: 1, leads: 0, cpl: null },
+      { adsetId: "s-2", nombre: "Vivo", estado: "ACTIVE", presupuestoDiario: 5_000, inversion: 20_000, impresiones: 1, clics: 1, leads: 4, cpl: 5_000 },
+    ];
+    const us = unidadesSinLeads(contexto([camp({ leads: 4, conjuntos })]), "meta");
+    expect(us.map((u) => u.id)).toEqual(["s-1"]);
   });
 });
 
@@ -70,7 +155,7 @@ describe("el objetivo se nombra según de dónde sale", () => {
   it("el propuesto por nosotros no se presenta como pedido por el cliente", () => {
     expect(etiquetaObjetivo({ tcplFuente: "historial" })).toContain("propuesto");
     expect(etiquetaObjetivo({ tcplFuente: "cliente" })).not.toContain("propuesto");
-    const p = reglaSinLeads({ ...cliente(), tcplFuente: "historial" }, [anuncio({ gasto14: 30_000, gasto3: 6_000 })]);
+    const p = reglaSinLeads({ ...cliente(), tcplFuente: "historial" }, [unidad({ gasto14: 30_000, gasto3: 6_000 })]);
     expect(p?.porque.datos.some((d) => d.etiqueta.includes("propuesto"))).toBe(true);
   });
 });

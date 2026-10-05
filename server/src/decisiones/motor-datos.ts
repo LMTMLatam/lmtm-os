@@ -8,7 +8,11 @@ import type { Db } from "@paperclipai/db";
 import { adsAdsets, adsCampaigns, adsCreatives, adsInsights, agentActions } from "@paperclipai/db";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { deMenor } from "../services/ads-budget.js";
-import type { AnuncioVentana, ConjuntoEscalable } from "./reglas/pauta.js";
+import { esTerminoDeMarca } from "../services/ads-keywords.js";
+import { metricasCliente } from "../metricas/index.js";
+import { esActiva, metricasCampanas, type MetricasCampana } from "../metricas/campanas.js";
+import { evaluarPropuesta, type ContextoEval } from "../metricas/eval-propuestas.js";
+import type { AnuncioVentana, ConjuntoEscalable, UnidadPauta } from "./reglas/pauta.js";
 
 const ZONA = "America/Argentina/Buenos_Aires";
 
@@ -108,89 +112,130 @@ export function vigente(fin: string | null | undefined, hasta: string): boolean 
   return !fin || fin >= hasta;
 }
 
+type TcplFuente = "cliente" | "historial" | null;
+
 /**
- * Conjuntos y campañas de Meta con presupuesto diario propio, activos, con su
- * rendimiento de 14 días y el último cambio de presupuesto que hizo el sistema.
+ * Lo que las reglas de pauta necesitan de un cliente, todo de `metricas` (A2):
+ * el objetivo POR PLATAFORMA (Google no se mide con el de Meta) y las campañas
+ * de los últimos 14 y 3 días. El objetivo del rubro no entra: es un promedio
+ * ajeno, y decidir con él sería afirmar algo del cliente con datos de otros.
+ */
+export interface ContextoPauta {
+  ctx: ContextoEval;
+  fuente: { meta: TcplFuente; google: TcplFuente };
+  campanas14: MetricasCampana[];
+  campanas3: MetricasCampana[];
+}
+
+export async function contextoPauta(db: Db, cliente: { id: string; nombre: string }, v: Ventanas): Promise<ContextoPauta> {
+  const v14 = { desde: v.desde14, hasta: v.hasta };
+  const [meta, google, campanas14, campanas3] = await Promise.all([
+    metricasCliente(db, cliente.id, { ...v14, plataforma: "meta" }),
+    metricasCliente(db, cliente.id, { ...v14, plataforma: "google" }),
+    metricasCampanas(db, cliente.id, v14),
+    metricasCampanas(db, cliente.id, { desde: v.desde3, hasta: v.hasta }),
+  ]);
+  const propio = (o: { tcpl: number | null; tcplFuente: string | null }) =>
+    o.tcpl != null && (o.tcplFuente === "cliente" || o.tcplFuente === "historial")
+      ? { tcpl: o.tcpl, fuente: o.tcplFuente as TcplFuente }
+      : { tcpl: null, fuente: null };
+  const m = propio(meta.objetivo);
+  const g = propio(google.objetivo);
+  return {
+    // La misma vara que el evaluador del piloto (eval-propuestas-cli de A).
+    ctx: { tcpl: { meta: m.tcpl, google: g.tcpl }, esMarca: (n) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(cliente.nombre, n) },
+    fuente: { meta: m.fuente, google: g.fuente },
+    campanas14: campanas14 ?? [],
+    campanas3: campanas3 ?? [],
+  };
+}
+
+/**
+ * Campañas y conjuntos de una plataforma que la regla de "sin leads" puede
+ * juzgar: los que el evaluador de A dejaría pausar (objetivo de leads, no la
+ * de marca, sin leads dudosos, gasto de 3×TCPL y CPL alto o sin leads). Un
+ * conjunto se juzga solo; la campaña, cuando no trae conjuntos.
+ */
+export function unidadesSinLeads(cp: ContextoPauta, plataforma: "meta" | "google"): UnidadPauta[] {
+  const gasto3 = new Map<string, number>();
+  for (const c of cp.campanas3) {
+    gasto3.set(`campana:${c.campaignId}`, c.inversion);
+    for (const a of c.conjuntos) gasto3.set(`conjunto:${a.adsetId}`, a.inversion);
+  }
+  const out: UnidadPauta[] = [];
+  for (const c of cp.campanas14.filter((x) => x.plataforma === plataforma)) {
+    const unidades: UnidadPauta[] = c.conjuntos.length
+      ? c.conjuntos.map((a) => ({ id: a.adsetId, nivel: "conjunto", plataforma, nombre: a.nombre, campana: c.nombre, gasto14: a.inversion, leads14: a.leads, gasto3: gasto3.get(`conjunto:${a.adsetId}`) ?? 0 }))
+      : [{ id: c.campaignId, nivel: "campana", plataforma, nombre: c.nombre, campana: c.nombre, gasto14: c.inversion, leads14: c.leads, gasto3: gasto3.get(`campana:${c.campaignId}`) ?? 0 }];
+    for (const u of unidades) {
+      const v = evaluarPropuesta({ accion: "pause", entityType: u.nivel === "campana" ? "campaign" : "adset", entityId: u.id }, cp.campanas14, cp.ctx);
+      if (v.ok) out.push(u);
+    }
+  }
+  return out;
+}
+
+/**
+ * Candidatos a escalar de un cliente: campañas y conjuntos de Meta vigentes,
+ * con presupuesto diario propio, que el evaluador de A dejaría subir 20%
+ * (objetivo de leads, CPL debajo del objetivo, sin leads dudosos). La
+ * frecuencia se lee por anuncio de `ads_insights` (metricas no trae alcance) y
+ * el último cambio, de lo que movió el sistema.
  *
  * Solo Meta: el sync de Google no trae presupuestos, y sin el actual no hay
  * cómo proponer "+20%".
  */
-export async function conjuntosEscalables(db: Db, clientIds: string[], v: Ventanas): Promise<Map<string, ConjuntoEscalable[]>> {
-  const out = new Map<string, ConjuntoEscalable[]>();
-  if (clientIds.length === 0) return out;
-
-  const adsets = await db
-    .select({ id: adsAdsets.id, clientId: adsAdsets.clientId, name: adsAdsets.name, dailyBudget: adsAdsets.dailyBudget, status: adsAdsets.status, campaignId: adsAdsets.campaignId })
-    .from(adsAdsets)
-    .where(and(inArray(adsAdsets.clientId, clientIds), eq(adsAdsets.platform, "meta"), sql`coalesce(${adsAdsets.dailyBudget}, 0) > 0`));
-  const campanas = await db
-    .select({ id: adsCampaigns.id, clientId: adsCampaigns.clientId, name: adsCampaigns.name, dailyBudget: adsCampaigns.dailyBudget, status: adsCampaigns.status })
-    .from(adsCampaigns)
-    .where(and(inArray(adsCampaigns.clientId, clientIds), eq(adsCampaigns.platform, "meta"), sql`coalesce(${adsCampaigns.dailyBudget}, 0) > 0`));
-  // Fecha de fin de TODAS las campañas de Meta del cliente (también las que
-  // reparten el presupuesto en sus conjuntos), en día de Buenos Aires.
-  const fines = new Map(
-    (
-      await db
-        .select({ id: adsCampaigns.id, fin: sql<string | null>`to_char(${adsCampaigns.stopTime} at time zone 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD')` })
-        .from(adsCampaigns)
-        .where(and(inArray(adsCampaigns.clientId, clientIds), eq(adsCampaigns.platform, "meta"), sql`${adsCampaigns.stopTime} is not null`))
-    ).map((c) => [c.id, c.fin]),
+export async function conjuntosEscalables(db: Db, cp: ContextoPauta, v: Ventanas): Promise<ConjuntoEscalable[]> {
+  const unidades: Array<{ entityType: "campaign" | "adset"; id: string; nombre: string; presupuesto: number; gasto14: number; leads14: number }> = [];
+  for (const c of cp.campanas14) {
+    if (c.plataforma !== "meta" || !esActiva(c.estado) || !vigente(c.fin, v.hasta)) continue;
+    if (c.presupuestoDiario != null && c.presupuestoDiario > 0) {
+      unidades.push({ entityType: "campaign", id: c.campaignId, nombre: c.nombre ?? c.campaignId, presupuesto: c.presupuestoDiario, gasto14: c.inversion, leads14: c.leads });
+    }
+    for (const a of c.conjuntos) {
+      if (!esActiva(a.estado) || a.presupuestoDiario == null || !(a.presupuestoDiario > 0)) continue;
+      unidades.push({ entityType: "adset", id: a.adsetId, nombre: a.nombre ?? a.adsetId, presupuesto: a.presupuestoDiario, gasto14: a.inversion, leads14: a.leads });
+    }
+  }
+  const defendibles = unidades.filter(
+    (u) => evaluarPropuesta({ accion: "set_budget", entityType: u.entityType, entityId: u.id, nuevoDiario: Math.round(u.presupuesto * 1.2) }, cp.campanas14, cp.ctx).ok,
   );
+  if (defendibles.length === 0) return [];
 
-  const activo = (s: string | null) => /^active$/i.test(s ?? "");
-  const entidades = [
-    ...adsets
-      .filter((a) => activo(a.status) && vigente(a.campaignId ? fines.get(a.campaignId) : null, v.hasta))
-      .map(({ campaignId: _c, ...a }) => ({ ...a, entityType: "adset" as const })),
-    ...campanas.filter((c) => activo(c.status) && vigente(fines.get(c.id), v.hasta)).map((c) => ({ ...c, entityType: "campaign" as const })),
-  ];
-  if (entidades.length === 0) return out;
-
-  const rend = async (col: typeof adsInsights.adsetId | typeof adsInsights.campaignId, ids: string[]) => {
-    if (ids.length === 0) return new Map<string, { gasto14: number; leads14: number; impresiones7: number; alcance7: number }>();
+  // Frecuencia de 7 días por conjunto o campaña (cota inferior: suma de alcances diarios).
+  const frec = async (col: typeof adsInsights.adsetId | typeof adsInsights.campaignId, ids: string[]) => {
+    if (ids.length === 0) return new Map<string, { impresiones7: number; alcance7: number }>();
     const filas = await db
       .select({
         id: col,
-        gasto14: sql<string>`coalesce(sum(${adsInsights.spend}), 0)`,
-        leads14: sql<string>`coalesce(sum(${adsInsights.leads}), 0)`,
-        impresiones7: sql<string>`coalesce(sum(${adsInsights.impressions}) filter (where ${adsInsights.date} >= ${v.desde7}), 0)`,
-        alcance7: sql<string>`coalesce(sum(${adsInsights.reach}) filter (where ${adsInsights.date} >= ${v.desde7}), 0)`,
+        impresiones7: sql<string>`coalesce(sum(${adsInsights.impressions}), 0)`,
+        alcance7: sql<string>`coalesce(sum(${adsInsights.reach}), 0)`,
       })
       .from(adsInsights)
-      .where(and(inArray(col, ids), gte(adsInsights.date, v.desde14), lte(adsInsights.date, v.hasta)))
+      .where(and(inArray(col, ids), gte(adsInsights.date, v.desde7), lte(adsInsights.date, v.hasta)))
       .groupBy(col);
-    return new Map(filas.map((f) => [String(f.id), {
-      gasto14: Number(f.gasto14), leads14: Number(f.leads14), impresiones7: Number(f.impresiones7), alcance7: Number(f.alcance7),
-    }]));
+    return new Map(filas.map((f) => [String(f.id), { impresiones7: Number(f.impresiones7), alcance7: Number(f.alcance7) }]));
   };
-  const porAdset = await rend(adsInsights.adsetId, entidades.filter((e) => e.entityType === "adset").map((e) => e.id));
-  const porCampana = await rend(adsInsights.campaignId, entidades.filter((e) => e.entityType === "campaign").map((e) => e.id));
+  const porAdset = await frec(adsInsights.adsetId, defendibles.filter((u) => u.entityType === "adset").map((u) => u.id));
+  const porCampana = await frec(adsInsights.campaignId, defendibles.filter((u) => u.entityType === "campaign").map((u) => u.id));
 
   const cambios = await db
     .select({ entityId: agentActions.entityId, ultimo: sql<string>`max(${agentActions.createdAt})` })
     .from(agentActions)
-    .where(and(eq(agentActions.kind, "set_budget"), inArray(agentActions.entityId, entidades.map((e) => e.id))))
+    .where(and(eq(agentActions.kind, "set_budget"), inArray(agentActions.entityId, defendibles.map((u) => u.id))))
     .groupBy(agentActions.entityId);
   const ultimoCambio = new Map(cambios.map((c) => [c.entityId, c.ultimo ? new Date(c.ultimo) : null]));
 
-  for (const e of entidades) {
-    if (!e.clientId) continue;
-    const r = (e.entityType === "adset" ? porAdset : porCampana).get(e.id);
-    if (!r) continue;
-    const arr = out.get(e.clientId) ?? [];
-    arr.push({
-      entityType: e.entityType,
-      entityId: e.id,
-      nombre: e.name,
-      // Meta guarda el presupuesto en centavos (ver ads-budget.ts).
-      presupuestoDiario: deMenor(Number(e.dailyBudget ?? 0)),
-      ...r,
-      ultimoCambio: ultimoCambio.get(e.id) ?? null,
-    });
-    out.set(e.clientId, arr);
-  }
-  return out;
+  return defendibles.map((u) => ({
+    entityType: u.entityType,
+    entityId: u.id,
+    nombre: u.nombre,
+    presupuestoDiario: u.presupuesto,
+    gasto14: u.gasto14,
+    leads14: u.leads14,
+    ...((u.entityType === "adset" ? porAdset : porCampana).get(u.id) ?? { impresiones7: 0, alcance7: 0 }),
+    ultimoCambio: ultimoCambio.get(u.id) ?? null,
+  }));
 }
 
 /**
