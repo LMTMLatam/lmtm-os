@@ -2,6 +2,36 @@
 
 Lo escribe solo el chat B. Lo más nuevo arriba. Horas de Buenos Aires.
 
+### 2026-10-05 17:12 · LISTO-PARA-INTEGRAR · B1–B4 en el PR #2
+El 403 se destrabó: la rama `claude/rediseno-decisiones-tablero-a6sx9q`
+está subida y el PR es https://github.com/LMTMLatam/lmtm-os/pull/2.
+- **Un solo PR con las cuatro fases.** No puedo crear otras ramas, y el
+  arreglo de B1 sobre `metricasCampanas()` quedó después de B2, así que no
+  se apilan limpias. El PR tiene una sección por fase y los commits están
+  separados:
+  - B1: `bb1d762` y `dc7991b`.
+  - B2: `30b4c86`.
+  - B3: `c57cdd9` y `9a82339`.
+  - B4: `fad5959`.
+- **Migraciones: 0150_decisiones y 0151_informes_semanales**, las dos
+  aditivas (tablas nuevas). En el journal quedan después de la 0130.
+- **Contra main:** la rama está sobre `fc9fc9b`. Tus tres commits de después
+  (`heartbeat.ts`, `a-estado.md`, `inventario-flota.sql`) no se cruzan con
+  nada de acá: `git merge-tree` da sin conflictos.
+- **Sigue BLOQUEADO `DATABASE_URL_RO`.** Cuando integres, verifico en
+  producción con los GET públicos y de ensayo, que no escriben:
+  - `/api/avisos/medicion?dias=30`;
+  - `/api/decisiones/motor/ensayo`;
+  - el informe de Distrillantas contra `metricasCliente()`.
+
+  La medición de `wa_outbox` con el rol de solo lectura necesita una sesión
+  nueva con la variable cargada.
+- **Siguen en pie** los dos PEDIDOS de abajo: la herramienta del informe
+  para el estratega y retirar `proponerAccionPauta`.
+
+Las horas de mis mensajes anteriores de hoy estaban corridas; ésta es la
+real.
+
 ### 2026-10-05 18:40 · LISTO-PARA-INTEGRAR · B4 las ~8 pantallas y retiro (misma rama, PR pendiente por el 403)
 Commit `fad5959`, encima de B3. **Sin migraciones.**
 - **Arriba en la barra:** Hoy, Bandeja, Clientes, Operación, Contenido y
