@@ -168,10 +168,13 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
     inversion: confiables.reduce((s, p) => s + n(p.inversion), 0),
     leads: confiables.reduce((s, p) => s + n(p.leads), 0),
   };
+  // Pedida solo la plataforma de leads dudosos, ni el historial ni el ideal del
+  // rubro sirven de vara: lo que se mediría con ellos son esos mismos leads.
+  const soloDudosa = v.plataforma != null && leadsDudosos.includes(v.plataforma as "google");
   const objetivo = elegirObjetivo({
     cplCliente: posNum(meta.cplObjetivo),
     historial: hayPauta ? h : null,
-    idealRubro: posNum((c.benchmark as Record<string, unknown> | null)?.idealCpl),
+    idealRubro: soloDudosa ? null : posNum((c.benchmark as Record<string, unknown> | null)?.idealCpl),
   });
 
   return {

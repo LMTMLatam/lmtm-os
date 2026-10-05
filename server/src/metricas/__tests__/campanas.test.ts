@@ -68,7 +68,13 @@ describe("armarCampanas", () => {
       ],
       [], [], "2026-10-04",
     );
-    expect(r.map((c) => [c.campaignId, c.leadsDudosos])).toEqual([["busq", true], ["sana", false]]);
+    // la cuenta entera convierte 3862/4464: también "sana" queda dudosa
+    expect(r.map((c) => [c.campaignId, c.leadsDudosos])).toEqual([["busq", true], ["sana", true]]);
+  });
+
+  it("una campaña de Google sana en una cuenta sana no se marca", () => {
+    const r = armarCampanas([ins({ plataforma: "google", campaignId: "s", adsetId: null, inversion: 1000, clics: 100, leads: 5 })], [], [], "2026-10-04");
+    expect(r[0].leadsDudosos).toBe(false);
   });
 
   it("no mezcla un id repetido entre plataformas", () => {

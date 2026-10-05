@@ -115,6 +115,11 @@ export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], 
     if (vigente(c) && !porCampana.has(clave(c.plataforma, c.id))) porCampana.set(clave(c.plataforma, c.id), []);
   }
 
+  // Las conversiones mal configuradas son de la CUENTA: si el total de la
+  // plataforma es dudoso, lo es cada campaña, aunque alguna quede bajo el umbral.
+  const totalPlat = (p: Plataforma) => numeros(insights.filter((f) => f.plataforma === p));
+  const cuentaDudosa = { meta: false, google: conversionesDudosas("google", totalPlat("google").leads, totalPlat("google").clics) };
+
   const salida: MetricasCampana[] = [];
   for (const [k, filas] of porCampana) {
     const [plataforma, campaignId] = [k.slice(0, k.indexOf(":")) as Plataforma, k.slice(k.indexOf(":") + 1)];
@@ -147,7 +152,7 @@ export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], 
       ...totales,
       diasConGasto: dias.length,
       ultimoDiaConGasto: dias.at(-1) ?? null,
-      leadsDudosos: conversionesDudosas(plataforma, totales.leads, totales.clics),
+      leadsDudosos: cuentaDudosa[plataforma] || conversionesDudosas(plataforma, totales.leads, totales.clics),
       conjuntos: conjuntosCamp,
     });
   }
