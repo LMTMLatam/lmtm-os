@@ -45,8 +45,8 @@ import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import { withFreshAccessToken } from "../services/ads/token-refresh.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
-import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
-import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief } from "../services/agency-ops.js";
+import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
+import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, runPortfolioBrief } from "../services/agency-ops.js";
 import { avisarAlEquipo } from "../services/wa-embudo.js";
 import { esPropuestaViva, resumirPropuesta } from "../services/propuestas-cliente.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
@@ -1037,77 +1037,9 @@ export function adsRoutes(db: Db): Router {
     res.json({ propuesta: row ?? null });
   });
 
-  // Plan de acción del cliente (pedido 20/7): triage + reporte estratégico
-  // semanal del agente. El botón "Regenerar" abre un issue a Luna y la despierta.
-  router.get("/clients/:idOrSlug/plan-accion", async (req, res) => {
-    const client = await resolveClient(req.params.idOrSlug, db);
-    if (!client) return res.status(404).json({ error: "client not found" });
-    const { planAccionCliente } = await import("../services/plan-accion.js");
-    const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
-    const [plan, profundo] = await Promise.all([
-      planAccionCliente(db, client.id),
-      analisisProfundo(db, { id: client.id, industry: client.industry ?? null }).catch(() => null),
-    ]);
-    res.json({ plan, profundo });
-  });
-
-  // Narrativa estilo IA de Meta (23/7): el estratega LLM escribe el análisis
-  // sobre los datos duros por conjunto/edad/formato. Cache 12h; puede tardar
-  // unos segundos la primera vez — la UI la pide aparte con su skeleton.
-  router.get("/clients/:idOrSlug/analisis-narrativa", dashCache, async (req, res) => {
-    const client = await resolveClient(req.params.idOrSlug, db);
-    if (!client) return res.status(404).json({ error: "client not found" });
-    try {
-      const { narrativaPauta } = await import("../services/ads-deep-analysis.js");
-      res.json(await narrativaPauta(db, { id: client.id, name: client.name, industry: client.industry ?? null }));
-    } catch (e) {
-      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
-    }
-  });
-
-  router.post("/clients/:idOrSlug/plan-accion/regenerar", async (req, res) => {
-    const client = await resolveClient(req.params.idOrSlug, db);
-    if (!client) return res.status(404).json({ error: "client not found" });
-    try {
-      const { agents: agentsTable } = await import("@paperclipai/db");
-      const { resolveCompanyId } = await import("../services/intel-common.js");
-      const { issueService } = await import("../services/issues.js");
-      const { heartbeatService } = await import("../services/heartbeat.js");
-      const { PLAN_ACCION_SPEC } = await import("../services/plan-accion.js");
-      const companyId = await resolveCompanyId(db, client.id);
-      if (!companyId) return res.status(400).json({ error: "cliente sin company" });
-      const roster = await db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.companyId, companyId));
-      const luna = roster.find((a) => /luna/i.test(a.name)) ?? roster.find((a) => /caro/i.test(a.name)) ?? null;
-      if (!luna) return res.status(400).json({ error: "no hay agente para asignar" });
-      const created = await issueService(db).create(companyId, {
-        title: `[${client.name.toUpperCase()}] Plan de acción — regenerar ahora`.slice(0, 200),
-        description: [
-          `El equipo pidió regenerar YA el plan de acción estratégico de **${client.name}**.`,
-          "",
-          "Relevá primero: lmtmGetClientContentMatrix (orgánico y cumplimiento), lmtmGetClientAdsPerformance (pauta real), lmtmGetClientMarketingPlan (estrategia acordada), lmtmGetClientBrain (voz, público, restricciones), lmtmGetClientCompetitors y lmtmGetNicheIntel del rubro (benchmark + RADAR con referentes externos y links).",
-          "",
-          PLAN_ACCION_SPEC,
-          "",
-          `Guardalo con lmtmSaveDeliverable kind=plan, título exacto: "Plan de acción ${new Date().toISOString().slice(0, 10)} — ${client.name}".`,
-        ].join("\n"),
-        status: "todo",
-        priority: "high",
-        clientId: client.id,
-        originKind: "manual",
-        createdByAgentId: null,
-        assigneeAgentId: luna.id,
-      });
-      const issueId = String(created.id ?? "");
-      if (issueId) {
-        await heartbeatService(db).wakeup(luna.id, {
-          source: "automation", triggerDetail: "system", reason: "plan_accion_regenerar", payload: { issueId },
-        }).catch(() => {});
-      }
-      res.json({ ok: true, issueId });
-    } catch (e) {
-      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
-    }
-  });
+  // (Rediseño B3) "Plan de acción" del cliente se retiró: la pestaña Resumen
+  // (/api/clientes/:id/resumen) lo reemplaza con objetivo vs real, decisiones
+  // con su botón e informe semanal auditado.
 
   // Consultas IA del equipo (ChatGPT/Gemini) → brain del cliente (pedido 20/7):
   // se pega la conversación, queda como documento y un issue de destilación
@@ -3003,24 +2935,9 @@ export function adsRoutes(db: Db): Router {
       .json({ ok: r.estado === "enviado", error: r.motivo ?? null, estado: r.estado });
   });
 
-  // POST /api/clients/:id/report/run — generate + create this client's weekly report
-  // as a task in ClickUp now.
-  router.post("/clients/:id/report/run", async (req, res) => {
-    const { id: idOrSlug } = req.params;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
-    const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
-    const [row] = await db.select().from(clients).where(condition);
-    if (!row) return res.status(404).json({ error: "client not found" });
-    const report = await generateClientReport(db, row.id);
-    if (!report?.hasData) return res.json({ client: row.slug, hasData: false, created: false });
-    const result = await createClientReportTask(db, row.id, report.title, report.markdown);
-    res.json({ client: row.slug, hasData: true, created: result.ok, url: result.url ?? null, error: result.error ?? null });
-  });
-
-  // POST /api/clients/reports/run-all — weekly report sweep across all clients.
-  router.post("/clients/reports/run-all", async (_req, res) => {
-    res.json(await runClientReports(db));
-  });
+  // (Rediseño B3) El reporte semanal a ClickUp (/clients/:id/report/run y
+  // /clients/reports/run-all) se retiró: el informe de la semana sale de
+  // /api/informes, con números de `metricas` y auditado.
 
   // POST /api/clients/reports/run-monthly — 30-day monthly report sweep.
   router.post("/clients/reports/run-monthly", async (_req, res) => {
@@ -3291,17 +3208,9 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  // La cartera entera, cruzada: cada cliente contra su rubro, contra su propio
-  // pasado y contra lo que se pierde por no actuar. microCache porque la tabla
-  // se abre a cada rato y el cálculo recorre todos los creativos.
-  router.get("/cartera", microCache(3 * 60_000), async (_req, res) => {
-    try {
-      const { cartera } = await import("../services/cartera.js");
-      res.json(await cartera(db));
-    } catch (e) {
-      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
-    }
-  });
+  // (Rediseño B3) La cartera vieja (cada cliente contra el ideal de su rubro)
+  // se retiró: GET /api/cartera la sirve ahora decisiones/cartera.ts, con
+  // `metricas` y el objetivo de cada cliente.
 
   // ── Embudo de WhatsApp ──────────────────────────────────────────────────
   // El reporte con el que se decide qué apagar: cuánto mandó cada módulo y
@@ -3358,39 +3267,21 @@ export function adsRoutes(db: Db): Router {
   // Estado de la cartera para el dashboard principal: semáforo y la serie de
   // 30 días. Lo accionable (la cola humana y las alertas que vivían acá) se
   // mudó a Hoy (GET /api/hoy), con su plata y su botón (rediseño B2).
+  // El pulso de la agencia para Operación. El semáforo de cartera (triage de
+  // plan-accion) y /growth/triage se retiraron en el rediseño B3: la Cartera
+  // (GET /api/cartera) ordena por plata en riesgo contra el objetivo de cada
+  // cliente, no contra el ideal del rubro.
   router.get("/dashboard/accion", microCache(2 * 60_000), async (_req, res) => {
     try {
-      const { triageGrowth } = await import("../services/plan-accion.js");
-      const [triage, serie] = await Promise.all([
-        triageGrowth(db).catch(() => ({ rojo: [], amarillo: [], verde: [] })),
-        // Serie diaria de TODA la cartera (30 días) para los gráficos.
-        db.select({
-          date: adsInsights.date,
-          spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
-          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-        }).from(adsInsights)
-          .where(gte(adsInsights.date, new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)))
-          .groupBy(adsInsights.date).orderBy(adsInsights.date),
-      ]);
-      res.json({
-        triage: {
-          rojo: triage.rojo.map((c) => ({ clientId: c.clientId, name: c.name, slug: c.slug, salud: c.salud, problemas: c.problemas.slice(0, 2) })),
-          amarillo: triage.amarillo.map((c) => ({ clientId: c.clientId, name: c.name, slug: c.slug, salud: c.salud, problemas: c.problemas.slice(0, 2) })),
-          verdeCount: triage.verde.length,
-        },
-        serie: serie.map((s) => ({ date: String(s.date), spend: Number(s.spend), leads: s.leads })),
-      });
-    } catch (e) {
-      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
-    }
-  });
-
-  // Triage general rojo/amarillo/verde (pedido 20/7): la vista principal de
-  // Growth. Cada cliente con sus problemas y su plan corto para salir del rojo.
-  router.get("/growth/triage", async (_req, res) => {
-    try {
-      const { triageGrowth } = await import("../services/plan-accion.js");
-      res.json(await triageGrowth(db));
+      // Serie diaria de TODA la cartera (30 días) para los gráficos.
+      const serie = await db.select({
+        date: adsInsights.date,
+        spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
+        leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
+      }).from(adsInsights)
+        .where(gte(adsInsights.date, new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)))
+        .groupBy(adsInsights.date).orderBy(adsInsights.date);
+      res.json({ serie: serie.map((s) => ({ date: String(s.date), spend: Number(s.spend), leads: s.leads })) });
     } catch (e) {
       res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
     }

@@ -12,7 +12,9 @@ import { Finance } from "./pages/Finance";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
+import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
 import { Hoy } from "./pages/Hoy";
+import { Cartera } from "./pages/Cartera";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -313,6 +315,8 @@ export function App() {
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
         <Route path="connect-ads" element={<ConnectAds />} />
         <Route path="public/dashboards/:slug" element={<PublicDashboard />} />
+        {/* El panel viejo, como "ver el detalle" del informe (B3), hasta B4. */}
+        <Route path="public/dashboards/:slug/detalle" element={<PublicDashboardDetalle />} />
         {/* Links públicos pegados/abiertos con el prefijo de empresa adelante
             (/LMTM/public/dashboards/x) daban Page-not-found — redirigir. */}
         <Route path=":prefix/public/dashboards/:slug" element={<PublicDashboardPrefixRedirect />} />
@@ -340,6 +344,7 @@ export function App() {
               When you add a board page, add it here AND in the Sidebar. */}
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
           <Route path="hoy" element={<UnprefixedBoardRedirect />} />
+          <Route path="cartera" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
@@ -409,6 +414,7 @@ export function App() {
           {/* Hoy va sin la barra de paperclip: es una pantalla para el
               celular, con el sistema de diseño de LMTM (skill lmtm-diseno). */}
           <Route path=":companyPrefix/hoy" element={<Hoy />} />
+          <Route path=":companyPrefix/cartera" element={<Cartera />} />
           <Route path=":companyPrefix" element={<Layout />}>
             {boardRoutes()}
           </Route>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { dashboardApi, type TriageCliente } from "../api/dashboard";
+import { dashboardApi } from "../api/dashboard";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PubvizTheme, Spark } from "@/components/pubviz";
@@ -38,53 +38,16 @@ const DASHBOARD_ACTIVITY_LIMIT = 10;
 //   y hacés clic para ir a resolverlo. Menos números sueltos,
 //   más señal visual + acción directa.
 // ============================================================
-function SemaforoBar({ rojo, amarillo, verde }: { rojo: number; amarillo: number; verde: number }) {
-  const total = Math.max(rojo + amarillo + verde, 1);
-  const seg = [
-    { n: rojo, c: "var(--estado-critico)", l: "en rojo" },
-    { n: amarillo, c: "var(--estado-alerta)", l: "en amarillo" },
-    { n: verde, c: "var(--estado-ok)", l: "en verde" },
-  ];
-  return (
-    <div className="flex h-2.5 rounded-full overflow-hidden gap-[2px]">
-      {seg.map((s, i) => s.n > 0 && (
-        <div key={i} title={`${s.n} ${s.l}`} style={{ width: `${(s.n / total) * 100}%`, background: s.c }} />
-      ))}
-    </div>
-  );
-}
-
-function ClienteChip({ c, tono }: { c: TriageCliente; tono: "rojo" | "amarillo" }) {
-  const color = tono === "rojo" ? "var(--estado-critico)" : "var(--estado-alerta)";
-  return (
-    <Link
-      to={`/c/${c.slug}/plan-accion`}
-      className="block rounded-lg border p-2.5 no-underline text-inherit hover:bg-accent/40 transition-colors"
-      style={{ borderColor: `color-mix(in srgb, ${color} 40%, transparent)` }}
-    >
-      <div className="flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: color }} />
-        <span className="text-sm font-medium truncate flex-1">{c.name}</span>
-        {c.salud != null && <span className="text-xs tabular-nums shrink-0" style={{ color }}>{c.salud}</span>}
-      </div>
-      {c.problemas[0] && <p className="text-[11px] text-muted-foreground mt-1 line-clamp-1">{c.problemas[0]}</p>}
-    </Link>
-  );
-}
-
 function CentroDeMando() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "accion"],
     queryFn: () => dashboardApi.accion(),
     staleTime: 2 * 60 * 1000,
   });
-  const [tab, setTab] = useState<"rojo" | "amarillo">("rojo");
-
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!data) return null;
 
-  const { triage, serie } = data;
-  const lista = tab === "rojo" ? triage.rojo : triage.amarillo;
+  const { serie } = data;
   const totalInv = serie.reduce((a, s) => a + s.spend, 0);
   const totalLeads = serie.reduce((a, s) => a + s.leads, 0);
   const fmtMoney = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
@@ -93,44 +56,17 @@ function CentroDeMando() {
     <div className="pv space-y-4">
       <PubvizTheme />
 
-      {/* Fila 1: semáforo de cartera + pulso del negocio */}
+      {/* El semáforo de cartera (rojo/amarillo/verde contra el ideal del rubro)
+          se retiró en el rediseño B3: la Cartera ordena los clientes por plata
+          en riesgo y contra el objetivo de cada uno. Acá queda el pulso. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="p-4 lg:col-span-2">
-          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-            <div>
-              <h3 className="text-sm font-semibold">Estado de la cartera</h3>
-              <p className="text-[11px] text-muted-foreground">Clic en un cliente para ir a su plan de acción</p>
-            </div>
-            <div className="flex gap-1">
-              {(["rojo", "amarillo"] as const).map((t) => {
-                const n = t === "rojo" ? triage.rojo.length : triage.amarillo.length;
-                const activo = tab === t;
-                return (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={cn(
-                      "text-xs px-2.5 py-1 rounded-full transition-colors inline-flex items-center gap-1.5",
-                      activo ? "bg-foreground/10 font-semibold" : "text-muted-foreground hover:bg-foreground/5",
-                    )}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: t === "rojo" ? "var(--estado-critico)" : "var(--estado-alerta)" }} />
-                    {n} {t === "rojo" ? "críticos" : "en riesgo"}
-                  </button>
-                );
-              })}
-              <span className="text-xs px-2.5 py-1 text-muted-foreground inline-flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--estado-ok)" }} />
-                {triage.verdeCount} ok
-              </span>
-            </div>
-          </div>
-          <SemaforoBar rojo={triage.rojo.length} amarillo={triage.amarillo.length} verde={triage.verdeCount} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 mt-3">
-            {lista.length === 0
-              ? <p className="text-xs text-muted-foreground py-4">Ningún cliente en este estado 🎉</p>
-              : lista.slice(0, 9).map((c) => <ClienteChip key={c.clientId} c={c} tono={tab} />)}
-          </div>
+          <h3 className="text-sm font-semibold">Cartera</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Los clientes, ordenados por la plata en riesgo y contra el objetivo de cada uno, están en{" "}
+            <Link to="/cartera" className="underline underline-offset-2">Clientes</Link>. Lo que hay que decidir hoy, en{" "}
+            <Link to="/hoy" className="underline underline-offset-2">Hoy</Link>.
+          </p>
         </Card>
 
         <Card className="p-4">
@@ -155,9 +91,6 @@ function CentroDeMando() {
         </Card>
       </div>
 
-      {/* Lo que espera a una persona y las alertas críticas se mudaron a Hoy
-          (decisiones e incidentes, con su plata y su botón). Acá queda el
-          estado de la cartera hasta que la reemplace la pantalla Cartera. */}
     </div>
   );
 }

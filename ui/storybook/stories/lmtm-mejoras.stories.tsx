@@ -40,94 +40,6 @@ function Section({
   );
 }
 
-const money = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
-
-// ── 3. La tabla de cartera cruzada ───────────────────────────────────────────
-
-const CARTERA = [
-  { nombre: "DISTRILLANTAS", rubro: "gomeria", inv: 0, leads: 0, cpl: null, dRubro: null, dPropio: null, fmt: null, parado: 31_500, accion: "Reactivar: 31.500 por día parados", tono: "critico" },
-  { nombre: "MA PROPIEDADES", rubro: "inmobiliaria", inv: 184_000, leads: 0, cpl: null, dRubro: null, dPropio: null, fmt: "video 80%", parado: 0, accion: "Gasta y no trae leads: revisar conversión", tono: "critico" },
-  { nombre: "AGUARA", rubro: "construccion", inv: 96_400, leads: 18, cpl: 5_356, dRubro: 34, dPropio: 41, fmt: "imagen 72%", parado: 0, accion: "Se encareció 41% contra sus propios 30 días previos", tono: "alerta" },
-  { nombre: "MAERS", rubro: "industrial", inv: 142_000, leads: 51, cpl: 2_784, dRubro: 28, dPropio: 6, fmt: "carrusel 55%", parado: 0, accion: "CPL 28% arriba del rubro: revisar creatividad", tono: "alerta" },
-  { nombre: "DUNOD", rubro: "retail", inv: 211_000, leads: 118, cpl: 1_788, dRubro: -31, dPropio: -12, fmt: "video 61%", parado: 0, accion: "CPL 31% mejor que el rubro: momento de escalar", tono: "oportunidad" },
-  { nombre: "RENO", rubro: "amoblamientos", inv: 64_000, leads: 22, cpl: 2_909, dRubro: -4, dPropio: 2, fmt: "imagen 88%", parado: 0, accion: "88% de los avisos son del mismo formato: diversificar", tono: "alerta" },
-  { nombre: "CLAMEVET", rubro: "veterinaria", inv: 0, leads: 0, cpl: null, dRubro: null, dPropio: null, fmt: null, parado: 0, accion: "Sin pauta en el período", tono: "neutro" },
-];
-
-const TONO: Record<string, string> = {
-  critico: "var(--estado-critico)",
-  alerta: "var(--estado-alerta)",
-  oportunidad: "var(--estado-ok)",
-  neutro: "var(--color-muted-foreground)",
-};
-
-function Delta({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-muted-foreground/50">—</span>;
-  return (
-    <span
-      className="tabular-nums"
-      style={{ color: Math.abs(pct) < 10 ? undefined : pct < 0 ? "var(--estado-ok)" : "var(--estado-alerta)" }}
-    >
-      {pct > 0 ? "+" : ""}
-      {pct}%
-    </span>
-  );
-}
-
-function TablaCarteraDemo() {
-  return (
-    <Card className="p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">Cartera cruzada</h3>
-        <span className="text-xs text-muted-foreground">2026-09-05 → 2026-10-04 · 7 clientes</span>
-        <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--estado-critico)" }}>
-          {money(31_500)}/día parados
-        </span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              {["Cliente", "Rubro", "Inv. 30d", "Leads", "CPL", "vs rubro", "vs mes previo", "Formato", "Parado/día", "Próxima acción"].map((h, i) => (
-                <th
-                  key={h}
-                  className={`px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground ${i >= 2 && i <= 8 ? "text-right" : "text-left"}`}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {CARTERA.map((f) => (
-              <tr key={f.nombre} className="border-b border-border/50 hover:bg-accent/30">
-                <td className="px-2 py-1.5">{f.nombre}</td>
-                <td className="px-2 py-1.5 text-xs text-muted-foreground">{f.rubro}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{f.inv ? money(f.inv) : "—"}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{f.leads || "—"}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{f.cpl != null ? money(f.cpl) : "—"}</td>
-                <td className="px-2 py-1.5 text-right"><Delta pct={f.dRubro} /></td>
-                <td className="px-2 py-1.5 text-right"><Delta pct={f.dPropio} /></td>
-                <td className="px-2 py-1.5 text-xs text-muted-foreground">{f.fmt ?? "—"}</td>
-                <td
-                  className="px-2 py-1.5 text-right tabular-nums"
-                  style={f.parado ? { color: "var(--estado-critico)", fontWeight: 600 } : undefined}
-                >
-                  {f.parado ? money(f.parado) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-xs" style={{ color: TONO[f.tono] }}>{f.accion}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        El día en curso no se cuenta: los datos de hoy están a medio sincronizar y deformarían las dos ventanas.
-      </p>
-    </Card>
-  );
-}
-
 // ── 4. La ficha de decisor, vacía y cargada ──────────────────────────────────
 
 function DecisorDemo({ cargado }: { cargado: boolean }) {
@@ -210,14 +122,6 @@ function DigestDemo() {
 function Vitrina() {
   return (
     <StoryShell>
-      <Section
-        eyebrow="2 · El análisis no cruza nada"
-        title="Cartera cruzada"
-        antes="el análisis existía pero vivía dentro de la ficha de cada cliente, uno por uno. No había forma de ver los 59 juntos."
-      >
-        <TablaCarteraDemo />
-      </Section>
-
       <Section
         eyebrow="3 · Manda demasiado"
         title="Qué interrumpe y qué va al resumen"

@@ -92,7 +92,8 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
     expect(arriba).toEqual([
       "/hoy",
       "/inbox",
-      "/clients",
+      // "/cartera" reemplazó a "/clients" arriba (B3); las fichas siguen en "Más".
+      "/cartera",
       "/paid-media",
       "/contenido",
       "/company/settings",

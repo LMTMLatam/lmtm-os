@@ -127,7 +127,9 @@ export function Sidebar() {
             badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
             alert={inboxBadge.failedRuns > 0}
           />
-          <SidebarNavItem to="/clients" label="Clientes" icon={Building2} />
+          {/* "Clientes" es la Cartera (B3): todos por plata en riesgo y contra
+              su objetivo. Las fichas viejas siguen en "Más". */}
+          <SidebarNavItem to="/cartera" label="Clientes" icon={Building2} />
           <SidebarNavItem to="/paid-media" label="Pauta" icon={Megaphone} />
           <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
           <SidebarNavItem to="/company/settings" label="Config" icon={Settings} />
@@ -143,6 +145,7 @@ export function Sidebar() {
 
         {/* Negocio, pero no de todos los días. Cerrado por defecto. */}
         <SidebarSection label="Más" collapsible={{ open: masAbierto, onOpenChange: setMasAbierto }}>
+          <SidebarNavItem to="/clients" label="Fichas de clientes" icon={Building2} />
           <SidebarNavItem to="/intelligence" label="Centro de Inteligencia" icon={Brain} />
           <SidebarNavItem to="/growth" label="Growth" icon={TrendingUp} />
           <SidebarNavItem to="/readiness" label="Readiness" icon={ClipboardCheck} />

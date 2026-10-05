@@ -70,20 +70,11 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      // CPL objetivo para el semáforo (review 27/7): explícito en la config del
-      // cliente (metadata.cplObjetivo), con fallback al CPL ideal del rubro.
+      // CPL objetivo para el semáforo: solo el que fijó una persona
+      // (metadata.cplObjetivo). Antes caía al ideal del rubro, que es un
+      // promedio ajeno presentado al cliente como si fuera su objetivo (B3).
       const meta = (r.client.metadata ?? {}) as Record<string, unknown>;
-      let cplObjetivo = Number(meta.cplObjetivo) > 0 ? Number(meta.cplObjetivo) : null;
-      if (!cplObjetivo && r.client.industry) {
-        try {
-          const { learnings } = await import("@paperclipai/db");
-          const [b] = await db.select({ evidence: learnings.evidence }).from(learnings)
-            .where(and(eq(learnings.scope, "niche_benchmark"), eq(learnings.scopeKey, r.client.industry)))
-            .limit(1);
-          const ideal = Number((b?.evidence as Record<string, unknown> | undefined)?.idealCpl);
-          if (ideal > 0) cplObjetivo = ideal;
-        } catch { /* sin benchmark, sin semáforo */ }
-      }
+      const cplObjetivo = Number(meta.cplObjetivo) > 0 ? Number(meta.cplObjetivo) : null;
       res.json({
         client: { id: r.client.id, slug: r.client.slug, name: r.client.name, currency: r.client.currency, cplObjetivo },
         dashboard: {
@@ -96,6 +87,23 @@ export function publicDashboardRoutes(db: Db): Router {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 300) });
+    }
+  });
+
+  // GET /api/public/dashboards/:slug/informe?semana=YYYY-MM-DD — el informe
+  // semanal para el cliente (rediseño B3): costo por consulta contra el
+  // objetivo, tendencia, campañas y la narrativa publicada. Todo de `metricas`.
+  router.get("/dashboards/:slug/informe", microCache(5 * 60_000), async (req, res) => {
+    try {
+      const r = await resolve(req.params.slug);
+      if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
+      const { informePublico } = await import("../decisiones/informe-publico.js");
+      const semana = typeof req.query.semana === "string" ? req.query.semana : undefined;
+      res.json({ cliente: r.client.name.trim(), ...(await informePublico(db, r.client.id, semana)) });
+    } catch (e) {
+      // Al cliente no le llega el detalle interno del error.
+      console.warn("[informe-publico]", e instanceof Error ? e.message : e);
+      res.status(500).json({ error: "No se pudo armar el informe." });
     }
   });
 

@@ -17,6 +17,7 @@ import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
 import { decisionesRoutes } from "./decisiones/rutas.js";
 import { avisosRoutes } from "./avisos/rutas.js";
+import { informesRoutes } from "./decisiones/informes-rutas.js";
 import { videoRoutes } from "./routes/video.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
@@ -247,6 +248,7 @@ export async function createApp(
   api.use(adsRoutes(db));
   api.use(decisionesRoutes(db));
   api.use(avisosRoutes(db));
+  api.use(informesRoutes(db));
   api.use(videoRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
@@ -323,18 +325,26 @@ export async function createApp(
     const { initResumenDiario } = await import("./avisos/resumen.js");
     initResumenDiario(db);
   } catch (e) { console.warn("[resumen] init failed:", e); }
+  // Informes semanales (rediseño B3): los lunes desde las 10:00 arma los
+  // borradores de la semana que terminó. LMTM_INFORMES_SEMANALES=off lo apaga.
+  try {
+    const { initInformesSemanales } = await import("./decisiones/informes-store.js");
+    initInformesSemanales(db);
+  } catch (e) { console.warn("[informes] init failed:", e); }
   // Licitaciones de Mercado Público (pedido 2026-07-22): sync diario.
   try {
     const { initLicitaciones } = await import("./services/licitaciones.js");
     initLicitaciones(db);
   } catch (e) { console.warn("[licitaciones] init failed:", e); }
-  // Warmer del panel (fluidez, 23/7): el triage (y con él la planilla de
-  // cotizado y los conteos de ClickUp) se precalcula al arrancar y se
-  // refresca cada 5 min — ningún humano paga el cómputo frío de ~20s.
+  // Warmer del panel (fluidez, 23/7): la planilla de cotizado y los conteos
+  // de ClickUp se precalculan al arrancar y se refrescan cada 5 min — ningún
+  // humano paga el cómputo frío de ~20s. (Antes se calentaban a través del
+  // triage de plan-accion, que se retiró en el rediseño B3.)
   try {
-    const { warmTriage } = await import("./services/plan-accion.js");
-    setTimeout(() => warmTriage(db), 90_000);
-    setInterval(() => warmTriage(db), 5 * 60_000);
+    const { cotizadoVsRealizado } = await import("./services/cotizado.js");
+    const calentar = () => void cotizadoVsRealizado(db, { months: 1 }).catch((e) => console.warn("[panel-warmer] cotizado falló:", e instanceof Error ? e.message : e));
+    setTimeout(calentar, 90_000);
+    setInterval(calentar, 5 * 60_000);
   } catch (e) { console.warn("[panel-warmer] init failed:", e); }
   // Intelligence layer (0107): brain, scores, KG, learnings, auditor, feedback, opportunities.
   try {

@@ -128,3 +128,29 @@ clientes según el estado de su fuente.
   problemas y no llevan color de estado.
 - La leyenda (muestra de color con borde + palabra) dice qué tramo es cuál.
 - `aria-label` con los conteos en palabras.
+
+## EstadoObjetivoMarca
+
+El costo contra el objetivo del cliente, con ícono y palabra:
+
+| Estado | Ícono | Palabra |
+|---|---|---|
+| hasta el objetivo | ✓ (`bien`) | "En el objetivo" |
+| hasta 1,5 veces | triángulo (`atencion`) | "Arriba del objetivo" |
+| más de 1,5 veces | octógono (`critico`) | "Muy arriba del objetivo" |
+| sin costo u objetivo | signo de pregunta (`tinta-3`) | "Sin dato para comparar" |
+
+- Se compara contra el objetivo de cada cliente (`metricasCliente().objetivo`), nunca contra el ideal del rubro.
+- Cuando el objetivo lo propusimos nosotros (historial), al lado se dice "propuesto".
+- `chico` para las filas de una lista.
+
+## LmtmBloque
+
+Los tokens LMTM dentro de una pantalla de paperclip (la pestaña Resumen de Cliente vive en el layout con barra lateral). Usa el tema que la persona eligió en Hoy y no tiene luna propia.
+
+## Pantallas que usan este sistema
+
+- **Hoy** (`/hoy`): incidentes, plata parada y decisiones por plata.
+- **Clientes** (`/cartera`): la Cartera, por plata en riesgo, cada cliente contra su objetivo, con la próxima decisión y el estado del informe.
+- **Cliente → Resumen** (`/c/:slug`): objetivo vs real, embudo de 30 días, decisiones con su botón, lo hecho y el informe de la semana con "Publicar".
+- **Informe para el cliente** (`/public/dashboards/:slug`): costo por consulta contra el objetivo, tendencia de 8 semanas (un eje, objetivo como línea, tabla debajo), la semana, lo que necesitamos del cliente y las campañas. No tiene botón al panel: el cliente no entra al panel.

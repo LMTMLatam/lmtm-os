@@ -614,14 +614,15 @@ export function initAgencyOps(db: Db): void {
     runClientAlerts(db).catch((e) => console.warn("[agency-ops] alerts run failed:", e));
   }, SIX_HOURS);
 
-  // Weekly reports + portfolio brief on Mondays; monthly report on the 1st.
-  // Both checked on the same daily-ish timer with a run-once dedup key.
+  // Portfolio brief on Mondays; monthly report on the 1st. Both checked on
+  // the same daily-ish timer with a run-once dedup key. (El reporte semanal
+  // por cliente a ClickUp se retiró en el rediseño B3: lo reemplaza el informe
+  // semanal de decisiones/informes-store.ts, con números de `metricas`.)
   const maybePeriodic = async () => {
     const now = new Date();
     const wk = `${now.getUTCFullYear()}-${dayStr(now).slice(5, 7)}-${Math.floor(now.getUTCDate() / 7)}`;
     if (now.getUTCDay() === 1 && lastWeeklyRun !== wk) {
       lastWeeklyRun = wk;
-      await runClientReports(db).catch((e) => console.warn("[agency-ops] weekly reports failed:", e));
       await runPortfolioBrief(db).catch((e) => console.warn("[agency-ops] brief failed:", e));
     }
     const mo = `${now.getUTCFullYear()}-${now.getUTCMonth()}`;
@@ -633,5 +634,5 @@ export function initAgencyOps(db: Db): void {
     }
   };
   weeklyTimer = setInterval(() => { void maybePeriodic(); }, 12 * 3600 * 1000);
-  console.log("[agency-ops] scheduled: alerts every 6h, weekly reports on Mondays, monthly report on the 1st");
+  console.log("[agency-ops] scheduled: alerts every 6h, portfolio brief on Mondays, monthly report on the 1st");
 }

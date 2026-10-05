@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PaidMediaDashboard } from "./PaidMediaDashboard";
 import { Megaphone, Search } from "lucide-react";
-import { TablaCartera } from "@/components/TablaCartera";
+import { Link } from "@/lib/router";
 import { api } from "@/api/client";
 
 interface ClienteSemaforo {
@@ -173,10 +173,12 @@ export function PaidMediaHub() {
 
       {!selected ? (
         <>
-          {/* La vista de cartera va antes del detalle por cliente: la pregunta
-              "a quien le presto atencion hoy" se contesta mirando los 59 juntos,
-              no abriendo uno por uno. */}
-          <TablaCartera />
+          {/* La cartera (los 59 juntos, por plata en riesgo y contra el objetivo
+              de cada uno) se mudó a /cartera en el rediseño B3. */}
+          <Card className="p-4 text-sm">
+            La cartera completa, ordenada por la plata en riesgo y contra el objetivo de cada cliente, está en{" "}
+            <Link to="/cartera" className="font-medium underline underline-offset-2">Clientes</Link>.
+          </Card>
           <QueAtenderHoy onElegir={pick} />
         </>
       ) : adsQuery.data ? (

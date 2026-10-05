@@ -36,13 +36,13 @@ import {
 import { correrMotor, ensayarMotor } from "./motor.js";
 import { datosDeHoy } from "./hoy.js";
 
-function actorDe(req: Request): Actor {
+export function actorDe(req: Request): Actor {
   const a = getActorInfo(req);
   return { actorType: a.actorType, actorId: a.actorId, agentId: a.agentId, runId: a.runId };
 }
 
 /** Los errores del dominio salen con su código y su texto; el resto, 500 sin detalles internos. */
-function responderError(res: Response, e: unknown) {
+export function responderError(res: Response, e: unknown) {
   if (e instanceof ErrorDecision) return res.status(e.status).json({ error: e.message });
   // Las de autorización (403 sin tablero, 401 sin sesión) vienen de authz.ts.
   if (e instanceof HttpError) return res.status(e.status).json({ error: e.message });

@@ -4,10 +4,11 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Clock, LayoutGrid, Moon, OctagonAlert, Pause, Sun, Unplug, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircleHelp, Clock, LayoutGrid, Moon, OctagonAlert, Pause, Sun, Unplug, X } from "lucide-react";
 import { Link } from "@/lib/router";
 import { ApiError } from "../api/client";
 import { decisionesApi, type Decision, type EstadoFuente, type ResultadoEjecucion } from "../api/decisiones";
+import type { EstadoObjetivo } from "../api/informes";
 import { etiquetaAccion, etiquetaResponsable, formatoDato, pesos, tocaLaPauta } from "./formato";
 
 // ── Pantalla ─────────────────────────────────────────────────────────────
@@ -90,6 +91,19 @@ export function LmtmPantalla({
   );
 }
 
+/**
+ * Un bloque con los tokens LMTM dentro de una pantalla de paperclip (la
+ * pestaña Resumen de Cliente vive en el layout con barra lateral). Usa el tema
+ * que la persona eligió en Hoy; sin botón propio para no tener dos lunas.
+ */
+export function LmtmBloque({ children }: { children: ReactNode }) {
+  return (
+    <div className="lmtm rounded-xl px-4 pb-8 pt-2 sm:px-6" data-tema={temaGuardado()}>
+      <div className="mx-auto max-w-[680px]">{children}</div>
+    </div>
+  );
+}
+
 /** Encabezado de una franja: "INCIDENTES 3". `primera`: abre la pantalla, el aire va debajo. */
 export function Franja({
   titulo,
@@ -115,6 +129,26 @@ export function Franja({
       </h2>
       {children}
     </section>
+  );
+}
+
+// ── Estado contra el objetivo ────────────────────────────────────────────
+
+/** Estado contra el objetivo: siempre ícono y palabra, el color solo acompaña. */
+const ESTADO: Record<EstadoObjetivo, { label: string; Icono: typeof Check; color: string; texto: string }> = {
+  en_objetivo: { label: "En el objetivo", Icono: Check, color: "var(--l-bien)", texto: "text-l-bien-texto" },
+  arriba: { label: "Arriba del objetivo", Icono: AlertTriangle, color: "var(--l-atencion)", texto: "text-l-atencion-texto" },
+  muy_arriba: { label: "Muy arriba del objetivo", Icono: OctagonAlert, color: "var(--l-critico)", texto: "text-l-critico-texto" },
+  sin_dato: { label: "Sin dato para comparar", Icono: CircleHelp, color: "var(--l-tinta-3)", texto: "text-l-tinta-3" },
+};
+
+export function EstadoObjetivoMarca({ e, chico }: { e: EstadoObjetivo; chico?: boolean }) {
+  const { label, Icono, color, texto } = ESTADO[e];
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${texto} ${chico ? "text-[12px]" : "text-[14px]"}`}>
+      <Icono className={chico ? "h-3.5 w-3.5" : "h-4 w-4"} style={{ color }} aria-hidden />
+      {label}
+    </span>
   );
 }
 
@@ -171,7 +205,8 @@ export function AccionesDecision({ d }: { d: Decision }) {
   const [motivo, setMotivo] = useState("");
   const listo = () => {
     setPaso({ tipo: "reposo" });
-    void qc.invalidateQueries({ queryKey: ["lmtm", "hoy"] });
+    // Todas las pantallas LMTM (Hoy, Cliente, Cartera) leen las mismas decisiones.
+    void qc.invalidateQueries({ queryKey: ["lmtm"] });
   };
   const falla = (e: unknown) => setPaso({ tipo: "error", detalle: mensajeDeError(e) });
 
