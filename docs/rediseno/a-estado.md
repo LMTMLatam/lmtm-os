@@ -7,8 +7,8 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 | Fase | Estado | Rama / PR |
 |---|---|---|
 | A1. Salud de fuentes | **en producción** (boot 15:21 UTC), verificado | PR #1 |
-| A2. Métricas + objetivos | **en producción** (boot 16:08 UTC) | `rediseno/a-metricas` |
-| A3. Aislamiento por cliente | **en producción** (boot 16:08 UTC); limpieza de memoria hecha | `rediseno/a-aislamiento` |
+| A2. Métricas + objetivos | **en producción**, también en la herramienta de pauta de los agentes | `rediseno/a-metricas`, `rediseno/a-agentes` |
+| A3. Aislamiento por cliente | **en producción**; limpieza de memoria hecha; Randstad verificado | `rediseno/a-aislamiento` |
 | A4. Agentes con objetivo (piloto, motor actual) | preparación commiteada; el piloto espera la tabla `decisiones` de B1 | `rediseno/a-agentes` |
 | A5. Resto de los roles | pendiente | |
 
@@ -24,6 +24,19 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 - Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
 
 ## Bitácora
+
+### 05/10 16:50: integración de A2/A3 a los agentes, y la flota
+
+- `get_client_ads_performance` sale de `metricasCliente` (null sin cuenta, objetivo,
+  frescura). Deploy `a5cb229`, boot 16:42 UTC.
+- Randstad: el filtro por nombre no alcanzaba (las ideas ya no existen en el origen).
+  Se agregó la ventana de nacimiento: se descarta lo creado ≤30 min después de la
+  tarea más vieja del OnBoarding de la carpeta. **Verificado:** review regenerado
+  16:46 habla de RRHH, 0 menciones de Cliente Natural.
+- Luna (`timeoutSec` 600 → 1200): el reaper cortaba cualquier corrida a los 12 min,
+  así que subirle el tiempo no servía. Ahora el corte es `timeoutSec` del agente +
+  5 min (mínimo el global). Commit `4d0d0ed`. Verificar la rutina de Luna del 06/10
+  09:30 ART: que no dé timeout ni la corte el reaper.
 
 ### 05/10: A3 aislamiento por cliente
 
