@@ -52,6 +52,17 @@ describe("planificar", () => {
     expect(planificar([], [resultado([propuesta("k1")])], ahora, haceUnaSemana)).toEqual([{ op: "insertar", propuesta: propuesta("k1") }]);
   });
 
+  it("lo hecho que empeora a incidente se reabre en el acto, sin esperar la gracia", () => {
+    // Saldo bajo → se le avisó al cliente → dos días después la cuenta se frenó.
+    // Misma clave (saldo:<plataforma>:<cuenta>), ahora con nivel 5.
+    const hecha = viva({ clave: "k1", estado: "ejecutada", ejecutadaAt: new Date(ahora.getTime() - 2 * DIA), porque: {} });
+    const frenada = { ...propuesta("k1"), porque: { resumen: "frenada", datos: [], nivel: 5 as const } };
+    const [op] = planificar([hecha], [resultado([frenada])], ahora);
+    expect(op).toMatchObject({ op: "no_confirmada", id: "id-k1", propuesta: frenada });
+    // Si ya era un incidente cuando se marcó hecha, rige la gracia de siempre.
+    expect(planificar([{ ...hecha, porque: { nivel: 5 } }], [resultado([frenada])], ahora)).toEqual([]);
+  });
+
   it("lo abierto que dejó de aparecer vence: nadie lo tocó y ya no aplica", () => {
     const ops = planificar([viva({ clave: "k1" })], [resultado([])], ahora);
     expect(ops).toEqual([{ op: "vencer", id: "id-k1", motivo: "dejo_de_aplicar" }]);

@@ -28,6 +28,14 @@ export interface Porque {
   datos: Dato[];
   /** Ventana de los números, YYYY-MM-DD. Ausente cuando el dato no es de pauta. */
   ventana?: { desde: string; hasta: string };
+  /**
+   * 5 = incidente: plata que se está perdiendo o una conexión caída de un
+   * cliente con pauta. Lo pone la regla, no la pantalla: es lo único que
+   * interrumpe por WhatsApp y lo que Hoy muestra arriba de todo.
+   */
+  nivel?: 5;
+  /** Lo que agregó el ciclo (p. ej. "se marcó hecha y el dato sigue igual"). */
+  nota?: string;
 }
 
 /**

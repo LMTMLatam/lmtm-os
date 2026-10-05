@@ -26,21 +26,21 @@ const pesos = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
 export function accionDeCadena(eslabon: Eslabon, cliente: string): { que: string; responsable: Responsable } {
   switch (eslabon) {
     case "sin_destino":
-      return { que: `Dar de alta a ${cliente} en el datastore de destinos de Make`, responsable: "equipo" };
+      return { que: "Darlo de alta en los destinos de Make: lo que se le programe no va a ningún lado", responsable: "equipo" };
     case "destino_sin_escenario":
-      return { que: `Crear o encender el escenario de Make de ${cliente}: la fila del destino está pero no hay quién publique`, responsable: "equipo" };
+      return { que: "Crear o encender su escenario de Make: el destino está cargado pero no hay quién publique", responsable: "equipo" };
     case "sin_calendario":
-      return { que: `Cargar el calendario del mes en la planilla Cronopost de ${cliente}`, responsable: "equipo" };
+      return { que: "Cargar el calendario del mes en su planilla", responsable: "equipo" };
     case "contenido_incompleto":
-      return { que: `Completar copy, pieza y aprobación de los posts ya programados de ${cliente}`, responsable: "equipo" };
+      return { que: "Completar copy, pieza y aprobación de los posts ya programados", responsable: "equipo" };
     case "despachador_mudo":
-      return { que: `Revisar el escenario de Make de ${cliente}: dejó de despachar`, responsable: "equipo" };
+      return { que: "Revisar su escenario de Make: dejó de publicar", responsable: "equipo" };
     case "despacho_sin_registro":
-      return { que: `Verificar el alta del escenario de ${cliente}: nunca despachó`, responsable: "equipo" };
+      return { que: "Verificar el alta de su escenario de Make: nunca publicó", responsable: "equipo" };
     case "sync_ciego":
-      return { que: `Arreglar el sync orgánico de ${cliente} (suele ser el token o el permiso de la página)`, responsable: "equipo" };
+      return { que: "Reconectar sus redes: dejamos de ver lo que publica (suele ser el permiso de la página)", responsable: "equipo" };
     case "red_muda":
-      return { que: `Revisar por qué Make dice que publicó para ${cliente} y en la red no aparece`, responsable: "equipo" };
+      return { que: "Revisar por qué Make dice que publicó y en la red no aparece", responsable: "equipo" };
     default: {
       // Sumar un eslabón sin traducirlo NO compila: un eslabón que nadie ubica
       // se cae de la lista en silencio, y eso ya pasó una vez con el aviso diario.
@@ -110,22 +110,31 @@ export function propuestasDeSaldo(
     if (!b.clientId) continue;
     const motivo = fns.motivoFrenada(b);
     const gastoDiario = Math.round(b.dailySpend);
-    const parada = motivo && !paradaUsada.has(b.clientId) ? costos.get(b.clientId)?.arsPorDia ?? 0 : 0;
+    // La plata parada del cliente ya quedó en otra de sus cuentas frenadas: la
+    // caída de gasto del cliente incluye la de ésta, así que sumar acá su gasto
+    // propio la contaría dos veces.
+    const yaContada = Boolean(motivo) && paradaUsada.has(b.clientId);
+    const parada = motivo && !yaContada ? costos.get(b.clientId)?.arsPorDia ?? 0 : 0;
     if (motivo && parada > 0) paradaUsada.add(b.clientId);
 
     if (motivo) {
-      const ars = Math.max(gastoDiario, parada);
+      const gastaba = Math.max(gastoDiario, parada);
+      const ars = yaContada ? 0 : gastaba;
       out.push({
         clientId: b.clientId,
         tipo: "saldo:frenada",
         clave: `saldo:${b.platform}:${b.account}`,
-        que: `Destrabar la cuenta de ${plataforma(b)} de ${b.clientName}: está frenada y no muestra anuncios`,
+        que: `Destrabar la cuenta de ${plataforma(b)}: está frenada y no muestra anuncios`,
         porque: {
-          resumen: `La cuenta ${motivo}.`,
+          resumen: yaContada
+            ? `La cuenta ${motivo}. La plata parada de este cliente ya está contada en su otra cuenta frenada.`
+            : `La cuenta ${motivo}.`,
           datos: [
-            { etiqueta: "Gasto diario antes de frenarse", valor: ars > 0 ? ars : null, unidad: "ars_dia" },
+            { etiqueta: "Gasto diario antes de frenarse", valor: gastaba > 0 ? gastaba : null, unidad: "ars_dia" },
             { etiqueta: "Saldo restante", valor: b.remaining != null ? Math.round(b.remaining) : null, unidad: "ars" },
           ],
+          // Frenada con pauta activa (venía gastando): plata que se pierde hoy.
+          ...(b.activaReciente ? { nivel: 5 as const } : {}),
         },
         arsPorDia: ars > 0 ? ars : null,
         // La plata la pone el cliente; el equipo le avisa.
@@ -149,8 +158,8 @@ export function propuestasDeSaldo(
         tipo: "saldo:bajo",
         clave: `saldo:${b.platform}:${b.account}`,
         que: dias != null
-          ? `Cargar saldo en la cuenta de ${plataforma(b)} de ${b.clientName}: se frena en ${dias === 0 ? "menos de un día" : `${dias} ${dias === 1 ? "día" : "días"}`}`
-          : `Cargar saldo en la cuenta de ${plataforma(b)} de ${b.clientName} antes de que se frene`,
+          ? `Cargar saldo en la cuenta de ${plataforma(b)}: se frena en ${dias === 0 ? "menos de un día" : `${dias} ${dias === 1 ? "día" : "días"}`}`
+          : `Cargar saldo en la cuenta de ${plataforma(b)} antes de que se frene`,
         porque: {
           resumen: `Quedan ${pesos(b.remaining ?? 0)} y gasta ${pesos(b.dailySpend)} por día.`,
           datos: [
@@ -200,7 +209,7 @@ export function propuestasDeCosto(
       clientId,
       tipo: "pauta:gasto_caido",
       clave: `costo:${clientId}`,
-      que: `Averiguar por qué ${cliente} dejó de gastar: venía ${pesos(c.gastoDiarioPrevio)} por día y ahora ${pesos(c.gastoDiarioActual)}`,
+      que: `Averiguar por qué dejó de gastar: venía ${pesos(c.gastoDiarioPrevio)} por día y ahora ${pesos(c.gastoDiarioActual)}`,
       porque: {
         resumen: "La pauta cayó y no hay una cuenta frenada que lo explique. Puede ser una campaña pausada, un presupuesto vencido o una decisión del cliente que nadie registró.",
         datos: [
@@ -265,8 +274,8 @@ export function propuestasDeCola(filas: FilaCola[], nombres: Map<string, string>
       tipo: "cola:esperando_persona",
       clave: `cola:${clientId}`,
       que: n === 1
-        ? `Destrabar la tarea de ${cliente} que espera a una persona hace ${arr[0].diasParado} días`
-        : `Destrabar ${n} tareas de ${cliente} que esperan a una persona (la más vieja, hace ${arr[0].diasParado} días)`,
+        ? `Destrabar la tarea que espera a una persona hace ${arr[0].diasParado} días`
+        : `Destrabar ${n} tareas que esperan a una persona (la más vieja, hace ${arr[0].diasParado} días)`,
       porque: {
         resumen: arr[0].motivo ?? "Un agente la marcó como bloqueada y lo que falta no lo puede hacer un agente.",
         datos: arr.slice(0, 3).map((f) => ({
@@ -296,6 +305,21 @@ const NOMBRE_FUENTE: Record<Fuente, string> = {
 const fechaCorta = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : null);
 
 /**
+ * El error de la plataforma dicho como lo diría una persona. El crudo
+ * ("403: The caller does not have permission") es inglés y código: va en la
+ * tarea para el equipo, no en Hoy. Lo que no se reconoce devuelve null y la
+ * frase se queda en "falla cada noche", sin inventar una causa.
+ */
+export function errorEnCastellano(error: string | null): string | null {
+  if (!error) return null;
+  if (/\b403\b|permission|permiso|forbidden/i.test(error)) return "la cuenta no nos da permiso";
+  if (/\b401\b|token|expired|venci|oauth|session|unauthori[sz]ed/i.test(error)) return "venció el acceso y hay que volver a conectar la cuenta";
+  if (/reduce the amount of data/i.test(error)) return "la plataforma pide traer menos datos por vez";
+  if (/unavailable|timeout|timed out|\b5\d\d\b|ECONN|rate limit|too many/i.test(error)) return "la plataforma no responde";
+  return null;
+}
+
+/**
  * Lo que no estamos viendo.
  *
  *  · fallando     → el sync no termina: reconectar.
@@ -308,10 +332,26 @@ const fechaCorta = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.sli
  *  · sin_entrega  → nada. El sync anda y no hay datos porque la pauta está
  *                   pausada: no es una falla y no se le pide nada a nadie.
  */
-export function propuestasDeCobertura(salud: SaludFuente[]): Propuesta[] {
+/** Días con datos recientes para considerar que un cliente "tiene pauta andando". */
+export const DIAS_PAUTA_RECIENTE = 30;
+
+/**
+ * ¿Esta falla de fuente es un incidente? Solo en fuentes de pauta y en
+ * clientes que tenían datos hace poco: una cuenta caída que gastaba la semana
+ * pasada es plata que no estamos viendo hoy. Una que no trae nada desde junio
+ * es un pendiente, no una urgencia.
+ */
+export function esIncidenteDeFuente(s: Pick<SaludFuente, "fuente" | "ultimoDato">, ahora: Date): boolean {
+  if (s.fuente === "organico" || !s.ultimoDato) return false;
+  const dias = (ahora.getTime() - Date.parse(`${s.ultimoDato}T00:00:00Z`)) / 86_400_000;
+  return dias <= DIAS_PAUTA_RECIENTE;
+}
+
+export function propuestasDeCobertura(salud: SaludFuente[], ahora = new Date()): Propuesta[] {
   const out: Propuesta[] = [];
   for (const s of salud) {
     const fuente = NOMBRE_FUENTE[s.fuente];
+    const nivel = esIncidenteDeFuente(s, ahora) ? { nivel: 5 as const } : {};
     const base = {
       clientId: s.clientId,
       clave: `cobertura:${s.clientId}:${s.fuente}`,
@@ -322,34 +362,41 @@ export function propuestasDeCobertura(salud: SaludFuente[]): Propuesta[] {
     };
     if (s.estado === "fallando") {
       const desde = fechaCorta(s.fallandoDesde);
-      const que = `Reconectar ${fuente} de ${s.cliente.trim()}: el sync falla${desde ? ` desde el ${desde}` : ""}`;
+      const que = `Reconectar ${fuente}: no se pueden traer los datos${desde ? ` desde el ${desde}` : ""}`;
+      const causa = errorEnCastellano(s.ultimoError);
       out.push({
         ...base,
         tipo: "cobertura:fallando",
         que,
         porque: {
-          resumen: s.detalle,
+          resumen: causa ? `La conexión con ${fuente} falla cada noche: ${causa}.` : `La conexión con ${fuente} falla cada noche.`,
           datos: [
-            { etiqueta: "Corridas fallidas seguidas", valor: s.fallasSeguidas, unidad: "veces" },
+            { etiqueta: "Intentos fallidos seguidos", valor: s.fallasSeguidas, unidad: "veces" },
             { etiqueta: "Último dato", valor: s.ultimoDato, unidad: "texto" },
-            { etiqueta: "Error", valor: s.ultimoError, unidad: "texto" },
           ],
+          ...nivel,
         },
         accion: { tipo: "tarea", titulo: que, descripcion: `${s.detalle}${s.ultimoError ? `\nError: ${s.ultimoError}` : ""}` },
       });
     } else if (s.estado === "atrasada") {
-      const que = `Revisar por qué no llegan datos de ${fuente} de ${s.cliente.trim()}${s.ultimoDato ? ` desde el ${fechaCorta(s.ultimoDato)}` : ""}`;
+      const que = `Revisar por qué no llegan datos de ${fuente}${s.ultimoDato ? ` desde el ${fechaCorta(s.ultimoDato)}` : ""}`;
       out.push({
         ...base,
         tipo: "cobertura:atrasada",
         que,
-        porque: { resumen: s.detalle, datos: [{ etiqueta: "Último dato", valor: s.ultimoDato, unidad: "texto" }] },
+        porque: {
+          resumen: s.fuente === "organico"
+            ? "La conexión anda pero las métricas de la página no se actualizan."
+            : `La conexión con ${fuente} anda pero hace más de un día que no termina bien.`,
+          datos: [{ etiqueta: "Último dato", valor: s.ultimoDato, unidad: "texto" }],
+          ...nivel,
+        },
         accion: { tipo: "tarea", titulo: que, descripcion: s.detalle },
       });
     } else if (s.estado === "sin_conexion" && s.fuente !== "organico" && s.ultimoDato) {
       // Tuvo datos y ya no tiene conexión: no es "falta conectar", es que SE
       // DESCONECTÓ. Es la firma de Distrillantas y lo que más importa ver.
-      const que = `Reconectar ${fuente} de ${s.cliente.trim()}: se desconectó (último dato del ${fechaCorta(s.ultimoDato)})`;
+      const que = `Reconectar ${fuente}: se desconectó (último dato del ${fechaCorta(s.ultimoDato)})`;
       out.push({
         ...base,
         tipo: "cobertura:desconectada",
@@ -357,11 +404,12 @@ export function propuestasDeCobertura(salud: SaludFuente[]): Propuesta[] {
         porque: {
           resumen: `La cuenta tenía datos hasta el ${fechaCorta(s.ultimoDato)} y ya no está conectada: desde ahí no vemos ni el gasto, ni los leads, ni si se frena.`,
           datos: [{ etiqueta: "Último dato", valor: s.ultimoDato, unidad: "texto" }],
+          ...nivel,
         },
         accion: { tipo: "tarea", titulo: que, descripcion: s.detalle },
       });
     } else if (s.estado === "sin_conexion" && s.fuente === "meta_ads") {
-      const que = `Conectar la cuenta de Meta de ${s.cliente.trim()}, o marcar que no tiene pauta`;
+      const que = "Conectar su cuenta de Meta, o marcar que no tiene pauta";
       out.push({
         ...base,
         tipo: "cobertura:sin_meta",

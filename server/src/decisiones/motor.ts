@@ -18,7 +18,7 @@ import { filasColaHumana } from "../services/cola-humana.js";
 import { logActivity } from "../services/activity-log.js";
 import { empresaDelCliente } from "./empresa.js";
 import { ESTADOS_VIVOS, type Accion, type DecisionFila, type Propuesta, type ResultadoEjecucion } from "./tipos.js";
-import { planificar, verificarEfecto, verificaPorEfecto, type FilaEntidad, type Operacion, type ResultadoConFecha, type Viva } from "./reconciliar.js";
+import { escalaAIncidente, planificar, verificarEfecto, verificaPorEfecto, type FilaEntidad, type Operacion, type ResultadoConFecha, type Viva } from "./reconciliar.js";
 import {
   clientesConPautaCiega,
   propuestaDeCadena,
@@ -31,6 +31,7 @@ import { reglaCalificados, reglaCostoCalificado, reglaEscalar, reglaFrecuencia, 
 import { anunciosPorCliente, conjuntosEscalables, fechaLocal, ventanas } from "./motor-datos.js";
 import { metricasCliente, type MetricasCliente } from "../metricas/index.js";
 import { aFila } from "./store.js";
+import { avisarIncidentes, type IncidenteNuevo } from "../avisos/incidentes.js";
 
 export interface ResumenMotor {
   inicio: string;
@@ -38,6 +39,8 @@ export interface ResumenMotor {
   reglas: Array<{ regla: string; evaluada: boolean; propuestas: number; nota?: string }>;
   operaciones: Record<Operacion["op"], number>;
   efecto: { verificadas: number; noConfirmadas: number };
+  /** Incidentes nuevos de esta corrida y qué pasó con su aviso. */
+  incidentes: { nuevos: number; aviso: string | null };
 }
 
 /** Inicio del día de hoy en Buenos Aires: los datos de pauta llegan hasta acá. */
@@ -85,7 +88,7 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
 
   resultados.push(await correrRegla("cobertura", ahora, async () => {
     if (!salud) return { propuestas: [], evaluada: false, nota: "No se pudo leer la salud de las fuentes." };
-    return propuestasDeCobertura(salud.filter((s) => activosIds.has(s.clientId)));
+    return propuestasDeCobertura(salud.filter((s) => activosIds.has(s.clientId)), ahora);
   }));
 
   // Saldo primero: las cuentas frenadas explican la plata parada de su cliente.
@@ -416,14 +419,33 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
 
   const ops = planificar(vivas as Viva[], resultados, ahora, await leerDescartadas(db));
   const conteo: Record<Operacion["op"], number> = { insertar: 0, actualizar: 0, verificar: 0, no_confirmada: 0, vencer: 0, sin_confirmacion: 0 };
+  const incidentes: IncidenteNuevo[] = [];
+  const nombres = new Map((await db.select({ id: clients.id, name: clients.name }).from(clients)).map((c) => [c.id, c.name.trim()]));
   for (const op of ops) {
     try {
       await aplicar(db, op, vivasPorId, ahora);
       conteo[op.op] += 1;
+      // Un incidente se avisa cuando nace, cuando vuelve o cuando algo que ya
+      // estaba en Hoy se vuelve incidente (saldo bajo → frenada, misma clave);
+      // no mientras dura.
+      const p =
+        op.op === "insertar" || op.op === "no_confirmada"
+          ? op.propuesta
+          : op.op === "actualizar" && escalaAIncidente(vivasPorId.get(op.id) as Viva, op.propuesta)
+            ? op.propuesta
+            : null;
+      if (p?.porque.nivel === 5) {
+        incidentes.push({ cliente: nombres.get(p.clientId) ?? "Cliente", que: p.que, arsPorDia: p.arsPorDia, clave: p.clave, volvio: op.op === "no_confirmada" && !escalaAIncidente(vivasPorId.get(op.id) as Viva, p) });
+      }
     } catch (e) {
       console.warn(`[decisiones] no se pudo aplicar ${op.op}:`, e instanceof Error ? e.message : e);
     }
   }
+  const aviso = await avisarIncidentes(db, incidentes).catch((e) => {
+    // Que falle el aviso no puede tumbar la corrida: el incidente ya está en Hoy.
+    console.warn("[decisiones] no se pudo avisar los incidentes:", e instanceof Error ? e.message : e);
+    return null;
+  });
 
   const efecto = await verificarAccionesDePlataforma(db, await leerVivas(db), ahora).catch((e) => {
     console.warn("[decisiones] verificación por efecto falló:", e instanceof Error ? e.message : e);
@@ -436,6 +458,7 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
     reglas: resultados.map((r) => ({ regla: r.regla, evaluada: r.evaluada, propuestas: r.propuestas.length, ...(r.nota ? { nota: r.nota } : {}) })),
     operaciones: conteo,
     efecto,
+    incidentes: { nuevos: incidentes.length, aviso: aviso ? `${aviso.estado}${aviso.motivo ? ` (${aviso.motivo})` : ""}` : null },
   };
 
   // Una entrada por corrida en el registro de actividad: qué cambió y qué

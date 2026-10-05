@@ -4,8 +4,7 @@
 // de acá corre con datos de ejemplo, sin servidor y sin base. Es el paso previo
 // a deployar, no un reemplazo.
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { BellRing, Gavel, UserRound } from "lucide-react";
-import { AccionFila, AccionLista } from "@/components/AccionFila";
+import { UserRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 function StoryShell({ children }: { children: React.ReactNode }) {
@@ -42,90 +41,6 @@ function Section({
 }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
-
-// ── 1. La cola, con la plata adelante ────────────────────────────────────────
-
-const COLA = [
-  { id: "LMTM-1812", titulo: "Reconectar la página de Meta", motivo: "La cuenta de DUNOD perdió el token y el sync viene fallando hace 6 días.", ars: 43_000, dias: 14, cliente: "DUNOD" },
-  { id: "LMTM-1799", titulo: "Recargar saldo de Google Ads", motivo: "El presupuesto de cuenta se consumió: las campañas quedan activas pero no se muestran.", ars: 31_500, dias: 4, cliente: "DISTRILLANTAS" },
-  { id: "LMTM-1803", titulo: "Mapear la cuenta publicitaria", motivo: "Sin el mapeo no puedo leer métricas de este cliente.", ars: 12_200, dias: 22, cliente: "MA PROPIEDADES" },
-  { id: "LMTM-1777", titulo: "Confirmar el rubro de RENO", motivo: "Está usando un perfil prestado del nicho porque no tiene referencias propias.", ars: 0, dias: 9, cliente: "RENO" },
-  { id: "LMTM-1764", titulo: "Aprobar los copys de noviembre", motivo: "Quedaron 6 piezas esperando revisión en Super Redes.", ars: 0, dias: 3, cliente: "MAERS" },
-];
-
-const TOTAL_PARADO = COLA.reduce((a, f) => a + f.ars, 0);
-
-function ColaHumana() {
-  return (
-    <Card className="max-w-xl p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="rounded-lg bg-primary/15 p-1.5">
-          <Gavel className="h-3.5 w-3.5 text-primary" />
-        </span>
-        <h3 className="text-sm font-semibold">Solo lo podés hacer vos</h3>
-        <span className="text-xs text-muted-foreground">{COLA.length}</span>
-      </div>
-
-      <div className="mb-3 -mt-1">
-        <p className="text-2xl font-semibold leading-none tabular-nums" style={{ color: "var(--estado-critico)" }}>
-          {money(TOTAL_PARADO)}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">por día parados, esperando a una persona</p>
-      </div>
-
-      <AccionLista>
-        {COLA.map((f) => (
-          <AccionFila
-            key={f.id}
-            to="#"
-            tono={f.ars > 0 ? "critico" : "ninguno"}
-            titulo={f.titulo}
-            motivo={f.motivo}
-            meta={[
-              ...(f.ars > 0
-                ? [{ texto: `${money(f.ars)}/d`, titulo: `Cuesta ${money(f.ars)} por día no hacerlo`, tono: "critico" as const }]
-                : []),
-              { texto: `${f.dias}d`, titulo: `${f.dias} días esperando`, tono: f.dias >= 21 ? ("critico" as const) : ("ninguno" as const) },
-              { texto: f.cliente, soloEscritorio: true },
-            ]}
-          />
-        ))}
-      </AccionLista>
-    </Card>
-  );
-}
-
-// ── 2. Alertas, con la misma fila ────────────────────────────────────────────
-
-function Alertas() {
-  const filas = [
-    { id: "a1", titulo: "Saldo por debajo del umbral", sev: "critical", cliente: "DISTRILLANTAS" },
-    { id: "a2", titulo: "Sin publicar hace 3 días", sev: "warn", cliente: "MAERS" },
-    { id: "a3", titulo: "CTR cayó 48% en 7 días", sev: "warn", cliente: "AGUARA" },
-  ];
-  return (
-    <Card className="max-w-xl p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="rounded-lg p-1.5" style={{ background: "color-mix(in srgb, var(--estado-critico) 15%, transparent)" }}>
-          <BellRing className="h-3.5 w-3.5" style={{ color: "var(--estado-critico)" }} />
-        </span>
-        <h3 className="text-sm font-semibold">Alertas sin resolver</h3>
-        <span className="text-xs font-medium" style={{ color: "var(--estado-critico)" }}>1 crítica</span>
-      </div>
-      <AccionLista>
-        {filas.map((a) => (
-          <AccionFila
-            key={a.id}
-            to="#"
-            tono={a.sev === "critical" ? "critico" : "alerta"}
-            titulo={a.titulo}
-            meta={[{ texto: a.cliente, soloEscritorio: true }]}
-          />
-        ))}
-      </AccionLista>
-    </Card>
-  );
-}
 
 // ── 3. La tabla de cartera cruzada ───────────────────────────────────────────
 
@@ -296,14 +211,6 @@ function Vitrina() {
   return (
     <StoryShell>
       <Section
-        eyebrow="1 · No hay dónde decidir"
-        title="La cola, con la plata adelante"
-        antes="el monto se calculaba, se usaba para ordenar, y después se tiraba. La fila decía “Reconectar página Meta” y nada más."
-      >
-        <ColaHumana />
-      </Section>
-
-      <Section
         eyebrow="2 · El análisis no cruza nada"
         title="Cartera cruzada"
         antes="el análisis existía pero vivía dentro de la ficha de cada cliente, uno por uno. No había forma de ver los 59 juntos."
@@ -330,13 +237,6 @@ function Vitrina() {
         </div>
       </Section>
 
-      <Section
-        eyebrow="5 · Cada lista se veía distinta"
-        title="La misma fila en todos lados"
-        antes="cada lista de pendientes se había escrito por separado: distinta altura, distinto tamaño para el mismo dato."
-      >
-        <Alertas />
-      </Section>
     </StoryShell>
   );
 }

@@ -174,3 +174,12 @@ describe("escalar", () => {
     expect(validarSubida(10_000, 8_000, new Date("2026-10-04T12:00:00Z"), ahora)).toBeNull(); // bajar no es escalar
   });
 });
+
+describe("campañas vencidas", () => {
+  it("Meta las deja en ACTIVE después de la fecha de fin: no se proponen para escalar", async () => {
+    const { vigente } = await import("../motor-datos.js");
+    expect(vigente("2026-10-01", "2026-10-04")).toBe(false);
+    expect(vigente("2026-10-04", "2026-10-04")).toBe(true);
+    expect(vigente(null, "2026-10-04")).toBe(true);
+  });
+});

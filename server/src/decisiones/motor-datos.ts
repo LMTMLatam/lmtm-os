@@ -100,6 +100,15 @@ export async function anunciosPorCliente(db: Db, clientIds: string[], v: Ventana
 }
 
 /**
+ * ¿La campaña sigue corriendo? Meta deja en ACTIVE las campañas que ya
+ * pasaron su fecha de fin (lo encontró A en A4): proponer "+20%" en una que
+ * terminó es un botón que no sirve para nada. Sin fecha de fin, sigue.
+ */
+export function vigente(fin: string | null | undefined, hasta: string): boolean {
+  return !fin || fin >= hasta;
+}
+
+/**
  * Conjuntos y campañas de Meta con presupuesto diario propio, activos, con su
  * rendimiento de 14 días y el último cambio de presupuesto que hizo el sistema.
  *
@@ -111,18 +120,30 @@ export async function conjuntosEscalables(db: Db, clientIds: string[], v: Ventan
   if (clientIds.length === 0) return out;
 
   const adsets = await db
-    .select({ id: adsAdsets.id, clientId: adsAdsets.clientId, name: adsAdsets.name, dailyBudget: adsAdsets.dailyBudget, status: adsAdsets.status })
+    .select({ id: adsAdsets.id, clientId: adsAdsets.clientId, name: adsAdsets.name, dailyBudget: adsAdsets.dailyBudget, status: adsAdsets.status, campaignId: adsAdsets.campaignId })
     .from(adsAdsets)
     .where(and(inArray(adsAdsets.clientId, clientIds), eq(adsAdsets.platform, "meta"), sql`coalesce(${adsAdsets.dailyBudget}, 0) > 0`));
   const campanas = await db
     .select({ id: adsCampaigns.id, clientId: adsCampaigns.clientId, name: adsCampaigns.name, dailyBudget: adsCampaigns.dailyBudget, status: adsCampaigns.status })
     .from(adsCampaigns)
     .where(and(inArray(adsCampaigns.clientId, clientIds), eq(adsCampaigns.platform, "meta"), sql`coalesce(${adsCampaigns.dailyBudget}, 0) > 0`));
+  // Fecha de fin de TODAS las campañas de Meta del cliente (también las que
+  // reparten el presupuesto en sus conjuntos), en día de Buenos Aires.
+  const fines = new Map(
+    (
+      await db
+        .select({ id: adsCampaigns.id, fin: sql<string | null>`to_char(${adsCampaigns.stopTime} at time zone 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD')` })
+        .from(adsCampaigns)
+        .where(and(inArray(adsCampaigns.clientId, clientIds), eq(adsCampaigns.platform, "meta"), sql`${adsCampaigns.stopTime} is not null`))
+    ).map((c) => [c.id, c.fin]),
+  );
 
   const activo = (s: string | null) => /^active$/i.test(s ?? "");
   const entidades = [
-    ...adsets.filter((a) => activo(a.status)).map((a) => ({ ...a, entityType: "adset" as const })),
-    ...campanas.filter((c) => activo(c.status)).map((c) => ({ ...c, entityType: "campaign" as const })),
+    ...adsets
+      .filter((a) => activo(a.status) && vigente(a.campaignId ? fines.get(a.campaignId) : null, v.hasta))
+      .map(({ campaignId: _c, ...a }) => ({ ...a, entityType: "adset" as const })),
+    ...campanas.filter((c) => activo(c.status) && vigente(fines.get(c.id), v.hasta)).map((c) => ({ ...c, entityType: "campaign" as const })),
   ];
   if (entidades.length === 0) return out;
 

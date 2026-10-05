@@ -169,7 +169,7 @@ export function reglaCalificados(
     clientId: c.clientId,
     tipo: "pauta:calificados_bajos",
     clave: `pauta:calificados_bajos:${c.clientId}`,
-    que: `Cambiar el ángulo de la pauta de ${c.cliente}: solo ${m.calificados14} de ${m.leads14} leads califican (${pct}%)`,
+    que: `Cambiar el ángulo de la pauta: solo ${m.calificados14} de ${m.leads14} leads califican (${pct}%)`,
     porque: {
       resumen: `Con menos de ${Math.round(TASA_CALIFICADOS_MINIMA * 100)}% de calificados, el anuncio atrae a la gente equivocada: hay que sumar lenguaje que filtre.`,
       datos: [
@@ -220,8 +220,8 @@ export function reglaCostoCalificado(c: ClienteVentana, semanas: [SemanaCalifica
     tipo: "pauta:costo_calificado_alto",
     clave: `pauta:costo_calificado_alto:${c.clientId}`,
     que: costo != null
-      ? `Reemplazar la pauta de ${c.cliente}: el lead calificado cuesta ${pesos(costo)}, ${(costo / c.tcpl).toFixed(1).replace(".", ",")} veces el objetivo, hace dos semanas`
-      : `Reemplazar la pauta de ${c.cliente}: dos semanas gastando sin un lead calificado`,
+      ? `Cambiar la oferta o el público: el lead calificado cuesta ${pesos(costo)}, ${(costo / c.tcpl).toFixed(1).replace(".", ",")} veces el objetivo, hace dos semanas`
+      : "Cambiar la oferta o el público: dos semanas gastando sin un lead calificado",
     porque: {
       resumen: "Dos semanas seguidas por encima de 1,5 veces el objetivo no es ruido: es la oferta o el público.",
       datos: [

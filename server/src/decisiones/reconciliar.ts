@@ -28,6 +28,13 @@ export interface Viva {
   ejecutadaAt: Date | null;
   venceAt: Date | null;
   accion: (Accion & { resultado?: ResultadoEjecucion }) | null;
+  /** Solo hace falta el nivel: saber si lo guardado ya era un incidente. */
+  porque?: { nivel?: number } | null;
+}
+
+/** ¿La propuesta nueva es un incidente y lo guardado todavía no lo era? */
+export function escalaAIncidente(v: Pick<Viva, "porque">, p: Propuesta): boolean {
+  return p.porque.nivel === 5 && v.porque?.nivel !== 5;
 }
 
 export interface ResultadoConFecha extends ResultadoRegla {
@@ -111,6 +118,17 @@ export function planificar(
       tocadas.add(v.id);
       if (v.estado === "abierta" || v.estado === "aprobada") {
         ops.push({ op: "actualizar", id: v.id, propuesta: p });
+      } else if (v.estado === "ejecutada" && escalaAIncidente(v, p)) {
+        // Empeoró después de que alguien hizo algo: la cuenta "por agotarse" a
+        // la que se le avisó al cliente ahora está frenada (misma clave, otro
+        // tipo). No se espera la gracia: esperar es dejarla una semana en "hecho,
+        // esperando el dato" con el texto viejo mientras la pauta no sale.
+        ops.push({
+          op: "no_confirmada",
+          id: v.id,
+          propuesta: p,
+          nota: v.ejecutadaAt ? `Se marcó hecha el ${fecha(v.ejecutadaAt)} y empeoró.` : "Se marcó hecha y empeoró.",
+        });
       } else if (v.estado === "ejecutada" && !verificaPorEfecto(v.accion) && v.ejecutadaAt) {
         const limite = v.ejecutadaAt.getTime() + gracia(v.accion) * DIA;
         if (r.datosHasta.getTime() > limite) {

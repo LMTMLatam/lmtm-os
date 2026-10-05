@@ -24,7 +24,6 @@ import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
 import { cn } from "../lib/utils";
 import { Bot, CircleDot, ShieldCheck, LayoutDashboard, PauseCircle, BellRing, Gavel } from "lucide-react";
-import { AccionFila, AccionLista } from "@/components/AccionFila";
 import { clientsApi } from "../api/clients";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
@@ -84,10 +83,7 @@ function CentroDeMando() {
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!data) return null;
 
-  const { triage, humanas, alertas, serie } = data;
-  const humanasTotal = data.humanasTotal ?? humanas.length;
-  const humanasArsPorDia = data.humanasArsPorDia ?? 0;
-  const criticas = alertas.filter((a) => a.severity === "critical");
+  const { triage, serie } = data;
   const lista = tab === "rojo" ? triage.rojo : triage.amarillo;
   const totalInv = serie.reduce((a, s) => a + s.spend, 0);
   const totalLeads = serie.reduce((a, s) => a + s.leads, 0);
@@ -159,105 +155,9 @@ function CentroDeMando() {
         </Card>
       </div>
 
-      {/* Fila 2: lo que espera a una PERSONA + alertas críticas */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="rounded-lg bg-primary/15 p-1.5"><Gavel className="h-3.5 w-3.5 text-primary" /></span>
-            <h3 className="text-sm font-semibold">Solo lo podés hacer vos</h3>
-            <span className="text-xs text-muted-foreground">{humanasTotal}</span>
-          </div>
-
-          {/* EL NÚMERO GRANDE VA DONDE HAY PLATA.
-              Esto arrancó como un span de 12px al lado del título y se perdía
-              entre el resto. Es el único dato de la pantalla que dice cuánto
-              cuesta no hacer nada hoy, así que es el que tiene que leerse desde
-              lejos: lo demás de esta card es el detalle de ese número. */}
-          {humanasArsPorDia > 0 && (
-            <div className="mb-3 -mt-1">
-              <p className="text-2xl font-semibold leading-none tabular-nums" style={{ color: "var(--estado-critico)" }}>
-                {fmtMoney(humanasArsPorDia)}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">por día parados, esperando a una persona</p>
-            </div>
-          )}
-          {humanas.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4">Nada pendiente de tu lado 🎉</p>
-          ) : (
-            <AccionLista>
-              {(() => {
-                // El monto es del CLIENTE, no de la tarea. Repetirlo en cada
-                // fila lo hacía leer como "esta tarea cuesta $48.217", y con 7
-                // tareas del mismo cliente la columna mostraba siete veces el
-                // mismo número — que es lo que hacía dudar de todo el tablero.
-                // Va una sola vez, en la fila más urgente de ese cliente.
-                const yaMostrado = new Set<string>();
-                return humanas.slice(0, 7).map((h) => {
-                  const primeraDelCliente = !!h.clientId && !yaMostrado.has(h.clientId);
-                  if (h.clientId) yaMostrado.add(h.clientId);
-                  return (
-                <AccionFila
-                  key={h.identifier ?? h.title}
-                  to={`/issues/${h.identifier}`}
-                  tono={h.priority === "urgent" || h.priority === "high" ? "critico" : "ninguno"}
-                  titulo={h.title.replace(/^\[HUMANO\]\s*/, "")}
-                  motivo={h.motivo}
-                  meta={[
-                    // La plata va PRIMERA: es lo que decide el orden de la cola
-                    // y lo único que distingue "reconectar una página" de
-                    // "reconectar LA página que frena $43.000 por día".
-                    ...(h.arsPorDia && h.arsPorDia > 0 && primeraDelCliente
-                      ? [{
-                          texto: `${fmtMoney(h.arsPorDia)}/d`,
-                          titulo: `${h.clienteNombre ?? "Este cliente"} tiene ${fmtMoney(h.arsPorDia)} por día parados. Es del cliente, no de esta tarea sola.`,
-                          tono: "critico" as const,
-                        }]
-                      : []),
-                    ...(h.diasParado != null && h.diasParado >= 3
-                      ? [{
-                          texto: `${h.diasParado}d`,
-                          titulo: `${h.diasParado} días esperando`,
-                          tono: h.diasParado >= 21 ? ("critico" as const) : ("ninguno" as const),
-                        }]
-                      : []),
-                    ...(h.clienteNombre ? [{ texto: h.clienteNombre, soloEscritorio: true }] : []),
-                  ]}
-                />
-                  );
-                });
-              })()}
-              {humanasTotal > 7 && (
-                <p className="px-1 pt-2 text-[11px] text-muted-foreground">y {humanasTotal - 7} más esperando</p>
-              )}
-            </AccionLista>
-          )}
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="rounded-lg p-1.5" style={{ background: "color-mix(in srgb, var(--estado-critico) 15%, transparent)" }}>
-              <BellRing className="h-3.5 w-3.5" style={{ color: "var(--estado-critico)" }} />
-            </span>
-            <h3 className="text-sm font-semibold">Alertas sin resolver</h3>
-            {criticas.length > 0 && <span className="text-xs font-medium" style={{ color: "var(--estado-critico)" }}>{criticas.length} críticas</span>}
-          </div>
-          {alertas.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4">Sin alertas abiertas 🎉</p>
-          ) : (
-            <AccionLista>
-              {alertas.slice(0, 7).map((a) => (
-                <AccionFila
-                  key={a.id}
-                  to={a.clienteSlug ? `/c/${a.clienteSlug}/dashboard` : "/clients"}
-                  tono={a.severity === "critical" ? "critico" : "alerta"}
-                  titulo={a.title}
-                  meta={a.clienteNombre ? [{ texto: a.clienteNombre, soloEscritorio: true }] : []}
-                />
-              ))}
-            </AccionLista>
-          )}
-        </Card>
-      </div>
+      {/* Lo que espera a una persona y las alertas críticas se mudaron a Hoy
+          (decisiones e incidentes, con su plata y su botón). Acá queda el
+          estado de la cartera hasta que la reemplace la pantalla Cartera. */}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { Finance } from "./pages/Finance";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
+import { Hoy } from "./pages/Hoy";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -75,7 +76,8 @@ import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-rou
 function boardRoutes() {
   return (
     <>
-      <Route index element={<Navigate to="dashboard" replace />} />
+      {/* Hoy es la portada: lo que hay que decidir, ordenado por plata. */}
+      <Route index element={<Navigate to="hoy" replace />} />
       <Route path="dashboard" element={<Dashboard />} />
       <Route path="dashboard/live" element={<DashboardLive />} />
       <Route path="onboarding" element={<OnboardingRoutePage />} />
@@ -245,7 +247,7 @@ function CompanyRootRedirect() {
     return <NoCompaniesStartPage />;
   }
 
-  return <Navigate to={`/${targetCompany.issuePrefix}/dashboard`} replace />;
+  return <Navigate to={`/${targetCompany.issuePrefix}/hoy`} replace />;
 }
 
 function UnprefixedBoardRedirect() {
@@ -337,6 +339,7 @@ export function App() {
               "Company not found" (the segment gets read as a company prefix).
               When you add a board page, add it here AND in the Sidebar. */}
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
+          <Route path="hoy" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
@@ -403,6 +406,9 @@ export function App() {
           <Route path="execution-workspaces/:workspaceId/runtime-logs" element={<UnprefixedBoardRedirect />} />
           <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedBoardRedirect />} />
           <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
+          {/* Hoy va sin la barra de paperclip: es una pantalla para el
+              celular, con el sistema de diseño de LMTM (skill lmtm-diseno). */}
+          <Route path=":companyPrefix/hoy" element={<Hoy />} />
           <Route path=":companyPrefix" element={<Layout />}>
             {boardRoutes()}
           </Route>

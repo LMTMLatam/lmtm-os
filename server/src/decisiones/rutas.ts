@@ -1,5 +1,6 @@
 // LMTM-OS: la API de decisiones.
 //
+//   GET  /api/hoy                            la pantalla Hoy en una lectura
 //   GET  /api/decisiones                     lo vivo, ordenado por plata (?estado=, ?clientId=)
 //   POST /api/decisiones                     un agente propone (lmtm_proponer_decision)
 //   GET  /api/decisiones/motor/ensayo        qué haría el motor hoy, sin escribir nada
@@ -33,6 +34,7 @@ import {
   type Actor,
 } from "./store.js";
 import { correrMotor, ensayarMotor } from "./motor.js";
+import { datosDeHoy } from "./hoy.js";
 
 function actorDe(req: Request): Actor {
   const a = getActorInfo(req);
@@ -63,9 +65,22 @@ export function decisionesRoutes(db: Db) {
   };
 
   // Todo lo de acá requiere sesión: la lista tiene nombres de clientes y plata.
-  router.use("/decisiones", (req, _res, next) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
-    next();
+  for (const prefijo of ["/decisiones", "/hoy"]) {
+    router.use(prefijo, (req, _res, next) => {
+      if (req.actor.type === "none") throw unauthorized("Authentication required");
+      next();
+    });
+  }
+
+  // La pantalla Hoy en una sola lectura: incidentes, decisiones por plata, lo
+  // que espera el dato y la cobertura.
+  router.get("/hoy", async (req, res) => {
+    try {
+      assertBoardOrgAccess(req);
+      res.json(await datosDeHoy(db));
+    } catch (e) {
+      responderError(res, e);
+    }
   });
 
   router.get("/decisiones", async (req, res) => {

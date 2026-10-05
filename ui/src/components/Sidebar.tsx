@@ -3,6 +3,7 @@ import {
   CircleDot,
   Target,
   LayoutDashboard,
+  Sun,
   DollarSign,
   Megaphone,
   History,
@@ -114,9 +115,10 @@ export function Sidebar() {
             <span className="truncate">Nuevo issue</span>
           </button>
 
-          {/* Los 6 de todos los días. "Hoy" es el centro de mando: lo que hay
-              que decidir, ordenado por lo que cuesta no hacerlo. */}
-          <SidebarNavItem to="/dashboard" label="Hoy" icon={LayoutDashboard} liveCount={liveRunCount} />
+          {/* Los 6 de todos los días. "Hoy" es la pantalla para decidir
+              (rediseño B2): incidentes arriba, decisiones por plata, un botón
+              cada una. El tablero viejo pasa a "Operación", en Sistema. */}
+          <SidebarNavItem to="/hoy" label="Hoy" icon={Sun} />
           <SidebarNavItem
             to="/inbox"
             label="Bandeja"
@@ -158,6 +160,9 @@ export function Sidebar() {
           label="Sistema"
           collapsible={{ open: sistemaAbierto, onOpenChange: setSistemaAbierto }}
         >
+          {/* Para quien mantiene la maquinaria: agentes, corridas, cartera vieja.
+              Las fallas siguen a la vista en Bandeja. */}
+          <SidebarNavItem to="/dashboard" label="Operación" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
           <SidebarNavItem to="/routines" label="Rutinas" icon={Repeat} />
           <SidebarNavItem to="/goals" label="Objetivos" icon={Target} />

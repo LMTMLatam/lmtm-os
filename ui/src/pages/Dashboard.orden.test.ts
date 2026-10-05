@@ -37,12 +37,6 @@ describe("orden de la pantalla Hoy", () => {
     expect(posicionDe("Métricas del sistema")).toBeGreaterThan(posicionDe("<CentroDeMando />"));
   });
 
-  it("la plata parada se muestra en grande", () => {
-    // Empezó como un span de 12px al lado del título y se perdía. Es el único
-    // dato que dice cuánto cuesta no hacer nada hoy.
-    expect(SRC).toContain("por día parados");
-    const i = SRC.indexOf("por día parados");
-    const contexto = SRC.slice(Math.max(0, i - 400), i);
-    expect(contexto).toContain("text-2xl");
-  });
+  // "La plata parada se muestra en grande" se mudó a Hoy.orden.test.ts: la
+  // plata parada y lo que espera a una persona ahora viven en la pantalla Hoy.
 });

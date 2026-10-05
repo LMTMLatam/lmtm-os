@@ -14,13 +14,15 @@
 //     aviso rutinario. Distrillantas se desconectó entero —WhatsApp incluido— y
 //     nadie se enteró, porque el canal ya estaba quemado.
 //
-// LA REGLA
-// El nivel decide el canal, no el módulo que avisa:
+// LA REGLA (desde el rediseño B2, ver avisos/politica.ts)
+// El nivel decide el canal, y el nivel 5 no se lo pone cualquiera:
 //
-//   5   plata o caída total    → interrumpe siempre, sin tope
-//   4   urgente                → interrumpe, con tope diario
-//   2-3 importante / info      → NO interrumpe: se junta en el digest
-//   1   ruido                  → se registra y no se manda nunca
+//   5   incidente o envío manual → interrumpe, tope de 3 por día en la agencia
+//   2-4 todo lo demás            → NO interrumpe: va al resumen de las 9:00
+//   1   ruido                    → se registra y no se manda nunca
+//
+// Hasta el 05/10/26 el nivel 4 interrumpía (tope 8 por día) y el 5 sin tope,
+// y lo elegía cada módulo: casi todos se ponían 4 o 5.
 //
 // Todo queda en `wa_outbox` pase lo que pase, incluso lo descartado, con el
 // motivo. Ese registro es lo que a la semana permite apagar un módulo con el
@@ -28,60 +30,38 @@
 
 import type { Db } from "@paperclipai/db";
 import { waOutbox } from "@paperclipai/db";
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import { alertsNumber, sendWhatsAppToNumber } from "./agency-ops.js";
+import { decidirAviso, diaLocal, HORAS_DEDUPE, NIVEL_INTERRUMPE, ORIGENES_MANUALES, TOPE_INTERRUPCIONES_DIA, type Nivel } from "../avisos/politica.js";
 
-// ── Política ──────────────────────────────────────────────────────────────────
+// ── Política ──────────────────────────────────────────────────────────────
+//
+// La política vive en `avisos/politica.ts` (rediseño B2): solo interrumpe el
+// nivel 5, solo lo pueden pedir los incidentes y los envíos manuales, y hay un
+// tope de 3 interrupciones por día en toda la agencia. Acá queda el embudo:
+// registrar, deduplicar y mandar.
 
-export type Nivel = 1 | 2 | 3 | 4 | 5;
 
-/** Desde este nivel el mensaje interrumpe en el momento. Debajo va al digest. */
-export const NIVEL_INTERRUMPE: Nivel = 4;
-
-/**
- * Tope de mensajes inmediatos por día y por nivel.
- *
- * El nivel 5 no tiene tope a propósito: es plata parada o una cuenta caída, y un
- * tope ahí reproduce exactamente el bug que estamos arreglando — el aviso que
- * importa silenciado por volumen ajeno.
- */
-export const TOPE_DIARIO: Record<Nivel, number> = {
-  1: 0,
-  2: 0,
-  3: 0,
-  4: 8,
-  5: Number.POSITIVE_INFINITY,
-};
-
-/** Ventana de dedupe: el mismo hecho no se avisa dos veces seguidas. */
-export const HORAS_DEDUPE = 24;
+export { HORAS_DEDUPE, NIVEL_INTERRUMPE, TOPE_INTERRUPCIONES_DIA, type Nivel };
 
 /** Estados que cuentan como "ya se le dijo al equipo". */
 const YA_DICHO: readonly string[] = ["enviado", "agrupado"];
 
+/** El resumen de las 9:00 es el mensaje del día, no una interrupción: no cuenta para el tope. */
+export const ORIGEN_RESUMEN = "resumen-diario";
+
 export type Decision =
   | { accion: "enviar" }
-  | { accion: "digest" }
+  | { accion: "digest"; motivo?: string }
   | { accion: "descartar"; motivo: string };
 
 /**
- * Qué hacer con un mensaje. Pura: toda la política vive acá para poder probarla
- * sin DB ni gateway.
- *
- * `yaDicho` = si el mismo hecho (misma clave) ya salió en la ventana de dedupe.
- * `enviadosHoy` = cuántos inmediatos de ESE nivel ya salieron hoy.
+ * Qué hacer con un mensaje. `enviadosHoy` = interrupciones de hoy, de
+ * cualquier origen y nivel. Delega en la política para que producción y la
+ * medición sobre el historial usen la misma regla.
  */
-export function decidir(input: { nivel: Nivel; yaDicho: boolean; enviadosHoy: number }): Decision {
-  const { nivel, yaDicho, enviadosHoy } = input;
-
-  if (nivel <= 1) return { accion: "descartar", motivo: "nivel 1: queda registrado, no se manda" };
-  if (yaDicho) return { accion: "descartar", motivo: `ya se avisó lo mismo en las últimas ${HORAS_DEDUPE}h` };
-  if (nivel < NIVEL_INTERRUMPE) return { accion: "digest" };
-
-  // El tope degrada a digest, no descarta: que el aviso número 9 del día no
-  // interrumpa es correcto; que desaparezca es volver a perder un Distrillantas.
-  if (enviadosHoy >= TOPE_DIARIO[nivel]) return { accion: "digest" };
-  return { accion: "enviar" };
+export function decidir(input: { nivel: Nivel; yaDicho: boolean; enviadosHoy: number; origen?: string }): Decision {
+  return decidirAviso({ origen: input.origen ?? "", nivel: input.nivel, yaDicho: input.yaDicho, interrupcionesHoy: input.enviadosHoy });
 }
 
 /**
@@ -173,18 +153,23 @@ export async function avisarAlEquipo(db: Db, aviso: AvisoEquipo): Promise<Result
     )
     .limit(1);
 
+  // Interrupciones de HOY en Buenos Aires, de cualquier origen: el tope es de
+  // la agencia, no de cada módulo. (Antes se contaba por nivel y por día UTC,
+  // así que a las 21:00 de acá el contador volvía a cero.) Lo que manda una
+  // persona con un botón no cuenta: el tope es para el sistema.
   const conteo = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(waOutbox)
     .where(
       and(
         eq(waOutbox.estado, "enviado"),
-        eq(waOutbox.nivel, nivel),
-        gte(waOutbox.createdAt, sql`date_trunc('day', now())`),
+        sql`${waOutbox.origen} <> ${ORIGEN_RESUMEN}`,
+        notInArray(waOutbox.origen, [...ORIGENES_MANUALES]),
+        gte(waOutbox.createdAt, sql`(${diaLocal(new Date())}::date)::timestamp at time zone 'America/Argentina/Buenos_Aires'`),
       ),
     );
 
-  const decision = decidir({ nivel, yaDicho: Boolean(previo), enviadosHoy: conteo[0]?.n ?? 0 });
+  const decision = decidir({ nivel, origen: aviso.origen, yaDicho: Boolean(previo), enviadosHoy: conteo[0]?.n ?? 0 });
 
   const fila = {
     destino,
@@ -201,8 +186,8 @@ export async function avisarAlEquipo(db: Db, aviso: AvisoEquipo): Promise<Result
   }
 
   if (decision.accion === "digest") {
-    await db.insert(waOutbox).values({ ...fila, estado: "pendiente" });
-    return { estado: "pendiente" };
+    await db.insert(waOutbox).values({ ...fila, estado: "pendiente", motivo: decision.motivo ?? null });
+    return { estado: "pendiente", motivo: decision.motivo };
   }
 
   if (!destino) {
@@ -225,10 +210,8 @@ export async function avisarAlEquipo(db: Db, aviso: AvisoEquipo): Promise<Result
 /**
  * Lo pendiente, ya armado como texto, sin mandarlo.
  *
- * Existe aparte de `enviarDigest` porque el brief de 8:00/18:00 del Centro de
- * Inteligencia sale a esa misma hora: si el digest fuera un mensaje propio, el
- * equipo recibiría dos seguidos — justo el "mensaje, mensaje, mensaje" que esto
- * viene a arreglar. El brief pide el texto, lo pega al suyo y manda UNO.
+ * Lo usa `enviarDigest` (la ruta manual). El resumen de las 9:00 arma el suyo
+ * en `avisos/resumen.ts` y manda UNO solo, con lo pendiente adentro.
  */
 export async function juntarPendientes(db: Db): Promise<{ texto: string | null; ids: string[] }> {
   const pendientes = await db
@@ -264,6 +247,33 @@ export async function enviarDigest(db: Db): Promise<{ avisos: number; enviado: b
 
   await marcarAgrupados(db, ids);
   return { avisos: ids.length, enviado: true };
+}
+
+/**
+ * El resumen de las 9:00: el encabezado que arma `avisos/resumen.ts` (lo que
+ * hay que decidir hoy, con links a Hoy) más lo pendiente del embudo, en UN
+ * mensaje. Queda registrado en `wa_outbox` con su propio origen para que la
+ * medición no lo cuente como interrupción.
+ *
+ * Lo pendiente se marca agrupado solo si el envío salió: si el gateway está
+ * caído, viaja en el resumen siguiente.
+ */
+export async function enviarResumenDiario(db: Db, encabezado: string, pendientes: { texto: string | null; ids: string[] }): Promise<{ enviado: boolean; motivo?: string }> {
+  const destino = destinoDelEquipo();
+  const texto = [encabezado, pendientes.texto].filter(Boolean).join("\n\n———\n\n");
+  const fila = { destino, nivel: 3, origen: ORIGEN_RESUMEN, clave: `${ORIGEN_RESUMEN}:${diaLocal(new Date())}`, texto };
+  if (!destino) {
+    await db.insert(waOutbox).values({ ...fila, estado: "error", motivo: "no hay número/grupo de alertas configurado" });
+    return { enviado: false, motivo: "sin destino configurado" };
+  }
+  const res = await transporte(destino, texto);
+  if (!res.ok) {
+    await db.insert(waOutbox).values({ ...fila, estado: "error", motivo: `gateway: ${res.error ?? "?"}` });
+    return { enviado: false, motivo: res.error };
+  }
+  await db.insert(waOutbox).values({ ...fila, estado: "enviado", enviadoAt: new Date() });
+  await marcarAgrupados(db, pendientes.ids);
+  return { enviado: true };
 }
 
 /**

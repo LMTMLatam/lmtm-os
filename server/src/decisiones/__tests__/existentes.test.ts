@@ -4,6 +4,7 @@ import { mereceAvisoDeSaldo, motivoFrenada } from "../../services/balance-monito
 import type { SaludFuente } from "../../ingest/salud.js";
 import {
   clientesConPautaCiega,
+  errorEnCastellano,
   propuestaDeCadena,
   propuestasDeCobertura,
   propuestasDeCola,
@@ -16,7 +17,8 @@ describe("cadena de publicación", () => {
     const p = propuestaDeCadena({ clientId: "c1", cliente: "MAERS", eslabon: "despachador_mudo", detalle: "Make no despacha hace 12 días", diasSin: 12 });
     expect(p.arsPorDia).toBeNull();
     expect(p.clave).toBe("cadena:c1:despachador_mudo");
-    expect(p.que).toContain("MAERS");
+    // El cliente va aparte en todas las pantallas: repetirlo en el "qué" es ruido.
+    expect(p.que).not.toContain("MAERS");
     expect(p.accion?.tipo).toBe("tarea");
   });
 });
@@ -61,6 +63,20 @@ describe("saldo", () => {
     expect(ps.reduce((s, p) => s + (p.arsPorDia ?? 0), 0)).toBe(40_000);
   });
 
+  it("aunque la segunda cuenta frenada venía gastando, su gasto ya está en la caída del cliente", () => {
+    const costos = new Map([["c1", { clientId: "c1", arsPorDia: 40_000, gastoDiarioPrevio: 40_000, gastoDiarioActual: 0 }]]);
+    const [a, b] = propuestasDeSaldo(
+      [balance({ account: "act_meta", dailySpend: 9_000 }), balance({ account: "123", platform: "google", dailySpend: 6_000 })],
+      costos,
+      fns,
+    );
+    expect(a.arsPorDia).toBe(40_000);
+    expect(b.arsPorDia).toBeNull();
+    // Se muestra lo que gastaba, pero dice por qué no suma.
+    expect(b.porque.datos[0].valor).toBe(6_000);
+    expect(b.porque.resumen).toContain("ya está contada en su otra cuenta frenada");
+  });
+
   it("deuda en Meta es frenada aunque tenga saldo", () => {
     const [p] = propuestasDeSaldo([balance({ accountStatus: 3, remaining: 200_000, low: false, dailySpend: 12_000 })], new Map(), fns);
     expect(p.tipo).toBe("saldo:frenada");
@@ -95,7 +111,8 @@ describe("costo de no hacer", () => {
   it("una decisión por cliente con su plata parada", () => {
     const ps = propuestasDeCosto(costos, nombres, new Set(), { desde: "2026-10-02", hasta: "2026-10-04" });
     expect(ps.map((p) => p.arsPorDia)).toEqual([20_000, 5_000]);
-    expect(ps[0].que).toContain("MA PROPIEDADES");
+    expect(ps[0].clientId).toBe("c1");
+    expect(ps[0].accion?.tipo === "tarea" && ps[0].accion.titulo).toContain("MA PROPIEDADES");
   });
 
   it("no afirma una caída que explica otra cosa (cuenta frenada o sync roto)", () => {
@@ -155,7 +172,23 @@ describe("cobertura", () => {
   it("fallando pide reconectar, con el nombre limpio y desde cuándo", () => {
     const [p] = propuestasDeCobertura([s({ estado: "fallando", fallasSeguidas: 30, fallandoDesde: "2026-09-14T03:00:00Z", ultimoError: "403" })]);
     expect(p.tipo).toBe("cobertura:fallando");
-    expect(p.que).toBe("Reconectar Google Ads de SKYGARDEN: el sync falla desde el 14/09");
+    expect(p.que).toBe("Reconectar Google Ads: no se pueden traer los datos desde el 14/09");
+  });
+
+  it("el error crudo de la plataforma no llega a Hoy: se dice en castellano o no se dice", () => {
+    const crudo = "403: The caller does not have permission";
+    const [p] = propuestasDeCobertura([s({ estado: "fallando", fallasSeguidas: 30, fallandoDesde: "2026-09-14T03:00:00Z", ultimoError: crudo })]);
+    expect(p.porque.resumen).toBe("La conexión con Google Ads falla cada noche: la cuenta no nos da permiso.");
+    expect(JSON.stringify(p.porque)).not.toContain("caller");
+    // El equipo sí lo necesita tal cual, para buscarlo: va en la tarea.
+    expect(p.accion && p.accion.tipo === "tarea" && p.accion.descripcion).toContain(crudo);
+
+    expect(errorEnCastellano("400: Service temporarily unavailable")).toBe("la plataforma no responde");
+    expect(errorEnCastellano("Please reduce the amount of data you're asking for")).toBe("la plataforma pide traer menos datos por vez");
+    expect(errorEnCastellano("Error validating access token: Session has expired")).toBe("venció el acceso y hay que volver a conectar la cuenta");
+    // Lo que no se reconoce no se adivina.
+    const [q] = propuestasDeCobertura([s({ estado: "fallando", ultimoError: "Unknown field adset_xyz" })]);
+    expect(q.porque.resumen).toBe("La conexión con Google Ads falla cada noche.");
   });
 
   it("sin conexión y sin datos nunca: solo cuenta para Meta", () => {

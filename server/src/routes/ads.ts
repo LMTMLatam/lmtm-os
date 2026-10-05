@@ -3333,8 +3333,8 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  // Fuerza el digest ahora. El camino normal es que viaje pegado al brief de
-  // 8:00/18:00; esto es para probarlo y para vaciar la cola a mano.
+  // Fuerza el digest ahora. El camino normal es que viaje en el resumen de
+  // las 9:00 (avisos/resumen.ts); esto es para probarlo y para vaciar la cola a mano.
   router.post("/ops/wa/digest", async (_req, res) => {
     try {
       const { enviarDigest } = await import("../services/wa-embudo.js");
@@ -3355,25 +3355,14 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  // Centro de mando del dashboard principal (6/8): TODO lo accionable en una
-  // sola request — semáforo de clientes, lo que solo puede hacer un humano,
-  // alertas críticas y la serie de la cartera para los gráficos.
+  // Estado de la cartera para el dashboard principal: semáforo y la serie de
+  // 30 días. Lo accionable (la cola humana y las alertas que vivían acá) se
+  // mudó a Hoy (GET /api/hoy), con su plata y su botón (rediseño B2).
   router.get("/dashboard/accion", microCache(2 * 60_000), async (_req, res) => {
     try {
       const { triageGrowth } = await import("../services/plan-accion.js");
-      const { colaHumana } = await import("../services/cola-humana.js");
-      const [triage, cola, alertas, serie] = await Promise.all([
+      const [triage, serie] = await Promise.all([
         triageGrowth(db).catch(() => ({ rojo: [], amarillo: [], verde: [] })),
-        // Cola humana: lo marcado [HUMANO] más todo lo que quedó bloqueado
-        // esperando a una persona. Antes sólo entraba lo del prefijo y el
-        // equipo veía 15 de 346 (revisión de flota 26/8/26).
-        colaHumana(db).catch(() => ({ filas: [], total: 0, arsPorDiaTotal: 0 })),
-        db.select({
-          id: adsAlerts.id, severity: adsAlerts.severity, title: adsAlerts.title,
-          clientId: adsAlerts.clientId, createdAt: adsAlerts.createdAt,
-        }).from(adsAlerts)
-          .where(eq(adsAlerts.status, "pending"))
-          .orderBy(desc(adsAlerts.createdAt)).limit(10),
         // Serie diaria de TODA la cartera (30 días) para los gráficos.
         db.select({
           date: adsInsights.date,
@@ -3383,30 +3372,12 @@ export function adsRoutes(db: Db): Router {
           .where(gte(adsInsights.date, new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)))
           .groupBy(adsInsights.date).orderBy(adsInsights.date),
       ]);
-      // Nombre de cliente para las filas que lo tengan.
-      const humanas = cola.filas;
-      const ids = [...new Set([...humanas, ...alertas].map((r) => r.clientId).filter(Boolean))] as string[];
-      const names = ids.length
-        ? await db.select({ id: clients.id, name: clients.name, slug: clients.slug }).from(clients).where(inArray(clients.id, ids))
-        : [];
-      const byId = new Map(names.map((c) => [c.id, c]));
-      const conCliente = <T extends { clientId: string | null }>(r: T) => ({
-        ...r,
-        clienteNombre: r.clientId ? byId.get(r.clientId)?.name ?? null : null,
-        clienteSlug: r.clientId ? byId.get(r.clientId)?.slug ?? null : null,
-      });
       res.json({
         triage: {
           rojo: triage.rojo.map((c) => ({ clientId: c.clientId, name: c.name, slug: c.slug, salud: c.salud, problemas: c.problemas.slice(0, 2) })),
           amarillo: triage.amarillo.map((c) => ({ clientId: c.clientId, name: c.name, slug: c.slug, salud: c.salud, problemas: c.problemas.slice(0, 2) })),
           verdeCount: triage.verde.length,
         },
-        humanas: humanas.map(conCliente),
-        humanasTotal: cola.total,
-        // Plata parada de TODA la cola: es el titular que convierte la lista en
-        // una decisión ("7 cosas esperando, $122.231 por día parados").
-        humanasArsPorDia: cola.arsPorDiaTotal,
-        alertas: alertas.map(conCliente),
         serie: serie.map((s) => ({ date: String(s.date), spend: Number(s.spend), leads: s.leads })),
       });
     } catch (e) {

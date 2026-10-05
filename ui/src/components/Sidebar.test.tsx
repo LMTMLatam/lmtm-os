@@ -87,8 +87,10 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
 
   it("los 6 de arriba son los del día a día", () => {
     const arriba = [...bloqueSiempreVisible().matchAll(/to="(\/[a-z0-9/-]+)"/g)].map((m) => m[1]);
+    // "/hoy" reemplazó a "/dashboard" (rediseño B2): el tablero viejo sigue
+    // llegándose como "Operación", dentro de Sistema.
     expect(arriba).toEqual([
-      "/dashboard",
+      "/hoy",
       "/inbox",
       "/clients",
       "/paid-media",

@@ -16,6 +16,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
 import { decisionesRoutes } from "./decisiones/rutas.js";
+import { avisosRoutes } from "./avisos/rutas.js";
 import { videoRoutes } from "./routes/video.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
@@ -245,6 +246,7 @@ export async function createApp(
   api.use(metaSyncRoutes(db));
   api.use(adsRoutes(db));
   api.use(decisionesRoutes(db));
+  api.use(avisosRoutes(db));
   api.use(videoRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
@@ -315,6 +317,12 @@ export async function createApp(
     const { initMotorDecisiones } = await import("./decisiones/motor.js");
     initMotorDecisiones(db);
   } catch (e) { console.warn("[decisiones] init failed:", e); }
+  // Resumen diario de las 9:00 (rediseño B2): reemplaza al brief de 8:00 y 18:00.
+  // Se apaga con LMTM_RESUMEN_DIARIO=off.
+  try {
+    const { initResumenDiario } = await import("./avisos/resumen.js");
+    initResumenDiario(db);
+  } catch (e) { console.warn("[resumen] init failed:", e); }
   // Licitaciones de Mercado Público (pedido 2026-07-22): sync diario.
   try {
     const { initLicitaciones } = await import("./services/licitaciones.js");

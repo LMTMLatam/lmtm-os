@@ -1,18 +1,16 @@
 // LMTM-OS: Centro de Inteligencia — motor de vigilantes (pedido 2026-07-18).
 //
 // Un vigilante observa un área y produce INTERVENCIONES (alertas,
-// oportunidades, aprendizajes) con nivel de interrupción 1-5:
-//   5 → WhatsApp inmediato · 4 → WhatsApp agrupable · 3 → brief diario
-//   2 → dashboard · 1 → solo historial.
-// Regla dura del equipo: máximo LMTM_MAX_INTERRUPTIONS_DAY (def. 8) mensajes
-// reales por día — si un día llegan 40, el sistema falló. El dedupe_key evita
-// re-alertar lo mismo mientras la intervención siga abierta.
+// oportunidades, aprendizajes) con nivel 1-5. Desde el rediseño B2 el nivel
+// ya no decide si interrumpe: solo interrumpen los incidentes del motor de
+// decisiones (avisos/politica.ts, tope 3 por día). Lo de los vigilantes va al
+// resumen de las 9:00. El dedupe_key evita re-registrar lo mismo mientras la
+// intervención siga abierta.
 //
 // v1: vigilante de Salud Financiera de Campañas. El monitor de saldo existente
 // (balance-monitor) ya cubre low/pacing/frenadas — acá se suman las reglas del
 // doc del 18/7: consumo bruscamente mayor al promedio y cuenta activa sin
-// actividad, y todo queda persistido en `interventions` para el dashboard y el
-// brief de las 8:00/18:00.
+// actividad, y todo queda persistido en `interventions` para el dashboard.
 
 import type { Db } from "@paperclipai/db";
 import { adsInsights, clients, interventions } from "@paperclipai/db";
@@ -349,65 +347,6 @@ export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: num
   return { evaluados: activos.length, preocupado };
 }
 
-// ── Brief diario 8:00 / 18:00 ART ──────────────────────────────────────────
-
-async function composeBrief(db: Db, moment: "morning" | "evening"): Promise<string> {
-  const abiertas = await db.select({
-    level: interventions.level, vigilante: interventions.vigilante,
-    title: interventions.title, clientId: interventions.clientId,
-  }).from(interventions)
-    .where(inArray(interventions.status, ["open", "sent"]))
-    .orderBy(desc(interventions.level), desc(interventions.updatedAt)).limit(40);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [resueltas] = await db.select({ n: sql<number>`count(*)::int` }).from(interventions)
-    .where(and(eq(interventions.status, "resolved"), gte(interventions.updatedAt, today)));
-  const criticas = abiertas.filter((a) => a.level >= 5);
-  const atencion = abiertas.filter((a) => a.level === 4);
-  const seguimiento = abiertas.filter((a) => a.level === 3);
-  const activos = await db.select({ n: sql<number>`count(*)::int` }).from(clients).where(eq(clients.status, "active"));
-
-  const lines: string[] = [];
-  if (moment === "morning") {
-    lines.push("*🌅 Morning Brief — LMTM-OS*", "");
-    lines.push(`🔴 Incidentes críticos: ${criticas.length}`);
-    lines.push(`🟡 Requieren atención: ${atencion.length}`);
-    lines.push(`🔵 En seguimiento: ${seguimiento.length}`);
-    lines.push(`👥 Clientes activos: ${activos[0]?.n ?? "?"}`);
-    if (criticas.length) {
-      lines.push("", "*Prioridad de hoy:*");
-      for (const c of criticas.slice(0, 5)) lines.push(`• ${c.title}`);
-    }
-    // Tendencias del día (pedido 18/7): 1×/día al equipo, para pensar distinto
-    // y para reenviar a clientes — invita a la proactividad sin que nadie empuje.
-    try {
-      const { trends } = await import("@paperclipai/db");
-      const desde = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-      const hoy = await db.select({ title: trends.title, url: trends.url, niches: trends.niches })
-        .from(trends).where(and(gte(trends.day, desde), sql`${trends.tag} <> 'ignorar'`))
-        .orderBy(desc(trends.day)).limit(5);
-      if (hoy.length) {
-        lines.push("", "*📡 Tendencias de hoy* (reenviables a clientes):");
-        for (const t of hoy) {
-          const rubros = (t.niches ?? []).length ? ` [${(t.niches ?? []).join(", ")}]` : "";
-          lines.push(`• ${t.title}${rubros}${t.url ? `\n  ${t.url}` : ""}`);
-        }
-      }
-    } catch { /* sin tendencias no se rompe el brief */ }
-  } else {
-    lines.push("*🌆 Resumen del día — LMTM-OS*", "");
-    lines.push(`✔ Intervenciones resueltas hoy: ${resueltas?.n ?? 0}`);
-    lines.push(`⚠️ Quedan abiertas: ${criticas.length + atencion.length} (${criticas.length} críticas)`);
-    if (criticas.length) {
-      lines.push("", "*Pendientes críticos para mañana:*");
-      for (const c of criticas.slice(0, 5)) lines.push(`• ${c.title}`);
-    }
-  }
-  lines.push("", "_El detalle vive en el panel → Centro de Inteligencia_");
-  return lines.join("\n");
-}
-
-let briefTimer: ReturnType<typeof setInterval> | null = null;
-let lastBriefKey = "";
 let vigilanteTimer: ReturnType<typeof setInterval> | null = null;
 let lastVigilanteDay = "";
 
@@ -433,43 +372,10 @@ export function initVigilantes(db: Db): void {
     setTimeout(() => { void tick(); }, 8 * 60 * 1000);
     vigilanteTimer = setInterval(() => { void tick(); }, 3 * 3600 * 1000);
   }
-  if (!briefTimer) {
-    const briefTick = async () => {
-      // Hora ART sin depender del TZ del contenedor.
-      const art = new Date(Date.now() - 3 * 3600 * 1000);
-      const hour = art.getUTCHours();
-      const day = art.toISOString().slice(0, 10);
-      const moment = hour === 8 ? "morning" : hour === 18 ? "evening" : null;
-      if (!moment) return;
-      const key = `${day}:${moment}`;
-      if (key === lastBriefKey) return;
-      lastBriefKey = key;
-      try {
-        // El brief sale 8:00 y 18:00, que es justo cuando saldría el digest del
-        // embudo. Mandar los dos por separado reproduce el "mensaje, mensaje"
-        // que esto viene a arreglar, así que el digest viaja PEGADO al brief y
-        // recién se marca agrupado si el envío salió bien.
-        const { juntarPendientes, marcarAgrupados } = await import("./wa-embudo.js");
-        const { texto: digest, ids } = await juntarPendientes(db);
-        const brief = await composeBrief(db, moment).catch((e) => {
-          console.warn("[vigilantes] brief fallo, va solo el digest:", e instanceof Error ? e.message : e);
-          return null;
-        });
-        const msg = [brief, digest].filter(Boolean).join("\n\n———\n\n");
-        if (!msg) { console.log(`[vigilantes] ${moment}: nada para mandar`); return; }
-        const envio = await avisarAlEquipo(db, {
-          origen: "brief",
-          nivel: 4,
-          // Fecha + momento: el brief no se puede duplicar, pero tampoco lo puede
-          // bloquear el dedupe del día anterior.
-          clave: `brief:${dayStr(new Date())}:${moment}`,
-          texto: msg,
-        });
-        if (envio.estado === "enviado") await marcarAgrupados(db, ids);
-        console.log(`[vigilantes] ${moment} brief ${envio.estado}${envio.motivo ? ` (${envio.motivo})` : ""}`);
-      } catch (e) { console.warn("[vigilantes] brief failed:", e instanceof Error ? e.message : e); }
-    };
-    briefTimer = setInterval(() => { void briefTick(); }, 10 * 60 * 1000);
-  }
-  console.log("[vigilantes] Centro de Inteligencia v1 activo (financiera + brief 8/18 ART)");
+  // El brief de 8:00 y 18:00 ya no sale (rediseño B2): eran dos mensajes por
+  // día con conteos de intervenciones y el digest del embudo pegado abajo. Lo
+  // reemplaza el resumen de las 9:00 (avisos/resumen.ts), uno solo, armado con
+  // las decisiones de la tabla y con links a Hoy. Las tendencias del día, que
+  // el equipo reenvía a clientes, viajan en ese resumen.
+  console.log("[vigilantes] Centro de Inteligencia v1 activo (financiera; el brief lo reemplaza el resumen de las 9:00)");
 }
