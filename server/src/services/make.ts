@@ -15,7 +15,7 @@
 import type { Db } from "@paperclipai/db";
 import { clients } from "@paperclipai/db";
 import { eq } from "drizzle-orm";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 
 const MAKE_BASE = (process.env.MAKE_API_BASE?.trim() || "https://us2.make.com/api/v2").replace(/\/$/, "");
 const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID?.trim() || "228071";
@@ -177,14 +177,19 @@ export async function runMakeHealthCheck(
   flagged.sort((a, b) => b.errors - a.errors);
   const issues = flagged.map(({ name, note }) => ({ name, note }));
 
-  const team = alertsNumber();
   let delivered = false;
-  if (team && issues.length > 0 && !opts.dryRun) {
+  if (issues.length > 0 && !opts.dryRun) {
     const lines = ["*⚙️ AutoPoster de Make falló al publicar*", ""];
     for (const it of issues.slice(0, 25)) lines.push(`• *${it.name}*: ${it.note}`);
     lines.push("", "_El scenario corrió pero falló — el post no salió. Abrir Make (executions_get-detail): conexión caída, módulo roto o dato faltante._");
-    const r = await sendWhatsAppToNumber(team, lines.join("\n"));
-    delivered = r.ok;
+    // Nivel 4: el scenario corrio y el post NO salio. Es entrega caida.
+    const r = await avisarAlEquipo(db, {
+      origen: "make-autoposter",
+      nivel: 4,
+      clave: `make-fallo:${issues.map((i) => i.name).sort().join(",")}`,
+      texto: lines.join("\n"),
+    });
+    delivered = r.estado === "enviado";
   }
   return { configured: true, checked, issues, delivered };
 }

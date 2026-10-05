@@ -2,11 +2,20 @@
 
 export { execute } from "./execute.js";
 export { testEnvironment } from "./test.js";
-export { listMinimaxModels } from "./models.js";
+export {
+  listMinimaxModels,
+  // Los usa tambien el adapter simple de server/src/adapters/minimax: la
+  // politica de "cuando caer y a que modelo" vive en UN solo lugar.
+  esSobrecarga,
+  MODELO_DE_RESPALDO,
+} from "./models.js";
 export { listMinimaxSkills, syncMinimaxSkills } from "./skills.js";
 export {
   parseMinimaxCompletion,
   describeMinimaxFailure,
+  // Lo usa tambien el adapter simple de server/src/adapters/minimax, que lee
+  // message.content directo: el <think> se saca en UN solo lugar.
+  splitThinkBlock,
 } from "./parse.js";
 
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";

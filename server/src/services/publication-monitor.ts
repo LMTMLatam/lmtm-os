@@ -12,7 +12,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { getRedesScheduledContent, getRedesCalendar, type RedesCalendarItem } from "./clickup-sync.js";
 import { networkActivity } from "./auditor.js";
 import { runMakeHealthCheck } from "./make.js";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 
 const DAY = 86_400_000;
 const INACTIVITY_ALERT_MS = 72 * 3_600_000; // 72h sin actividad en redes = alerta
@@ -85,10 +85,9 @@ export async function runPublicationCheck(
 
   // Only alert on clearly-late items (>=1 full day) to avoid same-day noise.
   const actionable = overdue.filter((o) => o.daysLate >= 1).sort((a, b) => b.daysLate - a.daysLate);
-  const team = alertsNumber();
   let delivered = false;
 
-  if (team && actionable.length > 0) {
+  if (actionable.length > 0) {
     const lines = ["*📅 Contenido programado sin publicar*", ""];
     for (const [clientName, its] of groupByClient(actionable)) {
       lines.push(`*${clientName}* (${its.length}):`);
@@ -96,8 +95,15 @@ export async function runPublicationCheck(
     }
     lines.push("", "_Estas piezas pasaron su FECHA DE INICIO sin la etiqueta \"mandado a make\" — el webhook no disparó a Make. Revisar el scenario / reprogramar._");
     if (!opts.dryRun) {
-      const r = await sendWhatsAppToNumber(team, lines.join("\n"));
-      delivered = r.ok;
+      // Nivel 4: una pieza que paso su fecha sin publicarse es lo que tuvo a
+      // MAERS 8 dias sin salir. Interrumpe, con tope diario.
+      const r = await avisarAlEquipo(db, {
+        origen: "sin-publicar",
+        nivel: 4,
+        clave: `sin-publicar:${actionable.map((i) => i.name).sort().join(",")}`,
+        texto: lines.join("\n"),
+      });
+      delivered = r.estado === "enviado";
     }
   }
 
@@ -105,11 +111,17 @@ export async function runPublicationCheck(
   // whose pipeline never started doesn't sit silent for weeks (SRP, the
   // dark clients). Only alerts when there's something to say.
   const stalled = await findStalledOnboarding(db).catch(() => []);
-  if (team && stalled.length > 0 && !opts.dryRun) {
+  if (stalled.length > 0 && !opts.dryRun) {
     const lines = ["*🐢 Clientes sin arrancar (>7 días, sin contenido)*", ""];
     for (const s of stalled.slice(0, 15)) lines.push(`• *${s.name}* — ${s.ageDays}d sin ideas ni posteos`);
     lines.push("", "_Revisar onboarding: mapear Meta, cargar brain, arrancar el pipeline de contenido._");
-    await sendWhatsAppToNumber(team, lines.join("\n")).catch(() => {});
+    // Nivel 3: un cliente que no arranco lleva dias asi, no minutos. Digest.
+    await avisarAlEquipo(db, {
+      origen: "onboarding-trabado",
+      nivel: 3,
+      clave: `onboarding:${stalled.map((s) => s.name).sort().join(",")}`,
+      texto: lines.join("\n"),
+    }).catch(() => {});
   }
 
   return { clients: rows.length, overdue: actionable, stalledOnboarding: stalled.length, delivered };
@@ -136,14 +148,19 @@ export async function runInactivityCheck(
   const now = Date.now();
   const [g] = await db.select({ last: sql<string | null>`max(${organicPosts.syncedAt})` }).from(organicPosts);
   const globalLast = g?.last ? new Date(g.last).getTime() : 0;
-  const team = alertsNumber();
-
   if (!globalLast || now - globalLast > SYNC_STALE_MS) {
     // Sync down/stale → we can't judge client activity. Flag the sync, not the
     // clients (accusing every client of being inactive would be a false outage).
-    if (team && !opts.dryRun && globalLast) {
+    if (!opts.dryRun && globalLast) {
       const h = Math.floor((now - globalLast) / 3_600_000);
-      await sendWhatsAppToNumber(team, `*⚠️ Sync de redes detenido*\n\nÚltima sincronización de posteos hace ${h}h. No puedo verificar actividad de clientes hasta que se recupere — revisar la conexión/sync de Meta.`).catch(() => {});
+      // Nivel 4: con el sync caido el sistema no puede afirmar NADA sobre los
+      // clientes. Que eso se sepa rapido evita acusaciones falsas de inactividad.
+      await avisarAlEquipo(db, {
+        origen: "sync-redes",
+        nivel: 4,
+        clave: "sync-redes-detenido",
+        texto: `*⚠️ Sync de redes detenido*\n\nÚltima sincronización de posteos hace ${h}h. No puedo verificar actividad de clientes hasta que se recupere — revisar la conexión/sync de Meta.`,
+      }).catch(() => {});
     }
     return { checked: 0, inactive: [], syncStale: true, delivered: false };
   }
@@ -168,12 +185,18 @@ export async function runInactivityCheck(
   inactive.sort((a, b) => b.hoursSince - a.hoursSince);
 
   let delivered = false;
-  if (team && inactive.length > 0 && !opts.dryRun) {
+  if (inactive.length > 0 && !opts.dryRun) {
     const lines = ["*🔴 Clientes sin actividad en redes (+72h)*", ""];
     for (const it of inactive.slice(0, 20)) lines.push(`• *${it.name}* — ${Math.floor(it.hoursSince / 24)}d ${it.hoursSince % 24}h sin postear`);
     lines.push("", "_Verificar: ¿se cortó la programación, falta contenido, o Make no disparó? Revisar el cliente._");
-    const r = await sendWhatsAppToNumber(team, lines.join("\n"));
-    delivered = r.ok;
+    // Nivel 4: 72h sin postear es entrega caida hacia el cliente.
+    const r = await avisarAlEquipo(db, {
+      origen: "inactividad-redes",
+      nivel: 4,
+      clave: `inactividad:${inactive.map((i) => i.name).sort().join(",")}`,
+      texto: lines.join("\n"),
+    });
+    delivered = r.estado === "enviado";
   }
   return { checked: rows.length, inactive, syncStale: false, delivered };
 }
@@ -230,14 +253,19 @@ export async function runDiversificationCheck(
   }
   issues.sort((a, b) => a.name.localeCompare(b.name));
 
-  const team = alertsNumber();
   let delivered = false;
-  if (team && issues.length > 0 && !opts.dryRun) {
+  if (issues.length > 0 && !opts.dryRun) {
     const lines = ["*🎨 Diversificación de contenido — a revisar*", ""];
     for (const it of issues.slice(0, 25)) lines.push(`• *${it.name}*: ${it.note}`);
     lines.push("", "_Balancear formato (reel/carrusel/video) Y objetivo (engagement/valor/educativo), y completar \"Tipo de Contenido\" / \"Objetivo del Contenido\" donde falte._");
-    const r = await sendWhatsAppToNumber(team, lines.join("\n"));
-    delivered = r.ok;
+    // Nivel 2: es una mejora de mezcla, no un incidente. Va al digest.
+    const r = await avisarAlEquipo(db, {
+      origen: "diversificacion",
+      nivel: 2,
+      clave: `diversificacion:${issues.map((i) => i.name).sort().join(",")}`,
+      texto: lines.join("\n"),
+    });
+    delivered = r.estado === "enviado" || r.estado === "pendiente";
   }
   return { reviewed, issues, delivered };
 }

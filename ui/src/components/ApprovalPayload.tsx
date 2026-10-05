@@ -1,7 +1,8 @@
-import { UserPlus, Lightbulb, ShieldAlert, ShieldCheck } from "lucide-react";
+import { UserPlus, Lightbulb, Megaphone, ShieldAlert, ShieldCheck } from "lucide-react";
 import { formatCents } from "../lib/utils";
 
 export const typeLabel: Record<string, string> = {
+  accion_pauta: "Accion de pauta",
   hire_agent: "Hire Agent",
   approve_ceo_strategy: "CEO Strategy",
   budget_override_required: "Budget Override",
@@ -23,6 +24,9 @@ export function approvalSubject(payload?: Record<string, unknown> | null): strin
     payload?.name,
     payload?.summary,
     payload?.recommendedAction,
+    // Las acciones de pauta traen `resumen`: sin esto la lista de aprobaciones
+    // dice solo "Accion de pauta" y hay que abrir cada una para saber cual es.
+    payload?.resumen,
   );
 }
 
@@ -37,6 +41,7 @@ export function approvalLabel(type: string, payload?: Record<string, unknown> | 
 }
 
 export const typeIcon: Record<string, typeof UserPlus> = {
+  accion_pauta: Megaphone,
   hire_agent: UserPlus,
   approve_ceo_strategy: Lightbulb,
   budget_override_required: ShieldAlert,
@@ -229,6 +234,57 @@ function BoardApprovalPayloadContent({ payload }: { payload: Record<string, unkn
   );
 }
 
+/**
+ * Una acción de pauta esperando el OK.
+ *
+ * Es la única aprobación del sistema que, al aprobarse, SE EJECUTA SOLA contra
+ * la cuenta del cliente. Así que la pantalla tiene que dejar dos cosas claras
+ * antes del click —qué se va a hacer y con qué números se justifica— y después
+ * del click, si salió o no. Un "aprobado" que en realidad fue rechazado por
+ * Meta es peor que un error visible.
+ */
+function AccionPautaPayload({ payload }: { payload: Record<string, unknown> }) {
+  const resumen = typeof payload.resumen === "string" ? payload.resumen : null;
+  const justificacion = typeof payload.justificacion === "string" ? payload.justificacion : null;
+  const resultado = payload.resultado as { ok?: boolean; detalle?: string; ejecutadoAt?: string } | undefined;
+
+  return (
+    <div className="space-y-3 text-sm">
+      {resumen && <p className="font-medium leading-snug">{resumen}</p>}
+
+      {justificacion && (
+        <div>
+          <span className="text-muted-foreground text-xs">Por qué</span>
+          <p className="mt-0.5 whitespace-pre-wrap leading-snug">{justificacion}</p>
+        </div>
+      )}
+
+      {!resultado && (
+        <p className="text-muted-foreground text-xs">
+          Al aprobar, el sistema ejecuta este cambio contra la cuenta del cliente. No hay que hacer nada a mano.
+        </p>
+      )}
+
+      {resultado && (
+        <div
+          className="rounded-md border p-2.5 text-xs"
+          style={{
+            borderColor: resultado.ok
+              ? "color-mix(in srgb, var(--color-primary) 35%, transparent)"
+              : "color-mix(in srgb, var(--color-destructive) 45%, transparent)",
+            background: resultado.ok
+              ? "color-mix(in srgb, var(--color-primary) 8%, transparent)"
+              : "color-mix(in srgb, var(--color-destructive) 8%, transparent)",
+          }}
+        >
+          <p className="font-medium">{resultado.ok ? "Ejecutado" : "Aprobado, pero NO se ejecutó"}</p>
+          {resultado.detalle && <p className="mt-0.5 text-muted-foreground">{resultado.detalle}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ApprovalPayloadRenderer({
   type,
   payload,
@@ -238,6 +294,7 @@ export function ApprovalPayloadRenderer({
   payload: Record<string, unknown>;
   hidePrimaryTitle?: boolean;
 }) {
+  if (type === "accion_pauta") return <AccionPautaPayload payload={payload} />;
   if (type === "hire_agent") return <HireAgentPayload payload={payload} />;
   if (type === "budget_override_required") return <BudgetOverridePayload payload={payload} />;
   if (type === "request_board_approval") {

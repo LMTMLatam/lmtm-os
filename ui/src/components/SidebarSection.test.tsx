@@ -290,10 +290,37 @@ describe("SidebarSection", () => {
     const caret = container.querySelector('button[aria-label="Expand Projects"] svg');
     const action = container.querySelector('button[aria-label="New project"]');
 
-    expect(caret?.getAttribute("class")).toContain("opacity-100");
+    // El caret ya no se gatilla por hover en NINGÚN lado, así que no lleva
+    // `opacity-100` para mobile: no lleva clase de opacidad en absoluto. Lo que
+    // importa es que no esté escondido.
     expect(caret?.getAttribute("class")).not.toContain("opacity-0");
     expect(projectsLabel?.parentElement?.textContent).toBe("Projects");
     expect(action?.getAttribute("class")).toContain("opacity-100");
     expect(action?.getAttribute("class")).not.toContain("opacity-0");
+  });
+
+  it("el caret se ve SIEMPRE, también en desktop", async () => {
+    // Antes aparecía sólo al pasar el mouse, y alcanzaba porque las secciones
+    // venían abiertas: servía para cerrarlas, no para encontrarlas. Desde que el
+    // sidebar se ordenó en grupos cerrados, es la única puerta a 15 destinos —
+    // un grupo que dice "MÁS" sin ninguna señal de que se abre es una etiqueta
+    // muerta, y en touch no hay hover que la revele.
+    sidebarState.isMobile = false;
+    const currentRoot = createRoot(container);
+    root = currentRoot;
+
+    await act(async () => {
+      currentRoot.render(
+        <SidebarSection label="Más" collapsible={{ open: false, onOpenChange: vi.fn() }}>
+          <a href="/growth">Growth</a>
+        </SidebarSection>,
+      );
+    });
+    await flushReact();
+
+    const caret = container.querySelector('button[aria-label="Expand Más"] svg');
+    expect(caret).not.toBeNull();
+    expect(caret?.getAttribute("class")).not.toContain("opacity-0");
+    expect(caret?.getAttribute("class")).not.toContain("group-hover/sidebar-section:opacity-100");
   });
 });

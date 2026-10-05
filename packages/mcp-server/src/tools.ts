@@ -856,16 +856,67 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmPauseAdEntity",
-      "PAUSAR una campaña o adset de Meta de un cliente (única acción de escritura sobre pauta). Para gasto sin conversiones, CTR muy bajo o aviso quemando presupuesto. MUEVE plata: proponé en el issue con la justificación y esperá OK humano; recién con aprobación pasá approved=true. El server verifica que la entidad sea de ESE cliente. No hay reanudar/subir presupuesto/crear por acá.",
+      "PAUSAR una campaña o adset de un cliente. Para gasto sin conversiones, CTR muy bajo o aviso quemando presupuesto. MUEVE plata: mandá siempre 'justificacion' con los números; el server deja la propuesta armada y una persona la aprueba con un click (no hace falta que vuelvas a llamar la tool). Verifica que la entidad sea de ESE cliente. Para MOVER presupuesto usá lmtmSetBudget o lmtmShiftBudget.",
       z.object({
         clientId: z.string().min(1),
         entityType: z.enum(["campaign", "adset"]),
         entityId: z.string().min(1),
+        justificacion: z.string().optional().describe("Los números que la sostienen. Sin esto no se arma la propuesta."),
         approved: z.boolean().optional().describe("true SOLO tras aprobación humana explícita en el issue"),
       }),
-      async ({ clientId, entityType, entityId, approved }) =>
+      async ({ clientId, entityType, entityId, justificacion, approved }) =>
         client.requestJson("POST", "/agent-tools/execute", {
-          body: { tool: "pause_ad_entity", parameters: { clientId, entityType, entityId, ...(approved ? { approved } : {}) } },
+          body: { tool: "pause_ad_entity", parameters: { clientId, entityType, entityId, ...(justificacion ? { justificacion } : {}), ...(approved ? { approved } : {}) } },
+        }),
+    ),
+    makeTool(
+      "lmtmSetBudget",
+      "SUBIR o BAJAR el presupuesto diario de una campaña (Meta y Google) o conjunto (solo Meta). Es la palanca para EMPUJAR lo que rinde, no sólo frenar lo que no. El monto va EN PESOS; el server convierte a la unidad de cada plataforma. Límites que aplica el server: máximo 30% de cambio por vez, una vez cada 24h por entidad, nunca por debajo de $1.000 (para apagar, usá lmtmPauseAdEntity). MUEVE plata: mandá 'justificacion' y el server deja la propuesta lista para aprobar con un click.",
+      z.object({
+        clientId: z.string().min(1),
+        entityType: z.enum(["campaign", "adset"]),
+        entityId: z.string().min(1),
+        nuevoDiario: z.number().positive().describe("Nuevo diario EN PESOS (no centavos ni micros)"),
+        justificacion: z.string().optional().describe("CPL, leads y gasto que justifican el cambio"),
+        approved: z.boolean().optional(),
+        ensayo: z.boolean().optional().describe("Valida contra la plataforma sin guardar"),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "set_budget", parameters: p },
+        }),
+    ),
+    makeTool(
+      "lmtmShiftBudget",
+      "MOVER presupuesto diario entre dos entidades del MISMO cliente: baja una y sube la otra por el mismo monto, en pesos. Es lo que corresponde cuando el gasto total no puede cambiar pero está mal repartido (un conjunto con CPL muy arriba del rubro y otro muy abajo). Valida las dos patas ANTES de escribir ninguna, y baja primero para que un fallo deje al cliente gastando de menos y no de más.",
+      z.object({
+        clientId: z.string().min(1),
+        desdeEntityType: z.enum(["campaign", "adset"]).optional(),
+        desdeEntityId: z.string().min(1).describe("De dónde se saca"),
+        haciaEntityType: z.enum(["campaign", "adset"]).optional(),
+        haciaEntityId: z.string().min(1).describe("A dónde va"),
+        monto: z.number().positive().describe("Cuánto mover por día, EN PESOS"),
+        justificacion: z.string().optional(),
+        approved: z.boolean().optional(),
+        ensayo: z.boolean().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "shift_budget", parameters: p },
+        }),
+    ),
+    makeTool(
+      "lmtmDuplicateWinner",
+      "DUPLICAR un conjunto de Meta que viene rindiendo, para escalarlo sin tocar el original. La copia NACE PAUSADA y con el MISMO presupuesto: arrancarla es una decisión humana aparte. El server verifica que de verdad sea un ganador antes de copiar (al menos 5 leads en 30 días y CPL igual o mejor que el promedio del RESTO de la cuenta del cliente); si no lo cumple te dice por qué y no copia. Una copia por conjunto por día, sólo Meta. A diferencia de las otras palancas, ésta NUNCA se ejecuta sola: crea algo que gasta, y lo creado no se deshace, se borra.",
+      z.object({
+        clientId: z.string().min(1),
+        adsetId: z.string().min(1).describe("ID del conjunto de Meta a duplicar"),
+        justificacion: z.string().optional().describe("Leads y CPL del conjunto contra el resto de la cuenta"),
+        approved: z.boolean().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "duplicate_winner", parameters: p },
         }),
     ),
     makeTool(

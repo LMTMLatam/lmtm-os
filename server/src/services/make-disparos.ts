@@ -30,7 +30,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { makeConfigured, makeListScenarios, makeScenarioLogs, MAX_LOGS_POR_LLAMADA } from "./make.js";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 
 /** Una corrida automática de un escenario. */
 export interface Disparo {
@@ -265,20 +265,25 @@ export async function revisarDisparos(): Promise<ResumenDisparos> {
  * autoposter genérico pisa a 28 clientes, 28 tareas tapan el tablero y esconden
  * que el arreglo es uno solo. Va un mensaje que nombra al escenario culpable.
  */
-export async function avisarDisparosRepetidos(_db: Db): Promise<{ rafagas: number; solapes: number; avisado: boolean; ciego: boolean }> {
+export async function avisarDisparosRepetidos(db: Db): Promise<{ rafagas: number; solapes: number; avisado: boolean; ciego: boolean }> {
   const { rafagas, solapes, sobran, ciego, fallados } = await revisarDisparos();
 
   // Que la API de Make no conteste NO es lo mismo que que no haya duplicados.
   // Si se calla acá, el detector queda en verde para siempre — que es justo el
   // modo de falla que este archivo existe para tapar.
   if (ciego) {
-    const numero = alertsNumber();
-    if (numero) {
-      await sendWhatsAppToNumber(numero, `*⚠️ No pude revisar Make*
+    // Nivel 3: "no pude mirar" no es un incidente, es una laguna. Digest.
+    {
+      await avisarAlEquipo(db, {
+        origen: "make-disparos",
+        nivel: 3,
+        clave: `make-ciego:${new Date().toISOString().slice(0, 10)}`,
+        texto: `*⚠️ No pude revisar Make*
 
-Ninguno de los ${fallados} escenarios devolvió su historial, así que hoy NO sé si hubo publicaciones duplicadas. No es que no haya: es que no pude mirar.`);
+Ninguno de los ${fallados} escenarios devolvió su historial, así que hoy NO sé si hubo publicaciones duplicadas. No es que no haya: es que no pude mirar.`,
+      });
     }
-    return { rafagas: 0, solapes: 0, avisado: !!numero, ciego: true };
+    return { rafagas: 0, solapes: 0, avisado: true, ciego: true };
   }
 
   if (!rafagas.length && !solapes.length) return { rafagas: 0, solapes: 0, avisado: false, ciego: false };
@@ -310,7 +315,12 @@ Ninguno de los ${fallados} escenarios devolvió su historial, así que hoy NO s�
   }
   linea.push("_Las corridas de Make figuran en verde igual: esto no se ve mirando el historial._");
 
-  const numero = alertsNumber();
-  if (numero) await sendWhatsAppToNumber(numero, linea.join("\n"));
-  return { rafagas: rafagas.length, solapes: solapes.length, avisado: !!numero, ciego: false };
+  // Nivel 4: una publicacion duplicada ya salio a la cara del cliente.
+  const r = await avisarAlEquipo(db, {
+    origen: "make-disparos",
+    nivel: 4,
+    clave: `duplicados:${[...rafagas, ...solapes].map((x) => x.escenarioId).sort().join(",")}`,
+    texto: linea.join("\n"),
+  });
+  return { rafagas: rafagas.length, solapes: solapes.length, avisado: r.estado === "enviado", ciego: false };
 }

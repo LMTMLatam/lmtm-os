@@ -2,7 +2,7 @@
 // que aparecer en la cola humana aunque nadie le haya puesto el prefijo, y uno
 // que nadie tocó en 21 días no puede quedarse abierto para siempre.
 import { describe, expect, it } from "vitest";
-import { DIAS_PARA_ESCALAR, DIAS_PARA_VENCER, necesitaPersona } from "../cola-humana.js";
+import { DIAS_PARA_ESCALAR, DIAS_PARA_VENCER, necesitaPersona, TOPE_VISIBLE, totalPlataParada } from "../cola-humana.js";
 
 describe("necesitaPersona", () => {
   it("reconoce lo que ya está marcado", () => {
@@ -42,5 +42,49 @@ describe("plazos", () => {
   // propósito y en todos lados.
   it("vence a los 21 días, igual que el resto de los paneles", () => {
     expect(DIAS_PARA_VENCER).toBe(21);
+  });
+});
+
+describe("totalPlataParada", () => {
+  // EL BUG QUE ESTE TEST NO AGARRABA, y por eso salio a produccion:
+  // `arsPorDia` es la plata parada DEL CLIENTE, pegada a cada una de sus filas
+  // para poder ordenar. El test viejo sumaba fila por fila y daba por buena esa
+  // suma — asi que confirmaba justo el error. En el panel real, las 7 tareas de
+  // MA PROPIEDADES hacian entrar sus $48.217 siete veces y el titular marcaba
+  // $998.136.
+  it("cuenta UNA vez por cliente, no una por tarea", () => {
+    const cola = [
+      { clientId: "ma-propiedades", arsPorDia: 48_217 },
+      { clientId: "ma-propiedades", arsPorDia: 48_217 },
+      { clientId: "ma-propiedades", arsPorDia: 48_217 },
+      { clientId: "dunod", arsPorDia: 12_000 },
+    ];
+    expect(totalPlataParada(cola)).toBe(48_217 + 12_000);
+  });
+
+  it("mas tareas del mismo cliente NO suben el total", () => {
+    const una = [{ clientId: "c1", arsPorDia: 10_000 }];
+    const diez = Array.from({ length: 10 }, () => ({ clientId: "c1", arsPorDia: 10_000 }));
+    expect(totalPlataParada(diez)).toBe(totalPlataParada(una));
+  });
+
+  it("suma toda la cola, no solo el tope visible", () => {
+    // Un cliente distinto por fila: aca si tienen que sumar todos.
+    const cola = Array.from({ length: TOPE_VISIBLE + 8 }, (_, i) => ({ clientId: `c${i}`, arsPorDia: 1_000 }));
+    expect(totalPlataParada(cola)).toBe((TOPE_VISIBLE + 8) * 1_000);
+    expect(totalPlataParada(cola.slice(0, TOPE_VISIBLE))).toBeLessThan(totalPlataParada(cola));
+  });
+
+  it("las filas que no se pueden tasar no rompen el total", () => {
+    expect(totalPlataParada([{ clientId: "a", arsPorDia: 43_000 }, {}, { clientId: "b", arsPorDia: 0 }])).toBe(43_000);
+  });
+
+  it("sin clientId no se puede deduplicar, asi que suma", () => {
+    // Es el lado seguro: subestimar la plata parada esconde el problema.
+    expect(totalPlataParada([{ arsPorDia: 5_000 }, { arsPorDia: 5_000 }])).toBe(10_000);
+  });
+
+  it("cola vacia es cero, no NaN", () => {
+    expect(totalPlataParada([])).toBe(0);
   });
 });

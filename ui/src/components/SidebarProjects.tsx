@@ -33,6 +33,7 @@ import {
   writeProjectSortMode,
 } from "../lib/project-order";
 import type { Project } from "@paperclipai/shared";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 type ProjectSidebarSlot = ReturnType<typeof usePluginSlots>["slots"][number];
 
@@ -107,7 +108,7 @@ function ProjectItem({
       >
         <span
           className="shrink-0 h-3.5 w-3.5 rounded-sm"
-          style={{ backgroundColor: project.color ?? "#6366f1" }}
+          style={{ backgroundColor: project.color ?? COLOR_SIN_ELEGIR }}
         />
         <span className="flex-1 truncate">{project.name}</span>
         {project.pauseReason === "budget" ? <BudgetSidebarMarker title="Project paused by budget" /> : null}

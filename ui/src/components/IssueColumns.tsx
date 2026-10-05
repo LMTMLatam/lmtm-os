@@ -19,6 +19,7 @@ import { cn } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
 import { Identity } from "./Identity";
 import { StatusIcon } from "./StatusIcon";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 export const issueTrailingColumns: InboxIssueColumn[] = ["assignee", "project", "workspace", "parent", "labels", "updated"];
 
@@ -274,7 +275,7 @@ export function InboxIssueTrailingColumns({
 
         if (column === "project") {
           if (projectName) {
-            const accentColor = projectColor ?? "#64748b";
+            const accentColor = projectColor ?? COLOR_SIN_ELEGIR;
             return (
               <span
                 key={column}

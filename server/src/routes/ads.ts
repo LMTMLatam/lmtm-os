@@ -46,7 +46,8 @@ import { adsAggregator } from "../services/ads/aggregator.js";
 import { withFreshAccessToken } from "../services/ads/token-refresh.js";
 import type { AdAccountSummary, AdSetSummary } from "../services/ads/types.js";
 import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecnicoContext, createClientReportTask, getRedesScheduledContent, getRedesCalendar, createRedesPost } from "../services/clickup-sync.js";
-import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief, alertsNumber } from "../services/agency-ops.js";
+import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, generateClientReport, runClientReports, runPortfolioBrief } from "../services/agency-ops.js";
+import { avisarAlEquipo } from "../services/wa-embudo.js";
 import { esPropuestaViva, resumirPropuesta } from "../services/propuestas-cliente.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
 import { getClientBrain, refreshClientBrain, upsertMemory } from "../services/customer-brain.js";
@@ -177,7 +178,39 @@ export function adsRoutes(db: Db): Router {
   // the prefixes this router actually serves — otherwise we'd reject anonymous
   // requests to public sibling routes. Adding a NEW top-level prefix to this
   // file means adding it here too.
-  const OWNED_PREFIXES = ["/clients", "/integrations", "/growth", "/ops"];
+  // VERIFICADO EL 5/10/26 CONTRA PRODUCCIÓN, no deducido del código: faltaban
+  // cuatro prefijos de este mismo router y los tres que existen respondían 200
+  // SIN autenticación, con datos reales:
+  //
+  //   /cartera              → los 59 clientes con nombre, inversión, leads y CPL
+  //   /dashboard            → el triage con nombres, salud y problemas por cliente
+  //   /clients-ads-metrics  → gasto, leads y CPL por cliente
+  //   /licitaciones         → la cartera de licitaciones
+  //
+  // El comentario de arriba ya avisaba que un prefijo nuevo hay que sumarlo acá.
+  // No alcanzó: el aviso está en el lugar correcto pero nada falla si se ignora,
+  // y el default de un prefijo no listado es QUEDAR ABIERTO. Por eso ahora hay
+  // un test que compara los prefijos reales del router contra esta lista
+  // (`__tests__/ads-prefijos-protegidos.test.ts`) y falla si aparece uno nuevo.
+  //
+  // OJO con el matcheo: es por segmento, así que "/clients" NO cubre
+  // "/clients-ads-metrics" — son dos prefijos distintos y van los dos.
+  const OWNED_PREFIXES = [
+    "/clients",
+    "/clients-ads-metrics",
+    "/integrations",
+    "/growth",
+    "/ops",
+    "/cartera",
+    "/dashboard",
+    "/licitaciones",
+    // El test de prefijos encontró éste, que las pruebas a mano no: `GET /hooks`
+    // da 404 (no existe), pero PATCH, DELETE y POST /hooks/:id sí existen y
+    // estaban abiertos. Eran tres rutas de ESCRITURA públicas — cualquiera podía
+    // editar o borrar los ganchos del baúl. Verificado que ningún router hermano
+    // sirva /hooks, así que cerrarlo no rompe ningún webhook.
+    "/hooks",
+  ];
   const isPublicAdsPath = (req: Request): boolean =>
     req.originalUrl.includes("/integrations/oauth/");
   router.use((req, _res, next) => {
@@ -874,12 +907,51 @@ export function adsRoutes(db: Db): Router {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
     const condition = isUuid ? eq(clients.id, idOrSlug) : eq(clients.slug, idOrSlug);
     const body = req.body ?? {};
-    if (!("industry" in body)) return res.status(400).json({ error: "nothing to update" });
-    const raw = typeof body.industry === "string" ? body.industry.trim() : "";
-    const [row] = await db.update(clients)
-      .set({ industry: raw.length ? raw : null, updatedAt: new Date() })
-      .where(condition).returning();
+    const tocaIndustry = "industry" in body;
+    const tocaDecisor = "decisor" in body;
+    if (!tocaIndustry && !tocaDecisor) return res.status(400).json({ error: "nothing to update" });
+
+    const cambios: Record<string, unknown> = { updatedAt: new Date() };
+
+    if (tocaIndustry) {
+      const raw = typeof body.industry === "string" ? body.industry.trim() : "";
+      cambios.industry = raw.length ? raw : null;
+    }
+
+    // El decisor vive en metadata, así que hay que leer lo que ya está: un
+    // `set` plano del jsonb pisaría cplObjetivo, notifyWhatsapp y todo lo demás
+    // que guarda ese mismo campo.
+    if (tocaDecisor) {
+      const [actual] = await db.select({ metadata: clients.metadata }).from(clients).where(condition).limit(1);
+      if (!actual) return res.status(404).json({ error: "client not found" });
+      const meta = { ...((actual.metadata as Record<string, unknown> | null) ?? {}) };
+      const d = body.decisor;
+      if (d === null) {
+        delete meta.decisor;
+      } else if (typeof d === "object") {
+        const campos = ["quien", "queLeImporta", "queLoFrena", "comoHablarle", "canal"] as const;
+        const limpio: Record<string, string> = {};
+        for (const c of campos) {
+          const v = (d as Record<string, unknown>)[c];
+          if (typeof v === "string" && v.trim()) limpio[c] = v.trim().slice(0, 500);
+        }
+        if (Object.keys(limpio).length === 0) delete meta.decisor;
+        else meta.decisor = limpio;
+      } else {
+        return res.status(400).json({ error: "decisor tiene que ser un objeto o null" });
+      }
+      cambios.metadata = meta;
+    }
+
+    const [row] = await db.update(clients).set(cambios).where(condition).returning();
     if (!row) return res.status(404).json({ error: "client not found" });
+
+    // El brain lo lee de acá, así que se refresca ya: si no, el agente sigue
+    // diciendo "NO CARGADO" hasta el próximo tick y el equipo cree que no sirvió.
+    if (tocaDecisor) {
+      const { refreshClientBrain } = await import("../services/customer-brain.js");
+      await refreshClientBrain(db, row.id).catch(() => {});
+    }
     res.json(row);
   });
 
@@ -2882,14 +2954,28 @@ export function adsRoutes(db: Db): Router {
     const [row] = await db.select().from(clients).where(condition);
     if (!row) return res.status(404).json({ error: "client not found" });
     const alerts = await generateClientAlerts(db, row.id);
-    const team = alertsNumber();
-    let delivery: { ok: boolean; error?: string } | null = null;
-    if (team && alerts.length > 0) {
+    let delivery: { estado: string; motivo?: string } | null = null;
+    if (alerts.length > 0) {
       const icon = (s: string) => (s === "critical" ? "🔴" : s === "warn" ? "🟠" : "🔵");
       const body = [`*Alertas — ${row.name}*`, "", ...alerts.map((a) => `${icon(a.severity)} *${a.title}*\n${a.description}\n→ ${a.recommendation}`)].join("\n");
-      delivery = await sendWhatsAppToNumber(team, body);
+      // Disparo MANUAL: alguien apreto el boton, tiene que salir. Nivel 5 (no
+      // tiene tope) y la clave lleva la hora para que el dedupe de 24h no
+      // bloquee un reenvio pedido a proposito. Igual queda registrado.
+      delivery = await avisarAlEquipo(db, {
+        origen: "alertas-cliente (manual)",
+        nivel: 5,
+        clave: `alertas-manual:${row.slug}:${Date.now()}`,
+        clientId: row.id,
+        texto: body,
+      });
     }
-    res.json({ client: row.slug, alerts, delivered: delivery?.ok ?? false, teamConfigured: !!team, deliveryError: delivery?.error ?? null });
+    res.json({
+      client: row.slug,
+      alerts,
+      delivered: delivery?.estado === "enviado",
+      teamConfigured: delivery?.estado !== "error",
+      deliveryError: delivery?.motivo ?? null,
+    });
   });
 
   // POST /api/clients/alerts/run-all — run the alert sweep across all clients.
@@ -2902,12 +2988,19 @@ export function adsRoutes(db: Db): Router {
   // to verify the WhatsApp gateway can deliver end-to-end. Optional body
   // { text } overrides the default test message.
   router.post("/clients/whatsapp/test", async (req, res) => {
-    const number = alertsNumber();
-    if (!number) return res.status(400).json({ ok: false, error: "LMTM_ALERTS_WHATSAPP / LMTM_TEAM_WHATSAPP no configurado" });
     const custom = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     const text = custom || `🔔 *LMTM-OS — mensaje de prueba*\nEl gateway de WhatsApp está funcionando. Las alertas de las cuentas llegarán a este número.\n\n${new Date().toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}`;
-    const r = await sendWhatsAppToNumber(number, text);
-    res.status(r.ok ? 200 : 502).json({ ...r, number });
+    // Prueba del gateway: nivel 5 + clave con timestamp, asi probar dos veces
+    // seguidas funciona de verdad en vez de caer en el dedupe.
+    const r = await avisarAlEquipo(db, {
+      origen: "prueba-gateway",
+      nivel: 5,
+      clave: `prueba:${Date.now()}`,
+      texto: text,
+    });
+    res
+      .status(r.estado === "enviado" ? 200 : 502)
+      .json({ ok: r.estado === "enviado", error: r.motivo ?? null, estado: r.estado });
   });
 
   // POST /api/clients/:id/report/run — generate + create this client's weekly report
@@ -3198,6 +3291,59 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
+  // La cartera entera, cruzada: cada cliente contra su rubro, contra su propio
+  // pasado y contra lo que se pierde por no actuar. microCache porque la tabla
+  // se abre a cada rato y el cálculo recorre todos los creativos.
+  router.get("/cartera", microCache(3 * 60_000), async (_req, res) => {
+    try {
+      const { cartera } = await import("../services/cartera.js");
+      res.json(await cartera(db));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // ── Embudo de WhatsApp ──────────────────────────────────────────────────
+  // El reporte con el que se decide qué apagar: cuánto mandó cada módulo y
+  // cuánto se descartó. Antes del embudo esto no se podía ni preguntar.
+  router.get("/ops/wa/ruido", async (req, res) => {
+    try {
+      const { reporteDeRuido } = await import("../services/wa-embudo.js");
+      const dias = Math.min(Math.max(Number(req.query.dias) || 7, 1), 90);
+      const filas = await reporteDeRuido(db, dias);
+      const porOrigen = new Map<string, Record<string, number>>();
+      for (const f of filas) {
+        const o = porOrigen.get(f.origen) ?? {};
+        o[f.estado] = f.n;
+        porOrigen.set(f.origen, o);
+      }
+      res.json({
+        dias,
+        total: filas.reduce((a, f) => a + f.n, 0),
+        porOrigen: [...porOrigen.entries()]
+          .map(([origen, estados]) => ({
+            origen,
+            estados,
+            total: Object.values(estados).reduce((a, b) => a + b, 0),
+          }))
+          .sort((a, b) => b.total - a.total),
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // Fuerza el digest ahora. El camino normal es que viaje pegado al brief de
+  // 8:00/18:00; esto es para probarlo y para vaciar la cola a mano.
+  router.post("/ops/wa/digest", async (_req, res) => {
+    try {
+      const { enviarDigest } = await import("../services/wa-embudo.js");
+      res.json(await enviarDigest(db));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   // Re-corre el vigilante de salud a demanda (además del tick diario) — útil
   // tras cambiar la fórmula o mapear cuentas, para refrescar el triage ya.
   router.post("/ops/vigilantes/salud/run", async (_req, res) => {
@@ -3221,7 +3367,7 @@ export function adsRoutes(db: Db): Router {
         // Cola humana: lo marcado [HUMANO] más todo lo que quedó bloqueado
         // esperando a una persona. Antes sólo entraba lo del prefijo y el
         // equipo veía 15 de 346 (revisión de flota 26/8/26).
-        colaHumana(db).catch(() => ({ filas: [], total: 0 })),
+        colaHumana(db).catch(() => ({ filas: [], total: 0, arsPorDiaTotal: 0 })),
         db.select({
           id: adsAlerts.id, severity: adsAlerts.severity, title: adsAlerts.title,
           clientId: adsAlerts.clientId, createdAt: adsAlerts.createdAt,
@@ -3257,6 +3403,9 @@ export function adsRoutes(db: Db): Router {
         },
         humanas: humanas.map(conCliente),
         humanasTotal: cola.total,
+        // Plata parada de TODA la cola: es el titular que convierte la lista en
+        // una decisión ("7 cosas esperando, $122.231 por día parados").
+        humanasArsPorDia: cola.arsPorDiaTotal,
         alertas: alertas.map(conCliente),
         serie: serie.map((s) => ({ date: String(s.date), spend: Number(s.spend), leads: s.leads })),
       });

@@ -77,9 +77,15 @@ function SidebarSectionHeader({
   const headerControlVisibilityClassName = isMobile
     ? "opacity-100"
     : "opacity-0 group-hover/sidebar-section:opacity-100 group-focus-within/sidebar-section:opacity-100";
+  // El caret va SIEMPRE visible, a diferencia del botón de acciones.
+  //
+  // Antes aparecía sólo al pasar el mouse, y alcanzaba porque las secciones
+  // venían abiertas: el caret era para cerrarlas, no para encontrarlas. Desde
+  // que el sidebar se ordenó en grupos cerrados, es la única puerta a 15
+  // destinos — una sección que dice "MÁS" sin ninguna señal de que se abre es
+  // una etiqueta muerta, y en touch no hay hover que la revele.
   const caretClassName = cn(
     "h-3 w-3 shrink-0 text-muted-foreground/60 transition-all",
-    headerControlVisibilityClassName,
     collapsible?.open && "rotate-90",
     menuOpen && "opacity-100",
   );

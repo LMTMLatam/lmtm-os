@@ -13,12 +13,10 @@ import {
   Repeat,
   GitBranch,
   Settings,
-  Users,
   Building2,
   Wallet,
   MessageCircle,
   Brain,
-  
   TrendingUp,
   Layers,
   Gavel,
@@ -37,14 +35,37 @@ import { heartbeatsApi } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
 import { useInboxBadge } from "../hooks/useInboxBadge";
+import { useSeccionAbierta } from "../hooks/useSeccionAbierta";
 import { Button } from "@/components/ui/button";
 import { PluginSlotOutlet } from "@/plugins/slots";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
 
+/**
+ * EL SIDEBAR TENÍA 22 PUERTAS.
+ *
+ * La sección "Company" sola llevaba 15 ítems planos, y arriba había otros 7.
+ * Nadie decide nada con 22 puertas: el panel se volvió un índice de todo lo que
+ * el sistema puede hacer en vez de un lugar donde ver qué hay que hacer hoy.
+ *
+ * Queda así:
+ *   · 6 destinos siempre visibles — los que se usan todos los días
+ *   · todo el resto adentro de dos grupos colapsados: "Más" (negocio) y
+ *     "Sistema" (el harness de agentes, que no es lo que mira el equipo)
+ *
+ * NO se borró ninguna ruta: todo sigue llegando al mismo lugar, sólo cambia
+ * cuántas cosas compiten por la atención al abrir el panel.
+ *
+ * Por qué 6 y no 5: Bandeja queda afuera del grupo colapsado porque es la
+ * ÚNICA entrada con indicador de error (corridas fallidas). Esconder el único
+ * semáforo rojo detrás de un click es justo la clase de decisión que después se
+ * paga con una cuenta caída que nadie vio.
+ */
 export function Sidebar() {
   const { openNewIssue } = useDialogActions();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const inboxBadge = useInboxBadge(selectedCompanyId);
+  const [masAbierto, setMasAbierto] = useSeccionAbierta("sidebar:mas", false);
+  const [sistemaAbierto, setSistemaAbierto] = useSeccionAbierta("sidebar:sistema", false);
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
     queryFn: () => instanceSettingsApi.getExperimental(),
@@ -73,8 +94,8 @@ export function Sidebar() {
           variant="ghost"
           size="icon-sm"
           className="text-muted-foreground shrink-0"
-          aria-label="Search"
-          title="Search"
+          aria-label="Buscar"
+          title="Buscar"
         >
           <NavLink to="/search">
             <Search className="h-4 w-4" />
@@ -90,17 +111,25 @@ export function Sidebar() {
             className="flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
           >
             <SquarePen className="h-4 w-4 shrink-0" />
-            <span className="truncate">New Issue</span>
+            <span className="truncate">Nuevo issue</span>
           </button>
-          <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+
+          {/* Los 6 de todos los días. "Hoy" es el centro de mando: lo que hay
+              que decidir, ordenado por lo que cuesta no hacerlo. */}
+          <SidebarNavItem to="/dashboard" label="Hoy" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem
             to="/inbox"
-            label="Inbox"
+            label="Bandeja"
             icon={Inbox}
             badge={inboxBadge.inbox}
             badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
             alert={inboxBadge.failedRuns > 0}
           />
+          <SidebarNavItem to="/clients" label="Clientes" icon={Building2} />
+          <SidebarNavItem to="/paid-media" label="Pauta" icon={Megaphone} />
+          <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
+          <SidebarNavItem to="/company/settings" label="Config" icon={Settings} />
+
           <PluginSlotOutlet
             slotTypes={["sidebar"]}
             context={pluginContext}
@@ -110,35 +139,35 @@ export function Sidebar() {
           />
         </div>
 
-        <SidebarSection label="Work">
+        {/* Negocio, pero no de todos los días. Cerrado por defecto. */}
+        <SidebarSection label="Más" collapsible={{ open: masAbierto, onOpenChange: setMasAbierto }}>
+          <SidebarNavItem to="/intelligence" label="Centro de Inteligencia" icon={Brain} />
+          <SidebarNavItem to="/growth" label="Growth" icon={TrendingUp} />
+          <SidebarNavItem to="/readiness" label="Readiness" icon={ClipboardCheck} />
+          <SidebarNavItem to="/niches" label="Nichos" icon={Layers} />
+          <SidebarNavItem to="/licitaciones" label="Licitaciones" icon={Gavel} />
+          <SidebarNavItem to="/finance" label="Finanzas" icon={Wallet} />
+          <SidebarNavItem to="/whatsapp" label="WhatsApp" icon={MessageCircle} />
+          <SidebarNavItem to="/costs" label="Costos" icon={DollarSign} />
+          <SidebarNavItem to="/activity" label="Actividad" icon={History} />
+        </SidebarSection>
+
+        {/* El harness de agentes. Es la maquinaria, no el trabajo de la agencia:
+            el equipo no necesita verla para hacer su día. */}
+        <SidebarSection
+          label="Sistema"
+          collapsible={{ open: sistemaAbierto, onOpenChange: setSistemaAbierto }}
+        >
           <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
-          <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
-          <SidebarNavItem to="/goals" label="Goals" icon={Target} />
+          <SidebarNavItem to="/routines" label="Rutinas" icon={Repeat} />
+          <SidebarNavItem to="/goals" label="Objetivos" icon={Target} />
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
           ) : null}
-        </SidebarSection>
-
-        <SidebarProjects />
-
-        <SidebarAgents />
-
-        <SidebarSection label="Company">
-          <SidebarNavItem to="/clients" label="Clients" icon={Building2} />
-          <SidebarNavItem to="/paid-media" label="Paid Media" icon={Megaphone} />
-          <SidebarNavItem to="/finance" label="Finanzas" icon={Wallet} />
-          <SidebarNavItem to="/growth" label="Growth" icon={TrendingUp} />
-          <SidebarNavItem to="/niches" label="Nichos" icon={Layers} />
-          <SidebarNavItem to="/licitaciones" label="Licitaciones" icon={Gavel} />
-          <SidebarNavItem to="/readiness" label="Readiness" icon={ClipboardCheck} />
-          <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
-          <SidebarNavItem to="/intelligence" label="Centro de Inteligencia" icon={Brain} />
-          <SidebarNavItem to="/whatsapp" label="WhatsApp" icon={MessageCircle} />
-          <SidebarNavItem to="/org" label="Org" icon={Network} />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
-          <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
-          <SidebarNavItem to="/activity" label="Activity" icon={History} />
-          <SidebarNavItem to="/company/settings" label="Settings" icon={Settings} />
+          <SidebarNavItem to="/org" label="Org" icon={Network} />
+          <SidebarProjects />
+          <SidebarAgents />
         </SidebarSection>
 
         <PluginSlotOutlet

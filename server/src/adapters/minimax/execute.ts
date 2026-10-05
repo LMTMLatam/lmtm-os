@@ -1,4 +1,5 @@
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
+import { esSobrecarga, MODELO_DE_RESPALDO, splitThinkBlock } from "@paperclipai/adapter-minimax-local/server";
 import { asString, asNumber, parseObject } from "../utils.js";
 import { DEFAULT_MODEL } from "./models.js";
 
@@ -45,7 +46,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const config = parseObject(ctx.config);
   const baseUrl = resolveBaseUrl(config).replace(/\/$/, "");
   const apiKey = resolveApiKey(config);
-  const model = resolveModel(config);
+  const modeloPedido = resolveModel(config);
+  // Puede cambiar si el preferido esta saturado: ver el fallback mas abajo.
+  let model = modeloPedido;
   const temperature = asNumber(config.temperature, 0.7);
   const maxTokens = asNumber(config.maxTokens, 1024);
   const timeoutMs = asNumber(config.timeoutMs, 60_000);
@@ -62,26 +65,34 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   const messages = buildMessages(ctx, config);
-  const payload = {
-    model,
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-  };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const response = await fetch(`${baseUrl}/text/chatcompletion_v2`, {
+  const pedir = (modelo: string) =>
+    fetch(`${baseUrl}/text/chatcompletion_v2`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ model: modelo, messages, temperature, max_tokens: maxTokens }),
       signal: controller.signal,
     });
+
+  try {
+    let response = await pedir(model);
+
+    // Fallback por saturacion, UNA sola vez. Solo los preview tienen respaldo:
+    // un modelo estable que devuelve 529 tiene un problema que conviene ver.
+    const respaldo = MODELO_DE_RESPALDO[model];
+    if (respaldo && esSobrecarga(response.status)) {
+      // El cambio se anuncia: un fallback silencioso cambia la calidad de lo que
+      // escribe el agente y nadie sabe por que.
+      await ctx.onLog("stderr", `[minimax] ${model} saturado (HTTP ${response.status}). Sigo con ${respaldo}.\n`);
+      model = respaldo;
+      response = await pedir(model);
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -110,7 +121,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       };
     }
 
-    const output = data.choices?.[0]?.message?.content ?? "";
+    // El <think> se saca acá también: MiniMax-M3 lo escribe DENTRO de content
+    // (medido 3 de 3 veces el 5/10/26) y este camino manda el content directo
+    // al stdout del run, que es de donde sale lo que el agente entrega.
+    const { content: output } = splitThinkBlock(data.choices?.[0]?.message?.content ?? "");
 
     await ctx.onLog("stdout", output || "<empty MiniMax response>\n");
 

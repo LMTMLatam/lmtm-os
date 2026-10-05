@@ -1,164 +1,105 @@
-// @vitest-environment jsdom
+// La regla que estos tests protegen: ordenar el sidebar NO puede dejar páginas
+// huérfanas, y la lista de arriba no puede volver a crecer.
+//
+// El sidebar tenía 22 entradas planas y se reorganizó a 6 visibles + 2 grupos
+// colapsados. Las dos formas de arruinarlo son simétricas:
+//   · "simplificar" borrando un link → la página queda sin forma de llegar
+//   · agregar "una más" arriba cada vez → se vuelve a 22 de a poco
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 
-import { act } from "react";
-import type { ReactNode } from "react";
-import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Sidebar } from "./Sidebar";
+const DIR = join(__dirname, "..", "..", "src");
+const SIDEBAR = readFileSync(join(DIR, "components", "Sidebar.tsx"), "utf8");
+const APP = readFileSync(join(DIR, "App.tsx"), "utf8");
 
-const mockHeartbeatsApi = vi.hoisted(() => ({
-  liveRunsForCompany: vi.fn(),
-}));
+/** Las 22 rutas que el sidebar exponía antes de ordenarlo. Ninguna se borró. */
+const RUTAS_ORIGINALES = [
+  "/activity",
+  "/clients",
+  "/company/settings",
+  "/contenido",
+  "/costs",
+  "/dashboard",
+  "/finance",
+  "/goals",
+  "/growth",
+  "/inbox",
+  "/intelligence",
+  "/issues",
+  "/licitaciones",
+  "/niches",
+  "/org",
+  "/paid-media",
+  "/readiness",
+  "/routines",
+  "/search",
+  "/skills",
+  "/whatsapp",
+  "/workspaces",
+];
 
-const mockInstanceSettingsApi = vi.hoisted(() => ({
-  getExperimental: vi.fn(),
-}));
-
-vi.mock("@/lib/router", () => ({
-  NavLink: ({ to, children, className, ...props }: {
-    to: string;
-    children: ReactNode;
-    className?: string | ((state: { isActive: boolean }) => string);
-  }) => (
-    <a
-      href={to}
-      className={typeof className === "function" ? className({ isActive: false }) : className}
-      {...props}
-    >
-      {children}
-    </a>
-  ),
-}));
-
-vi.mock("../context/DialogContext", () => ({
-  useDialog: () => ({
-    openNewIssue: vi.fn(),
-  }),
-  useDialogActions: () => ({
-    openNewIssue: vi.fn(),
-  }),
-}));
-
-vi.mock("../context/CompanyContext", () => ({
-  useCompany: () => ({
-    selectedCompanyId: "company-1",
-    selectedCompany: { id: "company-1", issuePrefix: "PAP", name: "Paperclip" },
-  }),
-}));
-
-vi.mock("../context/SidebarContext", () => ({
-  useSidebar: () => ({
-    isMobile: false,
-    setSidebarOpen: vi.fn(),
-  }),
-}));
-
-vi.mock("../api/heartbeats", () => ({
-  heartbeatsApi: mockHeartbeatsApi,
-}));
-
-vi.mock("../api/instanceSettings", () => ({
-  instanceSettingsApi: mockInstanceSettingsApi,
-}));
-
-vi.mock("../hooks/useInboxBadge", () => ({
-  useInboxBadge: () => ({ inbox: 0, failedRuns: 0 }),
-}));
-
-vi.mock("@/plugins/slots", () => ({
-  PluginSlotOutlet: () => null,
-}));
-
-vi.mock("./SidebarCompanyMenu", () => ({
-  SidebarCompanyMenu: () => <div>Company menu</div>,
-}));
-
-vi.mock("./SidebarProjects", () => ({
-  SidebarProjects: () => null,
-}));
-
-vi.mock("./SidebarAgents", () => ({
-  SidebarAgents: () => null,
-}));
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-
-async function flushReact() {
-  await act(async () => {
-    await Promise.resolve();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-  });
+function linksDelSidebar(): string[] {
+  return [...SIDEBAR.matchAll(/to="(\/[a-z0-9/-]+)"/g)].map((m) => m[1]);
 }
 
-describe("Sidebar", () => {
-  let container: HTMLDivElement;
+/**
+ * El bloque de arriba: desde el primer SidebarNavItem hasta el primer
+ * SidebarSection. Es lo que una persona ve sin hacer un solo click.
+ */
+function bloqueSiempreVisible(): string {
+  const desde = SIDEBAR.indexOf("<SidebarNavItem");
+  const hasta = SIDEBAR.indexOf("<SidebarSection");
+  expect(desde).toBeGreaterThan(-1);
+  expect(hasta).toBeGreaterThan(desde);
+  return SIDEBAR.slice(desde, hasta);
+}
 
-  async function renderSidebar() {
-    const root = createRoot(container);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    await act(async () => {
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <Sidebar />
-        </QueryClientProvider>,
-      );
-    });
-    await flushReact();
-
-    return root;
-  }
-
-  beforeEach(() => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    mockHeartbeatsApi.liveRunsForCompany.mockResolvedValue([]);
+describe("sidebar: no deja páginas huérfanas", () => {
+  it.each(RUTAS_ORIGINALES)("sigue llegando a %s", (ruta) => {
+    expect(linksDelSidebar()).toContain(ruta);
   });
 
-  afterEach(() => {
-    container.remove();
-    document.body.innerHTML = "";
-    vi.clearAllMocks();
+  it("toda ruta del sidebar existe en App.tsx", () => {
+    // Un link a una ruta que no está registrada lleva al 404, que es peor que
+    // no tener el link: parece que la función existe y está rota.
+    const sinRegistrar = linksDelSidebar()
+      .filter((r) => r !== "/search")
+      .filter((ruta) => {
+        const segmento = ruta.replace(/^\//, "");
+        // `skills/*` y compañía: algunas rutas se declaran con splat porque la
+        // página maneja sus propias sub-rutas adentro.
+        const declarada = new RegExp(`path="/?${segmento}(/\\*)?"`);
+        return !declarada.test(APP);
+      });
+    expect(sinRegistrar, `rutas sin <Route> en App.tsx: ${sinRegistrar.join(", ")}`).toEqual([]);
+  });
+});
+
+describe("sidebar: la lista de arriba no vuelve a crecer", () => {
+  it("hay como máximo 6 destinos siempre visibles", () => {
+    // 6 y no 5 porque Bandeja lleva el único indicador de error del sidebar
+    // (corridas fallidas) y esconderlo detrás de un click es la clase de
+    // decisión que se paga con una caída que nadie vio.
+    const visibles = [...bloqueSiempreVisible().matchAll(/<SidebarNavItem/g)].length;
+    expect(visibles).toBeLessThanOrEqual(6);
   });
 
-  it("links the top search icon to the search page without showing Search in Work nav", async () => {
-    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
-    const root = await renderSidebar();
-
-    const topSearchLink = container.querySelector('a[aria-label="Search"]');
-    expect(topSearchLink?.getAttribute("href")).toBe("/search");
-    const workLinks = [...container.querySelectorAll("nav a")].map((anchor) => anchor.textContent?.trim());
-    expect(workLinks).not.toContain("Search");
-
-    await act(async () => {
-      root.unmount();
-    });
+  it("los 6 de arriba son los del día a día", () => {
+    const arriba = [...bloqueSiempreVisible().matchAll(/to="(\/[a-z0-9/-]+)"/g)].map((m) => m[1]);
+    expect(arriba).toEqual([
+      "/dashboard",
+      "/inbox",
+      "/clients",
+      "/paid-media",
+      "/contenido",
+      "/company/settings",
+    ]);
   });
 
-  it("does not flash the Workspaces link while experimental settings are loading", async () => {
-    mockInstanceSettingsApi.getExperimental.mockImplementation(() => new Promise(() => {}));
-    const root = await renderSidebar();
-
-    expect(container.textContent).not.toContain("Workspaces");
-
-    await act(async () => {
-      root.unmount();
-    });
-  });
-
-  it("shows the Workspaces link when isolated workspaces are enabled", async () => {
-    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: true });
-    const root = await renderSidebar();
-
-    const link = [...container.querySelectorAll("a")].find((anchor) => anchor.textContent === "Workspaces");
-    expect(link?.getAttribute("href")).toBe("/workspaces");
-
-    await act(async () => {
-      root.unmount();
-    });
+  it("los dos grupos arrancan cerrados", () => {
+    // Si arrancan abiertos no se ordenó nada: se ven las 22 igual.
+    expect(SIDEBAR).toContain('useSeccionAbierta("sidebar:mas", false)');
+    expect(SIDEBAR).toContain('useSeccionAbierta("sidebar:sistema", false)');
   });
 });

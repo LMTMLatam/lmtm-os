@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 function buildInitialValues(variables: RoutineVariable[]) {
   return Object.fromEntries(variables.map((variable) => [variable.name, variable.defaultValue ?? ""]));
@@ -419,7 +420,7 @@ export function RoutineRunVariablesDialog({
                     <>
                       <span
                         className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: selectedProject.color ?? "#64748b" }}
+                        style={{ backgroundColor: selectedProject.color ?? COLOR_SIN_ELEGIR }}
                       />
                       <span className="truncate">{option.label}</span>
                     </>
@@ -434,7 +435,7 @@ export function RoutineRunVariablesDialog({
                     <>
                       <span
                         className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: project?.color ?? "#64748b" }}
+                        style={{ backgroundColor: project?.color ?? COLOR_SIN_ELEGIR }}
                       />
                       <span className="truncate">{option.label}</span>
                     </>

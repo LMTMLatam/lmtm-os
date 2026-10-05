@@ -17,7 +17,7 @@ import {
   resolvePaperclipDesiredSkillNames,
 } from "@paperclipai/adapter-utils/server-utils";
 import { parseMinimaxCompletion, describeMinimaxFailure } from "./parse.js";
-import { resolveApiKey, resolveBaseUrl, resolveModel } from "./models.js";
+import { esSobrecarga, MODELO_DE_RESPALDO, resolveApiKey, resolveBaseUrl, resolveModel } from "./models.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -159,7 +159,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const config = (ctx.config ?? {}) as Record<string, unknown>;
   const baseUrl = resolveBaseUrl(asString(config.baseUrl));
   const apiKey = resolveApiKey(asString(config.apiKey));
-  const model = resolveModel(asString(config.model));
+  const modeloPedido = resolveModel(asString(config.model));
+  // Puede cambiar en vuelo si el preferido esta saturado: ver el fallback mas abajo.
+  let model = modeloPedido;
   const temperature = asNumber(config.temperature, 0.7);
   const maxTokens = asNumber(config.maxTokens, 4096);
   const topP = asNumber(config.topP, 0.95);
@@ -296,9 +298,31 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   let finalText = "";
   let toolCallCount = 0;
 
+  // Se cae al modelo de respaldo UNA sola vez por corrida. Si el respaldo
+  // tambien esta saturado, es una caida de MiniMax y hay que verla, no seguir
+  // bajando de modelo hasta que conteste cualquier cosa.
+  let yaCayoAlRespaldo = false;
+
   try {
     for (let iter = 0; ; iter++) {
-      const { response, raw } = await callMiniMax(convo);
+      let { response, raw } = await callMiniMax(convo);
+      let baseResp = (raw.base_resp ?? {}) as { status_code?: number; status_msg?: string };
+
+      const respaldo = MODELO_DE_RESPALDO[model];
+      if (!yaCayoAlRespaldo && respaldo && esSobrecarga(response.status, baseResp.status_code)) {
+        // El cambio de modelo se ANUNCIA. Un fallback silencioso cambia la
+        // calidad de lo que escribe el agente y nadie sabe por que: el equipo
+        // ve un entregable peor y lo lee como que el agente empeoro.
+        await ctx.onLog(
+          "stderr",
+          `[minimax] ${model} saturado (HTTP ${response.status}${baseResp.status_code ? `, upstream ${baseResp.status_code}` : ""}). Sigo con ${respaldo}.\n`,
+        );
+        model = respaldo;
+        yaCayoAlRespaldo = true;
+        ({ response, raw } = await callMiniMax(convo));
+        baseResp = (raw.base_resp ?? {}) as { status_code?: number; status_msg?: string };
+      }
+
       if (!response.ok) {
         return {
           exitCode: 1, signal: null, timedOut: false,
@@ -307,7 +331,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           sessionParams: { ...session, messages: convo },
         };
       }
-      const baseResp = (raw.base_resp ?? {}) as { status_code?: number; status_msg?: string };
       if (typeof baseResp.status_code === "number" && baseResp.status_code !== 0) {
         return {
           exitCode: 1, signal: null, timedOut: false,

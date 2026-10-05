@@ -17,8 +17,14 @@ const DAY = 86_400_000;
 /** Toda acción de escritura que la flota ejecuta se mide igual: qué le pasó al
  *  CPL del cliente en la semana siguiente. Cuando se sumó la escritura en
  *  Google (negativas y pausa de keywords) esas acciones quedaron sin evaluar —
- *  o sea que la capacidad más nueva era la única sin feedback. */
-export const KINDS_EVALUABLES = ["pause_ad_entity", "add_negative_keywords", "pause_keywords"] as const;
+ *  o sea que la capacidad más nueva era la única sin feedback.
+ *
+ *  `set_budget` entra con el MISMO criterio y no con uno propio: la vara no es
+ *  "bajó el gasto" (que daría por fracasada toda suba de presupuesto) sino "qué
+ *  le pasó al CPL del cliente", y eso aplica igual cuando se empuja que cuando
+ *  se frena. Subirle el presupuesto a un conjunto que rinde tiene que dejar el
+ *  CPL igual o mejor; si lo empeora, la decisión estuvo mal. */
+export const KINDS_EVALUABLES = ["pause_ad_entity", "add_negative_keywords", "pause_keywords", "set_budget"] as const;
 
 interface PauseOutcome {
   entitySpend7dBefore: number;
@@ -104,10 +110,22 @@ export async function evaluatePauseOutcomes(db: Db): Promise<{ evaluated: number
       const verdictTxt = { improved: "MEJORÓ", neutral: "quedó igual", worse: "EMPEORÓ", insufficient_data: "sin datos suficientes para evaluar" }[verdict];
       const companyId = await resolveCompanyId(db, action.clientId);
       if (companyId) {
+        // La narrativa y la clave estaban cableadas a "pausa". Con set_budget en
+        // la lista, un cambio de presupuesto se habría guardado en el brain como
+        // "Resultado de la pausa de..." y habría pisado la memoria de la pausa
+        // real de esa misma entidad, porque compartían la clave.
+        const det = action.detail as { anterior?: number; nuevo?: number } | null;
+        const esPresupuesto = action.kind === "set_budget";
+        const queSeHizo = esPresupuesto
+          ? `del cambio de presupuesto de ${action.entityType} "${name}" ($${Math.round(det?.anterior ?? 0)} → $${Math.round(det?.nuevo ?? 0)} por día)`
+          : `de la pausa de ${action.entityType} "${name}"`;
+        const contexto = esPresupuesto
+          ? ""
+          : ` La entidad venía gastando $${outcome.entitySpend7dBefore} con ${outcome.entityLeads7dBefore} leads en su última semana.`;
         await upsertMemory(db, {
           companyId, clientId: action.clientId, kind: "performance",
-          key: `pausa-${action.entityId}`,
-          content: `Resultado de la pausa de ${action.entityType} "${name}" (${dPause}): la entidad venía gastando $${outcome.entitySpend7dBefore} con ${outcome.entityLeads7dBefore} leads en su última semana. CPL del cliente: $${outcome.clientCplBefore ?? "?"} antes → $${outcome.clientCplAfter ?? "?"} después (${verdictTxt}). CTR: ${outcome.clientCtrBefore}% → ${outcome.clientCtrAfter}%.`,
+          key: `${esPresupuesto ? "presupuesto" : "pausa"}-${action.entityId}`,
+          content: `Resultado ${queSeHizo} (${dPause}).${contexto} CPL del cliente: $${outcome.clientCplBefore ?? "?"} antes → $${outcome.clientCplAfter ?? "?"} después (${verdictTxt}). CTR: ${outcome.clientCtrBefore}% → ${outcome.clientCtrAfter}%.`,
           source: "action-outcomes",
         }).catch(() => {});
       }

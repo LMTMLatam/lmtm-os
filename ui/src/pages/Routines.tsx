@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import type { RoutineListItem, RoutineVariable } from "@paperclipai/shared";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
@@ -744,7 +745,7 @@ export function Routines() {
                         <>
                           <span
                             className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                            style={{ backgroundColor: currentProject.color ?? "#64748b" }}
+                            style={{ backgroundColor: currentProject.color ?? COLOR_SIN_ELEGIR }}
                           />
                           <span className="truncate">{option.label}</span>
                         </>
@@ -759,7 +760,7 @@ export function Routines() {
                         <>
                           <span
                             className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                            style={{ backgroundColor: project?.color ?? "#64748b" }}
+                            style={{ backgroundColor: project?.color ?? COLOR_SIN_ELEGIR }}
                           />
                           <span className="truncate">{option.label}</span>
                         </>

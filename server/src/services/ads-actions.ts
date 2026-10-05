@@ -1,15 +1,28 @@
 // LMTM-OS: write actions against the ad platforms (the "agents act, not just
-// propose" loop). Las palancas soportadas son las que BAJAN o REDIRIGEN gasto,
-// nunca las que lo suben:
+// propose" loop).
+//
 //   - PAUSE de campaña o conjunto (Meta y Google)
 //   - palabras clave negativas a nivel campaña (Google)
 //   - pausar keywords que gastan sin convertir (Google)
+//   - PRESUPUESTO diario: subir, bajar o mover entre entidades (Meta y Google)
+//
+// EL PRESUPUESTO ROMPE LA REGLA VIEJA, A PROPÓSITO.
+// Hasta el 5/10/26 este archivo decía "las palancas soportadas son las que BAJAN
+// o REDIRIGEN gasto, nunca las que lo suben". Esa regla dejaba al sistema con un
+// solo movimiento posible: frenar. Podía apagar lo que andaba mal y no podía
+// empujar lo que andaba bien, así que todo lo que movía el número de verdad
+// terminaba como una tarea para una persona — y esas tareas se apilaban en una
+// cola que nadie miraba. Subir presupuesto entra ahora con guards propios
+// (tope de paso, cooldown, ensayo), no sin ellos.
 //
 // Guards enforced in code (a prompt can't bypass them):
 //  - the entity must belong to the given client (looked up in our synced
 //    ads_campaigns / ads_adsets), so an agent can never touch another client's
 //    account or a made-up id;
-//  - nunca reanudar, crear, subir presupuesto ni borrar por este camino;
+//  - nunca reanudar, crear ni borrar por este camino;
+//  - el presupuesto se mueve como máximo PASO_MAXIMO por vez y una vez por día
+//    por entidad: un agente que sube 30% en cada corrida multiplica por diez en
+//    un día sin que ninguna corrida parezca equivocada;
 //  - the caller must pass approved=true (human sign-off), same pattern as the
 //    CRM proxy;
 //  - no se puede negativizar la propia marca del cliente. Sin este guard la

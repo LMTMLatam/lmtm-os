@@ -911,6 +911,13 @@
       "when": 1781800000021,
       "tag": "0129_client_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1781800000022,
+      "tag": "0130_wa_outbox",
+      "breakpoints": true
     }
   ]
 }

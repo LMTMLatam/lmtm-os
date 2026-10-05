@@ -69,6 +69,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { ProductosTab } from "@/components/ProductosTab";
+import { DecisorCard } from "@/components/DecisorCard";
 import { waBotApi } from "../api/waBot";
 import { api } from "../api/client";
 
@@ -962,6 +963,10 @@ function MemoriaTab({ client }: { client: Client }) {
       </div>
 
       <AddBrainNote client={client} onSaved={() => qc.invalidateQueries({ queryKey: ["client", client.slug, "intel"] })} />
+
+      {/* Va antes que el perfil de video: a quién le hablamos manda sobre qué
+          formato usamos, y es lo primero que alguien tiene que poder cargar. */}
+      <DecisorCard client={client} />
 
       <VideoProfile client={client} />
 

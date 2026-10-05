@@ -57,6 +57,35 @@ export async function hasMemory(db: Db, clientId: string, key: string): Promise<
  * ideas/reportes/oportunidades (detectado 2026-07-07). */
 const KIND_WEIGHT: Record<string, number> = { context: 0, fact: 1, preference: 2, decision: 3, performance: 4, event: 5, risk: 6 };
 
+/**
+ * Debajo de esta confianza, una memoria es un SUPUESTO y no un hecho.
+ *
+ * El caso que lo motivó: un cliente sin referencias propias recibe un perfil
+ * "derivado del NICHO" con confidence 0.6 (ver más abajo). El texto decía de
+ * dónde salía, pero `getBrainContext` armaba la línea como `- [preference] …`
+ * y TIRABA la confianza — así que al agente le llegaba exactamente igual que un
+ * dato medido del cliente. De ahí salió un agente hablando de una inmobiliaria
+ * para un cliente que no lo era.
+ */
+export const UMBRAL_CERTEZA = 0.7;
+
+/** La advertencia que convierte el marcador en una instrucción. */
+export const AVISO_SUPUESTOS =
+  "ATENCIÓN: las líneas marcadas SUPUESTO no están verificadas contra datos de ESTE cliente " +
+  "(se derivaron de sus pares de rubro o de una fuente indirecta). No las afirmes como propias " +
+  "del cliente, no las uses en nada que vea el cliente sin confirmarlas, y si una te cambia la " +
+  "decisión, verificala o decí que falta ese dato.";
+
+/** ¿Esta memoria es un supuesto? Pura: `confidence` viaja como texto desde la DB. */
+export function esSupuesto(confidence: unknown): boolean {
+  const n = typeof confidence === "number" ? confidence : Number.parseFloat(String(confidence ?? ""));
+  // Sin confianza legible se asume lo seguro: tratarlo como supuesto obliga a
+  // verificar, y el costo de verificar de más es mucho menor que el de afirmar
+  // de menos.
+  if (!Number.isFinite(n)) return true;
+  return n < UMBRAL_CERTEZA;
+}
+
 export async function getBrainContext(db: Db, clientId: string, maxChars = 2500): Promise<string> {
   const rows = await getClientBrain(db, clientId);
   if (rows.length === 0) return "";
@@ -70,15 +99,82 @@ export async function getBrainContext(db: Db, clientId: string, maxChars = 2500)
   // resumido y siguen quedando ~60% para feedback, review, notas y performance.
   const perLineCap = Math.max(800, Math.floor(maxChars * 0.4));
   let out = "";
+  let huboSupuestos = false;
   for (const r of ordered) {
     const room = maxChars - out.length;
     if (room < 80) break; // no queda espacio útil
-    let line = `- [${r.kind}] ${r.content}`;
+    const supuesto = esSupuesto(r.confidence);
+    if (supuesto) huboSupuestos = true;
+    // El marcador va en la línea y no en un bloque aparte: una advertencia al
+    // pie se pierde cuando el contexto se recorta, y es justo el recorte el que
+    // deja al supuesto suelto y sin su aclaración.
+    let line = `- [${r.kind}]${supuesto ? " SUPUESTO:" : ""} ${r.content}`;
     const cap = Math.min(perLineCap, room);
     if (line.length > cap) line = line.slice(0, cap - 1) + "…";
     out += (out ? "\n" : "") + line;
   }
-  return out;
+  // El aviso va ARRIBA: si el contexto se corta por presupuesto, lo que
+  // sobrevive es la instrucción, no la última memoria.
+  return huboSupuestos ? `${AVISO_SUPUESTOS}\n\n${out}` : out;
+}
+
+/**
+ * Quién decide del otro lado. Lo carga una persona: no se deriva de ningún dato.
+ */
+export interface Decisor {
+  /** Nombre y, si se sabe, el cargo. */
+  quien?: string;
+  /** Qué mueve su decisión: leads, facturación, prestigio, tranquilidad. */
+  queLeImporta?: string;
+  /** Qué lo frena: presupuesto, miedo al cambio, un socio, una mala experiencia. */
+  queLoFrena?: string;
+  /** Registro: formal, directo, con números, con ejemplos visuales. */
+  comoHablarle?: string;
+  /** Por dónde se le llega: WhatsApp, mail, reunión. */
+  canal?: string;
+}
+
+const CAMPOS_DECISOR: Array<[keyof Decisor, string]> = [
+  ["quien", "Quién decide"],
+  ["queLeImporta", "Qué le importa"],
+  ["queLoFrena", "Qué lo frena"],
+  ["comoHablarle", "Cómo hablarle"],
+  ["canal", "Canal"],
+];
+
+/** Lee el decisor de `clients.metadata`, tolerando que no esté o esté a medias. */
+export function leerDecisor(metadata: unknown): Decisor | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const d = (metadata as { decisor?: unknown }).decisor;
+  if (typeof d !== "object" || d === null) return null;
+  const out: Decisor = {};
+  for (const [campo] of CAMPOS_DECISOR) {
+    const v = (d as Record<string, unknown>)[campo];
+    if (typeof v === "string" && v.trim()) out[campo] = v.trim();
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * El decisor como se lo lee un agente — incluido el caso en que no está.
+ *
+ * El texto del hueco dice qué hacer, no sólo que falta: "no está cargado" se
+ * lee como permiso para improvisar, y "no inventes, pedilo" no.
+ */
+export function textoDeDecisor(d: Decisor | null): string {
+  if (!d) {
+    return (
+      "Decisor: NO CARGADO. No sabés quién decide de este lado ni qué le importa. " +
+      "No inventes un perfil ni le escribas a un destinatario genérico: si lo que estás " +
+      "por entregar depende de a quién le habla, decilo y pedí que lo carguen."
+    );
+  }
+  const partes = CAMPOS_DECISOR.filter(([campo]) => d[campo]).map(([campo, etiqueta]) => `${etiqueta}: ${d[campo]}`);
+  const faltan = CAMPOS_DECISOR.filter(([campo]) => !d[campo]).map(([, etiqueta]) => etiqueta);
+  const base = `Decisor — ${partes.join(" · ")}. Todo lo que escribas para este cliente le habla a esta persona.`;
+  // Lo que falta se nombra: media ficha completada en silencio invita a rellenar
+  // el resto a ojo.
+  return faltan.length > 0 ? `${base} (Sin cargar todavía: ${faltan.join(", ")} — no lo supongas.)` : base;
 }
 
 /** Derive/refresh memory entries for a client from its current signals. */
@@ -96,6 +192,24 @@ export async function refreshClientBrain(db: Db, clientId: string): Promise<{ up
     await upsertMemory(db, { companyId, clientId, kind: "fact", key: "identity", content: identity, source: "client", pinned: true });
     updated++;
   }
+
+  // A QUIÉN le habla todo lo que se escribe para este cliente.
+  //
+  // No existía. Los agentes producían copy, planes y reportes sin saber quién
+  // decide del otro lado ni qué le importa, así que le hablaban a nadie en
+  // particular. Lo carga una persona porque esa info sólo la tiene el equipo:
+  // no se puede derivar de la pauta ni del orgánico.
+  //
+  // Cuando NO está cargado se escribe igual, diciendo que falta. Es deliberado:
+  // el hueco tiene que ser visible, porque un agente que no sabe a quién le
+  // habla y tampoco sabe que no sabe, se inventa un interlocutor — que es
+  // exactamente el problema de los supuestos de más arriba.
+  await upsertMemory(db, {
+    companyId, clientId, kind: "fact", key: "decisor",
+    content: textoDeDecisor(leerDecisor(client.metadata)),
+    source: "client", confidence: 0.95, pinned: true,
+  });
+  updated++;
 
   // Enfoque Técnico context (the client's networks/strategy doc).
   try {
@@ -142,7 +256,7 @@ export async function refreshClientBrain(db: Db, clientId: string): Promise<{ up
         .innerJoin(clients, eq(videoReferences.clientId, clients.id))
         .where(and(eq(clients.industry, client.industry), eq(clients.status, "active")));
       profile = tally(nicheRows);
-      origen = `derivado del NICHO "${client.industry}" (${profile?.n ?? 0} referencias de sus pares — el cliente no tiene propias; cargar referencias afina el perfil)`;
+      origen = `SUPUESTO derivado del NICHO "${client.industry}" (${profile?.n ?? 0} referencias de sus pares — ESTE cliente no tiene propias, así que esto NO describe al cliente sino a su rubro; cargar referencias afina el perfil)`;
     }
     if (profile) {
       const content = `Perfil de videos (${origen}): ` +
@@ -151,6 +265,28 @@ export async function refreshClientBrain(db: Db, clientId: string): Promise<{ up
         `Las ideas de video para Super Redes deben seguir este perfil (indicar tipo + concepto en el copy).`;
       await upsertMemory(db, { companyId, clientId, kind: "preference", key: "video-profile", content, source: "video-references", confidence: own ? 0.9 : 0.6, pinned: true });
       updated++;
+
+      // Si el perfil es prestado del rubro, alguien tiene que confirmar que el
+      // rubro sea el correcto: ese campo es el que decide de QUIÉN se copia el
+      // perfil, y si está mal el agente hereda la persona de otro negocio.
+      // Va por intervenciones, que es el canal que ya alimenta el Centro de
+      // Inteligencia y el brief, y que deduplica solo por clave.
+      if (!own) {
+        const { recordIntervention } = await import("./vigilantes.js");
+        await recordIntervention(db, {
+          vigilante: "brain",
+          kind: "tarea",
+          level: 3,
+          clientId,
+          title: `Confirmar el rubro de ${client.name}: su perfil está prestado del nicho`,
+          body:
+            `${client.name} no tiene referencias propias cargadas, así que su perfil de contenido se derivó ` +
+            `del rubro "${client.industry}". Todo lo que los agentes propongan para este cliente sale de ahí.\n\n` +
+            `Dos cosas, cualquiera de las dos alcanza: confirmar que "${client.industry}" es el rubro correcto, ` +
+            `o cargarle referencias propias (es lo que de verdad afina el perfil).`,
+          dedupeKey: `brain:rubro-sin-confirmar:${clientId}`,
+        }).catch(() => {});
+      }
     }
   } catch { /* sin referencias no hay perfil */ }
 

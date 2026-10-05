@@ -15,7 +15,8 @@
 import type { Db } from "@paperclipai/db";
 import { agents, companies, issues } from "@paperclipai/db";
 import { and, desc, eq, gte, ilike, inArray, ne } from "drizzle-orm";
-import { aiNarrative, alertsNumber, sendWhatsAppToNumber } from "./agency-ops.js";
+import { aiNarrative } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 import { issueService } from "./issues.js";
 import { resolveTriageOwnerId } from "./client-tasks.js";
 import { heartbeatService } from "./heartbeat.js";
@@ -170,9 +171,6 @@ export async function runRoundtableFollowup(db: Db): Promise<{ sent: boolean; ro
   const open = proposals.filter((p) => p.status === "todo" || p.status === "backlog" || p.status === "blocked").length;
   const cancelled = proposals.filter((p) => p.status === "cancelled").length;
 
-  const team = alertsNumber();
-  if (!team) return { sent: false, roundtables: rts.length, proposals: proposals.length };
-
   const closing = proposals.length > 0 && done + inProgress === 0
     ? "⚠️ Ninguna propuesta avanzó — las mesas están quedando en charla. Asignar y ejecutar."
     : "_LMTM-OS · seguimiento automático de la mesa redonda_";
@@ -188,8 +186,18 @@ export async function runRoundtableFollowup(db: Db): Promise<{ sent: boolean; ro
     closing,
   ].filter(Boolean).join("\n");
 
-  const res = await sendWhatsAppToNumber(team, body).catch(() => ({ ok: false }));
-  return { sent: !!res.ok, roundtables: rts.length, proposals: proposals.length };
+  // Nivel 2: el seguimiento de la mesa es lectura, no accion inmediata. Digest.
+  const res = await avisarAlEquipo(db, {
+    origen: "mesa-redonda",
+    nivel: 2,
+    clave: `mesa-seguimiento:${new Date().toISOString().slice(0, 7)}`,
+    texto: body,
+  }).catch(() => ({ estado: "error" as const }));
+  return {
+    sent: res.estado === "enviado" || res.estado === "pendiente",
+    roundtables: rts.length,
+    proposals: proposals.length,
+  };
 }
 
 let roundtableTimer: ReturnType<typeof setInterval> | null = null;

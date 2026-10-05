@@ -42,6 +42,7 @@ import { normalizeMarkdown } from "../lib/normalize-markdown";
 import { pasteNormalizationPlugin } from "../lib/paste-normalization";
 import { cn } from "../lib/utils";
 import { useEditorAutocomplete, type SkillCommandOption } from "../context/EditorAutocompleteContext";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 /* ---- Mention types ---- */
 
@@ -1261,7 +1262,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
                 ) : option.kind === "project" && option.projectId ? (
                   <span
                     className="inline-flex h-2 w-2 rounded-full border border-border/50"
-                    style={{ backgroundColor: option.projectColor ?? "#64748b" }}
+                    style={{ backgroundColor: option.projectColor ?? COLOR_SIN_ELEGIR }}
                   />
                 ) : option.kind === "user" ? (
                   <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

@@ -124,3 +124,20 @@ describe("permisos normalizados", () => {
     });
   });
 });
+
+describe('las palancas de plata son acción, nunca consulta', () => {
+  // Un agente en modo consulta NO puede mover plata de un cliente. La
+  // clasificación sale de una heurística de prefijo, así que un nombre nuevo que
+  // empezara con get_/list_ se colaría como lectura sin que nadie lo note.
+  it.each([
+    'set_budget',
+    'shift_budget',
+    'pause_ad_entity',
+    'add_negative_keywords',
+    'pause_keywords_google',
+  ])('%s es de acción', (tool) => {
+    expect(esDeAccion(tool)).toBe(true);
+    expect(puedeUsar('consulta', tool)).toBe(false);
+    expect(puedeUsar('accion', tool)).toBe(true);
+  });
+});

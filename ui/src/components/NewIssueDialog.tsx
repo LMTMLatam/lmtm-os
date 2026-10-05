@@ -106,6 +106,7 @@ import {
   ISSUE_OVERRIDE_ADAPTER_TYPES,
   type IssueModelLane,
 } from "../lib/issue-assignee-overrides";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 const STAGED_FILE_ACCEPT = "image/*,application/pdf,text/plain,text/markdown,application/json,text/csv,text/html,.md,.markdown";
 
@@ -1407,7 +1408,7 @@ export function NewIssueDialog() {
                     <>
                       <span
                         className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: currentProject.color ?? "#6366f1" }}
+                        style={{ backgroundColor: currentProject.color ?? COLOR_SIN_ELEGIR }}
                       />
                       <span className="truncate">{option.label}</span>
                     </>
@@ -1422,7 +1423,7 @@ export function NewIssueDialog() {
                     <>
                       <span
                         className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: project?.color ?? "#6366f1" }}
+                        style={{ backgroundColor: project?.color ?? COLOR_SIN_ELEGIR }}
                       />
                       <span className="truncate">{option.label}</span>
                     </>

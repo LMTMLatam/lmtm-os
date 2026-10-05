@@ -13,8 +13,16 @@ export const label = "MiniMax M3 (LMTM-OS default)";
 // NOTE: MiniMax-M3 has NO "-highspeed" variant on the API (verified via
 // GET /v1/models). Listing or selecting "MiniMax-M3-highspeed" makes MiniMax
 // reject the whole request with 2013 "unknown model". Only offer real ids.
+//
+// MiniMax-M3.1-Flash-Preview NO aparece en GET /v1/models (los preview no se
+// listan) pero responde: verificado el 5/10/26 contra api.minimax.io con una
+// chat-completion real. Por eso va en esta lista estatica — `listMinimaxModels`
+// nunca lo va a descubrir solo. Medido contra M3 en el mismo banco: 3,9s vs
+// 6,2s de latencia, la mitad de tokens de salida, voseo correcto y 0 fugas de
+// <think>, contra 3 de 3 en M3.
 export const models = [
-  { id: "MiniMax-M3", label: "MiniMax M3 (default)" },
+  { id: "MiniMax-M3.1-Flash-Preview", label: "MiniMax M3.1 Flash (preview, recomendado)" },
+  { id: "MiniMax-M3", label: "MiniMax M3" },
   { id: "MiniMax-M2.7", label: "MiniMax M2.7" },
   { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7 (highspeed)" },
   { id: "MiniMax-M2.5", label: "MiniMax M2.5" },

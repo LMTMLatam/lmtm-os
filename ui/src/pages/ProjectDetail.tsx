@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 /* ── Top-level tab types ── */
 
@@ -656,7 +657,7 @@ export function ProjectDetail() {
           ) : null}
           {project.managedByPlugin ? (
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: project.color ?? "#6366f1" }} />
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: project.color ?? COLOR_SIN_ELEGIR }} />
               Managed by {project.managedByPlugin.pluginDisplayName}
             </div>
           ) : null}

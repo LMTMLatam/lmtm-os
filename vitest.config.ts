@@ -12,6 +12,9 @@ export default defineConfig({
       "packages/adapters/cursor-cloud",
       "packages/adapters/cursor-local",
       "packages/adapters/gemini-local",
+      // minimax-local es el adapter de los 14 agentes de LMTM y no estaba en
+      // esta lista: sus tests existian en el repo y nunca corrian.
+      "packages/adapters/minimax-local",
       "packages/adapters/opencode-local",
       "packages/adapters/pi-local",
       "packages/mcp-servers/google",

@@ -16,6 +16,66 @@ import { cotizadoVsRealizado } from "./cotizado.js";
 
 export type Semaforo = "rojo" | "amarillo" | "verde";
 
+/**
+ * ¿El cumplimiento está midiendo, o está ciego?
+ *
+ * Se cuenta contra piezas de ClickUp etiquetadas, y esa etiqueta ya nos mintió
+ * antes ("mandado a make" daba por publicado lo que no salía). Cuando la
+ * etiqueta no se pone, trabajo real cuenta como cero, y ese cero no distingue
+ * "no se hizo nada" de "no pudimos medir".
+ *
+ * El síntoma de ceguera es sistémico, no individual: si media cartera marca 0%,
+ * lo que falla es el contador, no treinta clientes a la vez.
+ */
+export const MINIMO_PARA_JUZGAR = 5;
+export const FRACCION_CIEGA = 0.4;
+
+export function cumplimientoEstaCiego(valores: Array<number | null>): boolean {
+  const medidos = valores.filter((v): v is number => v != null);
+  if (medidos.length < MINIMO_PARA_JUZGAR) return false;
+  return medidos.filter((v) => v === 0).length / medidos.length >= FRACCION_CIEGA;
+}
+
+export interface SenalesCliente {
+  salud: number | null;
+  cumplimientoPct: number | null;
+  scorePauta: number | null;
+  pautaCorre: boolean;
+  maxLevel: number;
+  /** Si el cumplimiento de TODA la cartera no es de fiar, acá no decide. */
+  cumplimientoCiego: boolean;
+}
+
+/**
+ * El color de un cliente.
+ *
+ * ROJO PIDE DOS SEÑALES, NO UNA. Antes alcanzaba con el cumplimiento por debajo
+ * de 50, y el tablero quedó con 39 rojos sobre 59 — había clientes con salud 76
+ * y 77 en rojo cuyo único problema era "Cumplimiento del cotizado: 0%".
+ *
+ * Un semáforo donde dos de cada tres están en rojo no ordena nada: se lee como
+ * que está roto, y el que lo mira deja de creerle al resto de la pantalla. Eso
+ * cuesta más que no tener semáforo.
+ */
+export function decidirSemaforo(s: SenalesCliente): Semaforo {
+  const cumplMalo = !s.cumplimientoCiego && s.cumplimientoPct != null && s.cumplimientoPct < 50;
+  const pautaRota = s.scorePauta != null && s.scorePauta < 40 && s.pautaCorre;
+  const saludMala = s.salud != null && s.salud < 45;
+  const saludFloja = s.salud != null && s.salud < 70;
+
+  // Lo que no admite otra lectura pinta rojo solo.
+  if (saludMala || s.maxLevel >= 5 || pautaRota) return "rojo";
+  // El cumplimiento suma como SEGUNDA señal, nunca como única.
+  if (cumplMalo && (saludFloja || s.maxLevel >= 4)) return "rojo";
+
+  const verde =
+    (s.salud == null || s.salud >= 70) &&
+    (s.cumplimientoCiego || s.cumplimientoPct == null || s.cumplimientoPct >= 85) &&
+    s.maxLevel < 4 &&
+    (s.scorePauta == null || s.scorePauta >= 70 || !s.pautaCorre);
+  return verde ? "verde" : "amarillo";
+}
+
 // Estándar del reporte estratégico (pedido 20/7: "más personalizado, ideas más
 // creativas, qué funciona en su nicho, contrastando con sus competidores").
 // Se usa en el issue del botón "Regenerar" y es el MISMO texto que lleva la
@@ -171,6 +231,28 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
   const radarByNiche = new Map<string, (typeof radars)[number]>();
   for (const r of radars) if (!radarByNiche.has(r.niche)) radarByNiche.set(r.niche, r);
 
+  // ¿El cumplimiento está midiendo, o está ciego?
+  //
+  // Se cuenta contra las piezas de ClickUp etiquetadas, y esa etiqueta ya nos
+  // mintió antes (ver la revisión de la flota: "mandado a make" daba por
+  // publicado lo que no salía). Cuando la etiqueta no se pone, trabajo real
+  // cuenta como cero — y un cero así no distingue "no se hizo nada" de "no
+  // pudimos medir".
+  //
+  // El síntoma de que está ciego es sistémico, no individual: si media cartera
+  // marca 0%, lo que falla es el contador, no treinta clientes a la vez. En ese
+  // caso el número se sigue mostrando pero NO decide el semáforo.
+  const valoresCumpl = [...cotByClient.values()].map((r) => r.cumplimientoPct ?? null);
+  const cumplimientoCiego = cumplimientoEstaCiego(valoresCumpl);
+  if (cumplimientoCiego) {
+    const conCumpl = valoresCumpl.filter((v) => v != null);
+    const enCero = conCumpl.filter((v) => v === 0).length;
+    console.warn(
+      `[plan-accion] cumplimiento IGNORADO para el semáforo: ${enCero} de ${conCumpl.length} clientes marcan 0%. ` +
+        `Eso es el contador de piezas de ClickUp, no la agencia.`,
+    );
+  }
+
   const out: PlanAccionCliente[] = [];
   for (const c of activos) {
     const salud = typeof c.salud?.score === "number" ? c.salud.score : null;
@@ -185,7 +267,11 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
     const acciones: string[] = [];
 
     if (cumpl != null && cumpl < 85) {
-      problemas.push(`Cumplimiento del cotizado: ${cumpl}%`);
+      problemas.push(
+        cumplimientoCiego
+          ? `Cumplimiento del cotizado: ${cumpl}% (sin verificar — el contador de piezas está marcando 0% en media cartera)`
+          : `Cumplimiento del cotizado: ${cumpl}%`,
+      );
       const faltanP = Math.max(0, (cotRow?.esperadoMes.posteos ?? 0) - (cotRow?.realizado.posteosMes ?? 0));
       const faltanV = Math.max(0, (cotRow?.esperadoMes.videos ?? 0) - (cotRow?.realizado.videosMes ?? 0));
       if (faltanP + faltanV > 0) acciones.push(`Ponerse al día con lo vendido: faltan ${faltanP} posteos y ${faltanV} videos del período.`);
@@ -238,12 +324,14 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
       acciones.push(`Radar del rubro: ${m}`);
     }
 
-    const semaforo: Semaforo =
-      (salud != null && salud < 45) || maxLevel >= 5 || (cumpl != null && cumpl < 50) || (score != null && score < 40 && pautaCorre)
-        ? "rojo"
-        : (salud == null || salud >= 70) && (cumpl == null || cumpl >= 85) && maxLevel < 4 && (score == null || score >= 70 || !pautaCorre)
-          ? "verde"
-          : "amarillo";
+    const semaforo: Semaforo = decidirSemaforo({
+      salud,
+      cumplimientoPct: cumpl,
+      scorePauta: score,
+      pautaCorre,
+      maxLevel,
+      cumplimientoCiego,
+    });
 
     if (semaforo === "verde" && acciones.length === 0) acciones.push("Sostener el ritmo. Buscar la próxima palanca de crecimiento (radar del rubro / propuesta CM).");
 

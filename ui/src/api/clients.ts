@@ -1,6 +1,18 @@
 import { api } from "./client";
 
 export type ClientStatus = "active" | "paused" | "offboarded" | "churned";
+
+/**
+ * Quien decide del otro lado. Lo carga una persona: no se deriva de ningun dato
+ * de pauta ni de organico, y los agentes lo leen en cada entregable.
+ */
+export interface Decisor {
+  quien?: string;
+  queLeImporta?: string;
+  queLoFrena?: string;
+  comoHablarle?: string;
+  canal?: string;
+}
 export type ClientTier = "starter" | "standard" | "growth" | "enterprise";
 
 export interface Client {
@@ -36,7 +48,7 @@ export interface Client {
   offboardedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  metadata?: { clickupTeamId?: string; clickupSpaceId?: string; notifyWhatsapp?: string } & Record<string, unknown>;
+  metadata?: { clickupTeamId?: string; clickupSpaceId?: string; notifyWhatsapp?: string; decisor?: Decisor } & Record<string, unknown>;
 }
 
 export interface ClientsListResponse {
@@ -54,6 +66,10 @@ export const clientsApi = {
   // Assign/edit a client's niche (industry). Blank string clears it.
   setNiche: (idOrSlug: string, industry: string) =>
     api.patch<Client>(`/clients/${idOrSlug}`, { industry }),
+
+  /** Quien decide del otro lado. `null` borra la ficha. */
+  setDecisor: (idOrSlug: string, decisor: Decisor | null) =>
+    api.patch<Client>(`/clients/${idOrSlug}`, { decisor }),
   adsSummary: (idOrSlug: string) =>
     api.get<ClientAdsSummary>(`/clients/${idOrSlug}/ads-summary`),
   timeseries: (idOrSlug: string, params?: { since?: string; until?: string; platform?: string }) => {

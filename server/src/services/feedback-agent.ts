@@ -6,7 +6,7 @@
 import type { Db } from "@paperclipai/db";
 import { waGroupMessages, feedbackItems, clients, companies } from "@paperclipai/db";
 import { gte, eq, desc, and } from "drizzle-orm";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 import { resolveCompanyId } from "./intel-common.js";
 
 const RX = {
@@ -38,7 +38,6 @@ export async function ingestFeedback(db: Db): Promise<{ captured: number; escala
     return clientRows.find((c) => g.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(g))?.id ?? null;
   };
 
-  const team = alertsNumber();
   let captured = 0, escalated = 0;
 
   for (const m of msgs) {
@@ -61,12 +60,21 @@ export async function ingestFeedback(db: Db): Promise<{ captured: number; escala
     // alerts. Complaint escalation is captured to the panel regardless, but the
     // WhatsApp ping is gated off by default (flip LMTM_FEEDBACK_WHATSAPP_ESCALATION=1
     // to re-enable) so the team isn't pinged for operational/feedback chatter.
-    const feedbackWhatsAppOn = process.env.LMTM_FEEDBACK_WHATSAPP_ESCALATION === "1";
-    if (feedbackWhatsAppOn && classification === "complaint" && team) {
+    // El flag existia porque el equipo no queria que una queja le interrumpiera
+    // el dia. Con el embudo eso ya no obliga a elegir entre pingear y perder la
+    // informacion: por defecto la queja va al digest (nivel 2) y el flag la
+    // sube a interrupcion (nivel 4) para quien la quiera asi.
+    if (classification === "complaint") {
       const who = m.groupName ?? "grupo";
       const body = `🔴 *Feedback a atender* (${who})\n${m.senderName ? m.senderName + ": " : ""}${m.body.slice(0, 300)}\n\n_LMTM-OS · feedback_`;
-      const r = await sendWhatsAppToNumber(team, body);
-      if (r.ok) escalated += 1;
+      const r = await avisarAlEquipo(db, {
+        origen: "feedback-clientes",
+        nivel: process.env.LMTM_FEEDBACK_WHATSAPP_ESCALATION === "1" ? 4 : 2,
+        clave: `feedback:${m.id}`,
+        clientId: clientId ?? null,
+        texto: body,
+      });
+      if (r.estado === "enviado" || r.estado === "pendiente") escalated += 1;
     }
   }
   return { captured, escalated };

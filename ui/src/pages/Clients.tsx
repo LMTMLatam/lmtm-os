@@ -42,7 +42,7 @@ export function Clients() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    setBreadcrumbs([{ label: "Clients" }]);
+    setBreadcrumbs([{ label: "Clientes" }]);
   }, [setBreadcrumbs]);
 
   const query = useQuery({
@@ -113,7 +113,7 @@ export function Clients() {
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Clientes</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {clients.length} {status === "all" ? "" : status} client{clients.length === 1 ? "" : "s"}
             {Object.keys(byTier).length > 0 && (

@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 export type RoutineListProjectSummary = {
   name: string;
@@ -113,7 +114,7 @@ export function RoutineListRow<TRoutine extends RoutineListRowItem>({
           <span className="flex items-center gap-2">
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-sm"
-              style={{ backgroundColor: project?.color ?? "#64748b" }}
+              style={{ backgroundColor: project?.color ?? COLOR_SIN_ELEGIR }}
             />
             <span>{routine.projectId ? (project?.name ?? "Unknown project") : "No project"}</span>
           </span>

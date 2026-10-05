@@ -52,6 +52,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { User, Hexagon, ArrowUpRight, Tag, Plus, GitBranch, FolderOpen, Check, ExternalLink, X, Clock, RotateCcw, Loader2, CheckCircle2 } from "lucide-react";
 import { AgentIcon } from "./AgentIconPicker";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
+import { COLOR_SIN_ELEGIR } from "../lib/colores";
 
 function TruncatedCopyable({ value, icon: Icon }: { value: string; icon: React.ComponentType<{ className?: string }> }) {
   const [copied, setCopied] = useState(false);
@@ -1457,7 +1458,7 @@ export function IssueProperties({
     <>
       <span
         className="shrink-0 h-3 w-3 rounded-sm"
-        style={{ backgroundColor: orderedProjects.find((p) => p.id === issue.projectId)?.color ?? "#6366f1" }}
+        style={{ backgroundColor: orderedProjects.find((p) => p.id === issue.projectId)?.color ?? COLOR_SIN_ELEGIR }}
       />
       <span className="text-sm break-words min-w-0">{projectName(issue.projectId)}</span>
     </>
@@ -1533,7 +1534,7 @@ export function IssueProperties({
               {option.kind === "project" ? (
                 <span
                   className="shrink-0 h-3 w-3 rounded-sm"
-                  style={{ backgroundColor: option.color ?? "#6366f1" }}
+                  style={{ backgroundColor: option.color ?? COLOR_SIN_ELEGIR }}
                 />
               ) : null}
               {option.name}

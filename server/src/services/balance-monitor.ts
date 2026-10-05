@@ -18,7 +18,8 @@
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsConnections, adsInsights, clients } from "@paperclipai/db";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
-import { sendWhatsAppToNumber, alertsNumber, dayStr } from "./agency-ops.js";
+import { dayStr } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
 import { searchStream } from "./ads/providers/google.js";
 
@@ -302,7 +303,6 @@ export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Pr
   // already flagged low (that has its own alert).
   const pacing = all.filter((b) => !b.low && b.daysLeft !== null && b.daysLeft <= PACING_DAYS && b.dailySpend > 0);
   let delivered = false;
-  const team = alertsNumber();
   const fmt = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("es-AR")}`;
   const sections: string[] = [];
   if (halted.length > 0) {
@@ -333,9 +333,16 @@ export async function runBalanceCheck(db: Db, threshold = DEFAULT_THRESHOLD): Pr
     lines.push("", "_Planificá la recarga antes de que la pauta se frene._");
     sections.push(lines.join("\n"));
   }
-  if (team && sections.length > 0) {
-    const r = await sendWhatsAppToNumber(team, [...sections, "_LMTM-OS · monitor de saldo_"].join("\n\n"));
-    delivered = r.ok;
+  if (sections.length > 0) {
+    // Nivel 5: una cuenta frenada es plata del cliente que no se está gastando.
+    // Interrumpe siempre y sin tope — es exactamente la firma de Distrillantas.
+    const r = await avisarAlEquipo(db, {
+      origen: "monitor-saldo",
+      nivel: 5,
+      clave: `saldo:${[...halted, ...low, ...pacing].map((b) => b.account).sort().join(",")}`,
+      texto: [...sections, "_LMTM-OS · monitor de saldo_"].join("\n\n"),
+    });
+    delivered = r.estado === "enviado";
   }
   return { checked: all.length, low, pacing, halted, delivered };
 }

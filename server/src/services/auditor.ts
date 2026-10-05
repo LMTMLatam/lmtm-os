@@ -12,7 +12,7 @@ import type { Db } from "@paperclipai/db";
 import { organicPosts, adsAccountMappings } from "@paperclipai/db";
 import { and, eq, or, inArray, gte, lte } from "drizzle-orm";
 import { getRedesPostStats } from "./clickup-sync.js";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 import { activeClients } from "./intel-common.js";
 import { fetchAccountBalances, type BalanceInfo, mereceAvisoDeSaldo } from "./balance-monitor.js";
 
@@ -214,7 +214,6 @@ export async function runOperationalAudit(db: Db): Promise<{
   // NOT confirmed/published on the network. No operational-status parroting
   // ("al día"), no "sin verificar" blind-spots, no efemérides. If neither
   // condition holds, we stay silent (no news = good news).
-  const team = alertsNumber();
   let delivered = false;
   const hasAnything = deviations.length > 0 || lowBalances.length > 0;
 
@@ -263,10 +262,14 @@ export async function runOperationalAudit(db: Db): Promise<{
     }
 
     lines.push("_LMTM-OS · reporte semanal_");
-    if (team) {
-      const r = await sendWhatsAppToNumber(team, lines.join("\n"));
-      delivered = r.ok;
-    }
+    // Nivel 3: es un reporte, no una urgencia. Va al digest.
+    const r = await avisarAlEquipo(db, {
+      origen: "reporte-semanal",
+      nivel: 3,
+      clave: `auditor-semanal:${new Date().toISOString().slice(0, 10)}`,
+      texto: lines.join("\n"),
+    });
+    delivered = r.estado === "enviado" || r.estado === "pendiente";
   }
 
   return { findings, ok: okCount, deviations: deviations.length, unverifiable: unver.length, lowBalances, delivered };

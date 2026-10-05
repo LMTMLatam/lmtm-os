@@ -953,9 +953,8 @@ export async function sweepSuperRedesFeedback(db: Db, opts: { digest?: boolean }
   }
 
   if (opts.digest && pendientes.length > 0) {
-    const { sendWhatsAppToNumber, alertsNumber } = await import("./agency-ops.js");
-    const team = alertsNumber();
-    if (team) {
+    const { avisarAlEquipo } = await import("./wa-embudo.js");
+    {
       pendientes.sort((a, b) => b.pending - a.pending);
       const total = pendientes.reduce((a, p) => a + p.pending, 0);
       const lines = [
@@ -965,7 +964,13 @@ export async function sweepSuperRedesFeedback(db: Db, opts: { digest?: boolean }
         "",
         "_Aprobar (Aprobación de cliente → APROBADO) o borrar las malas. Mejor todavía: puntuá 1-5 (campo Puntuación) y dejá una Devolución escrita — el agente aprende directo de esas palabras: lo bien puntuado se repite, lo criticado se corrige._",
       ];
-      await sendWhatsAppToNumber(team, lines.join("\n")).catch(() => {});
+      // Nivel 2: ideas esperando revision es una cola, no una urgencia. Digest.
+      await avisarAlEquipo(db, {
+        origen: "ideas-pendientes",
+        nivel: 2,
+        clave: `ideas-pendientes:${pendientes.map((p) => p.name).sort().join(",")}`,
+        texto: lines.join("\n"),
+      }).catch(() => {});
     }
   }
 

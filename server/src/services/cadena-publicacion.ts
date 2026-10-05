@@ -25,7 +25,7 @@ import { clients, organicPosts } from "@paperclipai/db";
 import { eq, sql } from "drizzle-orm";
 import { makeConfigured, makeDestinos, makeListScenarios, matchScenario } from "./make.js";
 import { getRedesCalendar } from "./clickup-sync.js";
-import { sendWhatsAppToNumber, alertsNumber } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 
 const DIA = 86_400_000;
 
@@ -414,8 +414,13 @@ export async function avisarCadenaRota(db: Db): Promise<{ rotas: number; entrega
   }
   lineas.push("_Medido sobre efecto real (datastore de Make + posts en la red), no sobre etiquetas._");
 
-  const team = alertsNumber();
-  if (!team) return { rotas: rotas.length, entregado: false };
-  const r = await sendWhatsAppToNumber(team, lineas.join("\n"));
-  return { rotas: rotas.length, entregado: r.ok };
+  // Nivel 4: una cadena de publicacion rota significa que el cliente no esta
+  // recibiendo lo que paga. Interrumpe, con tope.
+  const r = await avisarAlEquipo(db, {
+    origen: "cadena-publicacion",
+    nivel: 4,
+    clave: `cadena-rota:${rotas.map((x) => x.cliente ?? "?").sort().join(",")}`,
+    texto: lineas.join("\n"),
+  });
+  return { rotas: rotas.length, entregado: r.estado === "enviado" };
 }

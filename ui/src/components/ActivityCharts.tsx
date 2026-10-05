@@ -122,10 +122,10 @@ export function RunActivityChart(props: RunChartProps) {
 }
 
 const priorityColors: Record<string, string> = {
-  critical: "#ef4444",
-  high: "#f97316",
-  medium: "#eab308",
-  low: "#6b7280",
+  critical: "var(--estado-critico)",
+  high: "var(--estado-alerta)",
+  medium: "var(--estado-alerta)",
+  low: "var(--color-muted-foreground)",
 };
 
 const priorityOrder = ["critical", "high", "medium", "low"] as const;
@@ -175,13 +175,13 @@ export function PriorityChart({ issues }: { issues: { priority: string; createdA
 }
 
 const statusColors: Record<string, string> = {
-  todo: "#3b82f6",
-  in_progress: "#8b5cf6",
-  in_review: "#a855f7",
-  done: "#10b981",
-  blocked: "#ef4444",
-  cancelled: "#6b7280",
-  backlog: "#64748b",
+  todo: "var(--color-chart-1)",
+  in_progress: "var(--color-chart-2)",
+  in_review: "var(--color-chart-3)",
+  done: "var(--estado-ok)",
+  blocked: "var(--estado-critico)",
+  cancelled: "var(--color-muted-foreground)",
+  backlog: "var(--color-muted-foreground)",
 };
 
 const statusLabels: Record<string, string> = {
@@ -225,7 +225,7 @@ export function IssueStatusChart({ issues }: { issues: { status: string; created
               {total > 0 ? (
                 <div className="flex flex-col-reverse gap-px overflow-hidden" style={{ height: `${heightPct}%`, minHeight: 2 }}>
                   {statusOrder.map(s => (entry[s] ?? 0) > 0 ? (
-                    <div key={s} style={{ flex: entry[s], backgroundColor: statusColors[s] ?? "#6b7280" }} />
+                    <div key={s} style={{ flex: entry[s], backgroundColor: statusColors[s] ?? "var(--color-muted-foreground)" }} />
                   ) : null)}
                 </div>
               ) : (
@@ -236,7 +236,7 @@ export function IssueStatusChart({ issues }: { issues: { status: string; created
         })}
       </div>
       <DateLabels days={days} />
-      <ChartLegend items={statusOrder.map(s => ({ color: statusColors[s] ?? "#6b7280", label: statusLabels[s] ?? s }))} />
+      <ChartLegend items={statusOrder.map(s => ({ color: statusColors[s] ?? "var(--color-muted-foreground)", label: statusLabels[s] ?? s }))} />
     </div>
   );
 }
@@ -255,7 +255,7 @@ export function SuccessRateChart(props: RunChartProps) {
         {days.map(day => {
           const entry = grouped.get(day) ?? { date: day, succeeded: 0, failed: 0, other: 0, total: 0 };
           const rate = entry.total > 0 ? entry.succeeded / entry.total : 0;
-          const color = entry.total === 0 ? undefined : rate >= 0.8 ? "#10b981" : rate >= 0.5 ? "#eab308" : "#ef4444";
+          const color = entry.total === 0 ? undefined : rate >= 0.8 ? "var(--estado-ok)" : rate >= 0.5 ? "var(--estado-alerta)" : "var(--estado-critico)";
           return (
             <div key={day} className="flex-1 h-full flex flex-col justify-end" title={`${day}: ${entry.total > 0 ? Math.round(rate * 100) : 0}% (${entry.succeeded}/${entry.total})`}>
               {entry.total > 0 ? (

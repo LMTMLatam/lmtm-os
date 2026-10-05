@@ -22,7 +22,8 @@ import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { getBrainContext, upsertMemory, type MemoryKind } from "../services/customer-brain.js";
-import { aggInsights, dayStr, sendWhatsAppToNumber, alertsNumber } from "../services/agency-ops.js";
+import { aggInsights, dayStr, sendWhatsAppToNumber } from "../services/agency-ops.js";
+import { avisarAlEquipo } from "../services/wa-embudo.js";
 import { fetchAccountBalances } from "../services/balance-monitor.js";
 import { getRedesScheduledContent, getRedesCalendar } from "../services/clickup-sync.js";
 import { createClientTask } from "../services/client-tasks.js";
@@ -516,7 +517,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "pause_ad_entity",
       description:
-        "PAUSAR una campaña o conjunto de anuncios (adset) de un cliente. En Meta sirve para campaña y adset; en Google SOLO para campaña. Usala cuando detectes gasto sin conversiones, CTR muy bajo o un aviso quemando presupuesto. MUEVE plata real: proponé la pausa en el issue con la justificación (números concretos) y esperá OK humano; recién con aprobación pasá approved=true. El servidor verifica que la entidad sea de ESE cliente. NO existe reanudar/subir presupuesto/crear por esta vía (eso lo hace un humano).",
+        "PAUSAR una campaña o conjunto de anuncios (adset) de un cliente. En Meta sirve para campaña y adset; en Google SOLO para campaña. Usala cuando detectes gasto sin conversiones, CTR muy bajo o un aviso quemando presupuesto. MUEVE plata real: proponé la pausa en el issue con la justificación (números concretos) y esperá OK humano; recién con aprobación pasá approved=true. El servidor verifica que la entidad sea de ESE cliente. Para MOVER presupuesto usá set_budget o shift_budget; reanudar, crear y borrar siguen siendo cosa de un humano.",
       parameters: {
         type: "object",
         properties: {
@@ -524,8 +525,71 @@ const CORE_TOOLS: ToolDef[] = [
           entityType: { type: "string", enum: ["campaign", "adset"], description: "Tipo de entidad a pausar" },
           entityId: { type: "string", description: "ID de la campaña o adset (tal cual aparece en la data de la plataforma)" },
           approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente esta pausa en el issue" },
+          justificacion: { type: "string", description: "Los numeros que sostienen la propuesta (gasto, leads, CPL vs el rubro). Es lo que lee la persona que aprueba, y sin esto la propuesta no se arma." },
         },
         required: ["clientId", "entityType", "entityId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_budget",
+      description:
+        "SUBIR o BAJAR el presupuesto diario de una campaña (Meta y Google) o de un conjunto (solo Meta). Es la palanca para EMPUJAR lo que rinde, no solo frenar lo que no: si un conjunto trae leads por debajo del CPL del rubro, subirle el presupuesto hace más que pausar al vecino. El monto va en PESOS (unidades de la moneda), el servidor convierte a la unidad de cada plataforma. Límites que aplica el servidor y no se pueden saltar: como máximo 30% de cambio por vez, una vez cada 24h por entidad, y nunca por debajo de $1.000 (si querés apagarla, usá pause_ad_entity). MUEVE plata real: proponé el cambio en el issue con los números que lo justifican y esperá OK humano; recién ahí pasá approved=true. Podés pasar ensayo=true para validar sin guardar.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          entityType: { type: "string", enum: ["campaign", "adset"], description: "En Google solo campaign" },
+          entityId: { type: "string", description: "ID de la campaña o adset" },
+          nuevoDiario: { type: "number", description: "Nuevo presupuesto diario EN PESOS (no centavos ni micros)" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente este cambio en el issue" },
+          ensayo: { type: "boolean", description: "Valida contra la plataforma sin guardar nada" },
+          justificacion: { type: "string", description: "Los numeros que sostienen la propuesta (gasto, leads, CPL vs el rubro). Es lo que lee la persona que aprueba, y sin esto la propuesta no se arma." },
+        },
+        required: ["clientId", "entityType", "entityId", "nuevoDiario"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "shift_budget",
+      description:
+        "MOVER presupuesto diario de una entidad a otra del MISMO cliente: baja una y sube la otra por el mismo monto, en pesos. Es lo que hay que usar cuando el gasto total no puede cambiar pero está mal repartido (un conjunto con CPL muy arriba del rubro y otro muy abajo). Aplica los mismos límites que set_budget a CADA pata, y valida las dos ANTES de escribir ninguna, así no queda a mitad de camino. Baja primero y sube después a propósito: si falla la segunda, el cliente gasta de menos (recuperable) y no de más. MUEVE plata real: necesita OK humano con approved=true.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          desdeEntityType: { type: "string", enum: ["campaign", "adset"] },
+          desdeEntityId: { type: "string", description: "De dónde se saca la plata" },
+          haciaEntityType: { type: "string", enum: ["campaign", "adset"] },
+          haciaEntityId: { type: "string", description: "A dónde va la plata" },
+          monto: { type: "number", description: "Cuánto mover por día, EN PESOS" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente este movimiento" },
+          ensayo: { type: "boolean", description: "Valida las dos patas sin guardar nada" },
+          justificacion: { type: "string", description: "Los numeros que sostienen la propuesta (gasto, leads, CPL vs el rubro). Es lo que lee la persona que aprueba, y sin esto la propuesta no se arma." },
+        },
+        required: ["clientId", "desdeEntityId", "haciaEntityId", "monto"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "duplicate_winner",
+      description:
+        "DUPLICAR un conjunto de anuncios de Meta que viene rindiendo, para escalarlo sin tocar el original. La copia NACE PAUSADA y con el MISMO presupuesto: arrancarla es una decisión humana aparte, y el único cambio que hace esta acción es que la copia exista. El servidor verifica que de verdad sea un ganador antes de copiar: necesita al menos 5 leads en 30 días y un CPL igual o mejor que el promedio del RESTO de la cuenta del cliente; si no lo cumple, te dice por qué y no copia. Una copia por conjunto por día. Sólo Meta. Mandá 'justificacion' con los números: el servidor deja la propuesta lista para aprobar con un click.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          adsetId: { type: "string", description: "ID del conjunto (adset) de Meta a duplicar" },
+          justificacion: { type: "string", description: "Los números que sostienen la propuesta (leads, CPL del conjunto vs el resto de la cuenta)" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó explícitamente esta copia" },
+        },
+        required: ["clientId", "adsetId"],
       },
     },
   },
@@ -935,6 +999,84 @@ export function agentToolsRoutes(
 
     const reply = (ok: boolean, content: string) => res.json({ ok, content });
 
+    const textoDe = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
+    /**
+     * Deja la propuesta de pauta ARMADA en vez de devolver sólo un texto.
+     *
+     * Antes, cuando faltaba la firma humana, la tool devolvía "proponelo en el
+     * issue y esperá OK" — y la propuesta terminaba siendo prosa que alguien
+     * tenía que bajar a mano en Meta o Google. Ahora queda una aprobación con
+     * la llamada exacta adentro: la persona la aprueba y el servidor ejecuta
+     * eso mismo, sin que nadie retipee un id de campaña.
+     */
+    const dejarPropuesta = async (
+      p: Omit<Parameters<typeof import("../services/ads-propuestas.js").proponerAccionPauta>[1], "companyId" | "agentId">,
+      motivo?: string,
+    ) => {
+      // La justificación se exige ANTES de mirar la autonomía: el aviso al
+      // equipo la usa como cuerpo, así que una acción automática sin ella se
+      // anunciaría como "el sistema movió plata, motivo: (vacío)".
+      if (!p.justificacion) {
+        return reply(
+          false,
+          "Para proponer o ejecutar esto necesito el parámetro `justificacion` con los números que lo sostienen (gasto, leads, CPL vs el rubro). Es lo que lee la persona que aprueba, y lo que queda escrito si se ejecuta solo.",
+        );
+      }
+
+      // AUTONOMÍA GRADUADA: si este tipo de acción se ganó el derecho —con
+      // historial medido, no por decreto— se ejecuta sola y se avisa, en vez de
+      // quedar esperando un click. Arranca apagada; ver ads-autonomia.ts.
+      //
+      // DUPLICAR NUNCA ES AUTOMÁTICO, por buen historial que tenga. Las otras
+      // palancas modifican un número en algo que ya existe y se revierten
+      // poniéndolo como estaba; ésta CREA una entidad en la cuenta del cliente,
+      // y lo creado no se "deshace" — se borra, que es otra cosa. Una persona
+      // decide que exista.
+      const { autonomiaDe } = await import("../services/ads-autonomia.js");
+      const kindDeAccion =
+        p.accion.accion === "pause" ? "pause_ad_entity" : p.accion.accion === "duplicate" ? null : "set_budget";
+      const veredicto = kindDeAccion
+        ? await autonomiaDe(db, ctx.companyId, kindDeAccion).catch(() => null)
+        : null;
+
+      if (veredicto?.nivel === "ejecuta_y_avisa") {
+        const { ejecutarAccionAprobada } = await import("../services/ads-propuestas.js");
+        const r = await ejecutarAccionAprobada(
+          db,
+          { clientId: p.clientId, justificacion: p.justificacion, resumen: p.resumen, accion: p.accion },
+          ctx.agentId,
+        );
+        // Se avisa SIEMPRE, salga bien o mal: el equipo tiene que poder enterarse
+        // de todo lo que el sistema movió solo. Va en nivel 3 (resumen de
+        // 8:00/18:00) y no interrumpiendo, porque es una clase de acción ya
+        // probada y con tope del 30% — hacerla interrumpir reconstruiría el
+        // ruido que el embudo vino a sacar.
+        const { avisarAlEquipo } = await import("../services/wa-embudo.js");
+        await avisarAlEquipo(db, {
+          origen: "pauta-automatica",
+          nivel: 3,
+          clave: `auto:${p.resumen}`,
+          clientId: p.clientId,
+          texto:
+            `*${r.ok ? "Ejecutado solo" : "Intentó solo y FALLÓ"}* — ${p.resumen}\n\n` +
+            `${p.justificacion}\n\n_${r.detalle}_\n_Automático porque ${veredicto.motivo}._`,
+        }).catch(() => {});
+
+        if (!r.ok) return reply(false, `Esta acción ya se ejecuta sin aprobación, pero falló: ${r.detalle}`);
+        return reply(true, `${r.detalle} Se ejecutó sin esperar aprobación (${veredicto.motivo}) y el equipo queda avisado en el resumen.`);
+      }
+
+      const { proponerAccionPauta } = await import("../services/ads-propuestas.js");
+      const { id } = await proponerAccionPauta(db, { ...p, companyId: ctx.companyId, agentId: ctx.agentId });
+      return reply(
+        true,
+        `${motivo ?? "Requiere OK humano."}\n\n` +
+          `Ya dejé la propuesta armada y lista para ejecutarse: aprobación ${id} — "${p.resumen}". ` +
+          `Nombrala en el issue para que quien decida llegue directo. Cuando alguien la apruebe, el sistema la ejecuta solo; NO hace falta que vuelvas a llamar la tool.`,
+      );
+    };
+
     // El filtro del GET ya esconde estas tools, pero el modelo puede inventarse
     // el nombre igual. Este es el que corta de verdad.
     const modo = await modoDelActor(req);
@@ -1328,13 +1470,19 @@ export function agentToolsRoutes(
         const clientId = typeof params.clientId === "string" ? params.clientId : "";
         const message = typeof params.message === "string" ? params.message : "";
         if (!clientId || !message) return reply(false, "Falta clientId o message.");
-        const team = alertsNumber();
-        if (!team) return reply(false, "LMTM_ALERTS_WHATSAPP no configurado — no se puede enviar.");
         const [client] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId));
         const clientName = client?.name ?? "Cliente";
         const text = `*⚠️ Alerta de saldo — ${clientName}*\n\n${message}\n\n_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._\n_LMTM-OS · agente_`;
-        const r = await sendWhatsAppToNumber(team, text);
-        if (!r.ok) return reply(false, `No se pudo enviar WhatsApp: ${r.error ?? "error desconocido"}`);
+        // Nivel 5: el saldo es plata. Interrumpe siempre y sin tope.
+        const r = await avisarAlEquipo(db, {
+          origen: "agente:saldo",
+          nivel: 5,
+          clave: `agente-saldo:${clientId}`,
+          clientId,
+          texto: text,
+        });
+        if (r.estado === "descartado") return reply(true, `Ya se avisó lo mismo hace poco, no lo repito: ${r.motivo}`);
+        if (r.estado === "error") return reply(false, `No se pudo enviar: ${r.motivo ?? "error desconocido"}`);
         return reply(true, `Alerta de saldo enviada por WhatsApp al equipo para ${clientName}.`);
       }
 
@@ -1342,12 +1490,18 @@ export function agentToolsRoutes(
         const message = typeof params.message === "string" ? params.message.trim() : "";
         const title = typeof params.title === "string" ? params.title.trim() : "";
         if (!message) return reply(false, "Falta message.");
-        const team = alertsNumber();
-        if (!team) return reply(false, "LMTM_ALERTS_WHATSAPP no configurado — no se puede enviar.");
         const text = `${title ? `*${title}*\n\n` : ""}${message}\n\n_LMTM-OS · reporte de agente_`;
-        const r = await sendWhatsAppToNumber(team, text);
-        if (!r.ok) return reply(false, `No se pudo enviar WhatsApp: ${r.error ?? "error desconocido"}`);
-        return reply(true, "Reporte enviado por WhatsApp al equipo.");
+        // Nivel 3: un reporte de agente no interrumpe. Se junta en el digest de
+        // 8:00/18:00 — esto es la mitad del "mensaje, mensaje, mensaje".
+        const r = await avisarAlEquipo(db, {
+          origen: "agente:reporte",
+          nivel: 3,
+          clave: `agente-reporte:${title || message.slice(0, 60)}`,
+          texto: text,
+        });
+        if (r.estado === "descartado") return reply(true, `Ya se mandó lo mismo hace poco, no lo repito: ${r.motivo}`);
+        if (r.estado === "error") return reply(false, `No se pudo enviar: ${r.motivo ?? "error desconocido"}`);
+        return reply(true, "Reporte encolado para el resumen del equipo (8:00/18:00).");
       }
 
       // ClickUp tools (in-process MCP wrapper).
@@ -1748,9 +1902,103 @@ export function agentToolsRoutes(
         if (!clientId || !entityId) return reply(false, "Faltan clientId o entityId.");
         const { pauseAdEntity } = await import("../services/ads-actions.js");
         const r = await pauseAdEntity(db, { clientId, entityType, entityId, agentId: ctx.agentId, approved: params.approved === true });
-        if (r.approvalRequired) return reply(false, r.error ?? "Requiere aprobación humana.");
+        if (r.approvalRequired) {
+          return dejarPropuesta(
+            { clientId, justificacion: textoDe(params.justificacion), resumen: `Pausar ${entityType} "${r.entity?.name ?? entityId}"`, accion: { accion: "pause", entityType, entityId } },
+            r.error,
+          );
+        }
         if (!r.ok) return reply(false, r.error ?? "No se pudo pausar.");
         return reply(true, `Pausado: ${r.entity?.type} "${r.entity?.name}" (${r.entity?.id}). Acción registrada.`);
+      }
+
+      if (tool === "set_budget") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const entityType = params.entityType === "adset" ? "adset" : "campaign";
+        const entityId = typeof params.entityId === "string" ? params.entityId : "";
+        const nuevoDiario = typeof params.nuevoDiario === "number" ? params.nuevoDiario : NaN;
+        if (!clientId || !entityId) return reply(false, "Faltan clientId o entityId.");
+        const { setBudget } = await import("../services/ads-budget.js");
+        const r = await setBudget(db, {
+          clientId, entityType, entityId, nuevoDiario,
+          agentId: ctx.agentId,
+          approved: params.approved === true,
+          ensayo: params.ensayo === true,
+        });
+        if (r.approvalRequired) {
+          return dejarPropuesta(
+            {
+              clientId,
+              justificacion: textoDe(params.justificacion),
+              resumen: `Presupuesto de "${r.entidad?.nombre ?? entityId}": $${Math.round(r.anterior ?? 0)} → $${Math.round(nuevoDiario)} por día`,
+              accion: { accion: "set_budget", entityType, entityId, nuevoDiario },
+            },
+            r.error,
+          );
+        }
+        if (!r.ok) return reply(false, r.error ?? "No se pudo cambiar el presupuesto.");
+        if (r.ensayo) return reply(true, `Ensayo OK: el cambio de $${Math.round(r.anterior ?? 0)} a $${Math.round(r.nuevo ?? 0)} es válido. Pedí el OK humano y volvé con approved=true.`);
+        return reply(true, `Presupuesto de "${r.entidad?.nombre}" movido de $${Math.round(r.anterior ?? 0)} a $${Math.round(r.nuevo ?? 0)} por día. Acción registrada; no se puede volver a tocar por 24h.`);
+      }
+
+      if (tool === "shift_budget") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const desdeEntityId = typeof params.desdeEntityId === "string" ? params.desdeEntityId : "";
+        const haciaEntityId = typeof params.haciaEntityId === "string" ? params.haciaEntityId : "";
+        const monto = typeof params.monto === "number" ? params.monto : NaN;
+        if (!clientId || !desdeEntityId || !haciaEntityId) return reply(false, "Faltan clientId, desdeEntityId o haciaEntityId.");
+        const { shiftBudget } = await import("../services/ads-budget.js");
+        const r = await shiftBudget(db, {
+          clientId,
+          desde: { entityType: params.desdeEntityType === "adset" ? "adset" : "campaign", entityId: desdeEntityId },
+          hacia: { entityType: params.haciaEntityType === "adset" ? "adset" : "campaign", entityId: haciaEntityId },
+          monto,
+          agentId: ctx.agentId,
+          approved: params.approved === true,
+          ensayo: params.ensayo === true,
+        });
+        if (r.approvalRequired) {
+          const desde = { entityType: (params.desdeEntityType === "adset" ? "adset" : "campaign") as "campaign" | "adset", entityId: desdeEntityId };
+          const hacia = { entityType: (params.haciaEntityType === "adset" ? "adset" : "campaign") as "campaign" | "adset", entityId: haciaEntityId };
+          return dejarPropuesta(
+            {
+              clientId,
+              justificacion: textoDe(params.justificacion),
+              resumen: `Mover $${Math.round(monto)} por día de ${desdeEntityId} a ${haciaEntityId}`,
+              accion: { accion: "shift_budget", desde, hacia, monto },
+            },
+            r.error,
+          );
+        }
+        if (!r.ok) return reply(false, r.error ?? "No se pudo mover el presupuesto.");
+        if (r.ensayo) return reply(true, "Ensayo OK: las dos patas del movimiento son válidas. Pedí el OK humano y volvé con approved=true.");
+        return reply(true, `Movidos $${Math.round(monto)} por día: "${r.desde?.entidad?.nombre}" bajó a $${Math.round(r.desde?.nuevo ?? 0)} y "${r.hacia?.entidad?.nombre}" subió a $${Math.round(r.hacia?.nuevo ?? 0)}.`);
+      }
+
+      if (tool === "duplicate_winner") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        const adsetId = typeof params.adsetId === "string" ? params.adsetId : "";
+        if (!clientId || !adsetId) return reply(false, "Faltan clientId o adsetId.");
+        const { duplicateWinner } = await import("../services/ads-duplicar.js");
+        const r = await duplicateWinner(db, { clientId, adsetId, agentId: ctx.agentId, approved: params.approved === true });
+        if (r.approvalRequired) {
+          return dejarPropuesta(
+            {
+              clientId,
+              justificacion: textoDe(params.justificacion),
+              resumen: `Duplicar el conjunto ${adsetId} (nace pausada, mismo presupuesto)`,
+              accion: { accion: "duplicate", entityId: adsetId },
+            },
+            r.error,
+          );
+        }
+        if (!r.ok) return reply(false, r.error ?? "No se pudo duplicar.");
+        return reply(
+          true,
+          r.nacioPausada
+            ? `Conjunto duplicado: la copia ${r.copiaId} quedó PAUSADA con el mismo presupuesto. Arrancarla es una decisión humana.`
+            : `Conjunto duplicado (copia ${r.copiaId}) PERO no pude confirmar que haya quedado pausada. Avisá al equipo para que la revise YA: una entidad activa que nadie decidió activar gasta plata del cliente.`,
+        );
       }
 
       if (tool === "get_validacion_redes") {

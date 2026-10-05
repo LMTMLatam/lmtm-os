@@ -7,6 +7,7 @@ import { agentService } from "./agents.js";
 import { budgetService } from "./budgets.js";
 import { notifyHireApproved } from "./hire-hook.js";
 import { instanceSettingsService } from "./instance-settings.js";
+import { ejecutarAccionAprobada, esAccionPauta, TIPO_ACCION_PAUTA } from "./ads-propuestas.js";
 
 export function approvalService(db: Db) {
   const agentsSvc = agentService(db);
@@ -109,6 +110,38 @@ export function approvalService(db: Db) {
 
       let hireApprovedAgentId: string | null = null;
       const now = new Date();
+
+      // Acción de pauta: la propuesta ya venía armada con la llamada exacta, así
+      // que aprobarla ES ejecutarla. Antes esto era un texto que alguien tenía
+      // que bajar a mano en Meta o Google, y la mayoría no se bajaba nunca.
+      //
+      // El resultado se guarda en el propio payload: si la plataforma rechaza el
+      // cambio, la aprobación queda aprobada igual (la persona dijo que sí) pero
+      // con el motivo a la vista, en vez de aparentar que se hizo.
+      if (applied && updated.type === TIPO_ACCION_PAUTA) {
+        if (esAccionPauta(updated.payload)) {
+          const r = await ejecutarAccionAprobada(db, updated.payload, updated.requestedByAgentId ?? null);
+          const conResultado = {
+            ...updated.payload,
+            resultado: { ok: r.ok, detalle: r.detalle, ejecutadoAt: now.toISOString() },
+          };
+          await db
+            .update(approvals)
+            .set({ payload: conResultado as unknown as Record<string, unknown>, updatedAt: now })
+            .where(eq(approvals.id, id))
+            .catch(() => {});
+          return { approval: { ...updated, payload: conResultado as unknown as Record<string, unknown> }, applied };
+        }
+        // Payload malformado: no se adivina qué quiso decir una propuesta que
+        // mueve plata. Queda aprobada y sin ejecutar, con el motivo escrito.
+        const conError = {
+          ...(updated.payload as Record<string, unknown>),
+          resultado: { ok: false, detalle: "La propuesta está incompleta o mal formada: no se ejecutó nada.", ejecutadoAt: now.toISOString() },
+        };
+        await db.update(approvals).set({ payload: conError, updatedAt: now }).where(eq(approvals.id, id)).catch(() => {});
+        return { approval: { ...updated, payload: conError }, applied };
+      }
+
       if (applied && updated.type === "hire_agent") {
         const payload = updated.payload as Record<string, unknown>;
         const payloadAgentId = typeof payload.agentId === "string" ? payload.agentId : null;

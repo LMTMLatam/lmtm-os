@@ -51,6 +51,16 @@ export interface FilaHumana {
   agente: string | null;
   motivo: string | null;
   diasParado: number;
+  /**
+   * ARS por día que cuesta NO hacer esto (0 si no se puede tasar).
+   *
+   * `ordenarPorCosto` ya lo venía calculando y adjuntando a cada fila para
+   * poder ordenar, pero el tipo de retorno no lo declaraba, así que el panel
+   * mostraba "Reconectar página Meta · 14d · DUNOD" sin decir que son $43.000
+   * por día. El número que convierte la lista en una decisión se computaba y se
+   * tiraba.
+   */
+  arsPorDia: number;
 }
 
 /**
@@ -58,7 +68,7 @@ export interface FilaHumana {
  * Trae el último comentario del agente, que es donde explicó qué necesita —
  * sin eso la fila dice "Reconectar página Meta" y no dice de qué cuenta.
  */
-export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: number }> {
+export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: number; arsPorDiaTotal: number }> {
   const rows = await db
     .select({
       id: issues.id,
@@ -118,7 +128,43 @@ export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: 
   });
   const ordenadas = ordenarPorCosto(filas, costos);
 
-  return { filas: ordenadas.slice(0, TOPE_VISIBLE), total: ordenadas.length };
+  return {
+    filas: ordenadas.slice(0, TOPE_VISIBLE),
+    total: ordenadas.length,
+    // Sobre `ordenadas`, NO sobre las filas ya recortadas: ver totalPlataParada.
+    arsPorDiaTotal: totalPlataParada(ordenadas),
+  };
+}
+
+/**
+ * Plata parada por día de TODA la cola.
+ *
+ * Tiene que correr sobre la lista completa y no sobre las `TOPE_VISIBLE` que se
+ * muestran: el titular "hay $X por día parados" existe para decir el tamaño del
+ * problema, y sumando sólo lo visible subestima justo cuando la cola es más
+ * larga — que es cuando más importa.
+ */
+export function totalPlataParada(filas: Array<{ arsPorDia?: number; clientId?: string | null }>): number {
+  // UNA VEZ POR CLIENTE, no una por fila.
+  //
+  // `arsPorDia` es la plata parada DEL CLIENTE, y `ordenarPorCosto` se la pega a
+  // cada una de sus filas para poder ordenar. Sumar fila por fila cuenta lo
+  // mismo tantas veces como tareas tenga ese cliente: en producción, las 7
+  // tareas de MA PROPIEDADES hacían que sus $48.217 entraran siete veces, y el
+  // titular marcaba $998.136 cuando lo real era una fracción de eso.
+  //
+  // Un número inflado en el lugar más visible del panel es peor que no tenerlo:
+  // la primera vez que alguien lo cruza contra la realidad deja de creerle a
+  // toda la pantalla.
+  const porCliente = new Map<string, number>();
+  let sinCliente = 0;
+  for (const f of filas) {
+    const monto = f.arsPorDia ?? 0;
+    if (monto <= 0) continue;
+    if (f.clientId) porCliente.set(f.clientId, monto);
+    else sinCliente += monto; // sin cliente no se puede deduplicar
+  }
+  return [...porCliente.values()].reduce((a, b) => a + b, sinCliente);
 }
 
 function primeraFrase(texto: string): string {

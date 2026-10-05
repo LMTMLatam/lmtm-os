@@ -18,12 +18,10 @@ import type { Db } from "@paperclipai/db";
 import { adsInsights, clients, interventions } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { fetchAccountBalances } from "./balance-monitor.js";
-import { sendWhatsAppToNumber, alertsNumber, dayStr } from "./agency-ops.js";
+import { dayStr } from "./agency-ops.js";
+import { avisarAlEquipo } from "./wa-embudo.js";
 
 const MAX_INTERRUPTIONS_DAY = Number(process.env.LMTM_MAX_INTERRUPTIONS_DAY) || 8;
-// Grupo del equipo para el brief (decisión del 18/7: WhatsApp al grupo).
-// Hasta que el usuario pase el grupo, cae al número interno de alertas.
-const briefNumber = () => process.env.LMTM_TEAM_WA_GROUP || alertsNumber();
 
 export interface InterventionInput {
   vigilante: string;
@@ -162,12 +160,15 @@ export async function runVigilanteFinanciera(db: Db): Promise<{ nuevas: number; 
   const budget = await interruptionsLeftToday(db);
   if (toSend.length > 0 && budget > 0) {
     const batch = toSend.slice(0, budget);
-    const team = briefNumber();
-    if (team) {
-      const msg = ["*⚠️ Vigilante financiero — atención hoy*", "", ...batch.map((t) => `• ${t.line}`), "", "_LMTM-OS · Centro de Inteligencia_"].join("\n");
-      const res = await sendWhatsAppToNumber(team, msg);
-      if (res.ok) { await markSent(db, batch.map((t) => t.id)); enviadas = batch.length; }
-    }
+    // Nivel 5: saldo y consumo brusco son plata. Interrumpen siempre.
+    const msg = ["*⚠️ Vigilante financiero — atención hoy*", "", ...batch.map((t) => `• ${t.line}`), "", "_LMTM-OS · Centro de Inteligencia_"].join("\n");
+    const res = await avisarAlEquipo(db, {
+      origen: "vigilante-financiero",
+      nivel: 5,
+      clave: `financiera:${batch.map((t) => t.id).sort().join(",")}`,
+      texto: msg,
+    });
+    if (res.estado === "enviado") { await markSent(db, batch.map((t) => t.id)); enviadas = batch.length; }
   }
   return { nuevas, enviadas };
 }
@@ -444,11 +445,28 @@ export function initVigilantes(db: Db): void {
       if (key === lastBriefKey) return;
       lastBriefKey = key;
       try {
-        const team = briefNumber();
-        if (!team) { console.log("[vigilantes] brief compuesto pero sin destino (setear LMTM_TEAM_WA_GROUP)"); return; }
-        const msg = await composeBrief(db, moment);
-        await sendWhatsAppToNumber(team, msg);
-        console.log(`[vigilantes] ${moment} brief enviado`);
+        // El brief sale 8:00 y 18:00, que es justo cuando saldría el digest del
+        // embudo. Mandar los dos por separado reproduce el "mensaje, mensaje"
+        // que esto viene a arreglar, así que el digest viaja PEGADO al brief y
+        // recién se marca agrupado si el envío salió bien.
+        const { juntarPendientes, marcarAgrupados } = await import("./wa-embudo.js");
+        const { texto: digest, ids } = await juntarPendientes(db);
+        const brief = await composeBrief(db, moment).catch((e) => {
+          console.warn("[vigilantes] brief fallo, va solo el digest:", e instanceof Error ? e.message : e);
+          return null;
+        });
+        const msg = [brief, digest].filter(Boolean).join("\n\n———\n\n");
+        if (!msg) { console.log(`[vigilantes] ${moment}: nada para mandar`); return; }
+        const envio = await avisarAlEquipo(db, {
+          origen: "brief",
+          nivel: 4,
+          // Fecha + momento: el brief no se puede duplicar, pero tampoco lo puede
+          // bloquear el dedupe del día anterior.
+          clave: `brief:${dayStr(new Date())}:${moment}`,
+          texto: msg,
+        });
+        if (envio.estado === "enviado") await marcarAgrupados(db, ids);
+        console.log(`[vigilantes] ${moment} brief ${envio.estado}${envio.motivo ? ` (${envio.motivo})` : ""}`);
       } catch (e) { console.warn("[vigilantes] brief failed:", e instanceof Error ? e.message : e); }
     };
     briefTimer = setInterval(() => { void briefTick(); }, 10 * 60 * 1000);

@@ -24,6 +24,7 @@ import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
 import { cn } from "../lib/utils";
 import { Bot, CircleDot, ShieldCheck, LayoutDashboard, PauseCircle, BellRing, Gavel } from "lucide-react";
+import { AccionFila, AccionLista } from "@/components/AccionFila";
 import { clientsApi } from "../api/clients";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
@@ -41,9 +42,9 @@ const DASHBOARD_ACTIVITY_LIMIT = 10;
 function SemaforoBar({ rojo, amarillo, verde }: { rojo: number; amarillo: number; verde: number }) {
   const total = Math.max(rojo + amarillo + verde, 1);
   const seg = [
-    { n: rojo, c: "#d03b3b", l: "en rojo" },
-    { n: amarillo, c: "#eda100", l: "en amarillo" },
-    { n: verde, c: "#1baf7a", l: "en verde" },
+    { n: rojo, c: "var(--estado-critico)", l: "en rojo" },
+    { n: amarillo, c: "var(--estado-alerta)", l: "en amarillo" },
+    { n: verde, c: "var(--estado-ok)", l: "en verde" },
   ];
   return (
     <div className="flex h-2.5 rounded-full overflow-hidden gap-[2px]">
@@ -55,7 +56,7 @@ function SemaforoBar({ rojo, amarillo, verde }: { rojo: number; amarillo: number
 }
 
 function ClienteChip({ c, tono }: { c: TriageCliente; tono: "rojo" | "amarillo" }) {
-  const color = tono === "rojo" ? "#d03b3b" : "#eda100";
+  const color = tono === "rojo" ? "var(--estado-critico)" : "var(--estado-alerta)";
   return (
     <Link
       to={`/c/${c.slug}/plan-accion`}
@@ -85,6 +86,7 @@ function CentroDeMando() {
 
   const { triage, humanas, alertas, serie } = data;
   const humanasTotal = data.humanasTotal ?? humanas.length;
+  const humanasArsPorDia = data.humanasArsPorDia ?? 0;
   const criticas = alertas.filter((a) => a.severity === "critical");
   const lista = tab === "rojo" ? triage.rojo : triage.amarillo;
   const totalInv = serie.reduce((a, s) => a + s.spend, 0);
@@ -116,13 +118,13 @@ function CentroDeMando() {
                       activo ? "bg-foreground/10 font-semibold" : "text-muted-foreground hover:bg-foreground/5",
                     )}
                   >
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: t === "rojo" ? "#d03b3b" : "#eda100" }} />
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: t === "rojo" ? "var(--estado-critico)" : "var(--estado-alerta)" }} />
                     {n} {t === "rojo" ? "críticos" : "en riesgo"}
                   </button>
                 );
               })}
               <span className="text-xs px-2.5 py-1 text-muted-foreground inline-flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#1baf7a" }} />
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--estado-ok)" }} />
                 {triage.verdeCount} ok
               </span>
             </div>
@@ -144,14 +146,14 @@ function CentroDeMando() {
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Inversión</span>
                 <span className="text-lg font-bold">{fmtMoney(totalInv)}</span>
               </div>
-              <Spark points={serie.map((s) => s.spend)} color="#2a78d6" id="dash-spend" height={40} />
+              <Spark points={serie.map((s) => s.spend)} color="var(--estado-info)" id="dash-spend" height={40} />
             </div>
             <div>
               <div className="flex items-baseline justify-between">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Leads</span>
                 <span className="text-lg font-bold">{totalLeads.toLocaleString("es-AR")}</span>
               </div>
-              <Spark points={serie.map((s) => s.leads)} color="#1baf7a" id="dash-leads" height={40} />
+              <Spark points={serie.map((s) => s.leads)} color="var(--estado-ok)" id="dash-leads" height={40} />
             </div>
           </div>
         </Card>
@@ -165,68 +167,94 @@ function CentroDeMando() {
             <h3 className="text-sm font-semibold">Solo lo podés hacer vos</h3>
             <span className="text-xs text-muted-foreground">{humanasTotal}</span>
           </div>
+
+          {/* EL NÚMERO GRANDE VA DONDE HAY PLATA.
+              Esto arrancó como un span de 12px al lado del título y se perdía
+              entre el resto. Es el único dato de la pantalla que dice cuánto
+              cuesta no hacer nada hoy, así que es el que tiene que leerse desde
+              lejos: lo demás de esta card es el detalle de ese número. */}
+          {humanasArsPorDia > 0 && (
+            <div className="mb-3 -mt-1">
+              <p className="text-2xl font-semibold leading-none tabular-nums" style={{ color: "var(--estado-critico)" }}>
+                {fmtMoney(humanasArsPorDia)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">por día parados, esperando a una persona</p>
+            </div>
+          )}
           {humanas.length === 0 ? (
             <p className="text-xs text-muted-foreground py-4">Nada pendiente de tu lado 🎉</p>
           ) : (
-            <div className="divide-y divide-border/60 -mx-1">
-              {humanas.slice(0, 7).map((h) => (
-                <Link
+            <AccionLista>
+              {(() => {
+                // El monto es del CLIENTE, no de la tarea. Repetirlo en cada
+                // fila lo hacía leer como "esta tarea cuesta $48.217", y con 7
+                // tareas del mismo cliente la columna mostraba siete veces el
+                // mismo número — que es lo que hacía dudar de todo el tablero.
+                // Va una sola vez, en la fila más urgente de ese cliente.
+                const yaMostrado = new Set<string>();
+                return humanas.slice(0, 7).map((h) => {
+                  const primeraDelCliente = !!h.clientId && !yaMostrado.has(h.clientId);
+                  if (h.clientId) yaMostrado.add(h.clientId);
+                  return (
+                <AccionFila
                   key={h.identifier ?? h.title}
                   to={`/issues/${h.identifier}`}
-                  className="block px-1 py-2 text-sm no-underline text-inherit hover:bg-accent/40 rounded transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    {(h.priority === "urgent" || h.priority === "high") && (
-                      <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: "#d03b3b" }} />
-                    )}
-                    <span className="truncate flex-1">{h.title.replace(/^\[HUMANO\]\s*/, "")}</span>
-                    {h.diasParado != null && h.diasParado >= 3 && (
-                      <span
-                        className="text-[10px] tabular-nums shrink-0"
-                        style={h.diasParado >= 21 ? { color: "#d03b3b" } : undefined}
-                        title={`${h.diasParado} días esperando`}
-                      >
-                        {h.diasParado}d
-                      </span>
-                    )}
-                    {h.clienteNombre && <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">{h.clienteNombre}</span>}
-                  </div>
-                  {/* Lo que dijo el agente al trabarse: sin esto la fila dice
-                      "Reconectar página Meta" y no dice de qué cuenta. */}
-                  {h.motivo && <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1 pl-0.5">{h.motivo}</p>}
-                </Link>
-              ))}
+                  tono={h.priority === "urgent" || h.priority === "high" ? "critico" : "ninguno"}
+                  titulo={h.title.replace(/^\[HUMANO\]\s*/, "")}
+                  motivo={h.motivo}
+                  meta={[
+                    // La plata va PRIMERA: es lo que decide el orden de la cola
+                    // y lo único que distingue "reconectar una página" de
+                    // "reconectar LA página que frena $43.000 por día".
+                    ...(h.arsPorDia && h.arsPorDia > 0 && primeraDelCliente
+                      ? [{
+                          texto: `${fmtMoney(h.arsPorDia)}/d`,
+                          titulo: `${h.clienteNombre ?? "Este cliente"} tiene ${fmtMoney(h.arsPorDia)} por día parados. Es del cliente, no de esta tarea sola.`,
+                          tono: "critico" as const,
+                        }]
+                      : []),
+                    ...(h.diasParado != null && h.diasParado >= 3
+                      ? [{
+                          texto: `${h.diasParado}d`,
+                          titulo: `${h.diasParado} días esperando`,
+                          tono: h.diasParado >= 21 ? ("critico" as const) : ("ninguno" as const),
+                        }]
+                      : []),
+                    ...(h.clienteNombre ? [{ texto: h.clienteNombre, soloEscritorio: true }] : []),
+                  ]}
+                />
+                  );
+                });
+              })()}
               {humanasTotal > 7 && (
                 <p className="px-1 pt-2 text-[11px] text-muted-foreground">y {humanasTotal - 7} más esperando</p>
               )}
-            </div>
+            </AccionLista>
           )}
         </Card>
 
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="rounded-lg p-1.5" style={{ background: "color-mix(in srgb, #d03b3b 15%, transparent)" }}>
-              <BellRing className="h-3.5 w-3.5" style={{ color: "#d03b3b" }} />
+            <span className="rounded-lg p-1.5" style={{ background: "color-mix(in srgb, var(--estado-critico) 15%, transparent)" }}>
+              <BellRing className="h-3.5 w-3.5" style={{ color: "var(--estado-critico)" }} />
             </span>
             <h3 className="text-sm font-semibold">Alertas sin resolver</h3>
-            {criticas.length > 0 && <span className="text-xs font-medium" style={{ color: "#d03b3b" }}>{criticas.length} críticas</span>}
+            {criticas.length > 0 && <span className="text-xs font-medium" style={{ color: "var(--estado-critico)" }}>{criticas.length} críticas</span>}
           </div>
           {alertas.length === 0 ? (
             <p className="text-xs text-muted-foreground py-4">Sin alertas abiertas 🎉</p>
           ) : (
-            <div className="divide-y divide-border/60 -mx-1">
+            <AccionLista>
               {alertas.slice(0, 7).map((a) => (
-                <Link
+                <AccionFila
                   key={a.id}
                   to={a.clienteSlug ? `/c/${a.clienteSlug}/dashboard` : "/clients"}
-                  className="flex items-center gap-2 px-1 py-2 text-sm no-underline text-inherit hover:bg-accent/40 rounded transition-colors"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: a.severity === "critical" ? "#d03b3b" : "#eda100" }} />
-                  <span className="truncate flex-1">{a.title}</span>
-                  {a.clienteNombre && <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">{a.clienteNombre}</span>}
-                </Link>
+                  tono={a.severity === "critical" ? "critico" : "alerta"}
+                  titulo={a.title}
+                  meta={a.clienteNombre ? [{ texto: a.clienteNombre, soloEscritorio: true }] : []}
+                />
               ))}
-            </div>
+            </AccionLista>
           )}
         </Card>
       </div>
@@ -446,8 +474,6 @@ export function Dashboard() {
         </div>
       )}
 
-      <ActiveAgentsPanel companyId={selectedCompanyId!} />
-
       {data && (
         <>
           {data.budgets.activeIncidents > 0 ? (
@@ -469,7 +495,23 @@ export function Dashboard() {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3">
+          {/* LO PRIMERO ES EL NEGOCIO.
+              Antes esta pantalla abría con una fila de métricas del harness
+              —agentes corriendo, tareas en curso— y el estado de la cartera
+              quedaba abajo. Son los números de la maquinaria, no del trabajo de
+              la agencia: lo que alguien necesita al abrir "Hoy" es qué hay que
+              decidir hoy y cuánta plata está parada, no cuántos procesos viven. */}
+          <CentroDeMando />
+
+          <details className="group">
+            <summary className="cursor-pointer select-none list-none text-xs text-muted-foreground hover:text-foreground">
+              ▸ Estado del sistema (agentes, tareas, aprobaciones)
+            </summary>
+
+            <div className="mt-3 space-y-4">
+              <ActiveAgentsPanel companyId={selectedCompanyId!} />
+
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3">
             <MetricCard
               icon={Bot}
               value={data.agents.active + data.agents.running + data.agents.paused + data.agents.error}
@@ -521,7 +563,9 @@ export function Dashboard() {
                 </span>
               }
             />
-          </div>
+              </div>
+            </div>
+          </details>
 
           {/* Cola de decisiones: lo que el equipo humano tiene que destrabar HOY. */}
           {decisionQueue.length > 0 && (
@@ -551,9 +595,6 @@ export function Dashboard() {
               </div>
             </div>
           )}
-
-          {/* ── Centro de mando (6/8): qué está urgente y dónde actuar ── */}
-          <CentroDeMando />
 
           <details className="group">
             <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground list-none select-none">

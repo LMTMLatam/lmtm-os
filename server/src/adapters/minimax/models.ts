@@ -3,7 +3,11 @@ import type { AdapterModel } from "../types.js";
 export const models: AdapterModel[] = [
   // MiniMax-M3 has no "-highspeed" variant on the API (verified via /models);
   // offering it caused 2013 "unknown model". Only list real ids.
-  { id: "MiniMax-M3", label: "MiniMax M3 (default para LMTM)" },
+  //
+  // El Flash preview NO sale en GET /v1/models (los preview no se listan) pero
+  // responde — verificado 5/10/26 con una chat-completion real. Va estatico.
+  { id: "MiniMax-M3.1-Flash-Preview", label: "MiniMax M3.1 Flash (preview, recomendado)" },
+  { id: "MiniMax-M3", label: "MiniMax M3" },
   { id: "MiniMax-M2.7", label: "MiniMax M2.7" },
   { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7 (highspeed)" },
   { id: "MiniMax-M2.5", label: "MiniMax M2.5" },

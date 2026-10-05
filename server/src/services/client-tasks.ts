@@ -170,11 +170,15 @@ export async function createClientTask(db: Db, input: CreateClientTaskInput): Pr
           dedupeKey: `tareas:${identifier ?? title.slice(0, 60)}`,
         });
         if (urgente) {
-          const { sendWhatsAppToNumber, alertsNumber } = await import("./agency-ops.js");
-          const team = process.env.LMTM_TEAM_WA_GROUP || alertsNumber();
-          if (team) {
-            await sendWhatsAppToNumber(team, `📋 *${clientName}* · tarea ${priority === "urgent" ? "URGENTE" : "importante"} para *${resp.nombre}* (${resp.area}):\n${title}\n\n_${identifier ?? ""} · LMTM-OS_`).catch(() => {});
-          }
+          const { avisarAlEquipo } = await import("./wa-embudo.js");
+          // Nivel 4: una tarea derivada a una persona con prioridad urgente.
+          await avisarAlEquipo(db, {
+            origen: "derivacion-tareas",
+            nivel: 4,
+            clave: `derivacion:${identifier ?? title}`,
+            clientId: input.clientId,
+            texto: `📋 *${clientName}* · tarea ${priority === "urgent" ? "URGENTE" : "importante"} para *${resp.nombre}* (${resp.area}):\n${title}\n\n_${identifier ?? ""} · LMTM-OS_`,
+          }).catch(() => {});
         }
       }
     }

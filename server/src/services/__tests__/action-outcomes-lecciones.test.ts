@@ -3,9 +3,24 @@ import { KINDS_EVALUABLES, MINIMO_PARA_LECCION, leccionDe } from "../action-outc
 
 describe("KINDS_EVALUABLES", () => {
   // Cuando se sumó la escritura en Google, esas acciones quedaron sin evaluar:
-  // la capacidad más nueva era la única sin feedback.
-  it("cubre las tres palancas de escritura que ejecuta la flota", () => {
-    expect([...KINDS_EVALUABLES]).toEqual(["pause_ad_entity", "add_negative_keywords", "pause_keywords"]);
+  // la capacidad más nueva era la única sin feedback. Volvió a pasar al sumar
+  // el presupuesto, así que la lista se fija acá a propósito.
+  it("cubre las cuatro palancas de escritura que ejecuta la flota", () => {
+    expect([...KINDS_EVALUABLES]).toEqual([
+      "pause_ad_entity",
+      "add_negative_keywords",
+      "pause_keywords",
+      "set_budget",
+    ]);
+  });
+
+  // La autonomía graduada se decide con este mismo historial: una palanca que
+  // no se evalúa nunca se gana el derecho a ejecutarse sola, y —peor— una que
+  // se ejecuta sola sin estar acá lo haría sin que nadie mida el resultado.
+  it("toda palanca que puede volverse automática está medida", () => {
+    for (const kind of ["pause_ad_entity", "set_budget"]) {
+      expect([...KINDS_EVALUABLES]).toContain(kind);
+    }
   });
 });
 
