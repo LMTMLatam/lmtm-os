@@ -22,6 +22,26 @@ LMTM: `team_id 9013352440`.
   folder ahí LOS ARCHIVA automáticamente en el panel (reconciliación cada 12h).
   Un cliente cuyo folder no está en `Clientes` NO es un cliente activo.
 
+## ⚠️ Contenido de plantilla: NO es del cliente
+
+Las carpetas de los clientes nacieron copiando otras carpetas, y arrastran
+contenido de OTROS clientes que nadie borró. Leerlo como si fuera del cliente ya
+produjo sugerencias de inmobiliaria para una gomería (Distrillantas) y "productos
+naturales" para una carpintería de aluminio (ALTECNO).
+
+- **Lista `OnBoarding`**: los objetivos tipo "1. Incrementar el número de
+  propiedades captadas", "3. Incrementar las ventas de propiedades específicas",
+  "4. Incrementar la visibilidad online de la agencia", "ALQUILER", "VENTAS"
+  son de la carpeta **Cliente Inmobiliario**. Salvo que el cliente SEA una
+  inmobiliaria, ignoralos: no son sus objetivos.
+- **Lista `Super Redes Sociales`**: posteos como "De la tierra a tu hogar: los
+  ingredientes naturales…", "De la naturaleza a tu hogar…", "De la naturaleza a
+  tu vida…" son de **Cliente Natural**. No son contenido del cliente ni su estilo.
+
+Regla: el rubro y los objetivos del cliente salen de su **brain**
+(`lmtmGetClientBrain`) y de su `Enfoque Técnico`, no de tareas sueltas de
+ClickUp. Si una tarea contradice el rubro del cliente, es plantilla: no la uses.
+
 ## Convenciones CRÍTICAS del calendario de contenido (lista `📲Redes Sociales`)
 
 Estas reglas son LEY para leer o crear posts:

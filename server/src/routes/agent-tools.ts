@@ -1243,46 +1243,49 @@ export function agentToolsRoutes(
 
       if (tool === "get_client_ads_performance") {
         const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
         const days =
           typeof params.sinceDays === "number" && params.sinceDays > 0 ? Math.min(365, params.sinceDays) : 30;
-        const until = new Date();
-        const since = new Date(until.getTime() - days * 86_400_000);
-        const agg = await aggInsights(db, clientId, since.toISOString(), until.toISOString());
-        const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
-        const cpl = agg.leads > 0 ? agg.spend / agg.leads : null;
-        const cpc = agg.clicks > 0 ? agg.spend / agg.clicks : null;
+        // Los números salen de metricasCliente(), el mismo módulo que usan las
+        // pantallas. Antes este tool sumaba por su cuenta: incluía el día de hoy
+        // a medio sincronizar y sumaba el alcance diario (la misma persona
+        // contada muchas veces). La ventana termina AYER.
+        const { metricasCliente } = await import("../metricas/index.js");
+        const ayer = new Date(Date.now() - 86_400_000);
+        const hasta = ayer.toISOString().slice(0, 10);
+        const desde = new Date(ayer.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+        const [total, meta, google] = await Promise.all([
+          metricasCliente(db, clientId, { desde, hasta }),
+          metricasCliente(db, clientId, { desde, hasta, plataforma: "meta" }),
+          metricasCliente(db, clientId, { desde, hasta, plataforma: "google" }),
+        ]);
+        const r2 = (n: number | null) => (n == null ? null : Number(n.toFixed(2)));
+        const ctrPct = (m: typeof total) => (m.impresiones ? r2((m.clics! / m.impresiones) * 100) : null);
+        const resumen = (platform: string, m: typeof total) => ({
+          platform, spend: m.inversion == null ? null : Math.round(m.inversion), impressions: m.impresiones,
+          clicks: m.clics, leads: m.leads, ventas: m.ventas, ctrPct: ctrPct(m), cpl: r2(m.cpl),
+        });
+        // Desglose por plataforma (30/7): sus CPL no son comparables entre sí —
+        // Google captura demanda, Meta la genera. Solo las conectadas.
+        const plataformas = [
+          ...(meta.inversion != null ? [resumen("meta", meta)] : []),
+          ...(google.inversion != null ? [resumen("google", google)] : []),
+        ];
         // Análisis profundo (23/7): benchmark del rubro, formatos, edades —
         // el mismo que ve el equipo en la card de análisis estratégico.
         const [cl] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
         const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
         const profundo = await analisisProfundo(db, { id: clientId, industry: cl?.industry ?? null }).catch(() => null);
-        // Desglose por plataforma (30/7): el total mezclaba Meta + Google y los
-        // agentes no podían analizar Google por separado. Sus CPL no son
-        // comparables entre sí — Google captura demanda, Meta la genera.
-        const porPlat = await db
-          .select({
-            platform: adsInsights.platform,
-            spend: sql<string>`coalesce(sum(${adsInsights.spend}),0)`,
-            impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
-            clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
-            leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-          })
-          .from(adsInsights)
-          .where(and(eq(adsInsights.clientId, clientId), gte(adsInsights.date, since.toISOString().slice(0, 10))))
-          .groupBy(adsInsights.platform);
-        const plataformas = porPlat.map((p) => {
-          const sp = Number(p.spend), ld = p.leads, im = p.impressions, ck = p.clicks;
-          return {
-            platform: p.platform,
-            spend: Math.round(sp), impressions: im, clicks: ck, leads: ld,
-            ctrPct: im > 0 ? Number(((ck / im) * 100).toFixed(2)) : 0,
-            cpl: ld > 0 ? Number((sp / ld).toFixed(2)) : null,
-          };
-        });
         return reply(
           true,
           JSON.stringify({
-            windowDays: days,
+            windowDays: days, desde, hasta,
+            notaDatos: "null = no se puede medir (cuenta sin conectar, sin seguimiento de ventas, o dato que todavía no traemos). NUNCA lo tomes como cero ni lo inventes. Mirá 'frescura' antes de afirmar algo: si una fuente está 'fallando' o 'atrasada', los números de esa plataforma pueden estar incompletos.",
+            objetivo: total.objetivo,
+            notaObjetivo: total.objetivo.tcplFuente === "historial"
+              ? "El objetivo es una propuesta nuestra (CPL de 30 días × 0,8), no lo pidió el cliente. Decilo así."
+              : undefined,
+            frescura: total.frescura,
             plataformas,
             notaPlataformas: plataformas.length > 1
               ? "Este cliente tiene MÁS DE UNA plataforma: analizá y recomendá sobre cada una por separado. No compares sus CPL entre sí (Google capta demanda existente, Meta la genera)."
@@ -1291,14 +1294,9 @@ export function agentToolsRoutes(
             porEdad: profundo?.porEdad ?? [],
             formatos: profundo?.formatos ?? null,
             benchmarkRubro: profundo?.benchmark ?? null,
-            spend: Math.round(agg.spend),
-            impressions: agg.impressions,
-            clicks: agg.clicks,
-            leads: agg.leads,
-            reach: agg.reach,
-            ctrPct: Number(ctr.toFixed(2)),
-            cpl: cpl != null ? Number(cpl.toFixed(2)) : null,
-            cpc: cpc != null ? Number(cpc.toFixed(2)) : null,
+            ...resumen("total", total),
+            reach: null,
+            cpc: total.clics ? r2(total.inversion! / total.clics) : null,
           }),
         );
       }

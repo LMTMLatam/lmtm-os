@@ -6,16 +6,51 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 
 | Fase | Estado | Rama / PR |
 |---|---|---|
-| A1. Salud de fuentes | mergeado a main (`583f74c`), deploy en curso | PR #1 |
-| A2. Métricas + objetivos | listo, se integra después de verificar A1 | `rediseno/a-metricas` |
-| A3. Aislamiento por cliente | siguiente | |
-| A4. Agentes con objetivo (piloto, motor actual) | pendiente | |
+| A1. Salud de fuentes | **en producción** (boot 15:21 UTC), verificado | PR #1 |
+| A2. Métricas + objetivos | **en producción** (boot 16:08 UTC) | `rediseno/a-metricas` |
+| A3. Aislamiento por cliente | **en producción** (boot 16:08 UTC); limpieza de memoria hecha | `rediseno/a-aislamiento` |
+| A4. Agentes con objetivo (piloto, motor actual) | preparación commiteada; el piloto espera la tabla `decisiones` de B1 | `rediseno/a-agentes` |
 | A5. Resto de los roles | pendiente | |
 
 **Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
+**Esperando a una persona:**
+- Limpiar la plantilla de ClickUp (OnBoarding de inmobiliaria en ~70 carpetas,
+  posteos de Cliente Natural en 6). La plantilla en sí solo se corrige desde la app.
+- Rubro real de LoMasFundas (brain dice Deporte; los agentes "corrigieron" a
+  productos naturales a partir de la memoria contaminada).
+- DUNOD: falta el permiso `pages_read_user_content` en la app de Meta (orgánico).
+- Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
+
 ## Bitácora
+
+### 05/10: A3 aislamiento por cliente
+
+**El problema, medido.** El dueño vio sugerencias de una inmobiliaria en
+Distrillantas (gomería). Tres fugas:
+1. Carpetas de ClickUp creadas copiando otras: el OnBoarding de "Cliente
+   Inmobiliario" (objetivos de propiedades) está en ~70 carpetas, y los posteos de
+   "Cliente Natural" en Super Redes de 6. Todo creado en bloque el día de cada
+   carpeta (Distrillantas: 02/07 08:03-08:07 UTC, creador Marcos Lewis).
+2. El review de contenido (07/07) leyó esos posteos y guardó "productos naturales"
+   en la memoria de 7 clientes; los agentes lo propagaron.
+3. Efemérides sin filtro de rubro: el 12/09 "Día del Corredor Inmobiliario" a 45
+   clientes que no son inmobiliarias. El filtro existente además aplicaba todas las
+   de nicho a clientes sin rubro (`"x".includes("")`).
+
+**Hecho.** Efemérides por rubro en el motor de oportunidades (con el bug del
+filtro corregido); filtro de contenido de plantilla en el review y en el lector de
+Super Redes; escaneo diario de contaminación al resumen (nivel 3); skills de los
+agentes advierten sobre la plantilla. Limpieza: 7 reviews contaminados borrados con
+resguardo en `client_memory_backup_20261005_plantilla`.
+
+**Verificado:** 7 resguardados, 0 contaminados quedan, 5 reviews legítimos intactos.
+Quedan 15 menciones de "productos naturales" escritas por agentes: casi todas son
+correcciones ("NO productos naturales"); las de LoMasFundas esperan decisión humana.
+
+**De paso (lo mostró A1):** Meta cortaba con "reduce the amount of data" al traer
+creativos de MA PROPIEDADES y HANSHI; `paginate()` ahora achica la página y sigue.
 
 ### 05/10: A2 métricas y objetivos
 
