@@ -191,6 +191,15 @@ batch para el análisis nocturno, tope por sesión. Si el piloto muestra que hac
 falta bajar costo, la opción es Claude Sonnet 5.5 en los roles de volumen. Esa
 decisión es de LMTM, con el número del piloto en la mano.
 
+**Decisión del 05/10: por ahora sin API key de Anthropic.** Managed Agents queda
+como destino, no como punto de partida. Las fases A4 y A5 se hacen sobre el motor
+actual (Claude Code dentro del contenedor, MiniMax/GLM) y lo agéntico se logra con
+lo que no depende del motor: objetivo y rúbrica por cliente, herramientas MCP que
+exigen `client_id`, decisiones (`lmtm_proponer_decision`) en vez de tickets,
+despertar por hechos, piloto en sombra y set de evaluación. Todo eso se porta tal
+cual a Managed Agents el día que haya key: las herramientas son las mismas (MCP),
+cambia dónde corre el ciclo.
+
 **Migración:** estrangulamiento, no big bang. Paperclip sigue corriendo; se
 migra un rol por vez, en sombra primero (el agente nuevo propone, no ejecuta, y
 se compara con lo que hizo el equipo), y se apaga el rol viejo cuando el nuevo
@@ -249,12 +258,12 @@ la plata y el estado primero), que se documenta como skill nueva en
 | Fase | Semanas (estimado) | Dueño | Sale cuando |
 |---|---|---|---|
 | 0. Asentar | 1 | Nazareno | Todo pusheado; CI deploya desde `main`; credenciales rotadas; rol de solo lectura; los 4 accesos de Google arreglados; TCPL cargado en los 10 clientes con más inversión |
-| A1. Ingesta cruda + salud de fuentes | 1-3 | Chat A | Recalcular desde crudo reproduce las tablas limpias; `fuentes_salud` cubre cliente × fuente |
+| A1. Salud de fuentes | 1-3 | Chat A | `saludFuentes()` clasifica cliente × fuente (sin_conexion, fallando, sin_entrega, atrasada, ok) y ninguna parte del sync falla sin dejar registro. La capa cruda separada se posterga: `ads_insights.raw` ya permite recalcular (0 diferencias) |
 | A2. Métricas + objetivos | 2-3 | Chat A | `metricasCliente` con tests contra crudo; 0 diferencias en el chequeo de consistencia |
 | A3. Aislamiento por cliente | 2-4 | Chat A | `client_id NOT NULL` en tablas por cliente; toda herramienta exige y filtra por cliente; test de contaminación en CI |
 | B1. Motor de decisiones | 2-4 | Chat B | Las reglas existentes y las de pauta escriben en `decisiones`; ciclo hasta "verificada" |
 | B2. Hoy + avisos | 3-5 | Chat B | El decisor aprueba desde el celular; ejecuta por las rutas con guardas; ≤ 3 interrupciones/día |
-| A4. Agentes en Managed Agents (piloto) | 4-7 | Chat A | Media buyer en sombra 2 semanas en 3 clientes; eval aprobado; costo medido |
+| A4. Agentes con objetivo (piloto, motor actual) | 4-7 | Chat A | Media buyer en sombra 2 semanas en 3 clientes; eval aprobado; costo medido |
 | B3. Cartera + Cliente + informe | 5-8 | Chat B | Informe semanal para clientes desde `metricas`, revisado por el auditor |
 | A5. Resto de roles | 7-10 | Chat A | Cada rol nuevo supera al viejo en el eval; paperclip apagado por rol |
 | B4. Diseño + retiro de páginas | 7-10 | Chat B | 72 → ~8 páginas |
@@ -286,6 +295,23 @@ la plata y el estado primero), que se documenta como skill nueva en
 - B consume `metricasCliente()`. Hasta que A lo entregue, B usa un adaptador
   propio sobre las tablas actuales (las fórmulas de leads y conversiones ya son
   correctas) con la misma firma, y lo cambia cuando A mergea.
+- A entrega la salud de las fuentes en `server/src/ingest/salud.ts`. B la usa
+  para los incidentes de nivel 5 y la franja de cobertura de Hoy:
+  ```ts
+  saludFuentes(db, { clientId?: string }) => Promise<Array<{
+    clientId: string; cliente: string;
+    fuente: "meta_ads" | "google_ads" | "organico";
+    estado: "sin_conexion" | "fallando" | "sin_entrega" | "atrasada" | "ok";
+    ultimoDato: string | null;       // YYYY-MM-DD, último día con datos
+    ultimaCorridaOk: string | null;  // ISO, último sync que terminó bien
+    fallasSeguidas: number;          // corridas fallidas consecutivas, las más recientes
+    fallandoDesde: string | null;    // ISO, primera de esas fallas
+    ultimoError: string | null;
+    detalle: string;                 // una frase para una persona
+  }>>
+  ```
+  `sin_entrega` = el sync anda pero no hay datos (pauta pausada o sin presupuesto):
+  no es una falla y no interrumpe a nadie.
 - A escribe decisiones desde los agentes con la herramienta MCP
   `lmtm_proponer_decision`, que llama a `POST /api/decisiones` (servicio de B).
 - Si uno necesita tocar una carpeta del otro, lo pide en el PR y no lo hace.

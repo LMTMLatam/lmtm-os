@@ -41,6 +41,15 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
     const base = { connectionId: m.connectionId, mappingId: m.id, since, until };
     let mRecords = 0;
     let mErr: string | null = null;
+    // Las partes best-effort (creativos, audiencia, orgánico) no voltean el
+    // sync, y por eso fallaban sin dejar rastro: solo un console.warn que nadie
+    // lee. Ahora quedan en la metadata del log; la salud de fuentes las lee.
+    const partesFallidas: Record<string, string> = {};
+    const anotar = (parte: string, e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      partesFallidas[parte] = msg.slice(0, 300);
+      console.warn(`[ads-autosync] ${parte} ${m.id} failed: ${msg}`);
+    };
     try {
       mRecords += await adsAggregator.syncCampaigns(db, { ...base, jobName: "campaigns" });
       // Creativos (nombre + miniatura de cada anuncio). Faltaba en el ciclo
@@ -51,7 +60,7 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
       try {
         mRecords += await adsAggregator.syncCreatives(db, { ...base, jobName: "creatives" });
       } catch (e) {
-        console.warn(`[ads-autosync] creatives ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+        anotar("creativos", e);
       }
       mRecords += await adsAggregator.syncInsights(db, { ...base, jobName: "insights" });
       // Demographics snapshot (age/gender/platform/device) — Meta-only, two
@@ -60,14 +69,14 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
       try {
         mRecords += await adsAggregator.syncAudience(db, { ...base, jobName: "audience" });
       } catch (e) {
-        console.warn(`[ads-autosync] audience ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+        anotar("audiencia", e);
       }
       // Organic posts (FB + IG) with inline engagement. Best-effort: mappings
       // without a pageId (or pages without access) must not fail the ad sync.
       try {
         mRecords += await adsAggregator.syncOrganic(db, { ...base, jobName: "organic" });
       } catch (e) {
-        console.warn(`[ads-autosync] organic ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+        anotar("organico", e);
       }
       ok++;
     } catch (e) {
@@ -92,7 +101,10 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
         completedAt: new Date(),
         recordsSynced: mRecords,
         error: mErr ? mErr.slice(0, 500) : null,
-        metadata: { adAccountId: m.adAccountId },
+        metadata: {
+          adAccountId: m.adAccountId,
+          ...(Object.keys(partesFallidas).length > 0 ? { partesFallidas } : {}),
+        },
       });
     } catch (e) {
       console.warn(`[ads-autosync] sync-log write for ${m.id} failed: ${e instanceof Error ? e.message : String(e)}`);
