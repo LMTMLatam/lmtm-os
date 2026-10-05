@@ -41,7 +41,8 @@ const agente = { type: "agent", agentId: "ag1", companyId: "co1", source: "api_k
 const clientId = "6f1d1b2e-1c7a-4b8e-9a51-0c2d3e4f5a6b";
 
 const numeros = { desde: "2026-09-28", hasta: "2026-10-04", inversion: 1, leads: 1, cpl: 1, calificados: null, costoPorCalificado: null, ventas: null, costoPorVenta: null, objetivo: null, objetivoFuente: null, anterior: { inversion: null, leads: null, cpl: null }, leadsDudosos: false };
-const informe = { id: "i1", clientId, semana: "2026-09-28", narrativa: { resumen: "El lead costó {cpl}.", hicimos: [], aprendimos: [], proximos: ["x"], pedidos: [] }, numeros, estado: "aprobado", auditoria: { ok: true, fallas: [] } };
+const idInforme = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+const informe = { id: idInforme, clientId, semana: "2026-09-28", narrativa: { resumen: "El lead costó {cpl}.", hicimos: [], aprendimos: [], proximos: ["x"], pedidos: [] }, numeros, estado: "aprobado", auditoria: { ok: true, fallas: [] } };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -74,9 +75,11 @@ describe("/api/informes", () => {
   });
 
   it("publicar es solo del tablero: un agente no le manda nada al cliente", async () => {
-    expect((await request(await app(agente)).post("/api/informes/i1/publicar")).status).toBe(403);
+    expect((await request(await app(agente)).post(`/api/informes/${idInforme}/publicar`)).status).toBe(403);
     expect(informes.publicarInforme).not.toHaveBeenCalled();
-    const r = await request(await app(tablero)).post("/api/informes/i1/publicar");
+    // Un id que no es uuid es un 400, no un error del servidor.
+    expect((await request(await app(tablero)).post("/api/informes/i1/publicar")).status).toBe(400);
+    const r = await request(await app(tablero)).post(`/api/informes/${idInforme}/publicar`);
     expect(r.status).toBe(200);
     expect(r.body.informe.estado).toBe("publicado");
   });

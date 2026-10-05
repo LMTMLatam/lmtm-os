@@ -93,13 +93,15 @@ export function publicDashboardRoutes(db: Db): Router {
   // GET /api/public/dashboards/:slug/informe?semana=YYYY-MM-DD — el informe
   // semanal para el cliente (rediseño B3): costo por consulta contra el
   // objetivo, tendencia, campañas y la narrativa publicada. Todo de `metricas`.
-  router.get("/dashboards/:slug/informe", microCache(5 * 60_000), async (req, res) => {
+  // Sin microCache: el informe tiene su propio caché por cliente y semana
+  // (decisiones/informe-cache.ts), que se borra al publicar o retirar.
+  router.get("/dashboards/:slug/informe", async (req, res) => {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      const { informePublico } = await import("../decisiones/informe-publico.js");
+      const { informePublicoCacheado } = await import("../decisiones/informe-publico.js");
       const semana = typeof req.query.semana === "string" ? req.query.semana : undefined;
-      res.json({ cliente: r.client.name.trim(), ...(await informePublico(db, r.client.id, semana)) });
+      res.json({ cliente: r.client.name.trim(), ...(await informePublicoCacheado(db, r.client.id, semana)) });
     } catch (e) {
       // Al cliente no le llega el detalle interno del error.
       console.warn("[informe-publico]", e instanceof Error ? e.message : e);

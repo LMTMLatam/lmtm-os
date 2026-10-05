@@ -107,6 +107,17 @@ describe("auditor", () => {
     expect(auditarInforme(aclarado, n, otros).ok).toBe(true);
   });
 
+  it("una « sin cerrar no se traga un número escrito a mano en otra sección", () => {
+    const a = auditarInforme(narrativa({ hicimos: ["Cambiamos «Campaña: Verano", "Subimos 3 veces» algo"] }), numeros(), otros);
+    expect(a.ok).toBe(false);
+    expect(a.fallas[0]).toContain("3");
+  });
+
+  it("la jerga dentro del nombre de una campaña no frena el informe", () => {
+    expect(auditarInforme(narrativa({ hicimos: ["Pausamos «CPC Retargeting Pixel», que no traía consultas."] }), numeros(), otros).ok).toBe(true);
+    expect(auditarInforme(narrativa({ hicimos: ["Mejoró el CPC."] }), numeros(), otros).ok).toBe(false);
+  });
+
   it("sin próximo paso no sirve para decidir", () => {
     expect(auditarInforme(narrativa({ proximos: [] }), numeros(), otros).ok).toBe(false);
   });
@@ -158,6 +169,22 @@ describe("borrador automático (sin modelo)", () => {
     expect(auditarInforme(b, n, []).ok).toBe(true);
   });
 
+  it("los dos puntos de un nombre no cortan la frase, y una frase rota no va al cliente", async () => {
+    const { fraseParaCliente } = await import("../informes-store.js");
+    expect(fraseParaCliente("Reemplazar «Promo: Verano»: cada persona lo vio 4,6 veces")).toBe("Reemplazar «Promo: Verano»");
+    expect(fraseParaCliente("Reemplazar «Promo sin cerrar: algo")).toBeNull();
+  });
+
+  it("con Google dudoso no compara contra el objetivo ni contra la semana anterior", async () => {
+    const { armarBorrador } = await import("../informes-store.js");
+    const n = numeros({ leadsDudosos: true });
+    const b = armarBorrador(n, { hechas: [], abiertasEquipo: [], abiertasCliente: [] });
+    const t = renderizar(b.resumen, n);
+    expect(t).not.toMatch(/debajo|arriba|menos que|más que/);
+    expect(t).toContain("todavía no lo comparamos con el objetivo de $5.000");
+    expect(auditarInforme(b, n, []).ok).toBe(true);
+  });
+
   it("con Google dudoso lo aclara, y sin objetivo acordado no inventa uno", async () => {
     const { armarBorrador } = await import("../informes-store.js");
     const n = numeros({ leadsDudosos: true, objetivo: null, objetivoFuente: null });
@@ -166,5 +193,19 @@ describe("borrador automático (sin modelo)", () => {
     expect(b.resumen).toContain("Todavía no hay un objetivo de costo por consulta acordado.");
     expect(b.resumen).not.toContain("{objetivo}");
     expect(auditarInforme(b, n, []).ok).toBe(true);
+  });
+});
+
+describe("caché del informe público", () => {
+  it("guarda por cliente y semana, y publicar o retirar lo borra en el acto", async () => {
+    const { conCache, olvidarInformePublico } = await import("../informe-cache.js");
+    let armados = 0;
+    const armar = async () => ++armados;
+    expect(await conCache("c1", "2026-09-28", armar)).toBe(1);
+    expect(await conCache("c1", "2026-09-28", armar)).toBe(1); // del caché
+    expect(await conCache("c2", "2026-09-28", armar)).toBe(2); // otro cliente, otra entrada
+    olvidarInformePublico("c1");
+    expect(await conCache("c1", "2026-09-28", armar)).toBe(3);
+    expect(await conCache("c2", "2026-09-28", armar)).toBe(2); // el otro cliente no se tocó
   });
 });

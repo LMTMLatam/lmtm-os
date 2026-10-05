@@ -212,9 +212,11 @@ export function auditarInforme(nar: Narrativa, n: NumerosInforme, otrosClientes:
 
   // 1. Ningún número escrito a mano: salen todos de las métricas. Los nombres
   // entre «comillas» se saltean: "«Deptos 2 amb»" es un nombre, no un dato.
-  const sinMarcadores = todo.replace(MARCADOR, "").replace(/«[^»]*»/g, "");
-  const sueltos = sinMarcadores.match(/[$]?\d[\d.,%]*/g);
-  if (sueltos) {
+  // Sección por sección y sin cruzar renglones: una « sin cerrar no puede
+  // tragarse el resto del informe (y con él, un número a mano).
+  const sinNombres = (t: string) => t.replace(/«[^»\n]*»/g, "");
+  const sueltos = partes.flatMap((p) => sinNombres(p.replace(MARCADOR, "")).match(/[$]?\d[\d.,%]*/g) ?? []);
+  if (sueltos.length) {
     fallas.push(`Hay números escritos a mano (${[...new Set(sueltos.map((x) => x.replace(/[.,]+$/, "")))].slice(0, 5).join(", ")}). Cada número va con su marcador ({cpl}, {leads}, {objetivo}…) para que salga de las métricas de la semana.`);
   }
 
@@ -253,7 +255,9 @@ export function auditarInforme(nar: Narrativa, n: NumerosInforme, otrosClientes:
   if (ajenos.length) fallas.push(`Menciona a otro cliente (${ajenos.slice(0, 3).join(", ")}). El informe es solo de este cliente.`);
 
   // 5. Castellano del cliente.
-  const jerga = todo.match(JERGA);
+  // En los nombres de campaña la jerga es del que la nombró («Retargeting
+  // Pixel»): no es el informe hablando así.
+  const jerga = partes.map((p) => sinNombres(p)).join("\n").match(JERGA);
   if (jerga) fallas.push(`"${jerga[0]}" es jerga: decilo como lo diría el cliente (consultas, costo por consulta, personas que vieron el anuncio).`);
 
   // 6. Accionable.

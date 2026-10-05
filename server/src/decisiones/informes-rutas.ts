@@ -15,7 +15,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { assertBoard, assertBoardOrgAccess, assertCompanyAccess } from "../routes/authz.js";
+import { assertBoard, assertBoardOrgAccess, assertCompanyAccess, assertInstanceAdmin } from "../routes/authz.js";
 import { unauthorized } from "../errors.js";
 import { auditarInforme, renderizarNarrativa, ultimaSemana } from "./informe.js";
 import {
@@ -102,6 +102,7 @@ export function informesRoutes(db: Db) {
       await accesoAlCliente(req, clientId);
       const escritoPor = req.actor.type === "agent" ? `agente:${req.actor.agentId}` : `tablero:${actorDe(req).actorId}`;
       const r = await guardarInforme(db, { clientId, semana, narrativa }, escritoPor, actorDe(req));
+      if (!r) return res.status(409).json({ error: "Ese informe ya existe." });
       res.status(r.creado ? 201 : 200).json({ informe: conTexto(r.informe), auditoria: r.informe.auditoria });
     } catch (e) {
       responderError(res, e);
@@ -125,9 +126,10 @@ export function informesRoutes(db: Db) {
     }
   });
 
+  // Escribe para todos los clientes de la instancia: solo un administrador.
   router.post("/informes/borradores", async (req, res) => {
     try {
-      assertBoard(req);
+      assertInstanceAdmin(req);
       res.json(await generarBorradores(db));
     } catch (e) {
       responderError(res, e);
@@ -138,6 +140,7 @@ export function informesRoutes(db: Db) {
     router.post(`/informes/:id/${accion}`, async (req, res) => {
       try {
         assertBoard(req);
+        if (!esUuid(req.params.id)) return res.status(400).json({ error: "id inválido" });
         const i = await obtenerInforme(db, req.params.id);
         assertCompanyAccess(req, await empresaParaAcceso(db, i.clientId));
         const r = accion === "publicar" ? await publicarInforme(db, i.id, actorDe(req)) : await retirarInforme(db, i.id, actorDe(req));

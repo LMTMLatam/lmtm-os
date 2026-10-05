@@ -57,7 +57,7 @@ export async function resumenDeCliente(db: Db, clientId: string, ahora = new Dat
     numerosDeSemana(db, clientId, s.desde),
     metricasCliente(db, clientId, v30),
     listarDecisiones(db, { clientId }),
-    listarDecisiones(db, { clientId, estados: ["ejecutada", "verificada"], limite: 8 }),
+    listarDecisiones(db, { clientId, estados: ["verificada"], limite: 100 }),
     listarInformes(db, clientId, 1),
     db.select({ slug: publicDashboards.slug }).from(publicDashboards).where(and(eq(publicDashboards.clientId, clientId), eq(publicDashboards.enabled, true))).limit(1),
   ]);
@@ -66,7 +66,7 @@ export async function resumenDeCliente(db: Db, clientId: string, ahora = new Dat
   return {
     semana,
     medida,
-    estado: estadoContraObjetivo(medida === "calificado" ? semana.costoPorCalificado : semana.cpl, semana.objetivo),
+    estado: semana.leadsDudosos && medida === "lead" ? "sin_dato" : estadoContraObjetivo(medida === "calificado" ? semana.costoPorCalificado : semana.cpl, semana.objetivo),
     embudo: {
       ...v30,
       inversion: m30.inversion,
@@ -78,7 +78,11 @@ export async function resumenDeCliente(db: Db, clientId: string, ahora = new Dat
       costoPorVenta: m30.costoPorVenta,
     },
     decisiones: vivas.filter((d) => d.estado !== "ejecutada"),
-    hechas: [...vivas.filter((d) => d.estado === "ejecutada"), ...hechas.filter((d) => d.estado === "verificada")].slice(0, 6),
+    // Lo más reciente primero: la lista viene ordenada por plata, y algo viejo
+    // y caro taparía lo que se hizo esta semana.
+    hechas: [...vivas.filter((d) => d.estado === "ejecutada"), ...hechas]
+      .sort((a, b) => (b.ejecutadaAt ? Date.parse(String(b.ejecutadaAt)) : 0) - (a.ejecutadaAt ? Date.parse(String(a.ejecutadaAt)) : 0))
+      .slice(0, 6),
     informe: i
       ? {
           id: i.id,

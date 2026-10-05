@@ -24,6 +24,7 @@ import {
   type NumerosInforme,
 } from "./informe.js";
 import { fraseParaCliente, informePublicado, numerosDeSemana } from "./informes-store.js";
+import { conCache } from "./informe-cache.js";
 
 export interface SemanaTendencia {
   desde: string;
@@ -60,9 +61,19 @@ export interface InformePublico {
 
 const SEMANAS_TENDENCIA = 8;
 
+/** La semana que se va a mostrar: la pedida si es válida, si no la última completa. */
+export function semanaParaMostrar(semanaPedida: string | undefined, ahora = new Date()): string {
+  return semanaPedida && esSemanaValida(semanaPedida, ahora) ? semanaPedida : ultimaSemana(ahora).desde;
+}
+
+/** Lo mismo que `informePublico`, guardado 5 minutos por cliente y semana (ver informe-cache.ts). */
+export function informePublicoCacheado(db: Db, clientId: string, semanaPedida?: string): Promise<InformePublico> {
+  const desde = semanaParaMostrar(semanaPedida);
+  return conCache(clientId, desde, () => informePublico(db, clientId, desde));
+}
+
 export async function informePublico(db: Db, clientId: string, semanaPedida?: string, ahora = new Date()): Promise<InformePublico> {
-  const ultima = ultimaSemana(ahora);
-  const desde = semanaPedida && esSemanaValida(semanaPedida, ahora) ? semanaPedida : ultima.desde;
+  const desde = semanaParaMostrar(semanaPedida, ahora);
   const publicado = await informePublicado(db, clientId, desde);
 
   // Lo publicado se muestra con los números con los que se auditó: si la
@@ -71,7 +82,9 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
   const numeros = publicado?.numeros ?? (await numerosDeSemana(db, clientId, desde));
   const semana = { desde: numeros.desde, hasta: numeros.hasta };
   const medida = numeros.costoPorCalificado != null ? "calificado" : "lead";
-  const estado = estadoContraObjetivo(medida === "calificado" ? numeros.costoPorCalificado : numeros.cpl, numeros.objetivo);
+  // Con conversiones de Google que no son consultas, el costo por consulta
+  // del total no se compara con nada: "En el objetivo" sería falso.
+  const estado = numeros.leadsDudosos && medida === "lead" ? "sin_dato" : estadoContraObjetivo(medida === "calificado" ? numeros.costoPorCalificado : numeros.cpl, numeros.objetivo);
 
   // Tendencia: la semana pedida y las 7 anteriores, cada una de metricasCliente().
   const semanas: Array<{ desde: string; hasta: string }> = [semana];
@@ -84,6 +97,12 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
       }),
     )
   ).reverse();
+  // La semana publicada se dibuja con los números con los que se auditó: si
+  // no, la barra y el texto de arriba podrían decir dos cosas distintas.
+  if (publicado) {
+    const i = tendencia.findIndex((t) => t.desde === numeros.desde);
+    if (i >= 0) tendencia[i] = { desde: numeros.desde, inversion: numeros.inversion, leads: numeros.leads, cpl: numeros.cpl };
+  }
 
   const porCampana = await metricasCampanas(db, clientId, semana);
   const campanas = porCampana

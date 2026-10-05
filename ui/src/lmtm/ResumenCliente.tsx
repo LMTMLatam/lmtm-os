@@ -152,7 +152,8 @@ function InformeSemana({ d, clientId }: { d: Datos; clientId: string }) {
   const i = d.informe;
   const mut = useMutation({
     mutationFn: (accion: "publicar" | "retirar") => (accion === "publicar" ? informesApi.publicar(i!.id) : informesApi.retirar(i!.id)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["lmtm", "cliente", clientId] }),
+    // También la Cartera, que muestra el estado del informe de cada cliente.
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["lmtm"] }),
   });
 
   if (!i) {

@@ -22,6 +22,8 @@ import {
   type NumerosInforme,
 } from "./informe.js";
 import { ErrorDecision, type Actor } from "./store.js";
+import { olvidarInformePublico } from "./informe-cache.js";
+import { invalidateMicroCache } from "../services/micro-cache.js";
 
 export type EstadoInforme = "borrador" | "observado" | "aprobado" | "publicado";
 
@@ -100,7 +102,8 @@ export async function guardarInforme(
   escritoPor: string,
   actor: Actor,
   ahora = new Date(),
-): Promise<{ informe: InformeFila; creado: boolean }> {
+  opts: { soloSiNoExiste?: boolean } = {},
+): Promise<{ informe: InformeFila; creado: boolean } | null> {
   const v = validarNarrativa(entrada.narrativa);
   if (!v.ok) throw new ErrorDecision(422, v.motivo);
   const semana = entrada.semana ?? ultimaSemana(ahora).desde;
@@ -113,6 +116,9 @@ export async function guardarInforme(
     .from(informesSemanales)
     .where(and(eq(informesSemanales.clientId, entrada.clientId), eq(informesSemanales.semana, semana)))
     .limit(1);
+  // El borrador automático nunca reemplaza lo que ya existe (lo escribió el
+  // estratega o una persona mientras corría la tanda de los lunes).
+  if (previo && opts.soloSiNoExiste) return null;
   if (previo?.estado === "publicado") {
     throw new ErrorDecision(409, "Ese informe ya está publicado y lo puede estar leyendo el cliente. Para corregirlo, una persona lo tiene que retirar primero.");
   }
@@ -131,9 +137,20 @@ export async function guardarInforme(
     updatedAt: ahora,
   };
 
+  // Entre la lectura de arriba y esta escritura pasan las lecturas de
+  // métricas: alguien pudo publicarlo o escribirlo en el medio. La escritura
+  // lo vuelve a mirar en la base; si cambió, 409 y no se pisa nada.
   const [fila] = previo
-    ? await db.update(informesSemanales).set(valores).where(eq(informesSemanales.id, previo.id)).returning()
-    : await db.insert(informesSemanales).values({ clientId: entrada.clientId, semana, ...valores }).returning();
+    ? await db
+        .update(informesSemanales)
+        .set(valores)
+        .where(and(eq(informesSemanales.id, previo.id), ne(informesSemanales.estado, "publicado")))
+        .returning()
+    : await db.insert(informesSemanales).values({ clientId: entrada.clientId, semana, ...valores }).onConflictDoNothing().returning();
+  if (!fila) {
+    if (opts.soloSiNoExiste) return null;
+    throw new ErrorDecision(409, "Mientras se guardaba, alguien publicó o escribió este informe. Volvé a cargarlo antes de reescribirlo.");
+  }
   await registrar(db, fila, actor, previo ? "informe.reescrito" : "informe.escrito", { semana, estado: fila.estado, fallas: auditoria.fallas.length });
   return { informe: aFila(fila), creado: !previo };
 }
@@ -165,9 +182,21 @@ const PASADO: Record<string, string> = {
  * quedara alguno, la frase no va.
  */
 export function fraseParaCliente(que: string): string | null {
-  const antes = que.split(":")[0].trim();
-  const sinNombres = antes.replace(/«[^»]*»/g, "");
-  if (!antes || /\d/.test(sinNombres)) return null;
+  // Los dos puntos de adentro de un nombre («Promo: Verano») no cortan.
+  let dentro = false;
+  let corte = que.length;
+  for (let i = 0; i < que.length; i++) {
+    if (que[i] === "«") dentro = true;
+    else if (que[i] === "»") dentro = false;
+    else if (que[i] === ":" && !dentro) {
+      corte = i;
+      break;
+    }
+  }
+  const antes = que.slice(0, corte).trim();
+  // Una « sin cerrar es un texto roto: no va al cliente.
+  if (!antes || (antes.match(/«/g) ?? []).length !== (antes.match(/»/g) ?? []).length) return null;
+  if (/\d/.test(antes.replace(/«[^»]*»/g, ""))) return null;
   return antes;
 }
 
@@ -193,9 +222,15 @@ export function armarBorrador(
     if (n.objetivo != null) resumen += " El objetivo es que cada una cueste {objetivo} o menos.";
   } else {
     resumen = "Del {desde} al {hasta} invertimos {inversion} y llegaron {leads} consultas: cada una costó {cpl}";
-    resumen += n.objetivo == null ? "." : n.cpl <= n.objetivo ? ", debajo del objetivo de {objetivo}." : ", arriba del objetivo de {objetivo}.";
-    if (n.anterior.cpl != null && n.anterior.cpl > 0) resumen += " Es {variacionCpl} la semana anterior.";
-    if (n.leadsDudosos) resumen += " El total incluye conversiones de Google que en esta cuenta no son confiables.";
+    if (n.leadsDudosos) {
+      // El total incluye "consultas" de Google que no lo son: compararlo con
+      // el objetivo (o con la semana anterior) sería afirmar algo falso.
+      resumen += ". El total incluye conversiones de Google que en esta cuenta no son confiables";
+      resumen += n.objetivo == null ? "." : ", así que todavía no lo comparamos con el objetivo de {objetivo}.";
+    } else {
+      resumen += n.objetivo == null ? "." : n.cpl <= n.objetivo ? ", debajo del objetivo de {objetivo}." : ", arriba del objetivo de {objetivo}.";
+      if (n.anterior.cpl != null && n.anterior.cpl > 0) resumen += " Es {variacionCpl} la semana anterior.";
+    }
   }
   if (n.objetivo == null && n.cpl != null) resumen += " Todavía no hay un objetivo de costo por consulta acordado.";
 
@@ -276,8 +311,8 @@ export async function generarBorradores(db: Db, ahora = new Date()): Promise<{ s
         sinPauta++;
         continue;
       }
-      await guardarInforme(db, { clientId: c.id, semana, narrativa: b.narrativa }, "tablero:automatico", sistema, ahora);
-      creados++;
+      const r = await guardarInforme(db, { clientId: c.id, semana, narrativa: b.narrativa }, "tablero:automatico", sistema, ahora, { soloSiNoExiste: true });
+      if (r) creados++;
     } catch (e) {
       console.warn(`[informes] no se pudo armar el borrador de ${c.id}:`, e instanceof Error ? e.message : e);
     }
@@ -318,6 +353,12 @@ export async function informePublicado(db: Db, clientId: string, semana?: string
   return r ? aFila(r) : null;
 }
 
+/** Lo que ve el cliente y lo que muestra la Cartera cambian ya, no cuando venza el caché. */
+function olvidarCaches(clientId: string): void {
+  olvidarInformePublico(clientId);
+  invalidateMicroCache("/cartera");
+}
+
 /** Solo lo que pasó el auditor se publica. */
 export async function publicarInforme(db: Db, id: string, actor: Actor, ahora = new Date()): Promise<InformeFila> {
   const i = await obtenerInforme(db, id);
@@ -331,6 +372,7 @@ export async function publicarInforme(db: Db, id: string, actor: Actor, ahora = 
     .where(and(eq(informesSemanales.id, id), eq(informesSemanales.estado, "aprobado")))
     .returning();
   if (!fila) throw new ErrorDecision(409, "El informe cambió mientras se publicaba: volvé a cargarlo.");
+  olvidarCaches(i.clientId);
   await registrar(db, fila, actor, "informe.publicado", { semana: i.semana });
   return aFila(fila);
 }
@@ -344,6 +386,7 @@ export async function retirarInforme(db: Db, id: string, actor: Actor, ahora = n
     .set({ estado: "aprobado", publicadoAt: null, publicadoPor: null, updatedAt: ahora })
     .where(eq(informesSemanales.id, id))
     .returning();
+  olvidarCaches(i.clientId);
   await registrar(db, fila, actor, "informe.retirado", { semana: i.semana });
   return aFila(fila);
 }

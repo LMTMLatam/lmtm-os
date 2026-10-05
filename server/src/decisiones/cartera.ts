@@ -98,7 +98,8 @@ export async function datosDeCartera(db: Db, ahora = new Date()): Promise<Carter
           leadsDudosos: x.n.leadsDudosos,
           cplAnterior: x.n.anterior.cpl,
         },
-        estado: estadoContraObjetivo(x.n.cpl, x.n.objetivo),
+        // Con conversiones de Google que no son consultas, el costo del total no se compara.
+        estado: x.n.leadsDudosos ? "sin_dato" : estadoContraObjetivo(x.n.cpl, x.n.objetivo),
         fuentesConProblemas: x.frescura
           .filter((f) => f.fuente !== "organico")
           .filter((f) => f.estado === "fallando" || f.estado === "atrasada" || (f.estado === "sin_conexion" && f.ultimoDato != null))

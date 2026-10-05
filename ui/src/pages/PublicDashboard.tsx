@@ -105,8 +105,8 @@ function Informe({ d, slug, onSemana }: { d: InformePublico; slug: string; onSem
       {d.pedidos.length > 0 && (
         <Franja titulo="Lo que necesitamos de vos">
           <ul className="space-y-2 border-l-[3px] border-l-l-marca pl-4">
-            {d.pedidos.map((p) => (
-              <li key={p} className="text-[15px] font-medium leading-[1.45]">
+            {d.pedidos.map((p, i) => (
+              <li key={i} className="text-[15px] font-medium leading-[1.45]">
                 {p}
               </li>
             ))}
@@ -187,8 +187,8 @@ function Lista({ titulo, items, numerada }: { titulo: string; items: string[]; n
     <div className="mt-5">
       <h3 className="text-[13px] font-semibold text-l-tinta-2">{titulo}</h3>
       <Tag className={`mt-1.5 space-y-1.5 pl-5 text-[15px] leading-[1.5] ${numerada ? "list-decimal" : "list-disc"}`}>
-        {items.map((i) => (
-          <li key={i}>{i}</li>
+        {items.map((texto, i) => (
+          <li key={i}>{texto}</li>
         ))}
       </Tag>
     </div>
@@ -269,8 +269,9 @@ function Campanas({ d }: { d: InformePublico }) {
   if (d.campanas.length === 0) return <p className="text-[14px] text-l-tinta-2">Ninguna campaña gastó esta semana.</p>;
   return (
     <ul>
-      {d.campanas.map((c) => (
-        <li key={`${c.plataforma}:${c.nombre}`} className="border-t border-l-linea py-3.5 last:border-b">
+      {d.campanas.map((c, i) => (
+        // Dos campañas pueden llamarse igual ("Campaña sin nombre"): la clave lleva la posición.
+        <li key={`${i}:${c.plataforma}:${c.nombre}`} className="border-t border-l-linea py-3.5 last:border-b">
           <div className="flex items-baseline justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[15px] font-medium leading-[1.35]">{c.nombre}</div>
