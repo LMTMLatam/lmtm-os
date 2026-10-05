@@ -9,16 +9,16 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 | A1. Salud de fuentes | **en producción** (boot 15:21 UTC), verificado | PR #1 |
 | A2. Métricas + objetivos | **en producción**, también en la herramienta de pauta de los agentes | `rediseno/a-metricas`, `rediseno/a-agentes` |
 | A3. Aislamiento por cliente | **en producción**; limpieza de memoria hecha; Randstad verificado | `rediseno/a-aislamiento` |
-| A4. Agentes con objetivo (piloto, motor actual) | herramienta por campaña y evaluador en producción; falta crear la rutina del piloto (clave de panel) | `rediseno/a-agentes`, `rediseno/a-campanas` |
+| A4. Agentes con objetivo (piloto, motor actual) | **piloto en sombra corriendo** desde 06/10 (Milo, 3 clientes, 2 semanas) | `rediseno/a-agentes`, `rediseno/a-campanas` |
 | A5. Resto de los roles | pendiente | |
 
 **Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 **Esperando a una persona:**
-- Crear la rutina del piloto A4 (texto en `agentes/media-buyer/PILOTO.md`), o
-  autorizar mintear una clave de panel para crearla por API.
-- Corregir las acciones de conversión de Google en MA PROPIEDADES y SEBASTIAN
+- Aprobar o descartar (con motivo) las propuestas de pauta de Milo: son el dato
+  principal del piloto.
+- Corregir (lo toma Nazareno) las acciones de conversión de Google en MA PROPIEDADES y SEBASTIAN
   RAMASCO PADILLA (~53% de los clics "convierten").
 - Limpiar la plantilla de ClickUp (OnBoarding de inmobiliaria en ~70 carpetas,
   posteos de Cliente Natural en 6). La plantilla en sí solo se corrige desde la app.
@@ -53,10 +53,17 @@ necesita esperar a la tabla `decisiones` de B1: el ciclo N0 ya existe.
 - Piloto definido en `agentes/media-buyer/PILOTO.md` (rutina de Milo, 3 clientes,
   cómo se mide).
 
-**Falta:** allowlist (`lmtmGetClientCampaigns` a 5 roles, `lmtmSetBudget` a Milo) y
-crear la rutina: las rutinas solo se crean por API con clave de panel, y mintear
-una clave en la base es crear una credencial en producción → lo decide Nazareno
-(o la carga él desde el panel con el texto de PILOTO.md).
+**Aplicado en prod (con OK de Nazareno):**
+- Allowlist: `lmtmGetClientCampaigns` a Milo, Carla, Luna, Delfina y Roxana;
+  `lmtmSetBudget` a Milo. Autonomía de pauta apagada (`LMTM_AUTONOMIA_PAUTA` no
+  existe): todo queda como propuesta.
+- Rutina `Media buyer en sombra (piloto)` (`6217b570`), Milo, `0 11 * * 1-5`
+  ART, primera corrida 06/10 11:00. Creada por API con una clave de panel temporal
+  (20 min) revocada al terminar.
+
+**Arranca el reloj del piloto (2 semanas, hasta el 19/10).** Cada día después de
+las 11: `eval-propuestas-cli.ts` sobre las propuestas, y `--referencia` para la
+cobertura.
 
 ### 05/10 16:50: integración de A2/A3 a los agentes, y la flota
 
