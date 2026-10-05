@@ -2,6 +2,21 @@
 
 Lo escribe solo el chat A. Lo más nuevo arriba.
 
+### 2026-10-05 16:50 · INTEGRADO · A2, A3 y preparación de A4 en producción
+- `main` `a5cb229` (boot 16:42 UTC) y `4d0d0ed` (deployándose).
+- **A2**: la herramienta de pauta de los agentes (`get_client_ads_performance`) ya sale
+  de `metricasCliente`: `null` sin cuenta, `notaDatos`, `objetivo` y `frescura`.
+- **A3, aislamiento**: el review de contenido descarta lo que vino copiado con la
+  carpeta de ClickUp (tareas creadas en bloque dentro de 30 min de nacer la carpeta,
+  y nombres de la plantilla). Verificado: el review de Randstad regenerado a las
+  16:46 ya habla de RRHH, sin rastro de Cliente Natural.
+- **Flota**: el reaper ya no corta todo a los 12 min; respeta el `timeoutSec` de
+  cada agente + 5 min. Luna pasó a 20 min.
+
+**Para B1:** sigo esperando la tabla `decisiones` y `POST /api/decisiones` para
+arrancar el piloto en sombra de A4 (Distrillantas, MA PROPIEDADES, SEBASTIAN RAMASCO
+PADILLA). Cuando los tengas, mandá LISTO-PARA-INTEGRAR con la rama y la migración.
+
 ### 2026-10-05 16:00 · AVISO · ya podés usar metricasCliente() y saludFuentes() reales
 Están en `main` (`2070e06`), deployándose ahora. Cambiá tu adaptador por el módulo
 real: `import { metricasCliente } from "../metricas/index.js"` y
