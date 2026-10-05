@@ -100,22 +100,33 @@ Fuentes (Meta, Google, CRM, ClickUp, Make, WhatsApp, Sheets)
 
 - Módulo `server/src/metricas/`. Ninguna pantalla ni agente calcula una métrica
   por su cuenta.
-- Contrato:
+- Contrato (implementado en A2, `server/src/metricas/index.ts`):
   ```ts
-  metricasCliente(db, clientId, { desde, hasta, plataforma? }) => {
-    inversion, impresiones, clics, alcance, frecuencia,
-    leads, leadsCalificados: number | null, ventas: number | null,
-    cpl: number | null, costoPorCalificado: number | null, costoPorVenta: number | null,
-    objetivo: { tcpl: number | null, presupuestoMensual: number | null },
-    frescura: Array<{ fuente: string; ultimoDato: string | null; estado: "ok" | "atrasada" | "sin_conexion" }>,
-  }
+  metricasCliente(db, clientId: string, { desde, hasta, plataforma?: "meta" | "google" }) => Promise<{
+    inversion: number | null, impresiones: number | null, clics: number | null,
+    alcance: null, frecuencia: null,          // el alcance diario no se suma; hasta que la ingesta traiga el del período
+    leads: number | null, leadsCalificados: null,   // no hay datos del CRM en esta base todavía
+    ventas: number | null,                    // compras de Meta, solo si hay seguimiento de compras
+    cpl: number | null, costoPorCalificado: null, costoPorVenta: number | null,
+    objetivo: { tcpl: number | null, tcplFuente: "cliente" | "historial" | "rubro" | null, presupuestoMensual: number | null },
+    frescura: Array<{ fuente: "meta_ads" | "google_ads" | "organico"; ultimoDato: string | null;
+                      estado: "sin_conexion" | "fallando" | "sin_entrega" | "atrasada" | "ok" }>,
+  }>
   ```
-  `null` cuando no se puede medir. Nunca 0 en lugar de "no sé".
-- Objetivos por cliente (`objetivos_cliente`): TCPL, CPA/ROAS objetivo, presupuesto
-  mensual, modelo de negocio, perfil del decisor (quién decide del lado del cliente,
-  qué le importa, cómo hay que hablarle).
+  `null` cuando no se puede medir: sin cuenta conectada, inversión y leads son
+  null, no 0. Las conversiones de Google no cuentan como ventas (en varias
+  cuentas son cualquier acción).
+- Objetivo por cliente, en orden: el que fijó una persona
+  (`clients.metadata.cplObjetivo`, que ya tiene ruta de escritura y lector);
+  si no hay, CPL de 30 días × 0,8 cuando hay al menos 10 leads (`historial`); si
+  no, el ideal del rubro (`rubro`). Siempre con su fuente, para que nadie
+  presente un número calculado como si lo hubiera pedido el cliente. Se descartó
+  una tabla `objetivos_cliente`: duplicaría el lugar donde vive el objetivo.
+  Presupuesto mensual: `clients.metadata.presupuestoMensual`.
+- Consistencia: `server/src/metricas/consistencia.ts` recalcula leads y ventas
+  desde `raw` todos los días (db-maintenance) y avisa en nivel 4 si algo no cierra.
 - Leads calificados: del CRM donde está (5 clientes). Reactivar la atribución
-  anuncio → lead (`contacts.ad_id`).
+  anuncio → lead (`contacts.ad_id`). Pendiente: el CRM vive en otra base.
 
 ### 3. Decisiones
 

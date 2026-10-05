@@ -88,6 +88,17 @@ export function initDbMaintenance(db: Db): void {
         }
       })
       .catch((e) => console.warn("[db-maintenance] detector de disparos de Make failed:", e));
+    // Los números de pauta, recalculados desde lo que dijo Meta. Es el chequeo
+    // que encontró los leads inflados 43%: si algo vuelve a escribir con otra
+    // fórmula, se sabe al día siguiente.
+    await import("../metricas/consistencia.js")
+      .then(({ avisarSiNoCierra }) => avisarSiNoCierra(db))
+      .then((r) => {
+        if (r.leadsMal || r.conversionesMal || r.huerfanas) {
+          console.log(`[db-maintenance] consistencia: ${r.leadsMal} leads, ${r.conversionesMal} ventas, ${r.huerfanas} huérfanas de ${r.filas}${r.avisado ? " (avisado)" : ""}`);
+        }
+      })
+      .catch((e) => console.warn("[db-maintenance] chequeo de consistencia failed:", e));
   };
   setTimeout(() => { void tick(); }, 25 * 60 * 1000); // 25 min after boot (off-peak vs other init ticks)
   timer = setInterval(() => { void tick(); }, 24 * 3600 * 1000); // daily
