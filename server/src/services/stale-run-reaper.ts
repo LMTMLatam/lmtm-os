@@ -10,13 +10,23 @@
 
 import type { Db } from "@paperclipai/db";
 import { heartbeatRuns, agents } from "@paperclipai/db";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 // Agent runs use timeoutSec ~600 (10 min). Anything past 15 min is stuck/orphaned.
 const MAX_RUN_MINUTES = Math.max(12, Number(process.env.LMTM_MAX_RUN_MINUTES ?? 15));
 
+// El corte es POR AGENTE: su timeoutSec + 5 min de margen, y nunca menos que el
+// global. Con un corte único de 12 min, darle más tiempo a un agente no servía de
+// nada: a Luna (rutina "Plan de acción por cliente", que no entra en 10 min) se la
+// subió a 20 y el reaper la habría matado igual a los 12.
+const MARGEN_MIN = 5;
+
 export async function reapStaleRuns(db: Db): Promise<{ reaped: number }> {
-  const cutoff = new Date(Date.now() - MAX_RUN_MINUTES * 60_000);
+  const edadMaxima = sql`make_interval(mins => greatest(${MAX_RUN_MINUTES}, coalesce((
+    select case when a.adapter_config->>'timeoutSec' ~ '^[0-9]+$'
+                then (a.adapter_config->>'timeoutSec')::int / 60 + ${MARGEN_MIN} end
+    from ${agents} a where a.id = ${heartbeatRuns.agentId}
+  ), 0)))`;
   const reaped = await db
     .update(heartbeatRuns)
     .set({
@@ -25,7 +35,7 @@ export async function reapStaleRuns(db: Db): Promise<{ reaped: number }> {
       updatedAt: new Date(),
       error: sql`COALESCE(${heartbeatRuns.error}, 'reaped: run exceeded max age, orphaned/hung')`,
     })
-    .where(and(eq(heartbeatRuns.status, "running"), lt(heartbeatRuns.startedAt, cutoff)))
+    .where(and(eq(heartbeatRuns.status, "running"), sql`${heartbeatRuns.startedAt} < now() - ${edadMaxima}`))
     .returning({ id: heartbeatRuns.id });
 
   // Agents left 'running' with no live run → back to idle so they can be re-dispatched.
@@ -49,5 +59,5 @@ export function initStaleRunReaper(db: Db): void {
   if (timer) return;
   setTimeout(() => { void reapStaleRuns(db).catch((e) => console.warn("[stale-run-reaper] failed:", e)); }, 60_000);
   timer = setInterval(() => { void reapStaleRuns(db).catch((e) => console.warn("[stale-run-reaper] failed:", e)); }, 5 * 60_000);
-  console.log(`[stale-run-reaper] scheduled (every 5min, max run age ${MAX_RUN_MINUTES}min)`);
+  console.log(`[stale-run-reaper] scheduled (every 5min, max run age: timeoutSec del agente + ${MARGEN_MIN}min, mínimo ${MAX_RUN_MINUTES}min)`);
 }
