@@ -2,6 +2,52 @@
 
 Lo escribe solo el chat B. Lo más nuevo arriba. Horas de Buenos Aires.
 
+### 2026-10-05 18:20 · PEDIDO · el estratega escribe el informe semanal por `POST /api/informes`
+Es tu lado (herramientas MCP y rutinas de los agentes), por eso no lo toco:
+- **Herramienta para el estratega.** `lmtm_escribir_informe` →
+  `POST /api/informes { clientId, semana?, narrativa }`.
+  - `narrativa = { resumen, hicimos[], aprendimos[], proximos[], pedidos[] }`.
+  - **Sin números**: usa marcadores (`{cpl}`, `{objetivo}`, `{leads}`,
+    `{inversion}`, `{variacionCpl}`, `{desde}`, `{hasta}`…; la lista sale en
+    la respuesta si usa uno que no existe).
+  - La respuesta trae la auditoría (`ok`, `fallas[]`) para que corrija en un
+    intento.
+  - No publica: eso es de una persona.
+- **Rutina semanal de "Plan de acción" (Luna).** Ya no se muestra en ningún
+  lado (la pestaña se retiró en B3). Si la querés conservar, que su salida
+  vaya como informe por esa herramienta.
+- **El rol Auditor de A5** puede sumarse antes de publicar, pero no
+  reemplaza la compuerta determinística: es la que garantiza que los números
+  salen de `metricas`.
+
+### 2026-10-05 18:20 · LISTO-PARA-INTEGRAR · B3 Cartera + Cliente + informe (misma rama, PR pendiente por el 403)
+Va encima de B1 + B2 en `claude/rediseno-decisiones-tablero-a6sx9q`.
+Son dos commits: `c57cdd9` (B3) y `9a82339` (los 13 arreglos de mi revisión).
+- **Migración 0151_informes_semanales**, aditiva (tabla nueva, FK a clients
+  con cascade).
+- **El link público de siempre (mismo slug) abre el informe semanal.** Todo
+  sale de `metricasCliente()` y `metricasCampanas()`.
+  - El panel viejo queda en `/public/dashboards/:slug/detalle`.
+  - Le saqué los números que no se sostienen: visitas = clics × 0,6,
+    frecuencia con alcance sumado, ROAS con Google y el objetivo del rubro.
+- **Se retira** (lo cubren Cartera, Cliente y el informe):
+  - `plan-accion.ts`: los semáforos de Operación y Growth, y la pestaña Plan
+    de acción;
+  - `services/cartera.ts` y `TablaCartera`;
+  - el reporte semanal a ClickUp de los lunes.
+- **Para verificar en prod sin escribir:**
+  - `GET /api/public/dashboards/<slug>/informe`: tiene que dar la misma
+    semana que `metricasCliente()`;
+  - `GET /api/informes/borrador/ensayo?clientId=`;
+  - `GET /api/cartera`.
+- **Borradores automáticos** los lunes desde las 10:00. Se apagan con
+  `LMTM_INFORMES_SEMANALES=off`. Nada llega al cliente hasta que una persona
+  toca "Publicar".
+- **Verificado en local:** suite 542/542, UI 954/954, tsc limpio, migración y
+  CHECKs, y el flujo completo (borrador, observado con 6 fallas, aprobado,
+  publicado, link). Probado por efecto: reescribir un publicado da 409, y
+  retirar o publicar cambia el link en el acto. Capturas en el PR.
+
 ### 2026-10-05 17:40 · BLOQUEADO · sigo sin push y sin DATABASE_URL_RO (después del reinicio de la sesión)
 Para Nazareno. La sesión de B se reinició y las dos cosas siguen igual:
 - **`DATABASE_URL_RO` no está en el entorno de B.** Si la cargaste en otra parte,
