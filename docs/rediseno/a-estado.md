@@ -9,13 +9,17 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 | A1. Salud de fuentes | **en producción** (boot 15:21 UTC), verificado | PR #1 |
 | A2. Métricas + objetivos | **en producción**, también en la herramienta de pauta de los agentes | `rediseno/a-metricas`, `rediseno/a-agentes` |
 | A3. Aislamiento por cliente | **en producción**; limpieza de memoria hecha; Randstad verificado | `rediseno/a-aislamiento` |
-| A4. Agentes con objetivo (piloto, motor actual) | preparación commiteada; el piloto espera la tabla `decisiones` de B1 | `rediseno/a-agentes` |
+| A4. Agentes con objetivo (piloto, motor actual) | herramienta por campaña y evaluador en producción; falta crear la rutina del piloto (clave de panel) | `rediseno/a-agentes`, `rediseno/a-campanas` |
 | A5. Resto de los roles | pendiente | |
 
 **Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 **Esperando a una persona:**
+- Crear la rutina del piloto A4 (texto en `agentes/media-buyer/PILOTO.md`), o
+  autorizar mintear una clave de panel para crearla por API.
+- Corregir las acciones de conversión de Google en MA PROPIEDADES y SEBASTIAN
+  RAMASCO PADILLA (~53% de los clics "convierten").
 - Limpiar la plantilla de ClickUp (OnBoarding de inmobiliaria en ~70 carpetas,
   posteos de Cliente Natural en 6). La plantilla en sí solo se corrige desde la app.
 - Rubro real de LoMasFundas (brain dice Deporte; los agentes "corrigieron" a
@@ -24,6 +28,35 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 - Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
 
 ## Bitácora
+
+### 05/10 17:20: A4, el media buyer no tenía qué mirar
+
+**Hallazgo.** Los agentes tienen pausar / presupuesto / mover plata, y existe el ciclo
+propuesta → aprobación con un click → ejecución (`approvals` tipo `accion_pauta`).
+En producción: **0 propuestas desde siempre**. Ninguna herramienta mostraba las
+campañas (solo el total del cliente, sin ids) y las skills pedían "analizar
+lmtmGetClientAdsPerformance por campaña", algo que esa tool nunca dio. A4 no
+necesita esperar a la tabla `decisiones` de B1: el ciclo N0 ya existe.
+
+**Hecho** (`c031aaf`, `2bdb345`):
+- `metricasCampanas()` + `get_client_campaigns` / `lmtmGetClientCampaigns`.
+  Verificado: suma exacta contra `metricasCliente` en los 3 clientes del piloto.
+  Meta sigue marcando ACTIVE las campañas vencidas: se excluyen por fecha de fin.
+- `leadsDudosos`: Google "convierte" ~53% de los clics en MA PROPIEDADES y
+  SEBASTIAN RAMASCO PADILLA (resto de la agencia ≤ 7%). El objetivo de MA
+  PROPIEDADES era **ARS 92** por lead, sacado de esas conversiones; un media buyer
+  con ese número habría propuesto pausar todo Meta. Ahora 3.300 (Meta real 4.125).
+- Evaluador del piloto (`eval-propuestas.ts` + CLI con `--referencia`). La primera
+  versión de la referencia "pausaba" tráfico, catálogo, la marca de Distrillantas y
+  un PMax medido contra el objetivo de Meta: esas trampas quedaron como reglas.
+- Skills `lmtm-ad-actions`, `lmtm-ads-playbook`, `lmtm-tool-reference` corregidas.
+- Piloto definido en `agentes/media-buyer/PILOTO.md` (rutina de Milo, 3 clientes,
+  cómo se mide).
+
+**Falta:** allowlist (`lmtmGetClientCampaigns` a 5 roles, `lmtmSetBudget` a Milo) y
+crear la rutina: las rutinas solo se crean por API con clave de panel, y mintear
+una clave en la base es crear una credencial en producción → lo decide Nazareno
+(o la carga él desde el panel con el texto de PILOTO.md).
 
 ### 05/10 16:50: integración de A2/A3 a los agentes, y la flota
 

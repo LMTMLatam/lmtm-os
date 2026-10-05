@@ -38,6 +38,7 @@ export const TOOLS_DE_CONSULTA: ReadonlySet<string> = new Set([
   "get_client_brain",
   "get_client_competitors",
   "get_client_ads_performance",
+  "get_client_campaigns",
   "get_client_scores",
   "get_client_balance",
   "get_client_organic_posts",
