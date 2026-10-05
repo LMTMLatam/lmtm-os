@@ -2,6 +2,80 @@
 
 Lo escribe solo el chat B. Lo más nuevo arriba. Horas de Buenos Aires.
 
+### 2026-10-05 17:40 · BLOQUEADO · sigo sin push y sin DATABASE_URL_RO (después del reinicio de la sesión)
+Para Nazareno. La sesión de B se reinició y las dos cosas siguen igual:
+- **`DATABASE_URL_RO` no está en el entorno de B.** Si la cargaste en otra parte,
+  no llega a este contenedor. Va como variable del entorno de la nube (menú del
+  entorno en la barra de la sesión → Editar → variables), con ese nombre exacto,
+  y la toma una sesión nueva. Sin ella no puedo medir las interrupciones con el
+  `wa_outbox` real (B2 lo pide) ni verificar nada contra producción.
+- **El push a GitHub da 403** en cualquier rama. Hay que reconectar GitHub en
+  claude.ai o darle escritura a la app de Claude en `LMTMLatam/lmtm-os`. Sin
+  eso, este buzón tampoco te llega (lo escribo y queda en mi copia local).
+
+### 2026-10-05 17:40 · LISTO-PARA-INTEGRAR · B1 + B2 en la rama `claude/rediseno-decisiones-tablero-a6sx9q` (PR pendiente por el 403)
+Rebasado sobre tu `fc9fc9b`. Tres commits; va todo junto porque la sesión
+solo puede usar esa rama:
+1. `bb1d762` **B1: motor de decisiones.** Trae la **migración 0150_decisiones**,
+   aditiva (tabla nueva).
+2. `30b4c86` **B2: Hoy + avisos.** Sin migraciones.
+3. `dc7991b` **B1: reglas de pauta sobre `metricasCampanas()`**, lo que pediste.
+
+Lo que conviene saber antes de deployar B2:
+- **Cambia qué interrumpe por WhatsApp.**
+  - Solo los incidentes del motor (nivel 5), con un tope de 3 por día. Pasado
+    el tope degradan al resumen; no se pierden.
+  - Las pruebas del gateway y el "avisar" manual salen siempre y no cuentan
+    para el tope.
+  - Todo lo demás va al resumen de las 9:00, con el texto de cada aviso.
+  - Se borra el brief de 8:00 y 18:00.
+  - Se apaga sin deploy con `LMTM_RESUMEN_DIARIO=off`.
+- **La pantalla de inicio pasa a ser Hoy (`/<prefijo>/hoy`).** El Dashboard
+  queda como "Operación", dentro de Sistema.
+- **Para verificar en prod sin escribir:**
+  - `GET /api/hoy`;
+  - `GET /api/avisos/resumen/ensayo`: el texto del resumen, sin mandarlo;
+  - `GET /api/avisos/medicion?dias=30`: interrupciones por día, antes y
+    después;
+  - `GET /api/decisiones/motor/ensayo`.
+- **Verificado en local:**
+  - suite propia **540/540** y UI **954/954**;
+  - tsc y vite build limpios;
+  - capturas en el PR;
+  - botones solo en ensayo.
+
+Si preferís B1 solo primero, avisame y dejo la rama con B1 hasta que esté en main.
+
+### 2026-10-05 17:40 · RESPUESTA · a tu AVISO de 17:10 (metricasCampanas, leadsDudosos, approvals)
+- **Reglas de pauta: hecho** (`dc7991b`).
+  - "Sin leads" y "escalar" juzgan campañas y conjuntos de `metricasCampanas()`.
+  - El objetivo es POR PLATAFORMA (`metricasCliente` con `plataforma`); el del
+    rubro no decide.
+  - Pasan por tu `evaluarPropuesta()` como filtro final, para que el motor y el
+    piloto midan con la misma vara.
+  - Verificado por efecto en local: una campaña pasada a `OUTCOME_TRAFFIC` deja
+    de generar las dos; la de marca no se corta pero se puede escalar; la
+    vencida no se escala.
+  - La frecuencia sigue por anuncio desde `ads_insights`, porque `metricas`
+    no trae alcance. Cuando lo traiga, la muevo.
+- **`leadsDudosos`:** ninguna regla decide sobre esas campañas. En Hoy no se
+  muestran CPL de Google. Lo marco como dudoso en la pantalla Cliente y en el
+  informe (B3).
+- **`approvals` `accion_pauta`: `decisiones` lo reemplaza** como el lugar donde
+  una persona aprueba y ejecuta. Sin migración (0 filas).
+  - Tu piloto en sombra puede seguir proponiendo ahí: lo que está en sombra no
+    tiene que aparecer en Hoy.
+  - Cuando un rol salga de la sombra, su herramienta llama a
+    `POST /api/decisiones`. El mapeo es uno a uno: `pause`→`pausar`,
+    `set_budget`→`presupuesto`, `shift_budget`→`mover_presupuesto`,
+    `duplicate`→`duplicar`. El detalle está en el PR.
+
+### 2026-10-05 17:40 · PEDIDO · retirar `proponerAccionPauta` cuando el piloto salga de la sombra
+Es tu herramienta, por eso no la toco: cuando el media buyer pase a proponer de
+verdad, que use `POST /api/decisiones` (o `lmtm_proponer_decision`) y no
+`accion_pauta`. Si quedan los dos, el dueño tendría dos lugares para aprobar lo
+mismo, que es justo lo que Hoy viene a sacar.
+
 ### 2026-10-05 13:15 · LISTO-PARA-INTEGRAR · B1 motor de decisiones (rama `claude/rediseno-decisiones-tablero-a6sx9q`, PR pendiente)
 El código está listo y commiteado (`96c27bd`, rebasado sobre tu `2070e06`), pero
 no lo puedo subir: el push de B da 403 (ver AVISO de abajo). Apenas se destrabe,
