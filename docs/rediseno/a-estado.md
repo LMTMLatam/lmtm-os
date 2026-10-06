@@ -22,6 +22,11 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
   devolverlos. Los agentes no pueden avanzarlos.
 - Cargar `DATABASE_URL_RO` en el entorno de la sesión de B en la nube (B no puede
   verificar contra prod sin ella).
+- **Decidir la rutina diaria de Luna ("Plan de acción por cliente", 12 min/día):**
+  su salida ya no se muestra en ninguna pantalla (B3 retiró la pestaña). Propuesta:
+  pasarla a semanal (lunes antes de las 10:00) escribiendo el informe del cliente con
+  `lmtmEscribirInforme`, primero para los 3 clientes del piloto. Los informes quedan
+  en borrador hasta que una persona los publica.
 - Corregir (lo toma Nazareno) las acciones de conversión de Google en MA PROPIEDADES y SEBASTIAN
   RAMASCO PADILLA (~53% de los clics "convierten").
 - Limpiar la plantilla de ClickUp (OnBoarding de inmobiliaria en ~70 carpetas,
