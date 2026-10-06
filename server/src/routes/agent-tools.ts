@@ -1330,14 +1330,26 @@ export function agentToolsRoutes(
         const ayer = new Date(Date.now() - 86_400_000);
         const hasta = ayer.toISOString().slice(0, 10);
         const desde = new Date(ayer.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
-        const [total, campanas] = await Promise.all([
+        const { noSeMidePorCpl } = await import("../metricas/eval-propuestas.js");
+        const { esTerminoDeMarca } = await import("../services/ads-keywords.js");
+        // El objetivo es POR PLATAFORMA, la misma vara que el evaluador del piloto
+        // y el informe del cliente. Con el total (que mezcla Google), el 06/10 Milo
+        // propuso escalar dos campañas de Distrillantas que estaban arriba del
+        // objetivo de Meta y no vio una que había que pausar.
+        const [total, meta, google, campanas, [cl]] = await Promise.all([
           metricasCliente(db, clientId, { desde, hasta }),
+          metricasCliente(db, clientId, { desde, hasta, plataforma: "meta" }),
+          metricasCliente(db, clientId, { desde, hasta, plataforma: "google" }),
           metricasCampanas(db, clientId, { desde, hasta }),
+          db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)),
         ]);
         if (campanas == null) {
           return reply(true, "(Este cliente no tiene cuenta de pauta conectada: no se puede saber qué campañas tiene. No es que no tenga.)");
         }
-        const tcpl = total.objetivo.tcpl;
+        const vara = {
+          tcpl: { meta: meta.objetivo.tcpl, google: google.objetivo.tcpl },
+          esMarca: (n: string) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(cl?.name ?? "", n),
+        };
         const r2 = (n: number | null) => (n == null ? null : Number(n.toFixed(2)));
         const numerosDe = (x: { inversion: number; impresiones: number; clics: number; leads: number; cpl: number | null }) => ({
           gasto: Math.round(x.inversion), impresiones: x.impresiones, clics: x.clics, leads: x.leads, cpl: r2(x.cpl),
@@ -1346,30 +1358,35 @@ export function agentToolsRoutes(
           true,
           JSON.stringify({
             desde, hasta,
-            objetivo: total.objetivo,
-            notaObjetivo: total.objetivo.tcplFuente === "historial"
-              ? "El objetivo es una propuesta nuestra (CPL de 30 días × 0,8), no lo pidió el cliente."
-              : undefined,
+            objetivos: { meta: meta.objetivo, google: google.objetivo },
+            notaObjetivo: "Cada campaña se mide contra el objetivo de SU plataforma (objetivoCpl de la campaña), nunca contra el de la otra. Fuente 'historial' = propuesta nuestra (CPL de 30 días × 0,8), no lo pidió el cliente.",
             frescura: total.frescura,
             notas: [
               "Entran las campañas que gastaron en la ventana y las activas aunque no hayan gastado (activa con gasto 0 = prendida sin entregar: es un hallazgo).",
-              "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivo de CPL (cuántos leads 'deberías' tener).",
+              "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivoCpl (cuántos leads 'deberías' tener).",
+              "noSeMidePorCpl con texto = esa campaña NO se juzga por CPL (objetivo que no es leads, marca, Google dudoso o sin objetivo): no la pauses ni la escales por su CPL.",
               "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
               ...(total.leadsDudosos.length
                 ? ["leadsDudosos=true: Google cuenta como lead acciones que no lo son (convierte más de un tercio de los clics). NO uses ese CPL para comparar, escalar ni mover plata: avisá que la cuenta tiene mal configuradas las conversiones."]
                 : []),
             ],
-            campanas: campanas.map((c) => ({
+            campanas: campanas.map((c) => {
+              const tcpl = vara.tcpl[c.plataforma];
+              const motivo = noSeMidePorCpl(c, vara);
+              return {
               plataforma: c.plataforma, campaignId: c.campaignId, nombre: c.nombre, estado: c.estado,
               fin: c.fin, presupuestoDiario: c.presupuestoDiario, objetivoCampana: c.objetivoCampana,
               ...numerosDe(c),
-              gastoSobreObjetivo: tcpl && !c.leadsDudosos ? Number((c.inversion / tcpl).toFixed(1)) : null,
+              objetivoCpl: tcpl,
+              ...(motivo ? { noSeMidePorCpl: motivo } : {}),
+              gastoSobreObjetivo: tcpl && !motivo ? Number((c.inversion / tcpl).toFixed(1)) : null,
               diasConGasto: c.diasConGasto, ultimoDiaConGasto: c.ultimoDiaConGasto,
               ...(c.leadsDudosos ? { leadsDudosos: true } : {}),
               conjuntos: c.conjuntos.map((a) => ({
                 adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
               })),
-            })),
+              };
+            }),
           }),
         );
       }
