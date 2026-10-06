@@ -109,6 +109,17 @@ describe("resumirCorrida", () => {
     expect(c.error).toMatch(/Todas las herramientas fallaron/);
   });
 
+  it("corta las etiquetas que MiniMax deja adentro de un campo", () => {
+    const c = resumirCorrida([
+      {
+        type: "result",
+        subtype: "success",
+        structured_output: { resumen: "Sube el tope.</resumen>\n<resumen>Sube el tope.", verificado: ["a</x>b"], supuestos: [], siguientePaso: { quien: "cliente", que: "Recargar" } },
+      },
+    ]);
+    expect(c.resultado).toEqual({ resumen: "Sube el tope.", verificado: ["a"], supuestos: [], siguientePaso: { quien: "cliente", que: "Recargar" } });
+  });
+
   it("sin mensaje de resultado es error", () => {
     expect(resumirCorrida([]).error).toMatch(/sin devolver/);
   });

@@ -77,6 +77,18 @@ function parsearJson(s: string): Record<string, unknown> | null {
 }
 
 /**
+ * MiniMax a veces deja etiquetas de su propio formato adentro de un campo
+ * ("…sube el tope.</resumen>\n<resumen>La causa…", 06/10, Distrillantas): el
+ * texto se corta en la primera etiqueta. Recorre objetos y listas.
+ */
+export function limpiarEtiquetas(v: unknown): unknown {
+  if (typeof v === "string") return v.split(/<\/?[a-zA-Z_]+>/)[0].trim();
+  if (Array.isArray(v)) return v.map(limpiarEtiquetas);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, limpiarEtiquetas(x)]));
+  return v;
+}
+
+/**
  * Puro: de los mensajes del SDK saca los pasos (herramienta por herramienta), el
  * resultado y los consumos. La herramienta interna del resultado estructurado
  * no es un paso.
@@ -119,6 +131,7 @@ export function resumirCorrida(mensajes: ReadonlyArray<Record<string, any>>): Co
       }
     }
   }
+  if (resultado) resultado = limpiarEtiquetas(resultado) as Record<string, unknown>;
   if (!resultado && !error) error = "El agente terminó sin devolver un resultado.";
   // Si TODAS las herramientas fallaron, lo que "concluyó" no se apoya en nada:
   // es un fallo (se reintenta), no un hallazgo que ocupa el hecho para siempre.
