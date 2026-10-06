@@ -1064,8 +1064,8 @@ export function agentToolsRoutes(
           ctx.agentId,
         );
         // Se avisa SIEMPRE, salga bien o mal: el equipo tiene que poder enterarse
-        // de todo lo que el sistema movió solo. Va en nivel 3 (resumen de
-        // 8:00/18:00) y no interrumpiendo, porque es una clase de acción ya
+        // de todo lo que el sistema movió solo. Va en nivel 3 (resumen de las
+        // 9:00, con su texto) y no interrumpiendo, porque es una clase de acción ya
         // probada y con tope del 30% — hacerla interrumpir reconstruiría el
         // ruido que el embudo vino a sacar.
         const { avisarAlEquipo } = await import("../services/wa-embudo.js");
@@ -1544,7 +1544,9 @@ export function agentToolsRoutes(
         const [client] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId));
         const clientName = client?.name ?? "Cliente";
         const text = `*⚠️ Alerta de saldo — ${clientName}*\n\n${message}\n\n_Recargá el presupuesto / subí el spend cap para que no se frene la pauta._\n_LMTM-OS · agente_`;
-        // Nivel 5: el saldo es plata. Interrumpe siempre y sin tope.
+        // Pide nivel 5, pero desde B2 solo interrumpen los incidentes del motor
+        // (avisos/politica.ts): esto va al resumen de las 9:00. Una cuenta frenada
+        // con pauta activa llega como incidente por el motor, no por acá.
         const r = await avisarAlEquipo(db, {
           origen: "agente:saldo",
           nivel: 5,
@@ -1554,6 +1556,8 @@ export function agentToolsRoutes(
         });
         if (r.estado === "descartado") return reply(true, `Ya se avisó lo mismo hace poco, no lo repito: ${r.motivo}`);
         if (r.estado === "error") return reply(false, `No se pudo enviar: ${r.motivo ?? "error desconocido"}`);
+        // Decirle al agente lo que pasó de verdad: si cree que interrumpió, no insiste por otro lado.
+        if (r.estado === "pendiente") return reply(true, `Alerta de saldo de ${clientName} registrada: sale en el resumen de las 9:00. Si la cuenta está frenada con pauta activa, ya aparece como incidente en Hoy.`);
         return reply(true, `Alerta de saldo enviada por WhatsApp al equipo para ${clientName}.`);
       }
 
@@ -1562,8 +1566,8 @@ export function agentToolsRoutes(
         const title = typeof params.title === "string" ? params.title.trim() : "";
         if (!message) return reply(false, "Falta message.");
         const text = `${title ? `*${title}*\n\n` : ""}${message}\n\n_LMTM-OS · reporte de agente_`;
-        // Nivel 3: un reporte de agente no interrumpe. Se junta en el digest de
-        // 8:00/18:00 — esto es la mitad del "mensaje, mensaje, mensaje".
+        // Nivel 3: un reporte de agente no interrumpe. Va en el resumen de las
+        // 9:00 — esto era la mitad del "mensaje, mensaje, mensaje".
         const r = await avisarAlEquipo(db, {
           origen: "agente:reporte",
           nivel: 3,
@@ -1572,7 +1576,7 @@ export function agentToolsRoutes(
         });
         if (r.estado === "descartado") return reply(true, `Ya se mandó lo mismo hace poco, no lo repito: ${r.motivo}`);
         if (r.estado === "error") return reply(false, `No se pudo enviar: ${r.motivo ?? "error desconocido"}`);
-        return reply(true, "Reporte encolado para el resumen del equipo (8:00/18:00).");
+        return reply(true, "Reporte encolado para el resumen del equipo de las 9:00.");
       }
 
       // ClickUp tools (in-process MCP wrapper).

@@ -1,4 +1,6 @@
 const BOARD_ROUTE_ROOTS = new Set([
+  "hoy",
+  "cartera",
   "dashboard",
   "companies",
   "company",

@@ -1,30 +1,39 @@
 // La regla que estos tests protegen: el nivel decide el canal, y nada que el
 // sistema haya querido avisar puede desaparecer en silencio.
 import { describe, expect, it } from "vitest";
-import { armarDigest, decidir, HORAS_DEDUPE, NIVEL_INTERRUMPE, TOPE_DIARIO } from "../wa-embudo.js";
+import { armarDigest, decidir, HORAS_DEDUPE, NIVEL_INTERRUMPE, TOPE_INTERRUPCIONES_DIA } from "../wa-embudo.js";
 
+// Desde el rediseño B2 (avisos/politica.ts): solo interrumpe el nivel 5, solo
+// lo pueden pedir los incidentes y los envíos manuales, y hay un tope de 3
+// interrupciones por día en toda la agencia.
 describe("decidir", () => {
-  it("nivel 5 interrumpe siempre, incluso con el día cargado", () => {
-    // Un tope en nivel 5 reproduce el bug que estamos arreglando: el aviso que
-    // importa silenciado por volumen ajeno. Esto es plata parada o una cuenta
-    // caída — Distrillantas.
-    expect(decidir({ nivel: 5, yaDicho: false, enviadosHoy: 500 })).toEqual({ accion: "enviar" });
-  });
-
-  it("nivel 4 interrumpe hasta el tope y después degrada a digest", () => {
-    expect(decidir({ nivel: 4, yaDicho: false, enviadosHoy: TOPE_DIARIO[4] - 1 })).toEqual({ accion: "enviar" });
-    expect(decidir({ nivel: 4, yaDicho: false, enviadosHoy: TOPE_DIARIO[4] })).toEqual({ accion: "digest" });
+  it("un incidente interrumpe hasta el tope del día y después degrada al resumen", () => {
+    expect(decidir({ nivel: 5, origen: "incidentes", yaDicho: false, enviadosHoy: TOPE_INTERRUPCIONES_DIA - 1 })).toEqual({ accion: "enviar" });
+    const d = decidir({ nivel: 5, origen: "incidentes", yaDicho: false, enviadosHoy: TOPE_INTERRUPCIONES_DIA });
+    expect(d.accion).toBe("digest");
   });
 
   it("pasado el tope DEGRADA, no descarta", () => {
-    // La diferencia importa: que el aviso número 9 del día no interrumpa es
-    // correcto; que desaparezca es volver a perder un Distrillantas.
-    const d = decidir({ nivel: 4, yaDicho: false, enviadosHoy: 99 });
+    // Que el cuarto aviso del día no interrumpa es la regla; que desaparezca
+    // es volver a perder un Distrillantas.
+    const d = decidir({ nivel: 5, origen: "incidentes", yaDicho: false, enviadosHoy: 99 });
     expect(d.accion).toBe("digest");
     expect(d.accion).not.toBe("descartar");
   });
 
-  it.each([2, 3] as const)("nivel %i nunca interrumpe: va al digest", (nivel) => {
+  it("un módulo que se pone nivel 5 por su cuenta no interrumpe: va al resumen", () => {
+    // Es lo que quemó el canal: cada módulo convencido de que lo suyo es urgente.
+    for (const origen of ["vigilante-financiero", "monitor-saldo", "agente:saldo", "brief"]) {
+      expect(decidir({ nivel: 5, origen, yaDicho: false, enviadosHoy: 0 }).accion).toBe("digest");
+    }
+  });
+
+  it("el nivel 4 ya no interrumpe", () => {
+    expect(NIVEL_INTERRUMPE).toBe(5);
+    expect(decidir({ nivel: 4, origen: "cadena-publicacion", yaDicho: false, enviadosHoy: 0 }).accion).toBe("digest");
+  });
+
+  it.each([2, 3] as const)("nivel %i nunca interrumpe: va al resumen", (nivel) => {
     expect(decidir({ nivel, yaDicho: false, enviadosHoy: 0 })).toEqual({ accion: "digest" });
   });
 
@@ -33,22 +42,14 @@ describe("decidir", () => {
     expect(d.accion).toBe("descartar");
   });
 
-  it("el mismo hecho no se avisa dos veces en la ventana de dedupe", () => {
-    const d = decidir({ nivel: 5, yaDicho: true, enviadosHoy: 0 });
+  it("el mismo hecho no se avisa dos veces en la ventana de dedupe, ni siquiera un incidente", () => {
+    const d = decidir({ nivel: 5, origen: "incidentes", yaDicho: true, enviadosHoy: 0 });
     expect(d.accion).toBe("descartar");
     expect(d.accion === "descartar" && d.motivo).toContain(String(HORAS_DEDUPE));
   });
 
-  it("el dedupe gana incluso en nivel 5", () => {
-    // Si no, una cuenta caída manda el mismo mensaje cada corrida del vigilante
-    // y vuelve a quemar el canal, que es el problema original.
-    expect(decidir({ nivel: 5, yaDicho: true, enviadosHoy: 0 }).accion).toBe("descartar");
-  });
-
-  it("el umbral de interrupción es 4: 3 no interrumpe y 4 sí", () => {
-    expect(NIVEL_INTERRUMPE).toBe(4);
-    expect(decidir({ nivel: 3, yaDicho: false, enviadosHoy: 0 }).accion).toBe("digest");
-    expect(decidir({ nivel: 4, yaDicho: false, enviadosHoy: 0 }).accion).toBe("enviar");
+  it("una persona que aprieta 'avisar' sí interrumpe (cuenta para el tope)", () => {
+    expect(decidir({ nivel: 5, origen: "alertas-cliente (manual)", yaDicho: false, enviadosHoy: 0 }).accion).toBe("enviar");
   });
 });
 

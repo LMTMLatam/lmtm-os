@@ -1,0 +1,9 @@
+# B1. Motor de decisiones: plan
+
+1. Tabla `decisiones` (migración 0150, aditiva) con las columnas de PLAN.md, más `clave` (una sola decisión viva por hecho), `ejecutada_at` y `updated_at`, que el ciclo necesita para medir "el próximo dato". Enums y "descartar exige motivo" como CHECK en la base.
+2. `server/src/decisiones/`: ciclo puro (abierta → aprobada → ejecutada → verificada; descartada y vencida), store con registro de actividad, motor que corre las reglas y reconcilia, y un ejecutor que solo llama a las rutas con guardas (ads-budget, ads-duplicar, pausa, ClickUp) y por defecto en ensayo.
+3. Reglas existentes, migradas sin reescribirlas: cadena de publicación, saldo (frenada / por agotarse), costo de no hacer, cola humana y cobertura (`saludFuentes()`: `fallando`, `atrasada` y Meta `sin_conexion`; `sin_entrega` no genera nada).
+4. Reglas de pauta del playbook, en función del objetivo de `metricasCliente()` (el que fijó una persona o el propuesto por historial; nunca el del rubro): esperar < 3×TCPL; 0 leads con 3×TCPL → cambiar concepto; calificados < 40% → cambiar ángulo; costo por calificado > 1,5×TCPL dos semanas → reemplazar; frecuencia > 2,5 / > 4; escalar +20% con 3 días entre subidas. Sin TCPL o sin CRM, la regla no afirma nada.
+5. `metricasCliente()` del módulo de A (`server/src/metricas/`), que entró a main durante B1: el adaptador provisorio se borró antes de abrir el PR.
+6. Rutas: `GET /api/decisiones`, `POST /api/decisiones` (agentes, idempotente por clave), aprobar / descartar con motivo / ejecutar / marcar ejecutada, y `POST /api/decisiones/motor` para correrlo a mano. El motor corre solo a las 8:30 (antes del resumen de las 9:00).
+7. Verificación: tests de cada regla y del ciclo; migración aplicada en Postgres local; motor corrido sobre datos reales copiados con el rol de solo lectura, con las decisiones resultantes contadas por regla y revisadas a mano contra la base.

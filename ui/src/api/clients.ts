@@ -146,8 +146,6 @@ export const clientsApi = {
   // Alertas abiertas de toda la cartera, agrupadas por cliente (grid de Clientes).
   alertsSummary: () =>
     api.get<Record<string, { total: number; critical: number; warn: number; top: string }>>(`/clients/alerts/summary`),
-  runReport: (idOrSlug: string) =>
-    api.post<{ client: string; hasData: boolean; created: boolean; url: string | null; error: string | null }>(`/clients/${idOrSlug}/report/run`, null),
   runPortfolioBrief: () =>
     api.post<{ delivered: boolean; error?: string; brief: string }>(`/clients/portfolio/brief`, null),
   // Intelligence layer

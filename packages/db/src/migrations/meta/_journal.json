@@ -918,6 +918,20 @@
       "when": 1781800000022,
       "tag": "0130_wa_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1781800000150,
+      "tag": "0150_decisiones",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1781800000151,
+      "tag": "0151_informes_semanales",
+      "breakpoints": true
     }
   ]
 }

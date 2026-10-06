@@ -160,76 +160,6 @@ function CotizadoVsRealizado() {
   );
 }
 
-interface TriageCliente {
-  clientId: string; name: string; slug: string; industry: string | null;
-  semaforo: "rojo" | "amarillo" | "verde";
-  salud: number | null; scorePauta: number | null; cumplimientoPct: number | null;
-  problemas: string[]; acciones: string[];
-}
-
-/** La vista principal de Growth (pedido 20/7): 3 secciones rojo/amarillo/verde
- *  — la salud de cada cuenta hecha fácil de entender, cada cliente con sus
- *  problemas y el plan corto para salir del rojo. */
-function SemaforoGeneral() {
-  const [abierto, setAbierto] = useState<string | null>(null);
-  const { data, isLoading } = useQuery({
-    queryKey: ["growth", "triage"],
-    queryFn: () => api.get<{ rojo: TriageCliente[]; amarillo: TriageCliente[]; verde: TriageCliente[] }>("/growth/triage"),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
-  const secciones: Array<{ key: "rojo" | "amarillo" | "verde"; titulo: string; sub: string; borde: string; dot: string; rows: TriageCliente[] }> = [
-    { key: "rojo", titulo: "Rojo — atender ya", sub: "incumplimiento, problemas abiertos o pauta rota", borde: "border-rose-500/40", dot: "bg-rose-500", rows: data.rojo },
-    { key: "amarillo", titulo: "Amarillo — seguimiento", sub: "algo flojea: no dejar que caiga a rojo", borde: "border-amber-500/40", dot: "bg-amber-500", rows: data.amarillo },
-    { key: "verde", titulo: "Verde — sostener", sub: "en orden: buscar la próxima palanca de crecimiento", borde: "border-emerald-500/40", dot: "bg-emerald-500", rows: data.verde },
-  ];
-  return (
-    <div className="space-y-4">
-      {secciones.map((s) => (
-        <Card key={s.key} className={`p-4 border ${s.borde}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`h-3 w-3 rounded-full ${s.dot}`} />
-            <h2 className="font-semibold">{s.titulo}</h2>
-            <span className="text-sm text-muted-foreground">({s.rows.length})</span>
-            <span className="text-[11px] text-muted-foreground ml-2">{s.sub}</span>
-          </div>
-          {s.rows.length === 0 && <p className="text-xs text-muted-foreground">Ningún cliente acá. 🎉</p>}
-          <div className="space-y-1">
-            {s.rows.map((c) => (
-              <div key={c.clientId} className="rounded-md border border-border/60">
-                <button onClick={() => setAbierto(abierto === c.clientId ? null : c.clientId)} className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm">
-                  <span className="font-medium truncate">{c.name}</span>
-                  {c.salud != null && <span className="text-[11px] text-muted-foreground shrink-0">salud {c.salud}</span>}
-                  {c.cumplimientoPct != null && <span className="text-[11px] text-muted-foreground shrink-0">cotizado {c.cumplimientoPct}%</span>}
-                  {c.scorePauta != null && <span className="text-[11px] text-muted-foreground shrink-0">pauta {c.scorePauta}</span>}
-                  <span className="ml-auto text-[11px] text-muted-foreground shrink-0">{c.problemas.length ? `${c.problemas.length} problema${c.problemas.length > 1 ? "s" : ""}` : "sin problemas"} · {abierto === c.clientId ? "cerrar" : "ver plan"}</span>
-                </button>
-                {abierto === c.clientId && (
-                  <div className="px-3 pb-2 text-xs space-y-2">
-                    {c.problemas.length > 0 && (
-                      <div>
-                        <p className="font-medium text-muted-foreground mb-0.5">Problemas</p>
-                        <ul className="list-disc ml-4 space-y-0.5">{c.problemas.map((p, i) => <li key={i}>{p}</li>)}</ul>
-                      </div>
-                    )}
-                    <div>
-                      <p className="font-medium text-muted-foreground mb-0.5">Plan de acción</p>
-                      <ul className="list-disc ml-4 space-y-0.5">{c.acciones.map((a, i) => <li key={i}>{a}</li>)}</ul>
-                    </div>
-                    <Link to={`/c/${c.slug}`} className="inline-block text-[11px] underline text-muted-foreground">Ver ficha y plan estratégico →</Link>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 interface CargaPersona { nombre: string; cuentas: number; porRol: Record<string, number>; clientes: string[] }
 
 /** Carga del equipo (pedido 18/7): cuántas cuentas atiende cada persona según
@@ -279,57 +209,6 @@ function CargaEquipo() {
   );
 }
 
-interface SemaforoCliente {
-  id: string; name: string; slug: string; industry: string | null;
-  score: number; semaforo: "verde" | "amarillo" | "rojo"; oportunidades: string[];
-}
-
-/** Tablero master de pauta: cada cliente en semáforo + oportunidades, con el
- *  texto del análisis listo para copiar y reenviar al cliente. */
-function SemaforoPauta() {
-  const [expandido, setExpandido] = useState<string | null>(null);
-  const { data } = useQuery({
-    queryKey: ["growth", "semaforo"],
-    queryFn: () => api.get<{ clientes: SemaforoCliente[] }>("/growth/semaforo-pauta"),
-    staleTime: 10 * 60_000,
-    retry: false,
-  });
-  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : "bg-rose-500";
-  const copiar = async (slug: string, name: string) => {
-    const a = await api.get<{ resumen: string[] }>(`/clients/${slug}/analisis-estrategico`);
-    await navigator.clipboard.writeText([`📊 Análisis de pauta — ${name}`, "", ...(a.resumen ?? [])].join("\n"));
-  };
-  if (!data?.clientes.length) return null;
-  return (
-    <Card className="p-5 space-y-2">
-      <div className="flex items-center gap-2">
-        <h2 className="font-medium">Semáforo de pauta — master</h2>
-        <span className="text-[11px] text-muted-foreground">salud minada a diario · los peores primero · "copiar" arma el mensaje para el cliente</span>
-      </div>
-      <div className="grid md:grid-cols-2 gap-1.5">
-        {data.clientes.map((c) => (
-          <div key={c.id} className="rounded-md border border-border p-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${dot(c.semaforo)}`} />
-              <Link to={`/c/${c.slug}`} className="font-medium hover:underline truncate">{c.name}</Link>
-              <span className="text-muted-foreground">{c.score}/100</span>
-              <button onClick={() => void copiar(c.slug, c.name)} className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">Copiar</button>
-              {c.oportunidades.length > 0 && (
-                <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">{c.oportunidades.length} opp</button>
-              )}
-            </div>
-            {expandido === c.id && (
-              <ul className="list-disc ml-6 mt-1 text-muted-foreground">
-                {c.oportunidades.map((o, i) => <li key={i}>{o}</li>)}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
 export function Growth() {
   const { setBreadcrumbs } = useBreadcrumbs();
   useEffect(() => { setBreadcrumbs([{ label: "Growth" }]); }, [setBreadcrumbs]);
@@ -345,11 +224,19 @@ export function Growth() {
           <TrendingUp className="h-6 w-6 text-emerald-500" /> Growth
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Rojo: atender ya. Amarillo: seguimiento. Verde: sostener. Cada cliente con sus problemas y su plan. El detalle completo, abajo.
+          El detalle de la agencia: cotizado vs realizado, carga del equipo, pauta y eficiencia de los agentes.
         </p>
       </div>
 
-      <SemaforoGeneral />
+      {/* El semáforo rojo/amarillo/verde se retiró en el rediseño B3: la
+          Cartera ordena los clientes por plata en riesgo y contra el objetivo
+          de cada uno, sin el ideal del rubro. */}
+      <Card className="p-4 text-sm">
+        Qué cliente atender primero está en{" "}
+        <Link to="/cartera" className="font-medium underline underline-offset-2">Clientes</Link>{" "}
+        (por plata en riesgo y contra su objetivo) y lo que hay que decidir hoy, en{" "}
+        <Link to="/hoy" className="font-medium underline underline-offset-2">Hoy</Link>.
+      </Card>
 
       {isLoading && <Skeleton className="h-40 w-full" />}
 
@@ -368,8 +255,6 @@ export function Growth() {
           <CotizadoVsRealizado />
 
           <CargaEquipo />
-
-          <SemaforoPauta />
 
           <Card className="p-5">
             <h2 className="font-medium mb-3">Pauta agregada — últimos 30 días</h2>

@@ -4,8 +4,7 @@
 // de acá corre con datos de ejemplo, sin servidor y sin base. Es el paso previo
 // a deployar, no un reemplazo.
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { BellRing, Gavel, UserRound } from "lucide-react";
-import { AccionFila, AccionLista } from "@/components/AccionFila";
+import { UserRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 function StoryShell({ children }: { children: React.ReactNode }) {
@@ -38,178 +37,6 @@ function Section({
       </div>
       <div className="p-5">{children}</div>
     </section>
-  );
-}
-
-const money = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
-
-// ── 1. La cola, con la plata adelante ────────────────────────────────────────
-
-const COLA = [
-  { id: "LMTM-1812", titulo: "Reconectar la página de Meta", motivo: "La cuenta de DUNOD perdió el token y el sync viene fallando hace 6 días.", ars: 43_000, dias: 14, cliente: "DUNOD" },
-  { id: "LMTM-1799", titulo: "Recargar saldo de Google Ads", motivo: "El presupuesto de cuenta se consumió: las campañas quedan activas pero no se muestran.", ars: 31_500, dias: 4, cliente: "DISTRILLANTAS" },
-  { id: "LMTM-1803", titulo: "Mapear la cuenta publicitaria", motivo: "Sin el mapeo no puedo leer métricas de este cliente.", ars: 12_200, dias: 22, cliente: "MA PROPIEDADES" },
-  { id: "LMTM-1777", titulo: "Confirmar el rubro de RENO", motivo: "Está usando un perfil prestado del nicho porque no tiene referencias propias.", ars: 0, dias: 9, cliente: "RENO" },
-  { id: "LMTM-1764", titulo: "Aprobar los copys de noviembre", motivo: "Quedaron 6 piezas esperando revisión en Super Redes.", ars: 0, dias: 3, cliente: "MAERS" },
-];
-
-const TOTAL_PARADO = COLA.reduce((a, f) => a + f.ars, 0);
-
-function ColaHumana() {
-  return (
-    <Card className="max-w-xl p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="rounded-lg bg-primary/15 p-1.5">
-          <Gavel className="h-3.5 w-3.5 text-primary" />
-        </span>
-        <h3 className="text-sm font-semibold">Solo lo podés hacer vos</h3>
-        <span className="text-xs text-muted-foreground">{COLA.length}</span>
-      </div>
-
-      <div className="mb-3 -mt-1">
-        <p className="text-2xl font-semibold leading-none tabular-nums" style={{ color: "var(--estado-critico)" }}>
-          {money(TOTAL_PARADO)}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">por día parados, esperando a una persona</p>
-      </div>
-
-      <AccionLista>
-        {COLA.map((f) => (
-          <AccionFila
-            key={f.id}
-            to="#"
-            tono={f.ars > 0 ? "critico" : "ninguno"}
-            titulo={f.titulo}
-            motivo={f.motivo}
-            meta={[
-              ...(f.ars > 0
-                ? [{ texto: `${money(f.ars)}/d`, titulo: `Cuesta ${money(f.ars)} por día no hacerlo`, tono: "critico" as const }]
-                : []),
-              { texto: `${f.dias}d`, titulo: `${f.dias} días esperando`, tono: f.dias >= 21 ? ("critico" as const) : ("ninguno" as const) },
-              { texto: f.cliente, soloEscritorio: true },
-            ]}
-          />
-        ))}
-      </AccionLista>
-    </Card>
-  );
-}
-
-// ── 2. Alertas, con la misma fila ────────────────────────────────────────────
-
-function Alertas() {
-  const filas = [
-    { id: "a1", titulo: "Saldo por debajo del umbral", sev: "critical", cliente: "DISTRILLANTAS" },
-    { id: "a2", titulo: "Sin publicar hace 3 días", sev: "warn", cliente: "MAERS" },
-    { id: "a3", titulo: "CTR cayó 48% en 7 días", sev: "warn", cliente: "AGUARA" },
-  ];
-  return (
-    <Card className="max-w-xl p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="rounded-lg p-1.5" style={{ background: "color-mix(in srgb, var(--estado-critico) 15%, transparent)" }}>
-          <BellRing className="h-3.5 w-3.5" style={{ color: "var(--estado-critico)" }} />
-        </span>
-        <h3 className="text-sm font-semibold">Alertas sin resolver</h3>
-        <span className="text-xs font-medium" style={{ color: "var(--estado-critico)" }}>1 crítica</span>
-      </div>
-      <AccionLista>
-        {filas.map((a) => (
-          <AccionFila
-            key={a.id}
-            to="#"
-            tono={a.sev === "critical" ? "critico" : "alerta"}
-            titulo={a.titulo}
-            meta={[{ texto: a.cliente, soloEscritorio: true }]}
-          />
-        ))}
-      </AccionLista>
-    </Card>
-  );
-}
-
-// ── 3. La tabla de cartera cruzada ───────────────────────────────────────────
-
-const CARTERA = [
-  { nombre: "DISTRILLANTAS", rubro: "gomeria", inv: 0, leads: 0, cpl: null, dRubro: null, dPropio: null, fmt: null, parado: 31_500, accion: "Reactivar: 31.500 por día parados", tono: "critico" },
-  { nombre: "MA PROPIEDADES", rubro: "inmobiliaria", inv: 184_000, leads: 0, cpl: null, dRubro: null, dPropio: null, fmt: "video 80%", parado: 0, accion: "Gasta y no trae leads: revisar conversión", tono: "critico" },
-  { nombre: "AGUARA", rubro: "construccion", inv: 96_400, leads: 18, cpl: 5_356, dRubro: 34, dPropio: 41, fmt: "imagen 72%", parado: 0, accion: "Se encareció 41% contra sus propios 30 días previos", tono: "alerta" },
-  { nombre: "MAERS", rubro: "industrial", inv: 142_000, leads: 51, cpl: 2_784, dRubro: 28, dPropio: 6, fmt: "carrusel 55%", parado: 0, accion: "CPL 28% arriba del rubro: revisar creatividad", tono: "alerta" },
-  { nombre: "DUNOD", rubro: "retail", inv: 211_000, leads: 118, cpl: 1_788, dRubro: -31, dPropio: -12, fmt: "video 61%", parado: 0, accion: "CPL 31% mejor que el rubro: momento de escalar", tono: "oportunidad" },
-  { nombre: "RENO", rubro: "amoblamientos", inv: 64_000, leads: 22, cpl: 2_909, dRubro: -4, dPropio: 2, fmt: "imagen 88%", parado: 0, accion: "88% de los avisos son del mismo formato: diversificar", tono: "alerta" },
-  { nombre: "CLAMEVET", rubro: "veterinaria", inv: 0, leads: 0, cpl: null, dRubro: null, dPropio: null, fmt: null, parado: 0, accion: "Sin pauta en el período", tono: "neutro" },
-];
-
-const TONO: Record<string, string> = {
-  critico: "var(--estado-critico)",
-  alerta: "var(--estado-alerta)",
-  oportunidad: "var(--estado-ok)",
-  neutro: "var(--color-muted-foreground)",
-};
-
-function Delta({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-muted-foreground/50">—</span>;
-  return (
-    <span
-      className="tabular-nums"
-      style={{ color: Math.abs(pct) < 10 ? undefined : pct < 0 ? "var(--estado-ok)" : "var(--estado-alerta)" }}
-    >
-      {pct > 0 ? "+" : ""}
-      {pct}%
-    </span>
-  );
-}
-
-function TablaCarteraDemo() {
-  return (
-    <Card className="p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">Cartera cruzada</h3>
-        <span className="text-xs text-muted-foreground">2026-09-05 → 2026-10-04 · 7 clientes</span>
-        <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--estado-critico)" }}>
-          {money(31_500)}/día parados
-        </span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              {["Cliente", "Rubro", "Inv. 30d", "Leads", "CPL", "vs rubro", "vs mes previo", "Formato", "Parado/día", "Próxima acción"].map((h, i) => (
-                <th
-                  key={h}
-                  className={`px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground ${i >= 2 && i <= 8 ? "text-right" : "text-left"}`}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {CARTERA.map((f) => (
-              <tr key={f.nombre} className="border-b border-border/50 hover:bg-accent/30">
-                <td className="px-2 py-1.5">{f.nombre}</td>
-                <td className="px-2 py-1.5 text-xs text-muted-foreground">{f.rubro}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{f.inv ? money(f.inv) : "—"}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{f.leads || "—"}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{f.cpl != null ? money(f.cpl) : "—"}</td>
-                <td className="px-2 py-1.5 text-right"><Delta pct={f.dRubro} /></td>
-                <td className="px-2 py-1.5 text-right"><Delta pct={f.dPropio} /></td>
-                <td className="px-2 py-1.5 text-xs text-muted-foreground">{f.fmt ?? "—"}</td>
-                <td
-                  className="px-2 py-1.5 text-right tabular-nums"
-                  style={f.parado ? { color: "var(--estado-critico)", fontWeight: 600 } : undefined}
-                >
-                  {f.parado ? money(f.parado) : "—"}
-                </td>
-                <td className="px-2 py-1.5 text-xs" style={{ color: TONO[f.tono] }}>{f.accion}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        El día en curso no se cuenta: los datos de hoy están a medio sincronizar y deformarían las dos ventanas.
-      </p>
-    </Card>
   );
 }
 
@@ -296,22 +123,6 @@ function Vitrina() {
   return (
     <StoryShell>
       <Section
-        eyebrow="1 · No hay dónde decidir"
-        title="La cola, con la plata adelante"
-        antes="el monto se calculaba, se usaba para ordenar, y después se tiraba. La fila decía “Reconectar página Meta” y nada más."
-      >
-        <ColaHumana />
-      </Section>
-
-      <Section
-        eyebrow="2 · El análisis no cruza nada"
-        title="Cartera cruzada"
-        antes="el análisis existía pero vivía dentro de la ficha de cada cliente, uno por uno. No había forma de ver los 59 juntos."
-      >
-        <TablaCarteraDemo />
-      </Section>
-
-      <Section
         eyebrow="3 · Manda demasiado"
         title="Qué interrumpe y qué va al resumen"
         antes="14 partes del sistema mandaban WhatsApp por su cuenta. Una caída real llegaba igual que un aviso de rutina."
@@ -330,13 +141,6 @@ function Vitrina() {
         </div>
       </Section>
 
-      <Section
-        eyebrow="5 · Cada lista se veía distinta"
-        title="La misma fila en todos lados"
-        antes="cada lista de pendientes se había escrito por separado: distinta altura, distinto tamaño para el mismo dato."
-      >
-        <Alertas />
-      </Section>
     </StoryShell>
   );
 }

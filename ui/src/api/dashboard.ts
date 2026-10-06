@@ -1,31 +1,13 @@
 import type { DashboardSummary } from "@paperclipai/shared";
 import { api } from "./client";
 
-export interface TriageCliente {
-  clientId: string; name: string; slug: string; salud: number | null; problemas: string[];
-}
-export interface FilaAccion {
-  identifier?: string | null; title: string; priority?: string; updatedAt?: string;
-  id?: string; severity?: string; createdAt?: string;
-  clientId: string | null; clienteNombre: string | null; clienteSlug: string | null;
-  /** Sólo en la cola humana: quién se trabó, qué dijo y hace cuánto. */
-  agente?: string | null; motivo?: string | null; diasParado?: number;
-  /** Sólo en la cola humana: ARS por día que cuesta no hacerlo (0 = no tasable). */
-  arsPorDia?: number;
-}
+/** El pulso de la agencia. El semáforo de cartera se retiró: la Cartera vive en /cartera (B3). */
 export interface DashboardAccion {
-  triage: { rojo: TriageCliente[]; amarillo: TriageCliente[]; verdeCount: number };
-  humanas: FilaAccion[];
-  /** Cuántas hay en total: la lista viene recortada. */
-  humanasTotal?: number;
-  /** Plata parada por día sumando TODA la cola, no sólo las filas visibles. */
-  humanasArsPorDia?: number;
-  alertas: FilaAccion[];
   serie: Array<{ date: string; spend: number; leads: number }>;
 }
 
 export const dashboardApi = {
   summary: (companyId: string) => api.get<DashboardSummary>(`/companies/${companyId}/dashboard`),
-  /** Centro de mando: todo lo accionable del panel principal en una request. */
+  /** El pulso de la cartera (30 días). Lo accionable vive en Hoy; la cartera, en /cartera. */
   accion: () => api.get<DashboardAccion>(`/dashboard/accion`),
 };

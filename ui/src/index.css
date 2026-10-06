@@ -1035,3 +1035,76 @@ span.paperclip-project-mention-chip {
 [class*="_toolbarNodeKindSelectContainer_"] {
   z-index: 81 !important;
 }
+
+/* ── LMTM: diseño para decidir (skill .claude/skills/lmtm-diseno) ─────────
+   Las pantallas donde se decide (Hoy, Cartera, Cliente, informe) no usan los
+   tokens de paperclip: llevan los suyos bajo `.lmtm`. Claro por defecto; el
+   oscuro es elegido (valores propios medidos contra su papel), no invertido. */
+@theme inline {
+  --color-l-papel: var(--l-papel);
+  --color-l-sup: var(--l-sup);
+  --color-l-tinta: var(--l-tinta);
+  --color-l-tinta-2: var(--l-tinta-2);
+  --color-l-tinta-3: var(--l-tinta-3);
+  --color-l-linea: var(--l-linea);
+  --color-l-linea-2: var(--l-linea-2);
+  --color-l-marca: var(--l-marca);
+  --color-l-marca-suave: var(--l-marca-suave);
+  --color-l-bien: var(--l-bien);
+  --color-l-bien-texto: var(--l-bien-texto);
+  --color-l-atencion: var(--l-atencion);
+  --color-l-atencion-texto: var(--l-atencion-texto);
+  --color-l-serio: var(--l-serio);
+  --color-l-critico: var(--l-critico);
+  --color-l-critico-texto: var(--l-critico-texto);
+  --color-l-critico-suave: var(--l-critico-suave);
+  --color-l-neutro: var(--l-neutro);
+  --color-l-neutro-2: var(--l-neutro-2);
+}
+
+.lmtm {
+  color-scheme: light;
+  --l-papel: #f6f5f1;
+  --l-sup: #ffffff;
+  --l-tinta: #161922;
+  --l-tinta-2: #4a4e5a;
+  --l-tinta-3: #666a77;
+  --l-linea: #e7e5df;
+  --l-linea-2: #d9d6ce;
+  --l-marca: #3545d6;
+  --l-marca-suave: #eef0ff;
+  /* Estado: fijos (paleta validada de dataviz), siempre con ícono y palabra. */
+  --l-bien: #0ca30c;
+  --l-bien-texto: #0b7a0b;
+  --l-atencion: #fab219;
+  --l-atencion-texto: #8a5a00;
+  --l-serio: #ec835a;
+  --l-critico: #d03b3b;
+  --l-critico-texto: #b93030;
+  --l-critico-suave: #fdf1f0;
+  --l-neutro: #c9c6bd;
+  --l-neutro-2: #dcd8ce;
+  background: var(--l-papel);
+  color: var(--l-tinta);
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lmtm[data-tema="oscuro"] {
+  color-scheme: dark;
+  --l-papel: #101116;
+  --l-sup: #191b22;
+  --l-tinta: #f4f3ef;
+  --l-tinta-2: #bfc2cc;
+  --l-tinta-3: #9a9daa;
+  --l-linea: #2a2d36;
+  --l-linea-2: #363a45;
+  --l-marca: #8f98ff;
+  --l-marca-suave: #22264a;
+  --l-bien-texto: #3cc23c;
+  --l-atencion-texto: #fab219;
+  --l-critico-texto: #ef6b6b;
+  --l-critico-suave: #2a1617;
+  --l-neutro: #4a4d57;
+  --l-neutro-2: #30333c;
+}

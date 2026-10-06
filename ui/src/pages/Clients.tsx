@@ -346,24 +346,16 @@ function ClientNotify({ client }: { client: Client }) {
       >
         {running ? "…" : "Alertas"}
       </button>
-      <button
-        onClick={async () => {
-          setRunning(true); setMsg(null);
-          try {
-            const r = await clientsApi.runReport(client.slug);
-            if (!r.hasData) setMsg("Sin datos de campañas");
-            else if (r.created) {
-              setMsg("Reporte creado en ClickUp ✓");
-              if (r.url) window.open(r.url, "_blank");
-            } else setMsg(r.error ? r.error.slice(0, 50) : "No se pudo crear");
-          } catch (e) { setMsg((e as Error).message); } finally { setRunning(false); }
-        }}
-        disabled={running}
-        className="text-[10px] px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50 shrink-0"
-        title="Generar el reporte semanal como tarea en ClickUp"
+      {/* El reporte semanal a ClickUp se retiró (B3): el informe de la semana
+          se arma desde las métricas, lo revisa el auditor y se publica desde
+          la pestaña Resumen del cliente. */}
+      <Link
+        to={`/c/${client.slug}/resumen`}
+        className="text-[10px] px-2 py-1 rounded-md border border-border hover:bg-muted shrink-0 no-underline text-inherit"
+        title="El informe de la semana, para revisar y publicar"
       >
-        Reporte
-      </button>
+        Informe
+      </Link>
       {msg && <span className="text-[9px] text-muted-foreground truncate max-w-[130px]">{msg}</span>}
     </div>
   );

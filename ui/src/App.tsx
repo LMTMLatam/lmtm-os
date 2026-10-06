@@ -7,11 +7,13 @@ import { Dashboard } from "./pages/Dashboard";
 import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
 import { Clients } from "./pages/Clients";
-import { PaidMediaHub } from "./pages/PaidMediaHub";
 import { Finance } from "./pages/Finance";
 import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
+import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
+import { Hoy } from "./pages/Hoy";
+import { Cartera } from "./pages/Cartera";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -75,13 +77,16 @@ import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-rou
 function boardRoutes() {
   return (
     <>
-      <Route index element={<Navigate to="dashboard" replace />} />
+      {/* Hoy es la portada: lo que hay que decidir, ordenado por plata. */}
+      <Route index element={<Navigate to="hoy" replace />} />
       <Route path="dashboard" element={<Dashboard />} />
       <Route path="dashboard/live" element={<DashboardLive />} />
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Clients />} />
-      <Route path="paid-media" element={<PaidMediaHub />} />
+      {/* Pauta se retiró en B4: qué cliente mirar está en Clientes (Cartera) y el
+          detalle de pauta en Cliente → Dashboard, con selector de cliente. */}
+      <Route path="paid-media" element={<Navigate to="/cartera" replace />} />
       <Route path="finance" element={<Finance />} />
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />
@@ -167,7 +172,8 @@ function boardRoutes() {
       <Route path="inbox/requests" element={<JoinRequestQueue />} />
       <Route path="inbox/new" element={<Navigate to="/inbox/mine" replace />} />
       <Route path="u/:userSlug" element={<UserProfile />} />
-      <Route path="design-guide" element={<DesignGuide />} />
+      {/* La guía de componentes de Paperclip es para quien desarrolla (B4). */}
+      {import.meta.env.DEV ? <Route path="design-guide" element={<DesignGuide />} /> : null}
       <Route path="instance/settings/adapters" element={<AdapterManager />} />
       <Route path=":pluginRoutePath/*" element={<PluginPage />} />
       <Route path="*" element={<NotFoundPage scope="board" />} />
@@ -245,7 +251,7 @@ function CompanyRootRedirect() {
     return <NoCompaniesStartPage />;
   }
 
-  return <Navigate to={`/${targetCompany.issuePrefix}/dashboard`} replace />;
+  return <Navigate to={`/${targetCompany.issuePrefix}/hoy`} replace />;
 }
 
 function UnprefixedBoardRedirect() {
@@ -308,9 +314,13 @@ export function App() {
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
         <Route path="cli-auth/:id" element={<CliAuthPage />} />
         <Route path="invite/:token" element={<InviteLandingPage />} />
-        <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
+        {/* Fixture de performance: solo en desarrollo (B4). Antes se abría en
+            producción sin login, antes de la compuerta de acceso. */}
+        {import.meta.env.DEV ? <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} /> : null}
         <Route path="connect-ads" element={<ConnectAds />} />
         <Route path="public/dashboards/:slug" element={<PublicDashboard />} />
+        {/* El panel viejo, como "ver el detalle" del informe (B3), hasta B4. */}
+        <Route path="public/dashboards/:slug/detalle" element={<PublicDashboardDetalle />} />
         {/* Links públicos pegados/abiertos con el prefijo de empresa adelante
             (/LMTM/public/dashboards/x) daban Page-not-found — redirigir. */}
         <Route path=":prefix/public/dashboards/:slug" element={<PublicDashboardPrefixRedirect />} />
@@ -337,6 +347,8 @@ export function App() {
               "Company not found" (the segment gets read as a company prefix).
               When you add a board page, add it here AND in the Sidebar. */}
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
+          <Route path="hoy" element={<UnprefixedBoardRedirect />} />
+          <Route path="cartera" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
           <Route path="clients" element={<UnprefixedBoardRedirect />} />
@@ -403,6 +415,10 @@ export function App() {
           <Route path="execution-workspaces/:workspaceId/runtime-logs" element={<UnprefixedBoardRedirect />} />
           <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedBoardRedirect />} />
           <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
+          {/* Hoy va sin la barra de paperclip: es una pantalla para el
+              celular, con el sistema de diseño de LMTM (skill lmtm-diseno). */}
+          <Route path=":companyPrefix/hoy" element={<Hoy />} />
+          <Route path=":companyPrefix/cartera" element={<Cartera />} />
           <Route path=":companyPrefix" element={<Layout />}>
             {boardRoutes()}
           </Route>

@@ -3,8 +3,8 @@ import {
   CircleDot,
   Target,
   LayoutDashboard,
+  Sun,
   DollarSign,
-  Megaphone,
   History,
   Search,
   SquarePen,
@@ -114,9 +114,10 @@ export function Sidebar() {
             <span className="truncate">Nuevo issue</span>
           </button>
 
-          {/* Los 6 de todos los días. "Hoy" es el centro de mando: lo que hay
-              que decidir, ordenado por lo que cuesta no hacerlo. */}
-          <SidebarNavItem to="/dashboard" label="Hoy" icon={LayoutDashboard} liveCount={liveRunCount} />
+          {/* Los 6 de todos los días. "Hoy" es la pantalla para decidir
+              (rediseño B2): incidentes arriba, decisiones por plata, un botón
+              cada una. El tablero viejo pasa a "Operación", en Sistema. */}
+          <SidebarNavItem to="/hoy" label="Hoy" icon={Sun} />
           <SidebarNavItem
             to="/inbox"
             label="Bandeja"
@@ -125,8 +126,12 @@ export function Sidebar() {
             badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
             alert={inboxBadge.failedRuns > 0}
           />
-          <SidebarNavItem to="/clients" label="Clientes" icon={Building2} />
-          <SidebarNavItem to="/paid-media" label="Pauta" icon={Megaphone} />
+          {/* "Clientes" es la Cartera (B3): todos por plata en riesgo y contra
+              su objetivo. Las fichas viejas siguen en "Más". */}
+          <SidebarNavItem to="/cartera" label="Clientes" icon={Building2} />
+          {/* Operación (la pantalla de Nazareno, PLAN §5) vuelve arriba en el lugar
+              de Pauta, que se retiró en B4. */}
+          <SidebarNavItem to="/dashboard" label="Operación" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
           <SidebarNavItem to="/company/settings" label="Config" icon={Settings} />
 
@@ -141,6 +146,7 @@ export function Sidebar() {
 
         {/* Negocio, pero no de todos los días. Cerrado por defecto. */}
         <SidebarSection label="Más" collapsible={{ open: masAbierto, onOpenChange: setMasAbierto }}>
+          <SidebarNavItem to="/clients" label="Fichas de clientes" icon={Building2} />
           <SidebarNavItem to="/intelligence" label="Centro de Inteligencia" icon={Brain} />
           <SidebarNavItem to="/growth" label="Growth" icon={TrendingUp} />
           <SidebarNavItem to="/readiness" label="Readiness" icon={ClipboardCheck} />

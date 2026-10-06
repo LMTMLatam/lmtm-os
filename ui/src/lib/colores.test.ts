@@ -21,7 +21,9 @@ const PERMITIDOS = [
   // Paleta categórica validada para daltonismo (ΔE ≥ 8 entre adyacentes), con
   // sus propias CSS vars. Es un sistema diseñado, no un descuido.
   "components/pubviz.tsx",
-  "pages/PublicDashboard.tsx",
+  // El panel público viejo, hoy "ver el detalle" del informe (B3). El informe
+  // nuevo (pages/PublicDashboard.tsx) usa los tokens LMTM y no lleva hex.
+  "pages/PublicDashboardDetalle.tsx",
   // Degradés decorativos de las KPI cards. Una card "rose" no es un error:
   // mapearla a un token de estado sería mentir con el color.
   "pages/PaidMediaDashboard.tsx",

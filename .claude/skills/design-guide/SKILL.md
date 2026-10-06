@@ -15,6 +15,10 @@ description: >
 
 Paperclip's UI is a professional-grade control plane — dense, keyboard-driven, dark-themed by default. Every pixel earns its place.
 
+> **LMTM:** esta guía queda solo para la pantalla de Operación y las de
+> paperclip (agentes, issues, ajustes). Las pantallas donde se decide (Hoy,
+> Cartera, Cliente, el informe para el cliente) usan `lmtm-diseno`.
+
 **Always use with:** `frontend-design` (visual polish) and `web-design-guidelines` (web best practices).
 
 ---

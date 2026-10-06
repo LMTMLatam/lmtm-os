@@ -69,6 +69,33 @@ export interface FilaHumana {
  * sin eso la fila dice "Reconectar página Meta" y no dice de qué cuenta.
  */
 export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: number; arsPorDiaTotal: number }> {
+  const filas = await filasColaHumana(db);
+
+  // Ordenar por lo que cuesta no hacerlo. La cola se corta en TOPE_VISIBLE, así
+  // que el orden decide qué ve una persona: por antigüedad, una cuenta frenada
+  // que le para $43.000 por día a un cliente quedaba debajo de una consulta de
+  // julio. El costo sale de la caída de gasto y ya está en la DB, así que esto
+  // no depende de que Meta ni Make contesten.
+  const costos = await costoPorCliente(db).catch((e) => {
+    console.warn("[cola-humana] sin costos, se ordena por antigüedad:", e instanceof Error ? e.message : e);
+    return new Map<string, CostoCliente>();
+  });
+  const ordenadas = ordenarPorCosto(filas, costos);
+
+  return {
+    filas: ordenadas.slice(0, TOPE_VISIBLE),
+    total: ordenadas.length,
+    // Sobre `ordenadas`, NO sobre las filas ya recortadas: ver totalPlataParada.
+    arsPorDiaTotal: totalPlataParada(ordenadas),
+  };
+}
+
+/**
+ * La cola entera, sin tope ni orden. La usa también el motor de decisiones,
+ * que agrupa por cliente: con el tope de la pantalla vieja, los clientes que
+ * caían después del puesto 12 no existirían para el motor.
+ */
+export async function filasColaHumana(db: Db): Promise<Array<Omit<FilaHumana, "arsPorDia">>> {
   const rows = await db
     .select({
       id: issues.id,
@@ -102,7 +129,7 @@ export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: 
     .orderBy(issues.updatedAt);
 
   const ahora = Date.now();
-  const filas = rows
+  return rows
     .filter((r) => necesitaPersona(r.title))
     .map((r) => ({
       identifier: r.identifier,
@@ -116,24 +143,6 @@ export async function colaHumana(db: Db): Promise<{ filas: FilaHumana[]; total: 
       motivo: r.motivo ? primeraFrase(r.motivo) : null,
       diasParado: Math.floor((ahora - new Date(r.updatedAt).getTime()) / DIA),
     }));
-
-  // Ordenar por lo que cuesta no hacerlo. La cola se corta en TOPE_VISIBLE, así
-  // que el orden decide qué ve una persona: por antigüedad, una cuenta frenada
-  // que le para $43.000 por día a un cliente quedaba debajo de una consulta de
-  // julio. El costo sale de la caída de gasto y ya está en la DB, así que esto
-  // no depende de que Meta ni Make contesten.
-  const costos = await costoPorCliente(db).catch((e) => {
-    console.warn("[cola-humana] sin costos, se ordena por antigüedad:", e instanceof Error ? e.message : e);
-    return new Map<string, CostoCliente>();
-  });
-  const ordenadas = ordenarPorCosto(filas, costos);
-
-  return {
-    filas: ordenadas.slice(0, TOPE_VISIBLE),
-    total: ordenadas.length,
-    // Sobre `ordenadas`, NO sobre las filas ya recortadas: ver totalPlataParada.
-    arsPorDiaTotal: totalPlataParada(ordenadas),
-  };
 }
 
 /**
