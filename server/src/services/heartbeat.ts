@@ -8703,13 +8703,16 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // asignación/automation/on-demand no pasan por acá.
     // Un issue que nadie toca hace más de DIAS_ISSUE_VIGENTE no cuenta como
     // trabajo: si no, un `todo` abandonado mantiene el reloj despierto para siempre.
+    // `in_review` tampoco: espera una revisión, el agente no puede hacer nada y el
+    // reloj no se lo entrega (06/10: 13 de 13 corridas de Milo, Pablo y Nicolas
+    // por reloj terminaron en "quedo a la espera").
     if (source === "timer" && !issueId) {
       const [pend] = await db
         .select({ n: sql<number>`count(*)::int` })
         .from(issues)
         .where(and(
           eq(issues.assigneeAgentId, agentId),
-          inArray(issues.status, ["todo", "in_progress", "in_review"] as never),
+          inArray(issues.status, ["todo", "in_progress"] as never),
           gte(issues.updatedAt, new Date(Date.now() - DIAS_ISSUE_VIGENTE * 86_400_000)),
         ));
       if ((pend?.n ?? 0) === 0) {
