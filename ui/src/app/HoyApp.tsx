@@ -389,7 +389,9 @@ export function HallazgoAgente({ t }: { t: Trabajo }) {
       )}
       {r.brief && (
         <div className="mt-2 rounded-lg bg-l-sup p-2.5 text-[13px] leading-[1.5] text-l-tinta">
-          <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-l-tinta-3">Concepto de reemplazo</div>
+          <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-l-tinta-3">
+            {t.rol === "contenido" ? "Calendario propuesto" : "Concepto de reemplazo"}
+          </div>
           <p className="whitespace-pre-line">{r.brief}</p>
         </div>
       )}

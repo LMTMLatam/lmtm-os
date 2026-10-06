@@ -57,6 +57,7 @@ export const agentesApi = {
 export const ROLES: Record<string, string> = {
   "media-buyer": "Media buyer",
   estratega: "Estratega",
+  contenido: "Contenido",
 };
 
 export const nombreRol = (r: string) => ROLES[r] ?? r;

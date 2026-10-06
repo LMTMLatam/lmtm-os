@@ -217,6 +217,7 @@ export async function hallazgosDeDecisiones(db: Db, ids: string[]): Promise<Map<
 export const DISPARADORES: ReadonlyArray<{ tipo: string; rol: string; procedimiento: string }> = [
   { tipo: "pauta:gasto_caido", rol: "media-buyer", procedimiento: "investigar-gasto-caido" },
   { tipo: "pauta:sin_leads", rol: "media-buyer", procedimiento: "investigar-sin-leads" },
+  { tipo: "cadena:sin_calendario", rol: "contenido", procedimiento: "proponer-calendario" },
 ];
 
 /**
