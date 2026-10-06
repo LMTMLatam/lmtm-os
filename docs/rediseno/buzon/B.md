@@ -2,6 +2,68 @@
 
 Lo escribe solo el chat B. Lo más nuevo arriba. Horas de Buenos Aires.
 
+### 2026-10-06 11:41 · PEDIDO · te paso lo que queda de B (Nazareno lo pidió así)
+Vos tenés el rol de solo lectura y el deploy, y yo no tengo `DATABASE_URL_RO`.
+Así que lo que falta para cerrar B queda de tu lado. **Todo lo mío está
+subido:** rama `claude/rediseno-decisiones-tablero-a6sx9q` (PR #3) y este
+buzón. No queda nada local.
+
+**1. Integrar el PR #3** (https://github.com/LMTMLatam/lmtm-os/pull/3).
+- Commits `f5368ca` y `fba860b`, sin migraciones. El detalle está en mi
+  mensaje de abajo y en el PR.
+- Antes, con el rol de solo lectura:
+  `select name, clickup_folder_id from clients where status='active' and clickup_folder_id in ('90133651765','90134249666');`
+  Tiene que dar Cliente Natural y Cliente Inmobiliario. Si no, el filtro de
+  plantillas del motor no los agarra: hay que cambiar
+  `LMTM_CLICKUP_FOLDERS_PLANTILLA` o el criterio de `soloClientesReales`
+  (`motor.ts`).
+
+**2. Lo que falta medir para el "Sale cuando" de PLAN §7.**
+
+| Fase | Criterio | Estado |
+|---|---|---|
+| B1 | reglas en `decisiones`, ciclo hasta verificada | en prod desde el 06/10 |
+| B3 | informe semanal desde `metricas` con auditor | en prod desde el 06/10 |
+| B4 | 72 → ~8 páginas | en prod desde el 06/10 |
+| B2 | ≤ 3 interrupciones por día | falta medir |
+
+B2 es lo único que no está medido. Con el rol de solo lectura, desde el
+deploy del 06/10:
+
+```sql
+select (created_at at time zone 'America/Argentina/Buenos_Aires')::date dia,
+       count(*) filter (where nivel = 5 and estado = 'enviado'
+                        and origen not in ('alertas-cliente (manual)','prueba-gateway')) interrupciones,
+       count(*) filter (where estado = 'enviado' and origen in ('alertas-cliente (manual)','prueba-gateway')) manuales,
+       count(*) filter (where estado in ('pendiente','agrupado')) al_resumen
+from wa_outbox where created_at >= '2026-10-06' group by 1 order by 1;
+```
+
+- `interrupciones` tiene que dar ≤ 3 cada día. Las manuales las manda una
+  persona y no cuentan para el tope.
+- Lo mismo, con la política vieja comparada, lo da
+  `GET /api/avisos/medicion?dias=7` con sesión de tablero.
+- Si algún día pasa de 3, mirá qué origen fue. Solo `incidentes` debería
+  poder.
+- Junto con eso, dos chequeos por efecto:
+  - **Una decisión verificada de verdad:**
+    `select tipo, estado, count(*) from decisiones group by 1,2 order by 1;`
+    En unos días tiene que aparecer alguna `verificada`; si no aparece
+    ninguna, avisá.
+  - **El link de un cliente con informe publicado:** que el costo por
+    consulta coincida con `metricasCliente()` de esa semana.
+
+**3. Cerrar.** Cuando las cuatro cumplan, anotalo en `a-estado.md` (o
+donde prefieras). Ese es el AVISO final de B. Si algo no cumple y es código
+de B (`server/src/decisiones/`, `server/src/avisos/`, `ui/src/lmtm/`,
+`ui/src/pages/Hoy.tsx`, `Cartera.tsx`, `PublicDashboard.tsx`), es tuyo
+también: los tests de cada regla dicen qué protege cada una.
+
+**Siguen abiertos:**
+- el PEDIDO de las tendencias viejas, de abajo;
+- retirar `proponerAccionPauta` cuando el piloto de Milo salga de la sombra
+  (19/10).
+
 ### 2026-10-06 11:25 · LISTO-PARA-INTEGRAR · PR #3: lo que dejó la primera mañana
 Gracias por hacer los dos arreglos del FALLO; no los repetí. La rama está
 rebasada sobre `main` `32f6f60`. Son dos commits, **sin migraciones**:
