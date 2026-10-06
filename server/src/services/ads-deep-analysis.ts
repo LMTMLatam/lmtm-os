@@ -177,3 +177,77 @@ export async function analisisProfundo(db: Db, client: { id: string; industry: s
 
   return { benchmark, formatos, porEdad, porConjunto, resumen };
 }
+
+// ── Narrativa estilo "IA de Meta" (pedido 23/7): un estratega LLM escribe el
+// análisis hilado sobre los datos duros, nombrando conjuntos y anuncios
+// REALES. Cache 12h en memoria (MiniMax por consulta cuesta; el dato de fondo
+// cambia a diario). ────────────────────────────────────────────────────────
+const narrativaCache = new Map<string, { at: number; texto: string }>();
+
+export async function narrativaPauta(
+  db: Db,
+  client: { id: string; name: string; industry: string | null },
+): Promise<{ texto: string | null; cached: boolean }> {
+  const hit = narrativaCache.get(client.id);
+  if (hit && Date.now() - hit.at < 12 * 3_600_000) return { texto: hit.texto, cached: true };
+
+  const datos = await analisisProfundo(db, client);
+  if (!datos.porConjunto.length && !datos.porEdad.length) return { texto: null, cached: false };
+
+  const { aiNarrative } = await import("./agency-ops.js");
+  const system = [
+    "Sos el estratega senior de pauta de LMTM (agencia de marketing). Escribís el análisis de la cuenta de UN cliente para que el equipo se lo reenvíe tal cual.",
+    "Estilo: como el asistente de IA de Meta Ads — diagnóstico con números exactos y recomendaciones accionables. Español rioplatense profesional, sin jerga técnica innecesaria.",
+    "Estructura EXACTA (markdown):",
+    "**Diagnóstico** — 2-3 párrafos cortos: eficiencia vs el rubro, qué conjunto trabaja mejor y cuál peor (POR NOMBRE, con su costo por consulta), cuellos de botella de creativos (si un conjunto depende de un solo anuncio, nombralo), y qué pasa por edad.",
+    "**Recomendaciones** — 3 a 5, numeradas, cada una anclada a un dato del JSON (nada que sirva para cualquier cliente).",
+    "PROHIBIDO: inventar números o nombres que no estén en el JSON; consejos genéricos; más de 300 palabras.",
+  ].join("\n");
+  const datosJson = JSON.stringify({
+    cliente: client.name,
+    rubro: client.industry,
+    benchmarkRubro: datos.benchmark,
+    porConjunto: datos.porConjunto,
+    porEdad: datos.porEdad,
+    mixFormatos: datos.formatos,
+    hallazgos: datos.resumen,
+  });
+  let texto = await aiNarrative(system, datosJson).catch(() => null);
+  // Gate de fundamentación (curso reliable-agents 26/7): el análisis se
+  // reenvía al cliente tal cual, así que ninguna cifra/nombre inventado puede
+  // pasar. Juez binario contra el JSON; 1 reintento con el motivo; si vuelve a
+  // fallar, mejor sin narrativa (el panel tiene botón Reintentar) que con una
+  // alucinada.
+  if (texto) {
+    try {
+      const { gateBinario } = await import("./entrega-checks.js");
+      let v = await gateBinario({
+        criterio: "¿TODAS las cifras y TODOS los nombres de conjuntos/anuncios que menciona el texto existen en los datos fuente? Un solo número o nombre que no esté en el JSON = false.",
+        contenido: texto,
+        contexto: datosJson,
+      });
+      if (!v.ok) {
+        const retry = await aiNarrative(system + `\nOJO: tu intento anterior falló la verificación por esto: "${v.motivo}". Usá SOLO datos del JSON.`, datosJson).catch(() => null);
+        if (retry) {
+          v = await gateBinario({
+            criterio: "¿TODAS las cifras y TODOS los nombres de conjuntos/anuncios que menciona el texto existen en los datos fuente? Un solo número o nombre que no esté en el JSON = false.",
+            contenido: retry,
+            contexto: datosJson,
+          });
+          texto = v.ok ? retry : null;
+        } else {
+          texto = null;
+        }
+        if (!texto) console.warn(`[narrativa-pauta] gate de fundamentación descartó la narrativa de ${client.name}: ${v.motivo}`);
+      }
+    } catch { /* gate best-effort: no romper el panel */ }
+  }
+  if (texto) {
+    // MiniMax filtra tokens CJK mid-frase ("Si se quiere测试…") — mismo saneo
+    // que en el resto de los entregables.
+    const { NON_LATIN_RE } = await import("./entrega-checks.js");
+    texto = texto.replace(new RegExp(NON_LATIN_RE.source, "g"), "");
+    narrativaCache.set(client.id, { at: Date.now(), texto });
+  }
+  return { texto, cached: false };
+}

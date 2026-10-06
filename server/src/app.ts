@@ -336,15 +336,14 @@ export async function createApp(
     const { initLicitaciones } = await import("./services/licitaciones.js");
     initLicitaciones(db);
   } catch (e) { console.warn("[licitaciones] init failed:", e); }
-  // Warmer del panel (fluidez, 23/7): la planilla de cotizado y los conteos
-  // de ClickUp se precalculan al arrancar y se refrescan cada 5 min — ningún
-  // humano paga el cómputo frío de ~20s. (Antes se calentaban a través del
-  // triage de plan-accion, que se retiró en el rediseño B3.)
+  // Warmer del panel (fluidez, 23/7): el plan de acción de todos los clientes
+  // (con la planilla de cotizado y los conteos de ClickUp adentro) se
+  // precalcula al arrancar y se refresca cada 5 min — ningún humano paga el
+  // cómputo frío de ~20s al abrir un cliente.
   try {
-    const { cotizadoVsRealizado } = await import("./services/cotizado.js");
-    const calentar = () => void cotizadoVsRealizado(db, { months: 1 }).catch((e) => console.warn("[panel-warmer] cotizado falló:", e instanceof Error ? e.message : e));
-    setTimeout(calentar, 90_000);
-    setInterval(calentar, 5 * 60_000);
+    const { warmTriage } = await import("./services/plan-accion.js");
+    setTimeout(() => warmTriage(db), 90_000);
+    setInterval(() => warmTriage(db), 5 * 60_000);
   } catch (e) { console.warn("[panel-warmer] init failed:", e); }
   // Intelligence layer (0107): brain, scores, KG, learnings, auditor, feedback, opportunities.
   try {

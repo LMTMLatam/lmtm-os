@@ -1037,9 +1037,79 @@ export function adsRoutes(db: Db): Router {
     res.json({ propuesta: row ?? null });
   });
 
-  // (Rediseño B3) "Plan de acción" del cliente se retiró: la pestaña Resumen
-  // (/api/clientes/:id/resumen) lo reemplaza con objetivo vs real, decisiones
-  // con su botón e informe semanal auditado.
+  // Plan de acción del cliente (pedido 20/7): triage + reporte estratégico
+  // semanal del agente. B3 lo había retirado; vuelve en la fase C (pedido de
+  // Nazareno 06/10: "mantener cada sección del cliente, como plan de acción").
+  // El botón "Regenerar" abre un issue a Luna y la despierta.
+  router.get("/clients/:idOrSlug/plan-accion", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const { planAccionCliente } = await import("../services/plan-accion.js");
+    const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
+    const [plan, profundo] = await Promise.all([
+      planAccionCliente(db, client.id),
+      analisisProfundo(db, { id: client.id, industry: client.industry ?? null }).catch(() => null),
+    ]);
+    res.json({ plan, profundo });
+  });
+
+  // Narrativa estilo IA de Meta (23/7): el estratega LLM escribe el análisis
+  // sobre los datos duros por conjunto/edad/formato. Cache 12h; puede tardar
+  // unos segundos la primera vez — la UI la pide aparte con su skeleton.
+  router.get("/clients/:idOrSlug/analisis-narrativa", dashCache, async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    try {
+      const { narrativaPauta } = await import("../services/ads-deep-analysis.js");
+      res.json(await narrativaPauta(db, { id: client.id, name: client.name, industry: client.industry ?? null }));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  router.post("/clients/:idOrSlug/plan-accion/regenerar", async (req, res) => {
+    const client = await resolveClient(req.params.idOrSlug, db);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    try {
+      const { agents: agentsTable } = await import("@paperclipai/db");
+      const { resolveCompanyId } = await import("../services/intel-common.js");
+      const { issueService } = await import("../services/issues.js");
+      const { heartbeatService } = await import("../services/heartbeat.js");
+      const { PLAN_ACCION_SPEC } = await import("../services/plan-accion.js");
+      const companyId = await resolveCompanyId(db, client.id);
+      if (!companyId) return res.status(400).json({ error: "cliente sin company" });
+      const roster = await db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.companyId, companyId));
+      const luna = roster.find((a) => /luna/i.test(a.name)) ?? roster.find((a) => /caro/i.test(a.name)) ?? null;
+      if (!luna) return res.status(400).json({ error: "no hay agente para asignar" });
+      const created = await issueService(db).create(companyId, {
+        title: `[${client.name.toUpperCase()}] Plan de acción — regenerar ahora`.slice(0, 200),
+        description: [
+          `El equipo pidió regenerar YA el plan de acción estratégico de **${client.name}**.`,
+          "",
+          "Relevá primero: lmtmGetClientContentMatrix (orgánico y cumplimiento), lmtmGetClientCampaigns (pauta campaña por campaña), lmtmGetClientMarketingPlan (estrategia acordada), lmtmGetClientBrain (voz, público, restricciones), lmtmGetClientCompetitors y lmtmGetNicheIntel del rubro (benchmark + RADAR con referentes externos y links).",
+          "",
+          PLAN_ACCION_SPEC,
+          "",
+          `Guardalo con lmtmSaveDeliverable kind=plan, título exacto: "Plan de acción ${new Date().toISOString().slice(0, 10)} — ${client.name}".`,
+        ].join("\n"),
+        status: "todo",
+        priority: "high",
+        clientId: client.id,
+        originKind: "manual",
+        createdByAgentId: null,
+        assigneeAgentId: luna.id,
+      });
+      const issueId = String(created.id ?? "");
+      if (issueId) {
+        await heartbeatService(db).wakeup(luna.id, {
+          source: "automation", triggerDetail: "system", reason: "plan_accion_regenerar", payload: { issueId },
+        }).catch(() => {});
+      }
+      res.json({ ok: true, issueId });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
 
   // Consultas IA del equipo (ChatGPT/Gemini) → brain del cliente (pedido 20/7):
   // se pega la conversación, queda como documento y un issue de destilación
