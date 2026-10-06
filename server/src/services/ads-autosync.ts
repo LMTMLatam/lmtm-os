@@ -52,6 +52,16 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
     };
     try {
       mRecords += await adsAggregator.syncCampaigns(db, { ...base, jobName: "campaigns" });
+      // Conjuntos (nombre, estado y presupuesto de cada ad set). Tampoco estaban
+      // en el ciclo diario: el 06/10, 79 conjuntos con gasto no tenían fila
+      // ("el conjunto sin nombre (1202…)" en Hoy) y el resto tenía estado y
+      // presupuesto de mediados de agosto, que es lo que leen el motor de
+      // decisiones, el evaluador y el media buyer. Best-effort, como creativos.
+      try {
+        mRecords += await adsAggregator.syncAdsets(db, { ...base, jobName: "adsets" });
+      } catch (e) {
+        anotar("conjuntos", e);
+      }
       // Creativos (nombre + miniatura de cada anuncio). Faltaba en el ciclo
       // diario: solo se refrescaban con el botón manual, así que 19 cuentas
       // tenían creativos congelados desde junio/julio mientras los insights
