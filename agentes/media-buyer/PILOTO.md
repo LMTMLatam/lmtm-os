@@ -57,6 +57,21 @@ Herramientas que tiene que tener en la allowlist: `lmtmGetClientCampaigns`,
 Dos semanas. Si pasa, se habilita N1 (ejecutar lo reversible hasta un tope) en estos 3
 clientes y se suma el siguiente grupo.
 
+## Desde el 07/10: también en el runner propio
+
+La misma revisión corre en el runner de LMTM (`server/src/agentes/`, procedimiento
+`revision-diaria` de `roles/media-buyer.md`) a las 11 de lunes a viernes, un
+trabajo por cliente, firmada por el agente "Media buyer". La rutina de Milo en
+paperclip sigue igual: el evaluador corrige las dos (`eval-propuestas-cli.ts` toma
+todas las `accion_pauta`, con el nombre del agente) y la que gane se queda.
+En el runner el escalón N0 lo aplica el motor (le saca `approved` a toda
+llamada), no el prompt.
+
+Ojo con los números de antes del 07/10: el estado y el presupuesto de los
+conjuntos venían de mediados de agosto (el sync diario no traía conjuntos,
+arreglado en `084baae`). Las propuestas sobre conjuntos de esos días pueden
+estar evaluadas contra datos viejos.
+
 ## Bitácora del piloto
 
 | Día | Propuestas | Defendibles (evaluador) | Aprobadas / descartadas | Duración | Nota |
