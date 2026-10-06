@@ -63,7 +63,7 @@ export function ClienteApp() {
         {c && (
           <>
             <ClientResourcesPanel client={c} />
-            <nav className="sticky top-0 z-10 -mx-4 mt-5 overflow-x-auto border-b border-l-linea bg-l-papel/95 px-4 backdrop-blur md:-mx-8 md:px-8" aria-label="Secciones del cliente">
+            <nav className="sticky top-0 z-10 -mx-4 mt-5 overflow-x-auto border-b border-l-linea bg-l-papel/95 px-4 backdrop-blur [scrollbar-width:none] md:-mx-8 md:px-8" aria-label="Secciones del cliente">
               <ul className="flex gap-1">
                 {ORDEN.map((s) => {
                   const nombre = NOMBRE[s] ?? TABS.find((t) => t.value === s)?.label ?? s;

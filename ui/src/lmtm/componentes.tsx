@@ -7,6 +7,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronRight, CircleHelp, Clock, LayoutGrid, Moon, OctagonAlert, Pause, Sun, Unplug, X } from "lucide-react";
 import { Link } from "@/lib/router";
 import { ApiError } from "../api/client";
+import { useTheme } from "../context/ThemeContext";
 import { decisionesApi, type Decision, type EstadoFuente, type ResultadoEjecucion } from "../api/decisiones";
 import type { EstadoObjetivo } from "../api/informes";
 import { etiquetaAccion, etiquetaResponsable, formatoDato, pesos, tocaLaPauta } from "./formato";
@@ -97,8 +98,11 @@ export function LmtmPantalla({
  * que la persona eligió en Hoy; sin botón propio para no tener dos lunas.
  */
 export function LmtmBloque({ children }: { children: ReactNode }) {
+  // Sigue el tema de la app (el del botón del riel): dentro del shell propio un
+  // bloque con su propio tema quedaba claro sobre oscuro.
+  const { theme } = useTheme();
   return (
-    <div className="lmtm rounded-xl px-4 pb-8 pt-2 sm:px-6" data-tema={temaGuardado()}>
+    <div className="lmtm rounded-xl px-4 pb-8 pt-2 sm:px-6" data-tema={theme === "dark" ? "oscuro" : "claro"}>
       <div className="mx-auto max-w-[680px]">{children}</div>
     </div>
   );

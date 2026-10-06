@@ -4,10 +4,10 @@
 //
 // Escritorio: riel a la izquierda. Celular: barra abajo con las 4 secciones.
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, Inbox, Moon, Settings2, Sun, Users, Wrench } from "lucide-react";
-import { Link, NavLink, Outlet } from "@/lib/router";
+import { Link, NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
 import { agentesApi } from "./api";
@@ -46,8 +46,15 @@ function useContadores() {
 export function Shell() {
   const { theme, toggleTheme } = useTheme();
   const contadores = useContadores();
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const s = SECCIONES.find((x) => pathname.startsWith(x.to));
+    document.title = s ? `${s.label} · LMTM` : "LMTM";
+  }, [pathname]);
   return (
-    <div className="lmtm min-h-dvh" data-tema={theme === "dark" ? "oscuro" : "claro"}>
+    // El shell es su propio contenedor de scroll: el body de paperclip tiene
+    // overflow hidden (su layout scrollea adentro) y sin esto la página no bajaba.
+    <div className="lmtm h-dvh overflow-y-auto" data-tema={theme === "dark" ? "oscuro" : "claro"}>
       <div className="mx-auto flex min-h-dvh max-w-[1440px]">
         {/* Riel (escritorio) */}
         <aside className="sticky top-0 hidden h-dvh w-[220px] shrink-0 flex-col border-r border-l-linea px-3 py-5 md:flex">

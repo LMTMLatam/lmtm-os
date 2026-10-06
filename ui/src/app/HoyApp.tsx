@@ -344,7 +344,15 @@ function ChipAgente({ t }: { t: Trabajo }) {
 export function HallazgoAgente({ t }: { t: Trabajo }) {
   const r = t.resultado;
   if (t.estado !== "hecho" || !r) {
-    return t.estado === "fallo" ? <p className="mt-3 text-[13px] text-l-tinta-3">El agente no pudo terminar: {t.error ?? "sin detalle"}.</p> : null;
+    // El error técnico va en Agentes (ahí se diagnostica); acá, castellano.
+    return t.estado === "fallo" ? (
+      <p className="mt-3 text-[13px] text-l-tinta-3">
+        El {nombreRol(t.rol).toLowerCase()} intentó averiguarlo y no pudo terminar; se reintenta solo.{" "}
+        <Link to={`/agentes/${t.id}`} className="font-semibold text-l-marca">
+          Ver qué pasó
+        </Link>
+      </p>
+    ) : null;
   }
   return (
     <div className="mt-3 rounded-xl border border-l-marca/25 bg-l-marca-suave/60 p-3">
@@ -398,7 +406,7 @@ function FeedAgentes({ trabajos }: { trabajos: Trabajo[] }) {
               {nombreRol(t.rol)} · {haceCuanto(t.finishedAt ?? t.startedAt ?? t.createdAt)}
             </div>
             <div className="mt-0.5 line-clamp-2 text-[13px] leading-[1.4] text-l-tinta">
-              {t.resultado?.resumen ?? (t.estado === "fallo" ? `No pudo terminar: ${t.error ?? ""}` : t.estado === "corriendo" ? "Trabajando…" : "En la cola")}
+              {t.resultado?.resumen ?? (t.estado === "fallo" ? "No pudo terminar; se reintenta solo." : t.estado === "corriendo" ? "Trabajando…" : "En la cola")}
             </div>
           </Link>
         </li>
