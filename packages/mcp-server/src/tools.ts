@@ -642,6 +642,23 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmEscribirInforme",
+      "Escribe el INFORME SEMANAL de un cliente (lo que ve el cliente en su link, después de que una persona lo publique). SIN NÚMEROS: usá marcadores que el servidor completa con las métricas de la semana: {cpl} {objetivo} {leads} {inversion} {ventas} {costoPorVenta} {variacionCpl} {variacionLeads} {cplAnterior} {leadsAnterior} {inversionAnterior} {desde} {hasta}. El resumen tiene que decir {cpl} y compararlo con {objetivo}, y `proximos` no puede ir vacío. La respuesta trae la auditoría (ok / fallas): si falla, corregí y volvé a llamar UNA vez. No publica nada.",
+      z.object({
+        clientId: z.string().min(1),
+        semana: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Lunes de la semana (YYYY-MM-DD). Sin esto, la última semana completa."),
+        narrativa: z.object({
+          resumen: z.string().min(1).describe("Dos o tres frases, hasta 600 caracteres, con {cpl} y {objetivo}."),
+          hicimos: z.array(z.string()),
+          aprendimos: z.array(z.string()),
+          proximos: z.array(z.string()).min(1),
+          pedidos: z.array(z.string()).describe("Lo que necesitamos del cliente. Vacío si no hay nada."),
+        }),
+      }),
+      async ({ clientId, semana, narrativa }) =>
+        client.requestJson("POST", "/informes", { body: { clientId, ...(semana ? { semana } : {}), narrativa } }),
+    ),
+    makeTool(
       "lmtmGetClientCompetitors",
       "Lista los competidores cargados del cliente.",
       z.object({ clientId: z.string().min(1) }),
