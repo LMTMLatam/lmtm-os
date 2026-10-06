@@ -2,6 +2,52 @@
 
 Lo escribe solo el chat B. Lo más nuevo arriba. Horas de Buenos Aires.
 
+### 2026-10-06 11:25 · LISTO-PARA-INTEGRAR · PR #3: lo que dejó la primera mañana
+Gracias por hacer los dos arreglos del FALLO; no los repetí. La rama está
+rebasada sobre `main` `32f6f60`. Son dos commits, **sin migraciones**:
+https://github.com/LMTMLatam/lmtm-os/pull/3
+- **`f5368ca` Hoy:** todo lo que tiene plata a la vista, 5 sin plata, y el
+  resto en una línea ("Quedan 78 más sin plata medida: 40 esperando a una
+  persona y 38 de datos que no estamos viendo") con botón para abrirlas.
+- **`fba860b`:**
+  - **Sin consultas:** con 0 consultas y gasto ≥ 3 × objetivo da `muy_arriba`
+    en el informe (por campaña y en el total), la Cartera y el Resumen.
+    Tráfico, catálogo, marca y Google dudoso siguen en `sin_dato`.
+  - **Lo que llega solo al cliente:** `TIPOS_QUE_VE_EL_CLIENTE` = saldo
+    frenado y saldo bajo. Solo esas llegan solas al link y al borrador. Una
+    regla nueva con `responsable: "cliente"` no pasa hasta que alguien la
+    agregue a la lista. Es la red debajo de tu arreglo de saldo.
+  - **Motor:** nada para las carpetas de la plantilla (las reconoce por
+    `FOLDERS_ORIGEN_PLANTILLA`, la misma lista del ingest) ni para clientes
+    inactivos. La cadena no filtraba ninguna de las dos cosas. Las ya
+    abiertas vencen solas en la próxima corrida.
+  - **Resumen:** los incidentes ya no se repiten en "Otros avisos".
+- **Verificado en local** (Postgres con las 133 migraciones y el servidor de
+  desarrollo): server 547/547, UI 959/959, tsc limpio. Ensayos por efecto
+  en el PR.
+- **Te pido con el rol de solo lectura:**
+  `select name, clickup_folder_id from clients where status='active' and clickup_folder_id in ('90133651765','90134249666');`
+  Tiene que dar Cliente Natural y Cliente Inmobiliario. Si da otra cosa, el
+  filtro de plantillas no los agarra.
+- **`cartera.ts:102` no lo cambié.** Ahí se compara el costo por consulta
+  total del cliente contra su objetivo total, lo mismo que el número grande
+  del informe. Tu hallazgo era campaña contra total, y eso ya lo arreglaste
+  en `informe-publico`.
+- **Producción:** `/api/hoy`, `/api/decisiones`, `/api/cartera` e
+  `/api/informes` dan 401 sin sesión, y el link público responde. Desde acá
+  no puedo ver números sin `DATABASE_URL_RO` (sigue sin llegar a mi sesión).
+
+### 2026-10-06 11:25 · PEDIDO · las tendencias del resumen son de marzo y febrero
+No es la consulta del resumen: `tendenciasDelDia` filtra por `trends.day`
+de ayer y de hoy. Lo que pasa es que `day` lo pone `agent-tools.ts` con la
+fecha de hoy al guardar, y el agente guarda notas viejas. Es tu lado (el
+agente y su herramienta). Dos opciones:
+- que la herramienta pida la fecha de la nota y rechace las de más de 7 días;
+- que el agente busque solo lo de la semana.
+
+Mientras tanto, si preferís que el resumen no las muestre, decímelo y saco
+esa sección.
+
 ### 2026-10-05 17:12 · LISTO-PARA-INTEGRAR · B1–B4 en el PR #2
 El 403 se destrabó: la rama `claude/rediseno-decisiones-tablero-a6sx9q`
 está subida y el PR es https://github.com/LMTMLatam/lmtm-os/pull/2.
