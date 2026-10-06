@@ -6,15 +6,11 @@ import { CloudAccessGate } from "./components/CloudAccessGate";
 import { Dashboard } from "./pages/Dashboard";
 import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
-import { Clients } from "./pages/Clients";
 import { Finance } from "./pages/Finance";
-import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
 import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
 import { PaidMediaHub } from "./pages/PaidMediaHub";
-import { Hoy } from "./pages/Hoy";
-import { Cartera } from "./pages/Cartera";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -70,6 +66,12 @@ import { CliAuthPage } from "./pages/CliAuth";
 import { InviteLandingPage } from "./pages/InviteLanding";
 import { JoinRequestQueue } from "./pages/JoinRequestQueue";
 import { NotFoundPage } from "./pages/NotFound";
+import { Shell } from "./app/Shell";
+import { HoyApp } from "./app/HoyApp";
+import { ClientesApp } from "./app/ClientesApp";
+import { ClienteApp } from "./app/ClienteApp";
+import { AgentesApp } from "./app/AgentesApp";
+import { ConfigApp } from "./app/ConfigApp";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox";
@@ -78,13 +80,13 @@ import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-rou
 function boardRoutes() {
   return (
     <>
-      {/* Hoy es la portada: lo que hay que decidir, ordenado por plata. */}
-      <Route index element={<Navigate to="hoy" replace />} />
+      {/* La portada es Hoy de la app propia (fase C1). */}
+      <Route index element={<Navigate to="/hoy" replace />} />
       <Route path="dashboard" element={<Dashboard />} />
       <Route path="dashboard/live" element={<DashboardLive />} />
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
-      <Route path="clients" element={<Clients />} />
+      <Route path="clients" element={<Navigate to="/clientes" replace />} />
       {/* Pauta: tablero de pauta con selector para saltar de cliente en cliente
           y "qué atender hoy". B4 la había retirado; vuelve en la fase C. */}
       <Route path="paid-media" element={<PaidMediaHub />} />
@@ -104,8 +106,9 @@ function boardRoutes() {
       {/* También existe top-level; acá cubre los links con prefijo de company
           (ej. el redirect del OAuth de Meta a /lmtm/connect-ads). */}
       <Route path="connect-ads" element={<ConnectAds />} />
-      <Route path="c/:slug" element={<ClientDashboard />} />
-      <Route path="c/:slug/:tab" element={<ClientDashboard />} />
+      {/* La ficha vive en la app propia: los links viejos (/LMTM/c/x) caen ahí. */}
+      <Route path="c/:slug" element={<AFichaNueva />} />
+      <Route path="c/:slug/:tab" element={<AFichaNueva />} />
       <Route path="company/settings" element={<CompanySettings />} />
       <Route path="company/settings/environments" element={<CompanyEnvironments />} />
       <Route path="company/settings/access" element={<CompanyAccess />} />
@@ -231,30 +234,6 @@ function OnboardingRoutePage() {
   );
 }
 
-function CompanyRootRedirect() {
-  const { companies, selectedCompany, loading } = useCompany();
-  const location = useLocation();
-
-  if (loading) {
-    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
-  }
-
-  const targetCompany = selectedCompany ?? companies[0] ?? null;
-  if (!targetCompany) {
-    if (
-      shouldRedirectCompanylessRouteToOnboarding({
-        pathname: location.pathname,
-        hasCompanies: false,
-      })
-    ) {
-      return <Navigate to="/onboarding" replace />;
-    }
-    return <NoCompaniesStartPage />;
-  }
-
-  return <Navigate to={`/${targetCompany.issuePrefix}/hoy`} replace />;
-}
-
 function UnprefixedBoardRedirect() {
   const location = useLocation();
   const { companies, selectedCompany, loading } = useCompany();
@@ -302,6 +281,12 @@ function NoCompaniesStartPage() {
   );
 }
 
+/** Los links viejos a la ficha (/c/x/tab, con o sin prefijo) abren la ficha nueva. */
+function AFichaNueva() {
+  const { slug, tab } = useParams<{ slug: string; tab?: string }>();
+  return <Navigate to={`/clientes/${slug}${tab ? `/${tab}` : ""}`} replace />;
+}
+
 function PublicDashboardPrefixRedirect() {
   const { slug } = useParams<{ slug: string }>();
   return <Navigate to={`/public/dashboards/${slug}`} replace />;
@@ -327,7 +312,7 @@ export function App() {
         <Route path=":prefix/public/dashboards/:slug" element={<PublicDashboardPrefixRedirect />} />
 
         <Route element={<CloudAccessGate />}>
-          <Route index element={<CompanyRootRedirect />} />
+          <Route index element={<Navigate to="/hoy" replace />} />
           <Route path="onboarding" element={<OnboardingRoutePage />} />
           <Route path="instance" element={<Navigate to="/instance/settings/general" replace />} />
           <Route path="instance/settings" element={<Layout />}>
@@ -348,11 +333,20 @@ export function App() {
               "Company not found" (the segment gets read as a company prefix).
               When you add a board page, add it here AND in the Sidebar. */}
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
-          <Route path="hoy" element={<UnprefixedBoardRedirect />} />
-          <Route path="cartera" element={<UnprefixedBoardRedirect />} />
+          {/* La app propia de LMTM (fase C1): shell y pantallas nuestras. */}
+          <Route element={<Shell />}>
+            <Route path="hoy" element={<HoyApp />} />
+            <Route path="clientes" element={<ClientesApp />} />
+            <Route path="clientes/:slug" element={<ClienteApp />} />
+            <Route path="clientes/:slug/:seccion" element={<ClienteApp />} />
+            <Route path="agentes" element={<AgentesApp />} />
+            <Route path="agentes/:id" element={<AgentesApp />} />
+            <Route path="config" element={<ConfigApp />} />
+          </Route>
+          <Route path="cartera" element={<Navigate to="/clientes" replace />} />
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
-          <Route path="clients" element={<UnprefixedBoardRedirect />} />
+          <Route path="clients" element={<Navigate to="/clientes" replace />} />
           <Route path="finance" element={<UnprefixedBoardRedirect />} />
           <Route path="whatsapp" element={<UnprefixedBoardRedirect />} />
           <Route path="intelligence" element={<UnprefixedBoardRedirect />} />
@@ -363,8 +357,8 @@ export function App() {
           <Route path="contenido" element={<UnprefixedBoardRedirect />} />
           <Route path="videos" element={<UnprefixedBoardRedirect />} />
           <Route path="competitors" element={<UnprefixedBoardRedirect />} />
-          <Route path="c/:slug" element={<UnprefixedBoardRedirect />} />
-          <Route path="c/:slug/:tab" element={<UnprefixedBoardRedirect />} />
+          <Route path="c/:slug" element={<AFichaNueva />} />
+          <Route path="c/:slug/:tab" element={<AFichaNueva />} />
           <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
           <Route path="company/settings/*" element={<UnprefixedBoardRedirect />} />
           <Route path="company/export" element={<UnprefixedBoardRedirect />} />
@@ -418,8 +412,8 @@ export function App() {
           <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
           {/* Hoy va sin la barra de paperclip: es una pantalla para el
               celular, con el sistema de diseño de LMTM (skill lmtm-diseno). */}
-          <Route path=":companyPrefix/hoy" element={<Hoy />} />
-          <Route path=":companyPrefix/cartera" element={<Cartera />} />
+          <Route path=":companyPrefix/hoy" element={<Navigate to="/hoy" replace />} />
+          <Route path=":companyPrefix/cartera" element={<Navigate to="/clientes" replace />} />
           <Route path=":companyPrefix" element={<Layout />}>
             {boardRoutes()}
           </Route>

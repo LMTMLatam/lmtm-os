@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate } from "@/lib/router";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useBreadcrumbs } from "../context/BreadcrumbContext";
-import { SelectorCliente } from "../components/SelectorCliente";
 import {
   clientsApi,
   analisisApi,
@@ -22,11 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Building2,
   ExternalLink,
-  Globe,
-  Mail,
-  Phone,
   TrendingUp,
   Target,
   DollarSign,
@@ -75,12 +69,12 @@ import { ResumenCliente } from "../lmtm/ResumenCliente";
 import { waBotApi } from "../api/waBot";
 import { api } from "../api/client";
 
-type Tab = "resumen" | "plan-accion" | "tasks" | "calendario" | "dashboard" | "productos" | "ideas" | "ganchos" | "tendencias" | "memoria" | "competidores";
+export type Tab = "resumen" | "plan-accion" | "tasks" | "calendario" | "dashboard" | "productos" | "ideas" | "ganchos" | "tendencias" | "memoria" | "competidores";
 
 // "Resumen" (rediseño B3) abre por defecto: objetivo vs real, decisiones con su
 // botón e informe de la semana. "Plan de acción" (semáforo, reporte del
 // estratega, análisis de pauta) vuelve en la fase C: B3 lo había retirado.
-const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
+export const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
   { value: "resumen", label: "Resumen", icon: Gauge },
   { value: "plan-accion", label: "Plan de acción", icon: Sparkles },
   { value: "tasks", label: "Tareas", icon: ListTodo },
@@ -96,7 +90,7 @@ const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }> = [
 
 /** Quick-access cards to a client's key external resources: ClickUp folder,
  * redes sheet (Cronopost), video-production list, and redes Apps Script. */
-function ClientResourcesPanel({ client }: { client: Client }) {
+export function ClientResourcesPanel({ client }: { client: Client }) {
   const teamId = (client.metadata?.clickupTeamId as string | undefined) || "9013352440";
   const scriptId = client.metadata?.redesScriptId as string | undefined;
   const produccionSheetId = client.metadata?.produccionSheetId as string | undefined;
@@ -156,187 +150,7 @@ function ClientResourcesPanel({ client }: { client: Client }) {
   );
 }
 
-export function ClientDashboard() {
-  const { slug, tab } = useParams<{ slug: string; tab?: string }>();
-  const { setBreadcrumbs } = useBreadcrumbs();
-  const activeTab: Tab = (TABS.find((t) => t.value === tab)?.value ?? "resumen") as Tab;
-
-  const clientQuery = useQuery({
-    queryKey: queryKeys.clients.detail(slug ?? ""),
-    queryFn: () => clientsApi.get(slug!),
-    enabled: !!slug,
-    retry: false,
-  });
-
-  const client: Client | undefined = clientQuery.data;
-  const adsQuery = useQuery({
-    queryKey: queryKeys.clients.adsSummary(slug ?? ""),
-    queryFn: () => clientsApi.adsSummary(slug!),
-    enabled: !!slug,
-    retry: false,
-  });
-  const ads: ClientAdsSummary | undefined = adsQuery.data;
-
-  useEffect(() => {
-    if (client) {
-      setBreadcrumbs([
-        { label: "Clients", href: "/clients" },
-        { label: client.name },
-      ]);
-    } else {
-      setBreadcrumbs([
-        { label: "Clients", href: "/clients" },
-        { label: slug ?? "—" },
-      ]);
-    }
-  }, [client, slug, setBreadcrumbs]);
-
-  if (clientQuery.isLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-48 w-full" />
-      </div>
-    );
-  }
-
-  if (clientQuery.isError) {
-    return (
-      <div className="space-y-4">
-        <BreadcrumbHeader slug={slug} />
-        <Card className="p-6 border-destructive/20 bg-destructive/5">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-medium text-sm">Client not found</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                {(clientQuery.error as Error).message}
-              </p>
-              <Link to="/clients" className="text-xs text-foreground underline mt-2 inline-block">
-                ← Back to clients list
-              </Link>
-            </div>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!client) return null;
-
-  return (
-    <div className="space-y-6">
-      <BreadcrumbHeader slug={slug} name={client.name} />
-
-      {/* Hero header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{client.name}</h1>
-            {/* Saltar de cliente sin volver al menú, cayendo en el mismo tab. */}
-            <SelectorCliente slugActual={slug ?? ""} tab={tab} />
-            <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-              {client.status}
-            </Badge>
-            <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-300">
-              {client.tier}
-            </Badge>
-          </div>
-          {client.legalName && client.legalName !== client.name && (
-            <p className="text-sm text-muted-foreground">{client.legalName}</p>
-          )}
-          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
-            {client.industry && (
-              <div className="flex items-center gap-1.5">
-                <Building2 className="h-3.5 w-3.5" />
-                {client.industry}
-              </div>
-            )}
-            {client.websiteUrl && (
-              <a
-                href={client.websiteUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-              >
-                <Globe className="h-3.5 w-3.5" />
-                {client.websiteUrl.replace(/^https?:\/\//, "")}
-                <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            )}
-            {client.primaryContactEmail && (
-              <a
-                href={`mailto:${client.primaryContactEmail}`}
-                className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-              >
-                <Mail className="h-3.5 w-3.5" />
-                {client.primaryContactEmail}
-              </a>
-            )}
-            {client.primaryContactPhone && (
-              <div className="flex items-center gap-1.5">
-                <Phone className="h-3.5 w-3.5" />
-                {client.primaryContactPhone}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right-side stats summary */}
-        <div className="flex items-center gap-6 text-sm">
-          <div className="text-right">
-            <p className="text-xs text-muted-foreground">Monthly retainer</p>
-            <p className="text-lg font-semibold tabular-nums">
-              {formatRetainer(client.monthlyRetainerCents, client.currency)}
-            </p>
-          </div>
-          {client.onboardedAt && (
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Onboarded</p>
-              <p className="text-sm tabular-nums">
-                {new Date(client.onboardedAt).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "short",
-                })}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Quick-access resource cards */}
-      <ClientResourcesPanel client={client} />
-
-      {/* Tabs */}
-      <div className="border-b flex items-center gap-1">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const isActive = t.value === activeTab;
-          return (
-            <Link
-              key={t.value}
-              to={`/c/${client.slug}/${t.value}`}
-              className={`px-3 py-2 text-sm inline-flex items-center gap-1.5 border-b-2 -mb-px transition-colors ${
-                isActive
-                  ? "border-foreground text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* Tab content */}
-      <TabContent tab={activeTab} client={client} ads={ads} />
-    </div>
-  );
-}
-
-function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: ClientAdsSummary }) {
+export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: ClientAdsSummary }) {
   const navigate = useNavigate();
   switch (tab) {
     case "tasks":
@@ -2306,22 +2120,4 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <p className="text-xs text-muted-foreground mt-2 max-w-md mx-auto leading-relaxed">{body}</p>
     </Card>
   );
-}
-
-function BreadcrumbHeader({ slug, name }: { slug?: string; name?: string }) {
-  return (
-    <div className="text-xs text-muted-foreground">
-      <Link to="/clients" className="hover:text-foreground">
-        Clients
-      </Link>
-      <span className="mx-1.5">/</span>
-      <span>{name ?? slug}</span>
-    </div>
-  );
-}
-
-function formatRetainer(cents: number, currency: string) {
-  if (!cents) return "—";
-  const value = cents / 100;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(value);
 }
