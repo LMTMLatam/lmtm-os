@@ -25,7 +25,7 @@ const BOARD_ROUTE_ROOTS = new Set([
 
 // La app propia de LMTM (fase C1) vive sin prefijo de empresa: /hoy, /clientes,
 // /agentes, /config. Lo de paperclip sigue con prefijo (/LMTM/...).
-const APP_ROUTE_ROOTS = ["hoy", "clientes", "agentes", "config"];
+const APP_ROUTE_ROOTS = ["hoy", "clientes", "agentes", "config", "semaforo", "pauta", "contenido", "inteligencia", "licitaciones", "finanzas", "whatsapp"];
 const GLOBAL_ROUTE_ROOTS = new Set(["auth", "invite", "board-claim", "cli-auth", "docs", "instance", ...APP_ROUTE_ROOTS]);
 
 export function normalizeCompanyPrefix(prefix: string): string {

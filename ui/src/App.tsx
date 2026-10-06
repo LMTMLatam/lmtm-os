@@ -72,6 +72,7 @@ import { ClientesApp } from "./app/ClientesApp";
 import { ClienteApp } from "./app/ClienteApp";
 import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
+import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox";
@@ -87,20 +88,19 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Navigate to="/clientes" replace />} />
-      {/* Pauta: tablero de pauta con selector para saltar de cliente en cliente
-          y "qué atender hoy". B4 la había retirado; vuelve en la fase C. */}
-      <Route path="paid-media" element={<PaidMediaHub />} />
-      <Route path="finance" element={<Finance />} />
-      <Route path="whatsapp" element={<WhatsApp />} />
-      <Route path="intelligence" element={<Intelligence />} />
-      <Route path="growth" element={<Growth />} />
+      {/* Pauta, Finanzas, WhatsApp, Inteligencia, Semáforo, Licitaciones y
+          Contenido viven en la app propia (fase C1): los links viejos con
+          prefijo (y /videos, que está en comentarios de ClickUp) caen ahí. */}
+      <Route path="paid-media" element={<Navigate to="/pauta" replace />} />
+      <Route path="finance" element={<Navigate to="/finanzas" replace />} />
+      <Route path="whatsapp" element={<Navigate to="/whatsapp" replace />} />
+      <Route path="intelligence" element={<Navigate to="/inteligencia" replace />} />
+      <Route path="growth" element={<Navigate to="/semaforo" replace />} />
       <Route path="niches" element={<Niches />} />
-      <Route path="licitaciones" element={<Licitaciones />} />
+      <Route path="licitaciones" element={<Navigate to="/licitaciones" replace />} />
       <Route path="readiness" element={<Readiness />} />
-      <Route path="contenido" element={<Contenido />} />
-      {/* La ruta vieja sigue viva: hay links a /videos en comentarios de ClickUp
-          y en marcadores del equipo. Renombrar sin dejar el alias los rompía. */}
-      <Route path="videos" element={<Contenido />} />
+      <Route path="contenido" element={<Navigate to="/contenido" replace />} />
+      <Route path="videos" element={<Navigate to="/contenido" replace />} />
       {/* Competencia global se unificó: cliente→tab Competidores, agregado→Nichos (pedido 18/7) */}
       <Route path="competitors" element={<Navigate to="../niches" replace />} />
       {/* También existe top-level; acá cubre los links con prefijo de company
@@ -342,20 +342,24 @@ export function App() {
             <Route path="agentes" element={<AgentesApp />} />
             <Route path="agentes/:id" element={<AgentesApp />} />
             <Route path="config" element={<ConfigApp />} />
+            <Route path="semaforo" element={<Pagina><Growth /></Pagina>} />
+            <Route path="pauta" element={<Pagina><PaidMediaHub /></Pagina>} />
+            <Route path="contenido" element={<Pagina><Contenido /></Pagina>} />
+            <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
+            <Route path="licitaciones" element={<Pagina><Licitaciones /></Pagina>} />
+            <Route path="finanzas" element={<Pagina><Finance /></Pagina>} />
+            <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
           </Route>
           <Route path="cartera" element={<Navigate to="/clientes" replace />} />
           <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
           <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
           <Route path="clients" element={<Navigate to="/clientes" replace />} />
-          <Route path="finance" element={<UnprefixedBoardRedirect />} />
-          <Route path="whatsapp" element={<UnprefixedBoardRedirect />} />
-          <Route path="intelligence" element={<UnprefixedBoardRedirect />} />
-          <Route path="growth" element={<UnprefixedBoardRedirect />} />
+          <Route path="finance" element={<Navigate to="/finanzas" replace />} />
+          <Route path="intelligence" element={<Navigate to="/inteligencia" replace />} />
+          <Route path="growth" element={<Navigate to="/semaforo" replace />} />
           <Route path="niches" element={<UnprefixedBoardRedirect />} />
-          <Route path="licitaciones" element={<UnprefixedBoardRedirect />} />
           <Route path="readiness" element={<UnprefixedBoardRedirect />} />
-          <Route path="contenido" element={<UnprefixedBoardRedirect />} />
-          <Route path="videos" element={<UnprefixedBoardRedirect />} />
+          <Route path="videos" element={<Navigate to="/contenido" replace />} />
           <Route path="competitors" element={<UnprefixedBoardRedirect />} />
           <Route path="c/:slug" element={<AFichaNueva />} />
           <Route path="c/:slug/:tab" element={<AFichaNueva />} />

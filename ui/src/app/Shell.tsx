@@ -19,16 +19,21 @@ const SECCIONES = [
   { to: "/config", label: "Config", Icono: Settings2 },
 ] as const;
 
-/** Lo que no se migró todavía: abre la pantalla vieja (Link le pone el prefijo de empresa). */
+/** Las demás pantallas propias: viven en el shell, con su diseño de antes hasta rehacerlas. */
 export const MAS = [
-  { to: "/growth", label: "Semáforo de clientes" },
-  { to: "/paid-media", label: "Pauta" },
+  { to: "/semaforo", label: "Semáforo de clientes" },
+  { to: "/pauta", label: "Pauta" },
   { to: "/contenido", label: "Contenido" },
-  { to: "/intelligence", label: "Inteligencia" },
+  { to: "/inteligencia", label: "Inteligencia" },
   { to: "/licitaciones", label: "Licitaciones" },
-  { to: "/finance", label: "Finanzas" },
+  { to: "/finanzas", label: "Finanzas" },
   { to: "/whatsapp", label: "WhatsApp" },
 ] as const;
+
+/** Margen de una pantalla de antes montada en el shell (traen su propio encabezado). */
+export function Pagina({ children }: { children: ReactNode }) {
+  return <div className="px-4 pb-10 pt-6 md:px-8">{children}</div>;
+}
 
 function useContadores() {
   const hoy = useQuery({ queryKey: ["lmtm", "hoy"], queryFn: () => decisionesApi.hoy(), staleTime: 60_000, refetchInterval: 5 * 60_000 });
@@ -48,7 +53,7 @@ export function Shell() {
   const contadores = useContadores();
   const { pathname } = useLocation();
   useEffect(() => {
-    const s = SECCIONES.find((x) => pathname.startsWith(x.to));
+    const s = [...SECCIONES, ...MAS].find((x) => pathname.startsWith(x.to));
     document.title = s ? `${s.label} · LMTM` : "LMTM";
   }, [pathname]);
   return (
@@ -82,9 +87,14 @@ export function Shell() {
           <ul className="mt-1.5 flex flex-col">
             {MAS.map((m) => (
               <li key={m.to}>
-                <Link to={m.to} className="flex min-h-8 items-center rounded-[8px] px-2.5 text-[13px] text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta">
+                <NavLink
+                  to={m.to}
+                  className={({ isActive }) =>
+                    `flex min-h-8 items-center rounded-[8px] px-2.5 text-[13px] ${isActive ? "bg-l-marca-suave font-semibold text-l-marca" : "text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta"}`
+                  }
+                >
                   {m.label}
-                </Link>
+                </NavLink>
               </li>
             ))}
           </ul>
