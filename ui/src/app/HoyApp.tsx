@@ -387,6 +387,12 @@ export function HallazgoAgente({ t }: { t: Trabajo }) {
           <span className="font-semibold">Siguiente paso ({r.siguientePaso.quien}):</span> {r.siguientePaso.que}
         </p>
       )}
+      {r.brief && (
+        <div className="mt-2 rounded-lg bg-l-sup p-2.5 text-[13px] leading-[1.5] text-l-tinta">
+          <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-l-tinta-3">Concepto de reemplazo</div>
+          <p className="whitespace-pre-line">{r.brief}</p>
+        </div>
+      )}
       <Link to={`/agentes/${t.id}`} className="mt-1.5 inline-block text-[12px] font-semibold text-l-marca">
         Ver cómo lo averiguó
       </Link>

@@ -34,6 +34,7 @@ export const ESQUEMA_RESULTADO = {
       properties: { quien: { type: "string", enum: ["cliente", "equipo", "agente"] }, que: { type: "string" } },
       required: ["quien", "que"],
     },
+    brief: { type: "string", description: "Solo si el procedimiento lo pide: el concepto de reemplazo." },
   },
   required: ["resumen", "verificado", "supuestos"],
 } as const;

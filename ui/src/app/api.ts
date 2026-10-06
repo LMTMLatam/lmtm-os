@@ -10,6 +10,7 @@ export interface ResultadoAgente {
   verificado?: string[];
   supuestos?: string[];
   siguientePaso?: { quien: "cliente" | "equipo" | "agente"; que: string };
+  brief?: string;
 }
 
 export interface Trabajo {

@@ -171,6 +171,7 @@ export async function encolarHorarios(db: Db, ahora = new Date()): Promise<numbe
 /** Qué decisión despierta a qué rol, y con qué procedimiento del archivo del rol. */
 export const DISPARADORES: ReadonlyArray<{ tipo: string; rol: string; procedimiento: string }> = [
   { tipo: "pauta:gasto_caido", rol: "media-buyer", procedimiento: "investigar-gasto-caido" },
+  { tipo: "pauta:sin_leads", rol: "media-buyer", procedimiento: "investigar-sin-leads" },
 ];
 
 /**
