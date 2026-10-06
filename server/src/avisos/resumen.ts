@@ -49,12 +49,20 @@ export async function tendenciasDelDia(db: Db, ahora = new Date()): Promise<Tend
     .catch(() => []);
 }
 
+/** Lo que investigaron los agentes de las decisiones de hoy. Si falla, el resumen sale igual. */
+async function hallazgos(db: Db, h: Pick<Hoy, "decisiones">): Promise<Map<string, string>> {
+  const { hallazgosDeDecisiones } = await import("../agentes/cola.js");
+  return hallazgosDeDecisiones(db, h.decisiones.map((d) => d.id)).catch(() => new Map<string, string>());
+}
+
 /** El encabezado del resumen. Puro: es lo que el dueño lee a las 9:00. */
 export function armarResumen(
   h: Pick<Hoy, "incidentes" | "decisiones" | "esperando" | "plataParada" | "whatsapp">,
   url: string,
   ahora = new Date(),
   tendencias: Tendencia[] = [],
+  /** id de decisión → lo que encontró el agente (runner propio). */
+  hallazgos: Map<string, string> = new Map(),
 ): string {
   const lineas: string[] = [`*Hoy, ${fechaLarga(ahora)}*`, ""];
 
@@ -78,7 +86,14 @@ export function armarResumen(
     lineas.push(h.decisiones.length === 1 ? "Para decidir:" : `Para decidir (${h.decisiones.length}), lo que más pesa:`);
     h.decisiones.slice(0, 3).forEach((d, i) => {
       lineas.push(`${i + 1}. *${d.cliente}* — ${d.que}${d.arsPorDia ? ` · ${pesos(d.arsPorDia)} por día` : ""}`);
+      // Lo que ya averiguó el agente: la decisión llega con la causa, no solo con la pregunta.
+      const hallazgo = hallazgos.get(d.id);
+      if (hallazgo) lineas.push(`   ↳ ${unaLinea(hallazgo)}`);
     });
+    const investigadas = h.decisiones.filter((d) => hallazgos.has(d.id)).length;
+    if (investigadas > 0) {
+      lineas.push(`Los agentes ya investigaron ${investigadas === 1 ? "1 de estas decisiones" : `${investigadas} de estas decisiones`}: lo que encontraron está en cada una.`);
+    }
   }
   if (h.esperando.length > 0) {
     lineas.push("", `${h.esperando.length} ${h.esperando.length === 1 ? "ya hecha espera" : "ya hechas esperan"} que el próximo dato lo confirme.`);
@@ -185,7 +200,7 @@ async function yaSalioHoy(db: Db, ahora: Date): Promise<boolean> {
 export async function mandarResumen(db: Db, ahora = new Date()): Promise<{ enviado: boolean; motivo?: string }> {
   if (await yaSalioHoy(db, ahora)) return { enviado: false, motivo: "ya salió hoy" };
   const hoy = await datosDeHoy(db);
-  const encabezado = armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora));
+  const encabezado = armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy));
   // Una sola lectura de lo pendiente: lo que se resume es exactamente lo que
   // después se marca como agrupado.
   const filas = await db
@@ -204,7 +219,7 @@ export async function ensayarResumen(db: Db, ahora = new Date()): Promise<{ text
     .from(waOutbox)
     .where(eq(waOutbox.estado, "pendiente"))
     .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));
-  const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora)), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
+  const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy)), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
   return { texto, pendientes: filas.length };
 }
 

@@ -195,6 +195,22 @@ export async function encolarHorarios(db: Db, ahora = new Date()): Promise<numbe
   return n;
 }
 
+/**
+ * Lo que encontraron los agentes para estas decisiones: id de la decisión →
+ * resumen del último trabajo hecho. Para el resumen de las 9:00 y Hoy.
+ */
+export async function hallazgosDeDecisiones(db: Db, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const refs = ids.map((id) => `decision:${id}`);
+  const filas = await db
+    .select({ ref: agenteTrabajos.ref, resumen: sql<string | null>`${agenteTrabajos.resultado}->>'resumen'` })
+    .from(agenteTrabajos)
+    .where(and(eq(agenteTrabajos.estado, "hecho"), sql`${agenteTrabajos.ref} in (${sql.join(refs.map((r) => sql`${r}`), sql`, `)})`))
+    .orderBy(agenteTrabajos.finishedAt);
+  // Del más viejo al más nuevo: el último que se escribe gana.
+  return new Map(filas.filter((f) => f.ref && f.resumen).map((f) => [f.ref!.slice("decision:".length), f.resumen!]));
+}
+
 // ── Disparadores por hecho ──────────────────────────────────────────────────
 
 /** Qué decisión despierta a qué rol, y con qué procedimiento del archivo del rol. */

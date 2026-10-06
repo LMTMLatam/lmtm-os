@@ -122,6 +122,21 @@ describe("resumen de las 9:00", () => {
     expect(t.trim().endsWith("https://x/LMTM/hoy")).toBe(true);
   });
 
+  it("debajo de cada decisión que pesa, lo que ya averiguó el agente", () => {
+    const dd = (id: string, cliente: string) => ({ id, cliente, que: "Averiguar por qué dejó de gastar", arsPorDia: 4_073 }) as never;
+    const t = armarResumen(
+      { incidentes: [], decisiones: [dd("a", "BRACHETTA"), dd("b", "MAERS")], esperando: [], plataParada: 8_146, whatsapp: "conectado" },
+      "u",
+      new Date(),
+      [],
+      new Map([["a", "Vencieron 3 campañas en septiembre y no tienen reemplazo."]]),
+    );
+    const l = t.split("\n");
+    expect(l[l.findIndex((x) => x.includes("*BRACHETTA*")) + 1]).toBe("   ↳ Vencieron 3 campañas en septiembre y no tienen reemplazo.");
+    expect(t).toContain("Los agentes ya investigaron 1 de estas decisiones");
+    expect(l[l.findIndex((x) => x.includes("*MAERS*")) + 1]).not.toContain("↳");
+  });
+
   it("sin plata medida no dice '$0 parados'", () => {
     const t = armarResumen({ incidentes: [], decisiones: [], esperando: [], plataParada: null, whatsapp: "conectado" }, "u");
     expect(t).not.toContain("parados");
