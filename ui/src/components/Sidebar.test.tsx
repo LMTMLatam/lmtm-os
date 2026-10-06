@@ -78,15 +78,14 @@ describe("sidebar: no deja páginas huérfanas", () => {
 });
 
 describe("sidebar: la lista de arriba no vuelve a crecer", () => {
-  it("hay como máximo 6 destinos siempre visibles", () => {
-    // 6 y no 5 porque Bandeja lleva el único indicador de error del sidebar
-    // (corridas fallidas) y esconderlo detrás de un click es la clase de
-    // decisión que se paga con una caída que nadie vio.
+  it("hay como máximo 7 destinos siempre visibles", () => {
+    // 6 de B4 (Bandeja lleva el único indicador de error del sidebar) + Pauta,
+    // que vuelve en la fase C (pedido 06/10: no perder ninguna función).
     const visibles = [...bloqueSiempreVisible().matchAll(/<SidebarNavItem/g)].length;
-    expect(visibles).toBeLessThanOrEqual(6);
+    expect(visibles).toBeLessThanOrEqual(7);
   });
 
-  it("los 6 de arriba son los del día a día", () => {
+  it("los de arriba son los del día a día", () => {
     const arriba = [...bloqueSiempreVisible().matchAll(/to="(\/[a-z0-9/-]+)"/g)].map((m) => m[1]);
     // "/hoy" reemplazó a "/dashboard" (rediseño B2): el tablero viejo sigue
     // llegándose como "Operación", dentro de Sistema.
@@ -95,8 +94,9 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
       "/inbox",
       // "/cartera" reemplazó a "/clients" arriba (B3); las fichas siguen en "Más".
       "/cartera",
-      // Operación vuelve arriba en el lugar de Pauta, que se retiró (B4).
       "/dashboard",
+      // Pauta vuelve en la fase C (B4 la había retirado).
+      "/paid-media",
       "/contenido",
       "/company/settings",
     ]);
@@ -109,8 +109,8 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
   });
 });
 
-describe("lo retirado no deja links muertos", () => {
-  it("Pauta redirige a Clientes: un link guardado a /paid-media sigue llevando a algún lado", () => {
-    expect(APP).toMatch(/path="paid-media" element=\{<Navigate to="\/cartera" replace \/>\}/);
+describe("lo que volvió en la fase C", () => {
+  it("/paid-media abre el hub de Pauta", () => {
+    expect(APP).toMatch(/path="paid-media" element=\{<PaidMediaHub \/>\}/);
   });
 });

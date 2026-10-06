@@ -4,6 +4,7 @@ import {
   Target,
   LayoutDashboard,
   Sun,
+  Megaphone,
   DollarSign,
   History,
   Search,
@@ -132,6 +133,7 @@ export function Sidebar() {
           {/* Operación (la pantalla de Nazareno, PLAN §5) vuelve arriba en el lugar
               de Pauta, que se retiró en B4. */}
           <SidebarNavItem to="/dashboard" label="Operación" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem to="/paid-media" label="Pauta" icon={Megaphone} />
           <SidebarNavItem to="/contenido" label="Contenido" icon={Clapperboard} />
           <SidebarNavItem to="/company/settings" label="Config" icon={Settings} />
 

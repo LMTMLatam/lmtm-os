@@ -12,6 +12,7 @@ import { ClientDashboard } from "./pages/ClientDashboard";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
 import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
+import { PaidMediaHub } from "./pages/PaidMediaHub";
 import { Hoy } from "./pages/Hoy";
 import { Cartera } from "./pages/Cartera";
 import { Agents } from "./pages/Agents";
@@ -84,9 +85,9 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Clients />} />
-      {/* Pauta se retiró en B4: qué cliente mirar está en Clientes (Cartera) y el
-          detalle de pauta en Cliente → Dashboard, con selector de cliente. */}
-      <Route path="paid-media" element={<Navigate to="/cartera" replace />} />
+      {/* Pauta: tablero de pauta con selector para saltar de cliente en cliente
+          y "qué atender hoy". B4 la había retirado; vuelve en la fase C. */}
+      <Route path="paid-media" element={<PaidMediaHub />} />
       <Route path="finance" element={<Finance />} />
       <Route path="whatsapp" element={<WhatsApp />} />
       <Route path="intelligence" element={<Intelligence />} />

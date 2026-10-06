@@ -440,20 +440,31 @@ export async function generateClientReport(
   if (!client) return null;
   const today = new Date();
   const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
-  const w = await aggInsights(db, clientId, d(windowDays), d(0));
-  const prev = await aggInsights(db, clientId, d(windowDays * 2), d(windowDays + 1));
+  // Los números salen de metricasCliente(), como el panel y el informe: la
+  // ventana termina AYER (hoy está a medio sincronizar), sin cuenta conectada es
+  // null, y no se suma alcance diario. Antes se sumaba a mano con aggInsights
+  // y por eso B3 había retirado el reporte semanal (06/10 vuelve).
+  const { metricasCliente } = await import("../metricas/index.js");
+  const w = await metricasCliente(db, clientId, { desde: d(windowDays), hasta: d(1) });
+  const prev = await metricasCliente(db, clientId, { desde: d(windowDays * 2), hasta: d(windowDays + 1) });
 
   // Social posts: planned vs published in the period (from the ClickUp Redes list).
   const weekAgoMs = today.getTime() - windowDays * 86400000;
   const redes = await getRedesPostStats(db, clientId, weekAgoMs, today.getTime() + 86400000).catch(() => null);
-  const hasAds = w.impressions > 0 || w.spend > 0;
+  const spend = w.inversion ?? 0;
+  const leads = w.leads ?? 0;
+  const impresiones = w.impresiones ?? 0;
+  const hasAds = w.inversion != null && (spend > 0 || impresiones > 0);
   const hasRedes = !!redes && redes.total > 0;
   if (!hasAds && !hasRedes) return { title: "", markdown: "", hasData: false };
 
-  const ctr = w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0;
-  const cpl = w.leads > 0 ? w.spend / w.leads : 0;
-  const spendDelta = pct(w.spend, prev.spend);
-  const leadsDelta = pct(w.leads, prev.leads);
+  const ctr = impresiones > 0 ? ((w.clics ?? 0) / impresiones) * 100 : 0;
+  const cpl = w.cpl ?? 0;
+  const spendDelta = pct(spend, prev.inversion ?? 0);
+  const leadsDelta = pct(leads, prev.leads ?? 0);
+  const notaDudosos = w.leadsDudosos.length
+    ? "Ojo: los leads incluyen conversiones de Google que no son consultas (la cuenta cuenta otras acciones); no comparar ese CPL."
+    : "";
 
   // Client context (Enfoque Técnico): which networks/strategy the client has,
   // so the analysis can review the week's posts against the defined networks.
@@ -473,7 +484,8 @@ export async function generateClientReport(
     `Sos un analista de marketing de LMTM (agencia latinoamericana). Escribí 4-5 oraciones en español rioplatense, claras y accionables. Revisá el desempeño de publicidad Y la actividad en redes sociales (posteos del ${periodWord}) considerando las redes y la estrategia definidas en el Enfoque Técnico del cliente. Si faltaron posteos planeados, marcalo. Cerrá con qué hacer el próximo ${periodWord}. Sin saludos, sin títulos. Nunca inventes números: usá solo los provistos.`,
     `Cliente: ${client.name}\n` +
     (enfoque ? `Enfoque Técnico (contexto/redes del cliente):\n${enfoque}\n\n` : "Enfoque Técnico: no cargado.\n\n") +
-    `Publicidad ${windowDays}d: inversión ${money(w.spend)} (previa ${money(prev.spend)}), leads ${w.leads} (previa ${prev.leads}), impresiones ${w.impressions}, CTR ${ctr.toFixed(2)}%, CPL ${w.leads > 0 ? money(cpl) : "s/d"}\n` +
+    `Publicidad ${windowDays}d: inversión ${money(spend)} (previa ${money(prev.inversion ?? 0)}), leads ${leads} (previa ${prev.leads ?? 0}), impresiones ${impresiones}, CTR ${ctr.toFixed(2)}%, CPL ${leads > 0 ? money(cpl) : "s/d"}\n` +
+    (notaDudosos ? `${notaDudosos}\n` : "") +
     `Redes en el período: ${redesSummary}`,
   );
   const link = dashboardLink(client.slug);
@@ -506,10 +518,11 @@ export async function generateClientReport(
   const adsLines = hasAds ? [
     `_Publicidad — últimos ${windowDays} días_`,
     "",
-    `- **Inversión:** ${money(w.spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs período previo)`,
-    `- **Leads / conversiones:** ${w.leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
-    `- **Impresiones:** ${w.impressions.toLocaleString("es-AR")} · **Alcance:** ${w.reach.toLocaleString("es-AR")}`,
-    `- **CTR:** ${ctr.toFixed(2)}%` + (w.leads > 0 ? ` · **CPL:** ${money(cpl)}` : ""),
+    `- **Inversión:** ${money(spend)} (${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(0)}% vs período previo)`,
+    `- **Leads / conversiones:** ${leads} (${leadsDelta >= 0 ? "+" : ""}${leadsDelta.toFixed(0)}%)`,
+    `- **Impresiones:** ${impresiones.toLocaleString("es-AR")}`,
+    `- **CTR:** ${ctr.toFixed(2)}%` + (leads > 0 ? ` · **CPL:** ${money(cpl)}` : ""),
+    ...(notaDudosos ? [`- _${notaDudosos}_`] : []),
   ] : [`_Sin actividad de publicidad este ${periodWord}._`];
 
   const markdown = [
@@ -614,15 +627,16 @@ export function initAgencyOps(db: Db): void {
     runClientAlerts(db).catch((e) => console.warn("[agency-ops] alerts run failed:", e));
   }, SIX_HOURS);
 
-  // Portfolio brief on Mondays; monthly report on the 1st. Both checked on
-  // the same daily-ish timer with a run-once dedup key. (El reporte semanal
-  // por cliente a ClickUp se retiró en el rediseño B3: lo reemplaza el informe
-  // semanal de decisiones/informes-store.ts, con números de `metricas`.)
+  // Weekly client reports (tarea en "📊 Reportes" de ClickUp, el flujo del
+  // equipo) + portfolio brief on Mondays; monthly report on the 1st. Both
+  // checked on the same daily-ish timer with a run-once dedup key. B3 había
+  // retirado el semanal; vuelve en la fase C con los números de `metricas`.
   const maybePeriodic = async () => {
     const now = new Date();
     const wk = `${now.getUTCFullYear()}-${dayStr(now).slice(5, 7)}-${Math.floor(now.getUTCDate() / 7)}`;
     if (now.getUTCDay() === 1 && lastWeeklyRun !== wk) {
       lastWeeklyRun = wk;
+      await runClientReports(db).catch((e) => console.warn("[agency-ops] weekly reports failed:", e));
       await runPortfolioBrief(db).catch((e) => console.warn("[agency-ops] brief failed:", e));
     }
     const mo = `${now.getUTCFullYear()}-${now.getUTCMonth()}`;
@@ -634,5 +648,5 @@ export function initAgencyOps(db: Db): void {
     }
   };
   weeklyTimer = setInterval(() => { void maybePeriodic(); }, 12 * 3600 * 1000);
-  console.log("[agency-ops] scheduled: alerts every 6h, portfolio brief on Mondays, monthly report on the 1st");
+  console.log("[agency-ops] scheduled: alerts every 6h, weekly reports + portfolio brief on Mondays, monthly report on the 1st");
 }
