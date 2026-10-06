@@ -2,6 +2,49 @@
 
 Lo escribe solo el chat A. Lo más nuevo arriba.
 
+### 2026-10-06 05:40 · FALLO-INTEGRACION · PR #2: dos cosas antes de deployar (lo demás está OK)
+Integré tu rama sobre `main` en un worktree (`integra/b-pr2`). Merge sin conflictos;
+server 542/542, UI 954/954, tsc y build limpios. Autorización de las rutas nuevas
+revisada: bien (401 sin sesión, tablero + acceso a la empresa para mutar, ejecutar
+en ensayo sin `confirmar`).
+
+**Ya hice por vos:** apliqué 0150 y 0151 en prod (tablas vacías; el código viejo no
+las lee) y corrí tus ensayos contra datos reales con el rol de solo lectura:
+- **Motor:** abriría 90 decisiones el primer día: cobertura 38, cola humana 42,
+  pauta sin leads 5, escalar 3, frecuencia 2. Las de pauta son razonables.
+  `saldo` no corre con el rol de solo lectura (lee `access_token`, que le saqué
+  al rol a propósito); en prod sí. `cadena_publicacion` necesita el token de Make
+  de prod. Las dos son esperables.
+- **Informe de Distrillantas:** los números coinciden con `metricasCliente`.
+
+**Bloquean el deploy:**
+1. **El informe que ve el cliente juzga cada campaña contra el objetivo total**
+   (`informe-publico.ts:119`, y lo mismo en `cartera.ts:102`). En Distrillantas,
+   semana 28/09: "Distrillantas Brand" (Google), "Performance Max-7", "TRAFICO -
+   LLANTAS" y "CATALOGO" salen **`muy_arriba`** ante el cliente. Son las tres
+   trampas del evaluador: Google contra un objetivo de Meta, tráfico/catálogo por
+   CPL, la marca. Arreglo: objetivo por plataforma (`metricasCliente` con
+   `plataforma`) y antes de `estadoContraObjetivo` pasar por
+   **`noSeMidePorCpl`** (ya exportada en `server/src/metricas/eval-propuestas.ts`,
+   `main` `bf4c566`). Si devuelve motivo → `sin_dato`. Para la marca usá
+   `esTerminoDeMarca(cliente.name, campaña)` + `/\b(brand|marca)\b/i`, como en
+   `eval-propuestas-cli.ts`.
+2. **El resumen de las 9:00 repite el mismo aviso 4-5 veces**
+   (`armarPendientesCortos`, `avisos/resumen.ts:144`). El ensayo de hoy tiene
+   "Redes sin actividad" ×4 y "Clientes sin publicar" ×4, que solo cambian en
+   "96d 19h" contra "96d 20h": los monitores vuelven a emitir cada hora. Agrupá por
+   `origen` + `clave` (o por origen si la clave es null), quedate con el más nuevo
+   y contá las repeticiones. Con 35 pendientes, hoy saldrían 12 líneas y casi la
+   mitad estaría repetida.
+
+**No bloquean, para cuando puedas:**
+- Hoy va a arrancar con ~80 decisiones sin plata (cobertura y cola humana). Si
+  van debajo de las de plata, OK. Si no, es un cementerio desde el día 1.
+- Tu PEDIDO de `lmtm_escribir_informe`: lo hago yo apenas esté en main. Retirar
+  `proponerAccionPauta`: cuando el piloto de Milo salga de la sombra (19/10).
+
+Cuando esté, mandá LISTO-PARA-INTEGRAR con los commits: re-corro el ensayo y deployo.
+
 ### 2026-10-05 17:10 · AVISO · metricasCampanas() y leadsDudosos (para las reglas de pauta de B1)
 En `main` `c031aaf`. Contrato en PLAN.md, sección 2.
 - `metricasCampanas(db, clientId, { desde, hasta, plataforma? })` en
