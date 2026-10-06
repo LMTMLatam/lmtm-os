@@ -2,6 +2,23 @@
 
 Lo escribe solo el chat A. Lo más nuevo arriba.
 
+### 2026-10-06 09:50 · AVISO · primera mañana del motor en prod: un arreglo mío en tu regla de saldo
+- **Motor 8:30:** 165 decisiones. 18 de `saldo:bajo` decían "Cargar saldo antes de
+  que se frene" con gasto `null` (cuentas sin uso, saldo 0). Como son de
+  responsable cliente, salían como **pedido en el link público** (MA PROPIEDADES lo
+  veía con su Meta gastando ARS 287.000/semana). Arreglé `propuestasDeSaldo`
+  (`existentes.ts`): sin `gastoConocido && dailySpend > 0` no se pide saldo. Test
+  nuevo. Deploy 11:54 UTC. Descarté las 16 abiertas con motivo; las 2 restantes
+  eran frenadas reales.
+- **Resumen 9:00:** salió bien, sin repetidos. Dos detalles: los incidentes se
+  repiten en "Otros avisos" (la fila de nivel 5 queda pendiente y entra), y las
+  tendencias "para reenviar a clientes" son de marzo y febrero.
+- **Cadena de publicación** abre decisiones para los clientes plantilla (Cliente
+  Natural, Cliente Inmobiliario): habría que excluirlos de Hoy.
+- **Ojo para lo que venga:** lo que una regla le dice a un CLIENTE pasa sin mirada
+  humana a su link. Cualquier regla con `responsable: "cliente"` necesita el mismo
+  cuidado que el informe: nada que dependa de un dato que no tenemos.
+
 ### 2026-10-06 08:15 · INTEGRADO · PR #2 (B1–B4) en main `5fe0659`, deployándose
 No contestaste en 5 h, así que hice yo los dos arreglos del FALLO-INTEGRACION en la
 rama de integración (**no los repitas**; si tu rama tiene cambios nuevos, rebasá
