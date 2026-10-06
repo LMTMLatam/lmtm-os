@@ -5,7 +5,7 @@
 // como estaban: el runner corre en paralelo, rol por rol.
 
 import type { Db } from "@paperclipai/db";
-import { encolarDecisiones, rescatarColgados, tomar } from "./cola.js";
+import { encolarDecisiones, encolarHorarios, rescatarColgados, tomar } from "./cola.js";
 import { correrTrabajo } from "./correr.js";
 
 let reloj: ReturnType<typeof setInterval> | null = null;
@@ -20,6 +20,8 @@ export function iniciarRunner(db: Db, opts: { serverPort: number }): void {
       await rescatarColgados(db);
       const nuevos = await encolarDecisiones(db);
       if (nuevos > 0) console.log(`[agentes] ${nuevos} trabajo(s) nuevo(s) por decisiones`);
+      const deHorario = await encolarHorarios(db);
+      if (deHorario > 0) console.log(`[agentes] ${deHorario} trabajo(s) nuevo(s) por horario`);
       while (enCurso < concurrencia) {
         const t = await tomar(db);
         if (!t) break;

@@ -74,15 +74,87 @@ export async function rescatarColgados(db: Db): Promise<number> {
   return r.length;
 }
 
+/** Intentos automáticos por hecho: después de 3 fallos queda a la vista y se reintenta a mano. */
+const MAX_FALLOS = 3;
+
+/**
+ * ¿Este hecho ya se trabajó (o se está trabajando, o falló hace poco o demasiadas
+ * veces)? El índice único cubre lo vivo y lo hecho; esto suma los fallos, para
+ * que un error de configuración no reencole el mismo hecho cada minuto.
+ */
+async function yaTrabajado(db: Db, rol: string, ref: string): Promise<boolean> {
+  const [r] = await db
+    .select({
+      vivo: sql<number>`count(*) filter (where ${agenteTrabajos.estado} in ('pendiente', 'corriendo', 'hecho'))`,
+      fallos: sql<number>`count(*) filter (where ${agenteTrabajos.estado} = 'fallo')`,
+      reciente: sql<number>`count(*) filter (where ${agenteTrabajos.estado} = 'fallo' and ${agenteTrabajos.finishedAt} > now() - interval '30 minutes')`,
+    })
+    .from(agenteTrabajos)
+    .where(and(eq(agenteTrabajos.rol, rol), eq(agenteTrabajos.ref, ref)));
+  return Number(r?.vivo) > 0 || Number(r?.fallos) >= MAX_FALLOS || Number(r?.reciente) > 0;
+}
+
+// ── Disparadores por horario ────────────────────────────────────────────────
+
+/**
+ * Lo que es de calendario (no de un hecho). Un trabajo por cliente: tareas chicas
+ * y enfocadas (Project Vend, INVESTIGACION.md). El piloto del media buyer corre
+ * acá desde el 07/10, en paralelo con la rutina de Milo en paperclip, para
+ * compararlos con el mismo evaluador.
+ */
+export const HORARIOS: ReadonlyArray<{ rol: string; procedimiento: string; hora: number; dias: number[]; clientes: string[] }> = [
+  {
+    rol: "media-buyer",
+    procedimiento: "revision-diaria",
+    hora: 11,
+    dias: [1, 2, 3, 4, 5],
+    clientes: ["distrillantas", "ma propiedades", "sebastian ramasco padilla"],
+  },
+];
+
+/** Puro: fecha (aaaa-mm-dd), día de la semana (1 = lunes) y hora en Buenos Aires. */
+export function relojLocal(ahora: Date): { fecha: string; dia: number; hora: number } {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23", weekday: "short" })
+      .formatToParts(ahora)
+      .map((x) => [x.type, x.value]),
+  );
+  const dias: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+  return { fecha: `${p.year}-${p.month}-${p.day}`, dia: dias[p.weekday] ?? 0, hora: Number(p.hour) };
+}
+
+export async function encolarHorarios(db: Db, ahora = new Date()): Promise<number> {
+  const { fecha, dia, hora } = relojLocal(ahora);
+  let n = 0;
+  for (const h of HORARIOS) {
+    if (!h.dias.includes(dia) || hora < h.hora) continue;
+    const filas = await db
+      .select({ id: clients.id, nombre: clients.name })
+      .from(clients)
+      .where(and(eq(clients.status, "active"), sql`lower(trim(${clients.name})) in (${sql.join(h.clientes.map((c) => sql`${c}`), sql`, `)})`));
+    for (const c of filas) {
+      const ref = `horario:${h.procedimiento}:${fecha}:${c.id}`;
+      if (await yaTrabajado(db, h.rol, ref)) continue;
+      const id = await encolar(db, {
+        rol: h.rol,
+        clientId: c.id,
+        motivo: "horario",
+        ref,
+        pedidoPor: `horario:${h.rol}`,
+        entrada: { procedimiento: h.procedimiento, cliente: { id: c.id, nombre: c.nombre.trim() } },
+      });
+      if (id) n += 1;
+    }
+  }
+  return n;
+}
+
 // ── Disparadores por hecho ──────────────────────────────────────────────────
 
 /** Qué decisión despierta a qué rol, y con qué procedimiento del archivo del rol. */
 export const DISPARADORES: ReadonlyArray<{ tipo: string; rol: string; procedimiento: string }> = [
   { tipo: "pauta:gasto_caido", rol: "media-buyer", procedimiento: "investigar-gasto-caido" },
 ];
-
-/** Intentos automáticos por decisión: después de 3 fallos queda a la vista y se reintenta a mano. */
-const MAX_FALLOS = 3;
 
 /**
  * Encola las decisiones abiertas que un rol tiene que investigar y todavía no

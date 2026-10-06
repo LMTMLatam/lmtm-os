@@ -122,6 +122,25 @@ export function resumirCorrida(mensajes: ReadonlyArray<Record<string, any>>): Co
   return { pasos, resultado, error, turnos, tokensEntrada, tokensSalida };
 }
 
+/**
+ * Puro: la compuerta de cada herramienta. Solo las del rol, y escalón N0 aplicado
+ * acá y no en el prompt: se le saca `approved` a toda llamada, así una acción de
+ * pauta siempre queda como propuesta para una persona, diga lo que diga el
+ * modelo. Subir de escalón (N1: ejecutar lo reversible) es cambiar esto, por
+ * cliente, con el historial del evaluador en la mano.
+ */
+export function compuerta(
+  rol: string,
+  permitidas: ReadonlySet<string>,
+  nombre: string,
+  input: Record<string, unknown>,
+): { behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string } {
+  if (nombre === "StructuredOutput") return { behavior: "allow", updatedInput: input };
+  if (!permitidas.has(nombre)) return { behavior: "deny", message: `El rol ${rol} no puede usar ${nombre}.` };
+  const { approved: _sacado, ...sinAprobar } = input;
+  return { behavior: "allow", updatedInput: sinAprobar };
+}
+
 /** Puro: el pedido que lee el modelo, armado de la entrada del trabajo. */
 export function armarPedido(t: Pick<Trabajo, "entrada">): string {
   const e = t.entrada as {
@@ -201,11 +220,8 @@ export async function correrTrabajo(db: Db, t: Trabajo, opts: { serverPort: numb
           model: modelo,
           tools: [],
           mcpServers: { [SERVIDOR_MCP]: { type: "sdk", name: SERVIDOR_MCP, instance: server } },
-          allowedTools: [...permitidas],
-          canUseTool: async (nombre, input) =>
-            permitidas.has(nombre) || nombre === "StructuredOutput"
-              ? { behavior: "allow", updatedInput: input }
-              : { behavior: "deny", message: `El rol ${rol.nombre} no puede usar ${nombre}.` },
+          // Sin allowedTools a propósito: así TODA herramienta pasa por la compuerta.
+          canUseTool: async (nombre, input) => compuerta(rol.nombre, permitidas, nombre, input),
           maxTurns: rol.turnos,
           outputFormat: { type: "json_schema", schema: ESQUEMA_RESULTADO as unknown as Record<string, unknown> },
           abortController: corte,

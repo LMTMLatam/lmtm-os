@@ -1,7 +1,33 @@
 import { describe, expect, it } from "vitest";
 import { parsearRol, cargarRol } from "../roles.js";
-import { armarPedido, resumirCorrida } from "../correr.js";
-import { DISPARADORES } from "../cola.js";
+import { armarPedido, compuerta, resumirCorrida } from "../correr.js";
+import { DISPARADORES, HORARIOS, relojLocal } from "../cola.js";
+
+describe("compuerta", () => {
+  const permitidas = new Set(["mcp__lmtm__lmtmPauseAdEntity"]);
+  it("N0: le saca approved a toda llamada, la acción queda como propuesta", () => {
+    const r = compuerta("media-buyer", permitidas, "mcp__lmtm__lmtmPauseAdEntity", { clientId: "c", entityId: "1", approved: true });
+    expect(r).toEqual({ behavior: "allow", updatedInput: { clientId: "c", entityId: "1" } });
+  });
+  it("niega lo que no es del rol (Bash, otras herramientas)", () => {
+    expect(compuerta("media-buyer", permitidas, "Bash", { command: "env" }).behavior).toBe("deny");
+    expect(compuerta("media-buyer", permitidas, "mcp__lmtm__lmtmSql", { sql: "x" }).behavior).toBe("deny");
+  });
+  it("deja pasar el resultado estructurado", () => {
+    expect(compuerta("x", new Set(), "StructuredOutput", { resumen: "a" }).behavior).toBe("allow");
+  });
+});
+
+describe("relojLocal", () => {
+  it("usa la hora de Buenos Aires (UTC-3), no la del servidor", () => {
+    // Martes 06/10 01:30 UTC = lunes 05/10 22:30 en Buenos Aires.
+    expect(relojLocal(new Date("2026-10-06T01:30:00Z"))).toEqual({ fecha: "2026-10-05", dia: 1, hora: 22 });
+    expect(relojLocal(new Date("2026-10-06T14:00:00Z"))).toEqual({ fecha: "2026-10-06", dia: 2, hora: 11 });
+  });
+  it("todo horario apunta a un procedimiento que existe en su rol", () => {
+    for (const h of HORARIOS) expect(cargarRol(h.rol).texto).toContain(`Procedimiento: ${h.procedimiento}`);
+  });
+});
 
 describe("roles", () => {
   it("separa encabezado y texto", () => {
