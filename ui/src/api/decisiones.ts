@@ -69,6 +69,8 @@ export interface Hoy {
   /** Clientes que suman la plata parada (los mismos que se sumaron). */
   clientesParados: number;
   cobertura: { clientes: number; porFuente: Record<Fuente, Record<EstadoFuente, number>> } | null;
+  /** Plata parada al cierre de cada corrida diaria, del día más viejo al más nuevo. */
+  evolucion?: Array<{ fecha: string; plataParada: number | null }>;
 }
 
 export const decisionesApi = {

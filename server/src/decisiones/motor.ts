@@ -30,7 +30,8 @@ import {
 import { reglaCalificados, reglaCostoCalificado, reglaEscalar, reglaFrecuencia, reglaSinLeads, type ClienteVentana } from "./reglas/pauta.js";
 import { anunciosPorCliente, conjuntosEscalables, contextoPauta, fechaLocal, unidadesSinLeads, ventanas, type ContextoPauta } from "./motor-datos.js";
 import { metricasCliente, type MetricasCliente } from "../metricas/index.js";
-import { aFila } from "./store.js";
+import { aFila, listarDecisiones } from "./store.js";
+import { armarFranjas } from "./hoy.js";
 import { FOLDERS_ORIGEN_PLANTILLA } from "../ingest/plantilla-clickup.js";
 import { avisarIncidentes, type IncidenteNuevo } from "../avisos/incidentes.js";
 
@@ -42,6 +43,9 @@ export interface ResumenMotor {
   efecto: { verificadas: number; noConfirmadas: number };
   /** Incidentes nuevos de esta corrida y qué pasó con su aviso. */
   incidentes: { nuevos: number; aviso: string | null };
+  /** Plata parada por día después de la corrida: de acá sale su evolución en Hoy. */
+  plataParada?: number | null;
+  clientesParados?: number;
 }
 
 /** Inicio del día de hoy en Buenos Aires: los datos de pauta llegan hasta acá. */
@@ -485,6 +489,9 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
     return { verificadas: 0, noConfirmadas: 0 };
   });
 
+  const franjas = await listarDecisiones(db)
+    .then(armarFranjas)
+    .catch(() => null);
   const resumen: ResumenMotor = {
     inicio: inicio.toISOString(),
     fin: new Date().toISOString(),
@@ -492,6 +499,7 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
     operaciones: conteo,
     efecto,
     incidentes: { nuevos: incidentes.length, aviso: aviso ? `${aviso.estado}${aviso.motivo ? ` (${aviso.motivo})` : ""}` : null },
+    ...(franjas ? { plataParada: franjas.plataParada, clientesParados: franjas.clientesParados } : {}),
   };
 
   // Una entrada por corrida en el registro de actividad: qué cambió y qué

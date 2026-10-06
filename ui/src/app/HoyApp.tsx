@@ -118,6 +118,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
             <div className="mt-1.5 text-[12px] text-l-tinta-3">
               {h.plataParada != null && `en ${h.clientesParados} ${h.clientesParados === 1 ? "cliente" : "clientes"} · `}datos hasta ayer
             </div>
+            <Evolucion puntos={h.evolucion ?? []} />
           </Tarjeta>
           <Tarjeta>
             <div className="text-[13px] font-medium text-l-tinta-2">Para decidir</div>
@@ -235,6 +236,52 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
           )}
         </Tarjeta>
       </aside>
+    </div>
+  );
+}
+
+/**
+ * Evolución de la plata parada, un punto por día (sparkline: una serie, sin
+ * eje; el valor de cada día al pasar el mouse). Un día sin dato corta la línea:
+ * no se dibuja un cero que no se midió. Hace falta al menos 2 días medidos.
+ */
+function Evolucion({ puntos }: { puntos: Array<{ fecha: string; plataParada: number | null }> }) {
+  const medidos = puntos.filter((p) => p.plataParada != null);
+  if (medidos.length < 2) return null;
+  const ancho = 240;
+  const alto = 40;
+  const max = Math.max(...medidos.map((p) => p.plataParada!));
+  const x = (i: number) => (puntos.length === 1 ? 0 : (i / (puntos.length - 1)) * (ancho - 8)) + 4;
+  const y = (v: number) => alto - 4 - (max > 0 ? (v / max) * (alto - 8) : 0);
+  // Tramos continuos entre días con dato.
+  const tramos: string[] = [];
+  let actual: string[] = [];
+  puntos.forEach((p, i) => {
+    if (p.plataParada == null) {
+      if (actual.length > 1) tramos.push(actual.join(" "));
+      actual = [];
+    } else actual.push(`${x(i).toFixed(1)},${y(p.plataParada).toFixed(1)}`);
+  });
+  if (actual.length > 1) tramos.push(actual.join(" "));
+  const ultimo = puntos.length - 1;
+  const fechaCorta = (f: string) => `${Number(f.slice(8, 10))}/${Number(f.slice(5, 7))}`;
+  return (
+    <div className="mt-3">
+      <svg viewBox={`0 0 ${ancho} ${alto}`} className="h-10 w-full max-w-[260px]" role="img" aria-label={`Plata parada por día, últimos ${puntos.length} días`}>
+        {tramos.map((t, i) => (
+          <polyline key={i} points={t} fill="none" stroke="var(--l-marca)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {puntos.map((p, i) =>
+          p.plataParada == null ? null : (
+            <circle key={p.fecha} cx={x(i)} cy={y(p.plataParada)} r={i === ultimo ? 3.5 : 6} fill={i === ultimo ? "var(--l-marca)" : "transparent"}>
+              <title>{`${fechaCorta(p.fecha)}: ${pesos(p.plataParada)} por día`}</title>
+            </circle>
+          ),
+        )}
+      </svg>
+      <div className="text-[11px] text-l-tinta-3">
+        desde el {fechaCorta(puntos[0].fecha)} · {puntos.length} días
+      </div>
     </div>
   );
 }

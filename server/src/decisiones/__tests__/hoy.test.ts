@@ -1,4 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { evolucionDiaria } from "../hoy.js";
+
+describe("evolucionDiaria", () => {
+  it("un punto por día de Buenos Aires (la última corrida), sin las corridas que no guardaban la plata", () => {
+    const r = evolucionDiaria([
+      { at: "2026-10-07T11:30:00Z", details: { plataParada: 90_000 } },
+      { at: "2026-10-06T11:30:00Z", details: { operaciones: {} } },
+      { at: "2026-10-08T02:00:00Z", details: { plataParada: 80_000 } }, // 07/10 23:00 en BA
+      { at: "2026-10-08T11:30:00Z", details: { plataParada: null } },
+    ]);
+    expect(r).toEqual([
+      { fecha: "2026-10-07", plataParada: 80_000 },
+      { fecha: "2026-10-08", plataParada: null },
+    ]);
+  });
+});
 import { armarFranjas, contarCobertura } from "../hoy.js";
 import { esIncidenteDeFuente, propuestasDeCobertura } from "../reglas/existentes.js";
 

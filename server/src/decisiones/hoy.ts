@@ -42,6 +42,25 @@ export interface Hoy {
   /** Clientes que suman esa plata (los mismos que se sumaron, no otros). */
   clientesParados: number;
   cobertura: CoberturaHoy | null;
+  /** Plata parada al cierre de cada corrida diaria del motor, del día más viejo al más nuevo (hasta 30). */
+  evolucion: Array<{ fecha: string; plataParada: number | null }>;
+}
+
+/**
+ * Puro: un punto por día (la última corrida de ese día, en Buenos Aires), del
+ * más viejo al más nuevo. Las corridas anteriores al 06/10 no guardaban la
+ * plata: no entran (no se dibuja un cero que no se midió).
+ */
+export function evolucionDiaria(corridas: Array<{ at: Date | string; details: unknown }>, max = 30): Hoy["evolucion"] {
+  const porDia = new Map<string, number | null>();
+  const ordenadas = [...corridas].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  for (const c of ordenadas) {
+    const d = c.details as { plataParada?: number | null } | null;
+    if (!d || !("plataParada" in d)) continue;
+    const fecha = new Date(new Date(c.at).getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
+    porDia.set(fecha, d.plataParada ?? null);
+  }
+  return [...porDia.entries()].slice(-max).map(([fecha, plataParada]) => ({ fecha, plataParada }));
 }
 
 /** Tipos cuya plata es "parada" (se puede sumar sin contar dos veces al mismo cliente). */
@@ -86,12 +105,13 @@ export async function datosDeHoy(db: Db): Promise<Hoy> {
   const vivas = await listarDecisiones(db);
   const franjas = armarFranjas(vivas);
 
-  const [corrida] = await db
-    .select({ at: activityLog.createdAt })
+  const corridas = await db
+    .select({ at: activityLog.createdAt, details: activityLog.details })
     .from(activityLog)
     .where(eq(activityLog.action, "decisiones.motor_corrido"))
     .orderBy(desc(activityLog.createdAt))
-    .limit(1);
+    .limit(60);
+  const corrida = corridas[0];
 
   const [wa] = await db.select({ status: waBotConfig.status }).from(waBotConfig).orderBy(desc(waBotConfig.updatedAt)).limit(1).catch(() => []);
 
@@ -110,5 +130,6 @@ export async function datosDeHoy(db: Db): Promise<Hoy> {
     whatsapp: wa?.status ? ESTADO_WA[wa.status] ?? "sin_dato" : "sin_dato",
     ...franjas,
     cobertura,
+    evolucion: evolucionDiaria(corridas),
   };
 }
