@@ -19,6 +19,7 @@ import { decisionesRoutes } from "./decisiones/rutas.js";
 import { conectorMcpRoutes, lecturaRoutes } from "./routes/conector-mcp.js";
 import { avisosRoutes } from "./avisos/rutas.js";
 import { informesRoutes } from "./decisiones/informes-rutas.js";
+import { agentesRoutes } from "./agentes/rutas.js";
 import { videoRoutes } from "./routes/video.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
@@ -260,6 +261,7 @@ export async function createApp(
   api.use(lecturaRoutes(db));
   api.use(avisosRoutes(db));
   api.use(informesRoutes(db));
+  api.use(agentesRoutes(db));
   api.use(videoRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
@@ -342,6 +344,11 @@ export async function createApp(
     const { initInformesSemanales } = await import("./decisiones/informes-store.js");
     initInformesSemanales(db);
   } catch (e) { console.warn("[informes] init failed:", e); }
+  // Runner propio de agentes (fase C2). Apagado salvo LMTM_RUNNER=1.
+  try {
+    const { iniciarRunner } = await import("./agentes/index.js");
+    iniciarRunner(db, { serverPort: opts.serverPort });
+  } catch (e) { console.warn("[agentes] init failed:", e); }
   // Licitaciones de Mercado Público (pedido 2026-07-22): sync diario.
   try {
     const { initLicitaciones } = await import("./services/licitaciones.js");

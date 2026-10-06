@@ -4,7 +4,11 @@ import { PaperclipApiClient } from "./client.js";
 import { readConfigFromEnv, type PaperclipMcpConfig } from "./config.js";
 import { createToolDefinitions } from "./tools.js";
 
-export function createPaperclipMcpServer(config: PaperclipMcpConfig = readConfigFromEnv()) {
+export function createPaperclipMcpServer(
+  config: PaperclipMcpConfig = readConfigFromEnv(),
+  // El runner propio (varios roles en un mismo proceso) pasa la lista de cada rol.
+  allowlist?: string[],
+) {
   const server = new McpServer({
     name: "paperclip",
     version: "0.1.0",
@@ -16,7 +20,7 @@ export function createPaperclipMcpServer(config: PaperclipMcpConfig = readConfig
   // only those tools are registered. Agents that need a small, cheap tool
   // surface (the schemas are re-sent every turn) use this to cut token cost;
   // paperclipApiRequest stays as the escape hatch for anything left out.
-  const allow = (process.env.PAPERCLIP_MCP_TOOLS ?? "")
+  const allow = allowlist ?? (process.env.PAPERCLIP_MCP_TOOLS ?? "")
     .split(",")
     .map((name) => name.trim())
     .filter((name) => name.length > 0);

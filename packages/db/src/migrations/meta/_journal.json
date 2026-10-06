@@ -932,6 +932,13 @@
       "when": 1781800000151,
       "tag": "0151_informes_semanales",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1781800000152,
+      "tag": "0152_agente_trabajos",
+      "breakpoints": true
     }
   ]
 }

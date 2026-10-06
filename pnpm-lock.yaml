@@ -671,6 +671,9 @@ importers:
 
   server:
     dependencies:
+      '@anthropic-ai/claude-agent-sdk':
+        specifier: 0.2.121
+        version: 0.2.121(zod@3.25.76)
       '@aws-sdk/client-s3':
         specifier: ^3.888.0
         version: 3.994.0
