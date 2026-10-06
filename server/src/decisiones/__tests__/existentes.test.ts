@@ -96,6 +96,12 @@ describe("saldo", () => {
     expect(a.clave).toBe(b.clave);
   });
 
+  it("sin gasto conocido no pide cargar saldo (no se frena lo que no gasta)", () => {
+    // 06/10: 18 "cargá saldo antes de que se frene" con gasto null llegaban al link del cliente.
+    expect(propuestasDeSaldo([balance({ remaining: 3_290, amountSpent: 496_710, low: true, dailySpend: 0, gastoConocido: false })], new Map(), fns)).toEqual([]);
+    expect(propuestasDeSaldo([balance({ remaining: 3_290, amountSpent: 496_710, low: true, dailySpend: 0, gastoConocido: true })], new Map(), fns)).toEqual([]);
+  });
+
   it("una cuenta dormida con saldo bajo no pide nada", () => {
     expect(propuestasDeSaldo([balance({ remaining: 5_000, activaReciente: false })], new Map(), fns)).toEqual([]);
   });

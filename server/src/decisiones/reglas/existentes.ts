@@ -151,7 +151,12 @@ export function propuestasDeSaldo(
     }
 
     const porAgotarse = b.daysLeft != null && b.daysLeft <= DIAS_PARA_AGOTARSE && b.dailySpend > 0;
-    if (fns.mereceAvisoDeSaldo(b) || porAgotarse) {
+    // Sin gasto conocido no se afirma nada: una cuenta que no gasta no "se
+    // frena". El 06/10 salieron 18 "cargá saldo antes de que se frene" con gasto
+    // null (cuentas sin uso, saldo 0) y llegaban al link del cliente como pedido:
+    // MA PROPIEDADES lo veía con su Meta gastando ARS 287.000 por semana.
+    const gasta = b.gastoConocido && b.dailySpend > 0;
+    if (gasta && (fns.mereceAvisoDeSaldo(b) || porAgotarse)) {
       const dias = b.daysLeft != null ? Math.max(0, Math.floor(b.daysLeft)) : null;
       out.push({
         clientId: b.clientId,
