@@ -71,7 +71,24 @@ export async function rescatarColgados(db: Db): Promise<number> {
     .set({ estado: "fallo", error: "Se cortó sin terminar (reinicio del servidor o tope de tiempo).", finishedAt: new Date() })
     .where(and(eq(agenteTrabajos.estado, "corriendo"), sql`${agenteTrabajos.startedAt} < now() - interval '30 minutes'`))
     .returning({ id: agenteTrabajos.id });
-  return r.length;
+  // "Hecho" sin una sola herramienta que haya respondido no es un hallazgo: pasa
+  // a fallo para que se reintente (el 06/10 una credencial mal firmada dio 401 en
+  // todo y las corridas quedaron como hechas, tapando el hecho para siempre).
+  // Mismo criterio que resumirCorrida para las corridas nuevas.
+  const sinRespuesta = await db
+    .update(agenteTrabajos)
+    .set({ estado: "fallo", error: "Todas las herramientas fallaron: el resultado no se apoya en datos." })
+    .where(
+      and(
+        eq(agenteTrabajos.estado, "hecho"),
+        sql`jsonb_array_length(${agenteTrabajos.pasos}) > 0`,
+        sql`not exists (select 1 from jsonb_array_elements(${agenteTrabajos.pasos}) p
+                        where coalesce((p->>'error')::boolean, false) = false
+                          and (p->>'salida') !~ 'failed with [0-9]{3}')`,
+      ),
+    )
+    .returning({ id: agenteTrabajos.id });
+  return r.length + sinRespuesta.length;
 }
 
 /** Intentos automáticos por hecho: después de 3 fallos queda a la vista y se reintenta a mano. */

@@ -99,6 +99,16 @@ describe("resumirCorrida", () => {
     expect(c.pasos[0]).toMatchObject({ herramienta: "x", error: true });
   });
 
+  it("si todas las herramientas fallaron es fallo, aunque el modelo haya 'concluido' algo", () => {
+    const c = resumirCorrida([
+      usar("1", "mcp__lmtm__lmtmGetClientCampaigns", {}),
+      volver("1", '{"error":"POST /agent-tools/execute failed with 401: Agent authentication required"}'),
+      { type: "result", subtype: "success", structured_output: { resumen: "No se puede saber", verificado: [], supuestos: [] } },
+    ]);
+    expect(c.resultado).toBeNull();
+    expect(c.error).toMatch(/Todas las herramientas fallaron/);
+  });
+
   it("sin mensaje de resultado es error", () => {
     expect(resumirCorrida([]).error).toMatch(/sin devolver/);
   });

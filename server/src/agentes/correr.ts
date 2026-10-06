@@ -15,7 +15,7 @@ import type { Db } from "@paperclipai/db";
 import { agents, companies } from "@paperclipai/db";
 import { createPaperclipMcpServer } from "@paperclipai/mcp-server";
 import { eq } from "drizzle-orm";
-import { createLocalAgentJwt } from "../agent-auth-jwt.js";
+import { ADAPTER_RUNNER, createLocalAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 import { terminar, type Trabajo } from "./cola.js";
 import { cargarRol } from "./roles.js";
 
@@ -119,6 +119,13 @@ export function resumirCorrida(mensajes: ReadonlyArray<Record<string, any>>): Co
     }
   }
   if (!resultado && !error) error = "El agente terminó sin devolver un resultado.";
+  // Si TODAS las herramientas fallaron, lo que "concluyó" no se apoya en nada:
+  // es un fallo (se reintenta), no un hallazgo que ocupa el hecho para siempre.
+  const fallaHerramienta = (p: Paso) => p.error === true || /failed with \d{3}|"status":\s*[45]\d\d/.test(p.salida);
+  if (pasos.length > 0 && pasos.every(fallaHerramienta)) {
+    error = `Todas las herramientas fallaron: ${pasos[0].salida.slice(0, 300)}`;
+    resultado = null;
+  }
   return { pasos, resultado, error, turnos, tokensEntrada, tokensSalida };
 }
 
@@ -200,8 +207,11 @@ export async function correrTrabajo(db: Db, t: Trabajo, opts: { serverPort: numb
     const clave = process.env.MINIMAX_API_KEY?.trim();
     if (!clave) throw new Error("Falta MINIMAX_API_KEY.");
     const agente = await agenteDelRol(db, rol.agente);
-    const jwt = createLocalAgentJwt(agente.id, agente.companyId, "lmtm_runner", "");
+    // run_id = el trabajo: la verificación exige uno no vacío (el 06/10 con ""
+    // todas las herramientas dieron 401). El middleware no lo usa como corrida.
+    const jwt = createLocalAgentJwt(agente.id, agente.companyId, ADAPTER_RUNNER, t.id);
     if (!jwt) throw new Error("Falta el secreto para firmar la identidad del agente.");
+    if (!verifyLocalAgentJwt(jwt)) throw new Error("La credencial del agente no verifica: las herramientas darían 401.");
 
     const { server } = createPaperclipMcpServer(
       { apiUrl: `http://127.0.0.1:${opts.serverPort}/api`, apiKey: jwt, companyId: agente.companyId, agentId: agente.id, runId: null },

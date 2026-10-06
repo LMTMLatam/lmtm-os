@@ -19,6 +19,9 @@ export interface LocalAgentJwtClaims {
 
 const JWT_ALGORITHM = "HS256";
 
+/** adapter_type de las credenciales del runner propio de LMTM (agentes/correr.ts). */
+export const ADAPTER_RUNNER = "lmtm_runner";
+
 function parseNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
