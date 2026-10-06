@@ -29,6 +29,32 @@ workspaces, heartbeats, aprobaciones genéricas, org).
   nadie; el trabajo útil (propuestas, informes) termina en tablas que la
   interfaz no muestra juntas.
 
+## Regla: no se pierde ninguna función propia (06/10)
+
+"Mantené todo lo que estaba dentro de cada cliente (dashboards para compartir,
+conexiones, todas las secciones) y toda función a medida que aporte al flujo de
+la agencia; la idea es que sean más capaces y proactivos." Auditoría de lo que
+retiraron B3/B4 (`git diff --diff-filter=D fc9fc9b`):
+
+| Retirado por B | Estado |
+|---|---|
+| Pestaña Plan de acción + narrativa de pauta | **restaurado** `1bfacca` |
+| Growth: triage rojo/amarillo/verde y semáforo de pauta | **restaurado** `b91ad60` |
+| Pauta (hub con selector de cliente) | **restaurado** `b91ad60` (sin la tabla vieja: la cartera es Cartera) |
+| Reporte semanal por cliente a ClickUp (lunes) | **restaurado** `b91ad60`, con números de `metricas` |
+| Panel público del cliente | sigue en `/public/dashboards/:slug/detalle`, linkeado desde el informe |
+| Semáforo y cola humana de Operación | cubiertos por Hoy (incidentes + cola humana como decisiones) |
+| Brief 8:00/18:00 por WhatsApp | reemplazado por el resumen de las 9:00 (medido: 1 mensaje/día) |
+| Competitors, Org, MyIssues | sin ruta desde antes; Competidores sigue por cliente |
+
+## Conector de Claude (06/10)
+
+"Que el sistema tenga un conector con Claude, que pueda hacer todo y leer todo."
+`POST /mcp` (header Bearer) o `/mcp/<clave>` (para claude.ai): el mismo servidor
+MCP de los agentes con la clave de un admin del tablero. Hacer todo =
+`paperclipApiRequest` + las `lmtm*` (actúan como el agente "Claude (conector)");
+leer todo = `lmtmSql` (solo lectura, rol `lmtm_lectura`).
+
 ## C1. Interfaz LMTM (primero: es lo que se ve)
 
 Un shell propio, sin la barra de paperclip. Cinco secciones:
