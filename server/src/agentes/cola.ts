@@ -5,8 +5,9 @@
 // cliente, motivo, pasos y resultado.
 
 import type { Db } from "@paperclipai/db";
-import { agenteTrabajos, clients, decisiones } from "@paperclipai/db";
+import { agenteTrabajos, clients, decisiones, informesSemanales } from "@paperclipai/db";
 import { and, eq, sql } from "drizzle-orm";
+import { ultimaSemana } from "../decisiones/informe.js";
 
 export type Trabajo = typeof agenteTrabajos.$inferSelect;
 
@@ -119,7 +120,14 @@ async function yaTrabajado(db: Db, rol: string, ref: string): Promise<boolean> {
  * acá desde el 07/10, en paralelo con la rutina de Milo en paperclip, para
  * compararlos con el mismo evaluador.
  */
-export const HORARIOS: ReadonlyArray<{ rol: string; procedimiento: string; hora: number; dias: number[]; clientes: string[] }> = [
+export const HORARIOS: ReadonlyArray<{
+  rol: string;
+  procedimiento: string;
+  hora: number;
+  dias: number[];
+  /** Nombres de clientes, o "con_borrador": los que tienen el informe automático de la semana que terminó. */
+  clientes: string[] | "con_borrador";
+}> = [
   {
     rol: "media-buyer",
     procedimiento: "revision-diaria",
@@ -127,7 +135,32 @@ export const HORARIOS: ReadonlyArray<{ rol: string; procedimiento: string; hora:
     dias: [1, 2, 3, 4, 5],
     clientes: ["distrillantas", "ma propiedades", "sebastian ramasco padilla"],
   },
+  // El informe automático sale los lunes desde las 10 (informes-store.ts); el
+  // estratega lo reescribe con criterio a partir de las 11.
+  { rol: "estratega", procedimiento: "informe-semanal", hora: 11, dias: [1], clientes: "con_borrador" },
 ];
+
+/** Los clientes de un horario, con lo que el trabajo necesita de entrada. */
+async function clientesDelHorario(
+  db: Db,
+  clientes: string[] | "con_borrador",
+  ahora: Date,
+): Promise<Array<{ id: string; nombre: string; extra: Record<string, unknown> }>> {
+  if (clientes === "con_borrador") {
+    const semana = ultimaSemana(ahora).desde;
+    const filas = await db
+      .select({ id: clients.id, nombre: clients.name, narrativa: informesSemanales.narrativa })
+      .from(informesSemanales)
+      .innerJoin(clients, eq(clients.id, informesSemanales.clientId))
+      .where(and(eq(clients.status, "active"), eq(informesSemanales.semana, semana), eq(informesSemanales.escritoPor, "tablero:automatico")));
+    return filas.map((f) => ({ id: f.id, nombre: f.nombre, extra: { semana, borrador: f.narrativa } }));
+  }
+  const filas = await db
+    .select({ id: clients.id, nombre: clients.name })
+    .from(clients)
+    .where(and(eq(clients.status, "active"), sql`lower(trim(${clients.name})) in (${sql.join(clientes.map((c) => sql`${c}`), sql`, `)})`));
+  return filas.map((f) => ({ ...f, extra: {} }));
+}
 
 /** Puro: fecha (aaaa-mm-dd), día de la semana (1 = lunes) y hora en Buenos Aires. */
 export function relojLocal(ahora: Date): { fecha: string; dia: number; hora: number } {
@@ -145,11 +178,7 @@ export async function encolarHorarios(db: Db, ahora = new Date()): Promise<numbe
   let n = 0;
   for (const h of HORARIOS) {
     if (!h.dias.includes(dia) || hora < h.hora) continue;
-    const filas = await db
-      .select({ id: clients.id, nombre: clients.name })
-      .from(clients)
-      .where(and(eq(clients.status, "active"), sql`lower(trim(${clients.name})) in (${sql.join(h.clientes.map((c) => sql`${c}`), sql`, `)})`));
-    for (const c of filas) {
+    for (const c of await clientesDelHorario(db, h.clientes, ahora)) {
       const ref = `horario:${h.procedimiento}:${fecha}:${c.id}`;
       if (await yaTrabajado(db, h.rol, ref)) continue;
       const id = await encolar(db, {
@@ -158,7 +187,7 @@ export async function encolarHorarios(db: Db, ahora = new Date()): Promise<numbe
         motivo: "horario",
         ref,
         pedidoPor: `horario:${h.rol}`,
-        entrada: { procedimiento: h.procedimiento, cliente: { id: c.id, nombre: c.nombre.trim() } },
+        entrada: { procedimiento: h.procedimiento, cliente: { id: c.id, nombre: c.nombre.trim() }, ...c.extra },
       });
       if (id) n += 1;
     }

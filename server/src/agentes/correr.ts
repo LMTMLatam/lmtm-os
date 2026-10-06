@@ -169,10 +169,14 @@ export function armarPedido(t: Pick<Trabajo, "entrada">): string {
     cliente?: { id: string; nombre: string };
     decision?: { que: string; porque?: { resumen?: string; datos?: Array<{ etiqueta: string; valor: unknown; unidad?: string }> } };
     pedido?: string;
+    semana?: string;
+    borrador?: unknown;
   };
   const lineas: string[] = [];
   if (e.procedimiento) lineas.push(`Procedimiento: ${e.procedimiento}`);
   if (e.cliente) lineas.push(`Cliente: ${e.cliente.nombre} (clientId: ${e.cliente.id})`);
+  if (e.semana) lineas.push(`Semana (lunes): ${e.semana}`);
+  if (e.borrador) lineas.push(`Borrador automático: ${JSON.stringify(e.borrador)}`);
   if (e.decision) {
     lineas.push(`Decisión: ${e.decision.que}`);
     if (e.decision.porque?.resumen) lineas.push(`Contexto: ${e.decision.porque.resumen}`);

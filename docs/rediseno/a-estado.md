@@ -65,6 +65,27 @@ agentes y basate en eso". Respuesta honesta: hasta hoy, sí sobre paperclip.
 - **App propia** (`ui/src/app/`): rutas sin prefijo (hoy, clientes, agentes,
   config), shell propio; la ficha reusa todas las secciones viejas
   (`TabContent`). 959 tests de UI, tsc y build OK.
+- **Segundo fallo:** credencial con `run_id` vacío → 401 en todas las
+  herramientas (los agentes dijeron "no se puede saber", no inventaron).
+  Arreglo `4a73c5a`; además una corrida sin una sola respuesta de herramienta
+  es fallo, no "hecho", y al arrancar se corrigen las viejas.
+- **La app no scrolleaba** (body de paperclip con overflow hidden): `d150c0b`.
+- **Sync diario sin conjuntos** desde agosto (79 con gasto sin fila, el resto con
+  estado y presupuesto de agosto): `084baae`, con test. Verificado: 276 conjuntos
+  refrescados en la primera corrida.
+
+**Verificado en producción, 06/10 15:48–16:00 ART:**
+- Revisión diaria del piloto en el runner: 22 propuestas, **22/22 defendibles**
+  (Milo en paperclip, mismo día: 20/22). 4 min, 173 mil tokens de entrada.
+- Las 7 "dejó de gastar" investigadas, cada una con causa y números: BRACHETTA y
+  MAERS (campañas vencidas sin reemplazo; las nuevas de MAERS con objetivo de
+  interacción), MA PROPIEDADES (10 de septiembre vencidas, 2 sin reemplazo y una
+  cuenta sin saldo), Distrillantas e INBELT (Meta al 95,8% y 98,4% del tope:
+  entrega racionada), LoMasFundas (Google sin entrega desde el 04/10, Meta
+  desconectada), COSA (caída chica y repartida: no se puede saber). Se ven en Hoy
+  al abrir la fila.
+- Siguiente: `pauta:sin_leads` también disparada (diagnóstico + concepto de
+  reemplazo), en deploy.
 
 ### 06/10 08:20: PR #2 de B (B1–B4) en producción
 

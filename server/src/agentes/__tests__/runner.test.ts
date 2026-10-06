@@ -49,6 +49,18 @@ describe("roles", () => {
     }
   });
 
+  it("toda herramienta de un rol existe en el servidor MCP", async () => {
+    const { readdirSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { createPaperclipMcpServer } = await import("@paperclipai/mcp-server");
+    const config = { apiUrl: "http://x/api", apiKey: "k", companyId: null, agentId: null, runId: null };
+    const existentes = new Set(createPaperclipMcpServer(config).tools.map((t) => t.name));
+    const carpeta = fileURLToPath(new URL("../roles/", import.meta.url));
+    const roles = readdirSync(carpeta).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3));
+    expect(roles.length).toBeGreaterThan(0);
+    for (const r of roles) for (const h of cargarRol(r).herramientas) expect(existentes, `${r}: ${h}`).toContain(h);
+  });
+
   it("no acepta nombres que salgan de la carpeta", () => {
     expect(() => cargarRol("../secreto")).toThrow(/inválido/);
   });

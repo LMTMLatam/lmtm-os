@@ -56,6 +56,7 @@ export const agentesApi = {
 /** Los roles del runner y cómo se llaman para la persona. */
 export const ROLES: Record<string, string> = {
   "media-buyer": "Media buyer",
+  estratega: "Estratega",
 };
 
 export const nombreRol = (r: string) => ROLES[r] ?? r;
