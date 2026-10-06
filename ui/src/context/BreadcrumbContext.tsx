@@ -34,8 +34,11 @@ export function buildDocumentTitle(breadcrumbs: Breadcrumb[], companyName?: stri
   const pageParts = breadcrumbs.length === 0
     ? []
     : [...breadcrumbs].reverse().map((breadcrumb) => breadcrumb.label);
-  const companyPart = companyName?.trim() ? [companyName.trim()] : [];
-  const parts = [...pageParts, ...companyPart, "Paperclip"];
+  // La marca es LMTM (fase C1); la empresa se omite cuando ya se llama así.
+  const marca = "LMTM";
+  const empresa = companyName?.trim();
+  const companyPart = empresa && empresa.toUpperCase() !== marca ? [empresa] : [];
+  const parts = [...pageParts, ...companyPart, marca];
   return parts.join(" • ");
 }
 
