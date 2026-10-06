@@ -57,6 +57,16 @@ Herramientas que tiene que tener en la allowlist: `lmtmGetClientCampaigns`,
 Dos semanas. Si pasa, se habilita N1 (ejecutar lo reversible hasta un tope) en estos 3
 clientes y se suma el siguiente grupo.
 
+## Bitácora del piloto
+
+| Día | Propuestas | Defendibles (evaluador) | Aprobadas / descartadas | Duración | Nota |
+|---|---|---|---|---|---|
+| 06/10 | 22 (4 subir, 18 pausar) | 20/22 (91%) | pendientes | 6 min | Las 2 fallas: escaló contra el objetivo total (972) y no el de Meta (790). Arreglado en la tool (`2b95887`). |
+
+Cobertura contra `--referencia` del 05/10: MA PROPIEDADES 12 → propuso 13; SEBASTIAN
+RAMASCO PADILLA 5 → 4 (dejó la de interacción); Distrillantas: propuso 1 de los 3
+conjuntos y no vio WP AVELLANEDA (la misma causa del objetivo total).
+
 ## Referencia del 05/10 (ventana 21/09–04/10)
 
 Lo que el playbook pausaría hoy (`--referencia`): Distrillantas 1 campaña (WP AVELLANEDA,

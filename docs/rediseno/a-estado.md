@@ -58,6 +58,11 @@ dudoso en `sin_dato`.
   reaper (12). Corte por agente verificado.
 - Cadena de publicación incluye clientes plantilla (Cliente Natural, Cliente
   Inmobiliario) en Hoy: para B.
+- **Piloto A4, día 1 (Milo 11:00):** 22 propuestas en 6 min, **20/22 defendibles
+  (91%, meta 90%)**. Las 2 fallas son de la herramienta, no del agente: le dábamos
+  el objetivo total (972, mezcla Google) y no el de Meta (790). Arreglado `2b95887`:
+  cada campaña trae `objetivoCpl` de su plataforma y `noSeMidePorCpl`. Detalle en
+  `agentes/media-buyer/PILOTO.md`.
 
 ### 06/10 05:40: reloj verificado, PR #2 de B revisado (vuelve con dos arreglos)
 
