@@ -52,7 +52,7 @@ export function SelectorCliente({ slugActual, tab }: { slugActual: string; tab?:
     setAbierto(false);
     setFiltro("");
     // Se conserva el tab: saltar de cliente no debería devolverte al principio.
-    navegar(tab ? `/clients/${slug}/${tab}` : `/clients/${slug}`);
+    navegar(tab ? `/clientes/${slug}/${tab}` : `/clientes/${slug}`);
   };
 
   return (
