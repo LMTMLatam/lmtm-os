@@ -13,7 +13,7 @@ import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import { datosDeHoy, type Hoy } from "../decisiones/hoy.js";
 import { enviarResumenDiario, ORIGEN_RESUMEN } from "../services/wa-embudo.js";
 import { diaLocal } from "./politica.js";
-import { urlDeHoy } from "./incidentes.js";
+import { ORIGEN_INCIDENTES, urlDeHoy } from "./incidentes.js";
 
 const pesos = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
 
@@ -142,6 +142,10 @@ function unaLinea(texto: string): string {
  * decir que falló es perderlo. Solo si hay muchos, lo que sobra va contado.
  */
 export function armarPendientesCortos(todas: Array<{ origen: string; nivel: number; texto?: string; clave?: string | null }>): string | null {
+  // Los incidentes ya van arriba del resumen, leídos de Hoy (los vivos, no los
+  // de ayer). Su fila del embudo se marca como agrupada igual, pero no se
+  // repite abajo: el 06/10 salían dos veces.
+  todas = todas.filter((f) => f.origen !== ORIGEN_INCIDENTES);
   if (todas.length === 0) return null;
   // Los monitores vuelven a encolar el mismo aviso cada hora (misma clave, el
   // texto cambia en "96d 19h" → "96d 20h"): sin esto el resumen repetía el mismo

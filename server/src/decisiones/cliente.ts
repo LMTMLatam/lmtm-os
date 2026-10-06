@@ -66,7 +66,12 @@ export async function resumenDeCliente(db: Db, clientId: string, ahora = new Dat
   return {
     semana,
     medida,
-    estado: semana.leadsDudosos && medida === "lead" ? "sin_dato" : estadoContraObjetivo(medida === "calificado" ? semana.costoPorCalificado : semana.cpl, semana.objetivo),
+    estado:
+      semana.leadsDudosos && medida === "lead"
+        ? "sin_dato"
+        : medida === "calificado"
+          ? estadoContraObjetivo(semana.costoPorCalificado, semana.objetivo)
+          : estadoContraObjetivo(semana.cpl, semana.objetivo, { gasto: semana.inversion, consultas: semana.leads }),
     embudo: {
       ...v30,
       inversion: m30.inversion,

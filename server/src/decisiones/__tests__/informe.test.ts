@@ -140,6 +140,18 @@ describe("estado contra el objetivo", () => {
     expect(estadoContraObjetivo(null, 5_000)).toBe("sin_dato");
     expect(estadoContraObjetivo(4_000, null)).toBe("sin_dato");
   });
+
+  it("gastar 3 veces el objetivo sin una consulta es muy arriba, no 'sin dato'", () => {
+    // A, 06/10: ante el cliente, "gastó $34.673 sin consultas" no es "sin dato".
+    expect(estadoContraObjetivo(null, 10_000, { gasto: 34_673, consultas: 0 })).toBe("muy_arriba");
+    // Debajo de 3 veces todavía no alcanza para juzgar (la misma vara que la regla de pauta).
+    expect(estadoContraObjetivo(null, 10_000, { gasto: 29_999, consultas: 0 })).toBe("sin_dato");
+    // Sin objetivo, o sin saber cuánto se gastó, no se afirma nada.
+    expect(estadoContraObjetivo(null, null, { gasto: 90_000, consultas: 0 })).toBe("sin_dato");
+    expect(estadoContraObjetivo(null, 10_000, { gasto: null, consultas: 0 })).toBe("sin_dato");
+    // Con consultas manda el costo, como siempre.
+    expect(estadoContraObjetivo(9_000, 10_000, { gasto: 90_000, consultas: 10 })).toBe("en_objetivo");
+  });
 });
 
 describe("borrador automático (sin modelo)", () => {

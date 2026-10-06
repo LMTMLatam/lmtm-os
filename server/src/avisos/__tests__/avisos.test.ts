@@ -160,6 +160,17 @@ describe("resumen de las 9:00", () => {
     expect(t.match(/MAERS/g)).toHaveLength(1);
   });
 
+  it("los incidentes no se repiten abajo: ya van arriba, leídos de Hoy", () => {
+    // 06/10: el incidente salía arriba y otra vez en "Otros avisos".
+    expect(armarPendientesCortos([{ origen: "incidentes", nivel: 5, texto: "DISTRILLANTAS frenada" }])).toBeNull();
+    const t = armarPendientesCortos([
+      { origen: "incidentes", nivel: 5, texto: "DISTRILLANTAS frenada" },
+      { origen: "sin-publicar", nivel: 3, texto: "MAERS sin publicar" },
+    ])!;
+    expect(t.split("\n")[0]).toBe("*Otros avisos desde ayer (1):*");
+    expect(t).not.toContain("DISTRILLANTAS");
+  });
+
   it("si son muchos, los que sobran van contados por tema", () => {
     const filas = Array.from({ length: 15 }, (_, i) => ({ origen: i < 13 ? "sin-publicar" : "auditor", nivel: 3, texto: `aviso ${i}` }));
     const t = armarPendientesCortos(filas)!;

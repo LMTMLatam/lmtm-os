@@ -31,6 +31,7 @@ import { reglaCalificados, reglaCostoCalificado, reglaEscalar, reglaFrecuencia, 
 import { anunciosPorCliente, conjuntosEscalables, contextoPauta, fechaLocal, unidadesSinLeads, ventanas, type ContextoPauta } from "./motor-datos.js";
 import { metricasCliente, type MetricasCliente } from "../metricas/index.js";
 import { aFila } from "./store.js";
+import { FOLDERS_ORIGEN_PLANTILLA } from "../ingest/plantilla-clickup.js";
 import { avisarIncidentes, type IncidenteNuevo } from "../avisos/incidentes.js";
 
 export interface ResumenMotor {
@@ -71,11 +72,15 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   const v = ventanas(ahora);
 
   const activos = await db
-    .select({ id: clients.id, name: clients.name })
+    .select({ id: clients.id, name: clients.name, folder: clients.clickupFolderId })
     .from(clients)
     .where(eq(clients.status, "active"));
   const nombres = new Map(activos.map((c) => [c.id, c.name.trim()]));
   const activosIds = new Set(activos.map((c) => c.id));
+  // "Cliente Natural" y "Cliente Inmobiliario" son las carpetas de las que se
+  // copia la plantilla de ClickUp, no clientes: la cadena de publicación les
+  // abría decisiones (06/10). Se reconocen por la carpeta, como en el ingest.
+  const plantillas = new Set(activos.filter((c) => c.folder && FOLDERS_ORIGEN_PLANTILLA.includes(c.folder)).map((c) => c.id));
 
   // Lo que comparten varias reglas se lee una vez.
   const salud = await saludFuentes(db).catch((e) => {
@@ -234,7 +239,16 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     return out;
   }));
 
-  return resultados;
+  return soloClientesReales(resultados, activosIds, plantillas);
+}
+
+/**
+ * Lo que se propone es solo para clientes activos que no son plantilla. Casi
+ * todas las reglas ya filtran por activos; la cadena de publicación no (lee
+ * Make), y ninguna sabía de las plantillas. Puro.
+ */
+export function soloClientesReales<T extends { propuestas: Propuesta[] }>(resultados: T[], activos: Set<string>, plantillas: Set<string>): T[] {
+  return resultados.map((r) => ({ ...r, propuestas: r.propuestas.filter((p) => activos.has(p.clientId) && !plantillas.has(p.clientId)) }));
 }
 
 // ── Lado con base ────────────────────────────────────────────────────────

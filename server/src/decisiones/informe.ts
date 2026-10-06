@@ -266,13 +266,35 @@ export function auditarInforme(nar: Narrativa, n: NumerosInforme, otrosClientes:
   return { ok: fallas.length === 0, fallas };
 }
 
+/**
+ * Las únicas decisiones de reglas que llegan solas al link del cliente, sin que
+ * una persona las mire. Una regla nueva con `responsable: "cliente"` no aparece
+ * acá hasta que alguien la agregue a propósito: el 06/10, 18 pedidos de
+ * "cargar saldo" salieron con un gasto que no teníamos (A lo arregló en la
+ * regla; esto evita que la próxima pase igual). Las dos de saldo dicen un hecho
+ * de la plataforma: la cuenta está frenada, o se va a frenar con el gasto que
+ * medimos.
+ */
+export const TIPOS_QUE_VE_EL_CLIENTE: ReadonlySet<string> = new Set(["saldo:frenada", "saldo:bajo"]);
+
 // ── Estado contra el objetivo ────────────────────────────────────────────
 
 export type EstadoObjetivo = "en_objetivo" | "arriba" | "muy_arriba" | "sin_dato";
 
-/** Hasta el objetivo, bien; hasta 1,5 veces, arriba; más, muy arriba (la misma banda que las reglas de pauta). */
-export function estadoContraObjetivo(costo: number | null, objetivo: number | null): EstadoObjetivo {
-  if (costo == null || objetivo == null || !(objetivo > 0)) return "sin_dato";
+/**
+ * Hasta el objetivo, bien; hasta 1,5 veces, arriba; más, muy arriba (la misma banda que las reglas de pauta).
+ *
+ * Sin consultas no hay costo por consulta, pero eso no es "sin dato": haber
+ * gastado 3 veces el objetivo sin traer una es la regla de B1 para cambiar el
+ * concepto, y ante el cliente "gastó $34.673 sin consultas" es muy arriba.
+ * Debajo de 3 veces todavía no alcanza para juzgar, y sigue sin dato.
+ */
+export function estadoContraObjetivo(costo: number | null, objetivo: number | null, sinConsultas?: { gasto: number | null; consultas: number | null }): EstadoObjetivo {
+  if (objetivo == null || !(objetivo > 0)) return "sin_dato";
+  if (costo == null) {
+    const s = sinConsultas;
+    return s && s.consultas === 0 && s.gasto != null && s.gasto >= 3 * objetivo ? "muy_arriba" : "sin_dato";
+  }
   if (costo <= objetivo) return "en_objetivo";
   return costo <= objetivo * 1.5 ? "arriba" : "muy_arriba";
 }
