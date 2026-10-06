@@ -18,6 +18,10 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 **Esperando a una persona:**
 - Aprobar o descartar (con motivo) las propuestas de pauta de Milo: son el dato
   principal del piloto.
+- Revisar la cola de 27 issues `in_review` (desde el 15/07): cerrarlos o
+  devolverlos. Los agentes no pueden avanzarlos.
+- Cargar `DATABASE_URL_RO` en el entorno de la sesión de B en la nube (B no puede
+  verificar contra prod sin ella).
 - Corregir (lo toma Nazareno) las acciones de conversión de Google en MA PROPIEDADES y SEBASTIAN
   RAMASCO PADILLA (~53% de los clics "convierten").
 - Limpiar la plantilla de ClickUp (OnBoarding de inmobiliaria en ~70 carpetas,
@@ -28,6 +32,21 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 - Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
 
 ## Bitácora
+
+### 06/10 05:40: reloj verificado, PR #2 de B revisado (vuelve con dos arreglos)
+
+- **Reloj (`675f1e1`) verificado en 12 h:** Delfina, Dario, Luna y Carlos 0
+  corridas por reloj; 8.188 despertares salteados por `idle.noWork`. Quedaban Milo,
+  Pablo, Nicolas y Esteban despertando por `in_review` (13/13 corridas "quedo a la
+  espera") → `9f2e5e9`: `in_review` no cuenta como trabajo. En prod desde 07:54 UTC.
+- **Cola `in_review`:** 27 issues esperando revisión, el más viejo del 15/07 (Milo
+  8, Pablo 8, Caro 6, Esteban 4). Nadie los recibe: es trabajo para una persona.
+- **PR #2 (B1–B4):** merge limpio, 542 + 954 tests, build OK, autorización bien.
+  Migraciones 0150/0151 aplicadas en prod (aditivas, vacías). Ensayo con datos
+  reales: el informe del cliente marcaba "muy arriba" la marca, Google contra el
+  objetivo de Meta, tráfico y catálogo; el resumen de las 9:00 repetía avisos 4-5
+  veces. FALLO-INTEGRACION a B; exporté `noSeMidePorCpl` (`bf4c566`) para que use
+  la misma vara.
 
 ### 05/10 19:45: A5, línea de base de la flota y el reloj que despertaba a nadie
 
