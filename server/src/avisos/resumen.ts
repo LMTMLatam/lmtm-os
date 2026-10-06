@@ -141,8 +141,19 @@ function unaLinea(texto: string): string {
  * entregado y no hay otra pantalla que lo muestre: "Pauta automática 1" sin
  * decir que falló es perderlo. Solo si hay muchos, lo que sobra va contado.
  */
-export function armarPendientesCortos(filas: Array<{ origen: string; nivel: number; texto?: string }>): string | null {
-  if (filas.length === 0) return null;
+export function armarPendientesCortos(todas: Array<{ origen: string; nivel: number; texto?: string; clave?: string | null }>): string | null {
+  if (todas.length === 0) return null;
+  // Los monitores vuelven a encolar el mismo aviso cada hora (misma clave, el
+  // texto cambia en "96d 19h" → "96d 20h"): sin esto el resumen repetía el mismo
+  // aviso 4-5 veces. Uno por origen + clave, con el texto más nuevo (llegan del
+  // más viejo al más nuevo).
+  const porClave = new Map<string, { origen: string; nivel: number; texto?: string }>();
+  for (const f of todas) {
+    const k = `${f.origen}|${f.clave ?? f.texto ?? ""}`;
+    const previa = porClave.get(k);
+    porClave.set(k, { origen: f.origen, nivel: Math.max(f.nivel, previa?.nivel ?? f.nivel), texto: f.texto ?? previa?.texto });
+  }
+  const filas = [...porClave.values()];
   const orden = [...filas].sort((x, y) => y.nivel - x.nivel);
   const conTexto = orden.slice(0, MAX_LINEAS_CON_TEXTO);
   const sobran = orden.slice(MAX_LINEAS_CON_TEXTO);
@@ -174,7 +185,7 @@ export async function mandarResumen(db: Db, ahora = new Date()): Promise<{ envia
   // Una sola lectura de lo pendiente: lo que se resume es exactamente lo que
   // después se marca como agrupado.
   const filas = await db
-    .select({ id: waOutbox.id, origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto })
+    .select({ id: waOutbox.id, origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, clave: waOutbox.clave })
     .from(waOutbox)
     .where(eq(waOutbox.estado, "pendiente"))
     .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));
@@ -185,7 +196,7 @@ export async function mandarResumen(db: Db, ahora = new Date()): Promise<{ envia
 export async function ensayarResumen(db: Db, ahora = new Date()): Promise<{ texto: string; pendientes: number }> {
   const hoy = await datosDeHoy(db);
   const filas = await db
-    .select({ origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto })
+    .select({ origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, clave: waOutbox.clave })
     .from(waOutbox)
     .where(eq(waOutbox.estado, "pendiente"))
     .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));

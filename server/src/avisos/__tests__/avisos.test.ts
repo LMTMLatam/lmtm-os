@@ -145,6 +145,21 @@ describe("resumen de las 9:00", () => {
     expect(t).not.toMatch(/pauta-automatica|algo-nuevo|sin-publicar/);
   });
 
+  it("el mismo aviso reencolado cada hora sale una vez, con el texto más nuevo", () => {
+    // 06/10: "Redes sin actividad" ×4 que solo cambiaban en "96d 19h" → "96d 20h".
+    const t = armarPendientesCortos([
+      { origen: "inactividad-redes", nivel: 3, clave: "inactividad:DUNOD", texto: "DUNOD 96d 19h" },
+      { origen: "inactividad-redes", nivel: 3, clave: "inactividad:DUNOD", texto: "DUNOD 96d 20h" },
+      { origen: "inactividad-redes", nivel: 3, clave: "inactividad:DUNOD", texto: "DUNOD 96d 21h" },
+      { origen: "sin-publicar", nivel: 3, clave: null, texto: "MAERS sin publicar" },
+      { origen: "sin-publicar", nivel: 3, clave: null, texto: "MAERS sin publicar" },
+    ])!;
+    expect(t.split("\n")[0]).toBe("*Otros avisos desde ayer (2):*");
+    expect(t.match(/DUNOD/g)).toHaveLength(1);
+    expect(t).toContain("DUNOD 96d 21h");
+    expect(t.match(/MAERS/g)).toHaveLength(1);
+  });
+
   it("si son muchos, los que sobran van contados por tema", () => {
     const filas = Array.from({ length: 15 }, (_, i) => ({ origen: i < 13 ? "sin-publicar" : "auditor", nivel: 3, texto: `aviso ${i}` }));
     const t = armarPendientesCortos(filas)!;

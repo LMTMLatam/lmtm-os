@@ -9,10 +9,12 @@
 // publicó una persona. Todo número sale de `metricas` (A2).
 
 import type { Db } from "@paperclipai/db";
-import { decisiones } from "@paperclipai/db";
+import { clients, decisiones } from "@paperclipai/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { metricasCliente } from "../metricas/index.js";
 import { metricasCampanas } from "../metricas/campanas.js";
+import { noSeMidePorCpl } from "../metricas/eval-propuestas.js";
+import { esTerminoDeMarca } from "../services/ads-keywords.js";
 import {
   esSemanaValida,
   estadoContraObjetivo,
@@ -104,7 +106,20 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
     if (i >= 0) tendencia[i] = { desde: numeros.desde, inversion: numeros.inversion, leads: numeros.leads, cpl: numeros.cpl };
   }
 
-  const porCampana = await metricasCampanas(db, clientId, semana);
+  // Cada campaña se mide contra el objetivo de SU plataforma, y solo si su CPL
+  // la mide: la misma vara que el evaluador de pauta (noSeMidePorCpl). Con el
+  // objetivo total, el cliente veía "muy arriba" su campaña de marca, Google
+  // contra un objetivo sacado de Meta, y campañas de tráfico y catálogo.
+  const [porCampana, objMeta, objGoogle, [cli]] = await Promise.all([
+    metricasCampanas(db, clientId, semana),
+    metricasCliente(db, clientId, { ...semana, plataforma: "meta" }),
+    metricasCliente(db, clientId, { ...semana, plataforma: "google" }),
+    db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)),
+  ]);
+  const vara = {
+    tcpl: { meta: objMeta.objetivo.tcpl, google: objGoogle.objetivo.tcpl },
+    esMarca: (n: string) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(cli?.name ?? "", n),
+  };
   const campanas = porCampana
     ? porCampana
         .filter((c) => c.inversion > 0)
@@ -115,8 +130,7 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
           inversion: c.inversion,
           leads: c.leads,
           cpl: c.cpl,
-          // Una campaña de Google con conversiones dudosas no se compara con nada.
-          estado: c.leadsDudosos ? "sin_dato" : estadoContraObjetivo(c.cpl, numeros.objetivo),
+          estado: noSeMidePorCpl(c, vara) ? "sin_dato" : estadoContraObjetivo(c.cpl, vara.tcpl[c.plataforma]),
           leadsDudosos: c.leadsDudosos,
         }))
     : null;
