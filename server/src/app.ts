@@ -212,6 +212,13 @@ export async function createApp(
     if (req.path.startsWith("/api/meta/oauth/") && typeof req.query.token === "string" && !req.headers.authorization) {
       req.headers.authorization = `Bearer ${req.query.token}`;
     }
+    // Conector MCP con la clave en la ruta (/mcp/<clave>): los conectores de
+    // claude.ai no mandan headers propios, solo una URL.
+    const m = req.path.match(/^\/mcp\/([^/]+)\/?$/);
+    if (m && !req.headers.authorization) {
+      req.headers.authorization = `Bearer ${decodeURIComponent(m[1])}`;
+      req.url = "/mcp";
+    }
     next();
   });
   app.use(
