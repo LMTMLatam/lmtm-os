@@ -48,8 +48,12 @@ function buscar(campanas: MetricasCampana[], entityType: "campaign" | "adset", i
   return null;
 }
 
-/** Lo que impide juzgar por CPL a esta campaña, o null si se puede. */
-function noSeMidePorCpl(c: MetricasCampana, ctx: ContextoEval): string | null {
+/**
+ * Lo que impide juzgar por CPL a esta campaña, o null si se puede. Exportada
+ * para que todo lo que compara una campaña contra el objetivo (el motor de
+ * decisiones, el informe del cliente) use la misma vara que el evaluador.
+ */
+export function noSeMidePorCpl(c: MetricasCampana, ctx: ContextoEval): string | null {
   if (c.leadsDudosos) return "decide sobre leads de Google que no son confiables";
   if (c.objetivoCampana && OBJETIVOS_SIN_LEADS.has(c.objetivoCampana)) return `su objetivo es ${c.objetivoCampana}, no leads: el CPL no la mide`;
   if (c.nombre && ctx.esMarca?.(c.nombre)) return "es la campaña de marca: no se corta por CPL";
