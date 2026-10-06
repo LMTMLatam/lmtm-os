@@ -33,6 +33,20 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 06/10 08:20: PR #2 de B (B1–B4) en producción
+
+B no contestó el FALLO-INTEGRACION en 5 h; hice los dos arreglos en la rama de
+integración (`4b3750e`): el informe del cliente mide cada campaña con objetivo por
+plataforma y `noSeMidePorCpl`, y el resumen agrupa los avisos reencolados. Entra
+también `lmtmEscribirInforme`. Main `5fe0659`: server 543/543, MCP 12/12, build OK.
+Boot 11:18 UTC; el migrador registró 0150/0151 (ya creadas); motor, resumen e
+informes programados; health 200; `/api/hoy` sin sesión → 401. Link público real
+de Distrillantas y MA PROPIEDADES: 200, con la marca, el catálogo y Google
+dudoso en `sin_dato`.
+
+**Para verificar hoy:** corrida del motor (8:30 ART) contra el ensayo de 90
+decisiones, resumen de las 9:00 sin repetidos, Luna 9:30, Milo 11:00.
+
 ### 06/10 05:40: reloj verificado, PR #2 de B revisado (vuelve con dos arreglos)
 
 - **Reloj (`675f1e1`) verificado en 12 h:** Delfina, Dario, Luna y Carlos 0
