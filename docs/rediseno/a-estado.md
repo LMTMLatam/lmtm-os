@@ -10,7 +10,9 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 | A2. Métricas + objetivos | **en producción**, también en la herramienta de pauta de los agentes | `rediseno/a-metricas`, `rediseno/a-agentes` |
 | A3. Aislamiento por cliente | **en producción**; limpieza de memoria hecha; Randstad verificado | `rediseno/a-aislamiento` |
 | A4. Agentes con objetivo (piloto, motor actual) | **piloto en sombra corriendo** desde 06/10 (Milo, 3 clientes, 2 semanas) | `rediseno/a-agentes`, `rediseno/a-campanas` |
-| A5. Resto de los roles | pendiente | |
+| A5. Resto de los roles | pendiente (pasa a C2b: cada rol migra al runner propio) | |
+| C2a. Runner propio | **en producción** (`LMTM_RUNNER=1`); primer rol: media buyer | `rediseno/c2-runner`, `rediseno/c2-horario` |
+| C1. App propia (Hoy, Clientes, Cliente, Agentes, Config) | deploy en curso | `rediseno/c1-app` |
 
 **Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
@@ -37,6 +39,32 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 - Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
 
 ## Bitácora
+
+### 06/10 tarde: fase C, investigación, runner propio y app propia
+
+Pedido: "¿seguimos sobre paperclip? ¿los agentes corren en un entorno nuevo? La
+interfaz no es la que buscamos; investigá equipos y agencias manejadas por
+agentes y basate en eso". Respuesta honesta: hasta hoy, sí sobre paperclip.
+
+- **Investigación** en `INVESTIGACION.md` (Project Vend, Polsia, HurumoAI,
+  TheAgentCompany, Agent Inbox, playbooks de pauta con agentes, frameworks).
+  `PLAN-C.md` reescrito como "LMTM propio" con esos principios.
+- **Runner propio** (`server/src/agentes/`, migración 0152 `agente_trabajos`):
+  cola en Postgres, Claude Agent SDK con MiniMax (sin API key), roles en
+  `roles/*.md`, compuerta por herramienta (escalón N0 en el motor: le saca
+  `approved` a todo), registro de pasos. Disparadores: decisión
+  `pauta:gasto_caido` → media buyer investiga; horario 11:00 L–V → revisión
+  diaria del piloto, un trabajo por cliente, en paralelo con la rutina de Milo.
+  Probado en local contra MiniMax: investigación en 35 s, 4 pasos en el orden
+  del procedimiento, causa + verificado + supuestos.
+- **Primer arranque en prod (17:53 UTC):** encoló solo las 7 decisiones abiertas
+  y las 7 fallaron en 0 s: el binario nativo del SDK no se instala en la imagen.
+  Arreglo: usar `/usr/local/bin/claude` (`660158d`). Se reintentan solas a los 30 min.
+- **Error mío:** ese commit se llevó borrados staged de páginas viejas; el build
+  falló (prod siguió con el deploy anterior). Restaurado en `545c9b1`.
+- **App propia** (`ui/src/app/`): rutas sin prefijo (hoy, clientes, agentes,
+  config), shell propio; la ficha reusa todas las secciones viejas
+  (`TabContent`). 959 tests de UI, tsc y build OK.
 
 ### 06/10 08:20: PR #2 de B (B1–B4) en producción
 
