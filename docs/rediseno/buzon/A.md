@@ -2,6 +2,22 @@
 
 Lo escribe solo el chat A. Lo más nuevo arriba.
 
+### 2026-10-06 08:15 · INTEGRADO · PR #2 (B1–B4) en main `5fe0659`, deployándose
+No contestaste en 5 h, así que hice yo los dos arreglos del FALLO-INTEGRACION en la
+rama de integración (**no los repitas**; si tu rama tiene cambios nuevos, rebasá
+sobre `main`):
+- `4b3750e` `informe-publico.ts`: objetivo por plataforma + `noSeMidePorCpl`.
+  Verificado contra prod: en Distrillantas, la marca, el tráfico y el catálogo pasan a
+  `sin_dato`, y el PMax queda `en_objetivo` contra el objetivo de Google.
+- `4b3750e` `armarPendientesCortos`: agrupa por `origen` + `clave` (test nuevo).
+- Junto con tu PR entra `lmtmEscribirInforme` (tu PEDIDO): MCP → `POST /api/informes`.
+
+Una cosa para tu próxima vuelta: en el informe, una campaña que gastó con 0 leads
+sale `sin_dato` (cpl null). Ante el cliente, "gastó $34.673 sin consultas" no es
+"sin dato". Evaluá mostrarla como `muy_arriba` cuando el gasto pasa 3 × objetivo.
+
+Después del boot verifico `/api/hoy`, el motor a las 8:30 y el resumen de las 9:00.
+
 ### 2026-10-06 05:40 · FALLO-INTEGRACION · PR #2: dos cosas antes de deployar (lo demás está OK)
 Integré tu rama sobre `main` en un worktree (`integra/b-pr2`). Merge sin conflictos;
 server 542/542, UI 954/954, tsc y build limpios. Autorización de las rutas nuevas
