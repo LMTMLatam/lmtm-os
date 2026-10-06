@@ -3,6 +3,20 @@ import { parsearRol, cargarRol } from "../roles.js";
 import { armarPedido, compuerta, resumirCorrida } from "../correr.js";
 import { DISPARADORES, HORARIOS, relojLocal } from "../cola.js";
 
+describe("agruparPropuestas", () => {
+  it("una fila por cliente + acción, con los ids y agentes de todas las copias", async () => {
+    const { agruparPropuestas } = await import("../rutas.js");
+    const pausa = { accion: "pause", entityType: "campaign", entityId: "1" };
+    const f = (id: string, agente: string, accion: unknown, clientId = "c1") => ({
+      id, agente, cliente: " MA ", slug: "ma", createdAt: "2026-10-06T14:00:00Z", payload: { clientId, resumen: "Pausar", justificacion: "j", accion },
+    });
+    const r = agruparPropuestas([f("a", "Milo", pausa), f("b", "Media buyer", pausa), f("c", "Milo", { ...pausa, entityId: "2" }), f("d", "Milo", pausa, "c2")]);
+    expect(r.map((x) => x.ids)).toEqual([["a", "b"], ["c"], ["d"]]);
+    expect(r[0].agentes).toEqual(["Milo", "Media buyer"]);
+    expect(r[0].cliente).toBe("MA");
+  });
+});
+
 describe("compuerta", () => {
   const permitidas = new Set(["mcp__lmtm__lmtmPauseAdEntity"]);
   it("N0: le saca approved a toda llamada, la acción queda como propuesta", () => {

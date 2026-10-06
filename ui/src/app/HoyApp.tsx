@@ -16,6 +16,7 @@ import { etiquetaResponsable, fechaLarga, haceCuanto, horaCorta, pesos, tocaLaPa
 import { frasePlegadas, plegarSinPlata } from "../lmtm/plegar";
 import { agentesApi, nombreRol, type Trabajo } from "./api";
 import { Encabezado } from "./Shell";
+import { PropuestasAgentes } from "./Propuestas";
 
 type Filtro = "todo" | "aprobar" | "equipo" | "cliente";
 const FILTROS: Array<{ k: Filtro; label: string; pasa: (d: Decision) => boolean }> = [
@@ -136,6 +137,8 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
             </div>
           </Tarjeta>
         </div>
+
+        <PropuestasAgentes />
 
         <section className="mt-7">
           <div className="sticky top-0 z-10 -mx-4 bg-l-papel/95 px-4 pb-3 pt-2 backdrop-blur md:-mx-8 md:px-8">

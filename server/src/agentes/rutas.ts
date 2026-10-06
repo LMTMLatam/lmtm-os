@@ -3,11 +3,13 @@
 //   GET  /api/agentes/trabajos        lo que hicieron los agentes (?clientId= ?rol= ?estado= ?ref= ?limite=), sin pasos
 //   GET  /api/agentes/trabajos/:id    un trabajo con todos sus pasos
 //   POST /api/agentes/trabajos        pedirle algo a un rol: { rol, clientId?, pedido }
+//   GET  /api/agentes/propuestas      propuestas de pauta pendientes, una por acción
 
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { agenteTrabajos } from "@paperclipai/db";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { agents, agenteTrabajos, approvals, clients } from "@paperclipai/db";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { TIPO_ACCION_PAUTA } from "../services/ads-propuestas.js";
 import { assertBoard, assertBoardOrgAccess, assertCompanyAccess } from "../routes/authz.js";
 import { unauthorized } from "../errors.js";
 import { empresaParaAcceso } from "../decisiones/store.js";
@@ -16,12 +18,56 @@ import { encolar } from "./cola.js";
 import { cargarRol } from "./roles.js";
 
 const UUID = /^[0-9a-f-]{36}$/i;
+
+export interface PropuestaAgrupada {
+  clave: string;
+  ids: string[];
+  agentes: string[];
+  clientId: string;
+  cliente: string;
+  slug: string;
+  resumen: string;
+  justificacion: string;
+  accion: unknown;
+  createdAt: string;
+}
+
+/** Puro: una fila por cliente + acción (tipo, entidad, monto), en el orden en que llegaron. */
+export function agruparPropuestas(
+  filas: Array<{ id: string; payload: unknown; createdAt: Date | string; agente: string | null; cliente: string; slug: string }>,
+): PropuestaAgrupada[] {
+  const porClave = new Map<string, PropuestaAgrupada>();
+  for (const f of filas) {
+    const p = f.payload as { clientId?: string; resumen?: string; justificacion?: string; accion?: Record<string, unknown> } | null;
+    if (!p?.clientId || !p.accion) continue;
+    const clave = `${p.clientId}|${JSON.stringify(p.accion)}`;
+    const ya = porClave.get(clave);
+    if (ya) {
+      ya.ids.push(f.id);
+      if (f.agente && !ya.agentes.includes(f.agente)) ya.agentes.push(f.agente);
+      continue;
+    }
+    porClave.set(clave, {
+      clave,
+      ids: [f.id],
+      agentes: f.agente ? [f.agente] : [],
+      clientId: p.clientId,
+      cliente: f.cliente.trim(),
+      slug: f.slug,
+      resumen: p.resumen ?? "",
+      justificacion: p.justificacion ?? "",
+      accion: p.accion,
+      createdAt: new Date(f.createdAt).toISOString(),
+    });
+  }
+  return [...porClave.values()];
+}
 const ESTADOS = new Set(["pendiente", "corriendo", "hecho", "fallo", "cancelado"]);
 
 export function agentesRoutes(db: Db) {
   const router = Router();
 
-  router.use("/agentes/trabajos", (req, _res, next) => {
+  router.use("/agentes", (req, _res, next) => {
     if (req.actor.type === "none") throw unauthorized("Authentication required");
     next();
   });
@@ -76,6 +122,32 @@ export function agentesRoutes(db: Db) {
       if (!t) return res.status(404).json({ error: "No existe." });
       if (t.clientId) assertCompanyAccess(req, await empresaParaAcceso(db, t.clientId));
       res.json({ trabajo: t });
+    } catch (e) {
+      responderError(res, e);
+    }
+  });
+
+  // Las propuestas de pauta de los agentes (approvals accion_pauta pendientes),
+  // una por acción: si dos agentes propusieron lo mismo (Milo y el media buyer
+  // en paralelo durante el piloto) va una sola fila con todos los ids.
+  router.get("/agentes/propuestas", async (req, res) => {
+    try {
+      assertBoardOrgAccess(req);
+      const filas = await db
+        .select({
+          id: approvals.id,
+          payload: approvals.payload,
+          createdAt: approvals.createdAt,
+          agente: agents.name,
+          cliente: clients.name,
+          slug: clients.slug,
+        })
+        .from(approvals)
+        .leftJoin(agents, eq(agents.id, approvals.requestedByAgentId))
+        .innerJoin(clients, sql`${clients.id}::text = ${approvals.payload}->>'clientId'`)
+        .where(and(eq(approvals.type, TIPO_ACCION_PAUTA), eq(approvals.status, "pending")))
+        .orderBy(approvals.createdAt);
+      res.json({ propuestas: agruparPropuestas(filas) });
     } catch (e) {
       responderError(res, e);
     }
