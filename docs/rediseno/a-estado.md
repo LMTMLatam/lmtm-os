@@ -11,8 +11,8 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 | A3. Aislamiento por cliente | **en producción**; limpieza de memoria hecha; Randstad verificado | `rediseno/a-aislamiento` |
 | A4. Agentes con objetivo (piloto, motor actual) | **piloto en sombra corriendo** desde 06/10 (Milo, 3 clientes, 2 semanas) | `rediseno/a-agentes`, `rediseno/a-campanas` |
 | A5. Resto de los roles | pendiente (pasa a C2b: cada rol migra al runner propio) | |
-| C2a. Runner propio | **en producción** (`LMTM_RUNNER=1`); primer rol: media buyer | `rediseno/c2-runner`, `rediseno/c2-horario` |
-| C1. App propia (Hoy, Clientes, Cliente, Agentes, Config) | deploy en curso | `rediseno/c1-app` |
+| C2a. Runner propio | **en producción** (`LMTM_RUNNER=1`); roles media buyer, estratega, contenido | `rediseno/c2-*` |
+| C1. App propia (Hoy, Clientes, Cliente, Agentes, Config y las de "Más") | **en producción**; falta el retiro de las pantallas de paperclip (C3) | `rediseno/c1-*` |
 
 **Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
@@ -84,8 +84,31 @@ agentes y basate en eso". Respuesta honesta: hasta hoy, sí sobre paperclip.
   entrega racionada), LoMasFundas (Google sin entrega desde el 04/10, Meta
   desconectada), COSA (caída chica y repartida: no se puede saber). Se ven en Hoy
   al abrir la fila.
-- Siguiente: `pauta:sin_leads` también disparada (diagnóstico + concepto de
-  reemplazo), en deploy.
+- `pauta:sin_leads` en producción (16:10): 4 de 5 con causa y concepto de
+  reemplazo (BOERO: «REsearch x2» 38.973 clics y 0 leads, keywords
+  informacionales; SEBASTIAN: el conjunto es de una campaña de interacción, no se
+  arregla con creativo). PKT GLOBAL falló el formato estructurado: ahora se
+  rescata el último intento (`6675f9c`); y un resultado sin ninguna herramienta
+  consultada es fallo.
+
+**Sumado la misma tarde:**
+- Rol **estratega** (`1d6d69b`): lunes 11:00 reescribe el informe automático de
+  cada cliente. Probado en local con datos reales de Distrillantas y el auditor
+  real: aprobado en el segundo intento. Primera corrida real: lunes 12/10.
+- Rol **contenido** (`32f9ec7`): cada `cadena:sin_calendario` (28) recibe un
+  calendario de 2 semanas en la voz del cliente, como propuesta en Hoy.
+- **Resumen de las 9:00** (`7635f4d`): debajo de cada decisión que pesa, lo que
+  ya averiguó el agente.
+- **Hoy**: propuestas de pauta de los agentes (estaban solo en Aprobaciones de
+  paperclip: 44 sin ver), una por acción, aprobar / rechazar con motivo / en tanda
+  por cliente (`6c207a0`); evolución de la plata parada (`1043e27`, se llena desde
+  la corrida del 07/10).
+- **App**: Semáforo, Pauta, Contenido, Inteligencia, Licitaciones, Finanzas y
+  WhatsApp dentro del shell propio (`d816ce2`); título "LMTM" (`cfdb4ba`).
+
+**Qué queda (C):** rol inteligencia y operaciones en el runner; apagar por rol los
+agentes de paperclip cuando el del runner gane en el evaluador (media buyer:
+22/22 vs 20/22 el primer día, falta más de un día); C3 retiro de paperclip.
 
 ### 06/10 08:20: PR #2 de B (B1–B4) en producción
 
