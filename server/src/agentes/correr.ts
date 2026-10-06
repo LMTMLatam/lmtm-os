@@ -9,6 +9,7 @@
 //  · topes: turnos y minutos del rol;
 //  · registro: cada herramienta usada queda como un paso (qué pidió, qué volvió).
 
+import { existsSync } from "node:fs";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Db } from "@paperclipai/db";
 import { agents, companies } from "@paperclipai/db";
@@ -142,6 +143,18 @@ export function armarPedido(t: Pick<Trabajo, "entrada">): string {
   return lineas.join("\n");
 }
 
+/**
+ * El CLI de Claude Code que corre el ciclo. El SDK trae un binario por
+ * plataforma, pero en la imagen de Docker no se instala (falló el 06/10:
+ * "native binary not found"); la imagen ya tiene el CLI global que usan los
+ * agentes de paperclip. En local (sin ese archivo) usa el del SDK.
+ */
+function binarioClaude(): string | undefined {
+  const propio = process.env.LMTM_CLAUDE_BIN?.trim();
+  if (propio) return propio;
+  return existsSync("/usr/local/bin/claude") ? "/usr/local/bin/claude" : undefined;
+}
+
 /** El agente con el que firma el rol. Si no existe, se crea sin reloj (nunca lo despierta paperclip). */
 async function agenteDelRol(db: Db, nombre: string): Promise<{ id: string; companyId: string }> {
   const [a] = await db.select({ id: agents.id, companyId: agents.companyId }).from(agents).where(eq(agents.name, nombre)).limit(1);
@@ -198,7 +211,7 @@ export async function correrTrabajo(db: Db, t: Trabajo, opts: { serverPort: numb
           abortController: corte,
           persistSession: false,
           settingSources: [],
-          pathToClaudeCodeExecutable: process.env.LMTM_CLAUDE_BIN?.trim() || undefined,
+          pathToClaudeCodeExecutable: binarioClaude(),
           // Solo lo que el proceso necesita: ni la base ni otras claves del servidor.
           env: {
             PATH: process.env.PATH,
