@@ -16,6 +16,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
 import { decisionesRoutes } from "./decisiones/rutas.js";
+import { conectorMcpRoutes, lecturaRoutes } from "./routes/conector-mcp.js";
 import { avisosRoutes } from "./avisos/rutas.js";
 import { informesRoutes } from "./decisiones/informes-rutas.js";
 import { videoRoutes } from "./routes/video.js";
@@ -224,6 +225,8 @@ export async function createApp(
     app.all("/api/auth/{*authPath}", opts.betterAuthHandler);
   }
   app.use(llmRoutes(db));
+  // Conector MCP para Claude (fase C): POST /mcp con clave de tablero de admin.
+  app.use(conectorMcpRoutes({ serverPort: opts.serverPort }));
   // ClickUp webhook (client auto-provisioning). Unauthenticated by design —
   // verified by HMAC over the raw body — so it sits before the authed router.
   app.use("/api/clickup", clickupWebhookRoutes(db));
@@ -247,6 +250,7 @@ export async function createApp(
   api.use(metaSyncRoutes(db));
   api.use(adsRoutes(db));
   api.use(decisionesRoutes(db));
+  api.use(lecturaRoutes(db));
   api.use(avisosRoutes(db));
   api.use(informesRoutes(db));
   api.use(videoRoutes(db));

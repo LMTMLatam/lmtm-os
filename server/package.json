@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@paperclipai/adapter-acpx-local": "workspace:*",
     "@paperclipai/adapter-claude-local": "workspace:*",
     "@paperclipai/adapter-codex-local": "workspace:*",
@@ -58,6 +59,7 @@
     "@paperclipai/db": "workspace:*",
     "@paperclipai/mcp-clickup": "workspace:*",
     "@paperclipai/mcp-google": "workspace:*",
+    "@paperclipai/mcp-server": "workspace:^",
     "@paperclipai/plugin-sdk": "workspace:*",
     "@paperclipai/shared": "workspace:*",
     "@types/qrcode": "^1.5.6",

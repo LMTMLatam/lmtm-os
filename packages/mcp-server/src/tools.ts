@@ -642,6 +642,12 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         }),
     ),
     makeTool(
+      "lmtmSql",
+      "LEER TODO: consulta SQL de solo lectura sobre la base de LMTM-OS (Postgres). Corre con el rol de solo lectura (no ve tokens ni secretos), 20 s de tope, hasta 500 filas. Para escribir usá las otras herramientas o paperclipApiRequest, nunca SQL. Solo admin del tablero.",
+      z.object({ sql: z.string().min(1).describe("Una sola sentencia SELECT/WITH.") }),
+      async ({ sql }) => client.requestJson("POST", "/lectura/sql", { body: { sql } }),
+    ),
+    makeTool(
       "lmtmEscribirInforme",
       "Escribe el INFORME SEMANAL de un cliente (lo que ve el cliente en su link, después de que una persona lo publique). SIN NÚMEROS: usá marcadores que el servidor completa con las métricas de la semana: {cpl} {objetivo} {leads} {inversion} {ventas} {costoPorVenta} {variacionCpl} {variacionLeads} {cplAnterior} {leadsAnterior} {inversionAnterior} {desde} {hasta}. El resumen tiene que decir {cpl} y compararlo con {objetivo}, y `proximos` no puede ir vacío. La respuesta trae la auditoría (ok / fallas): si falla, corregí y volvé a llamar UNA vez. No publica nada.",
       z.object({

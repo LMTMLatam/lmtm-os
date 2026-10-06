@@ -935,13 +935,27 @@ const CORE_TOOLS: ToolDef[] = [
   },
 ];
 
-function actorContext(req: Request): { agentId: string; companyId: string; runId: string } | null {
+/** Nombre del agente con el que actúa el conector MCP de Claude (fase C). */
+export const AGENTE_CONECTOR = "Claude (conector)";
+
+async function actorContext(db: Db, req: Request): Promise<{ agentId: string; companyId: string; runId: string } | null> {
   if (req.actor.type === "agent") {
     return {
       agentId: req.actor.agentId ?? "",
       companyId: req.actor.companyId ?? "",
       runId: req.actor.runId ?? "",
     };
+  }
+  // Un admin del tablero (el conector MCP de Claude) usa las mismas herramientas
+  // que los agentes, actuando como el agente "Claude (conector)": las tools
+  // guardan agentId como FK, y así queda registrado quién hizo cada cosa.
+  if (req.actor.type === "board" && req.actor.isInstanceAdmin) {
+    const [a] = await db
+      .select({ id: agents.id, companyId: agents.companyId })
+      .from(agents)
+      .where(eq(agents.name, AGENTE_CONECTOR))
+      .limit(1);
+    if (a) return { agentId: a.id, companyId: a.companyId, runId: "" };
   }
   return null;
 }
@@ -977,7 +991,7 @@ export function agentToolsRoutes(
   // agente borrado, DB caída) devuelve el default, que es "accion": este gate
   // limita a quien está marcado como consulta, no rompe a quien no lo está.
   async function modoDelActor(req: Request): Promise<ModoAgente> {
-    const ctx = actorContext(req);
+    const ctx = await actorContext(db, req);
     if (!ctx?.agentId) return MODO_POR_DEFECTO;
     try {
       const [row] = await db
@@ -1006,8 +1020,8 @@ export function agentToolsRoutes(
   // { ok, content } so the adapter can feed the result (success OR error) back to
   // the model as a tool message and let it recover.
   router.post("/agent-tools/execute", async (req, res) => {
-    const ctx = actorContext(req);
-    if (!ctx) throw unauthorized("Agent authentication required");
+    const ctx = await actorContext(db, req);
+    if (!ctx) throw unauthorized("Agent authentication required (o admin del tablero con el agente \"Claude (conector)\" creado)");
     const body = (req.body ?? {}) as { tool?: unknown; parameters?: unknown };
     const tool = typeof body.tool === "string" ? body.tool : "";
     const params = (body.parameters ?? {}) as Record<string, unknown>;
