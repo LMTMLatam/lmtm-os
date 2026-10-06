@@ -44,8 +44,20 @@ informes programados; health 200; `/api/hoy` sin sesión → 401. Link público 
 de Distrillantas y MA PROPIEDADES: 200, con la marca, el catálogo y Google
 dudoso en `sin_dato`.
 
-**Para verificar hoy:** corrida del motor (8:30 ART) contra el ensayo de 90
-decisiones, resumen de las 9:00 sin repetidos, Luna 9:30, Milo 11:00.
+**Verificado en el día:**
+- **Motor (8:30):** abrió 165 decisiones (en prod también corren saldo y cadena,
+  que el ensayo no podía). 18 eran "Cargar saldo antes de que se frene" con gasto
+  null, de responsable cliente → salían como pedido en su link público (MA
+  PROPIEDADES, con su Meta gastando ARS 287.000/semana). Arreglo `rediseno/a-saldo-sin-gasto`
+  (sin gasto conocido no se pide saldo), deploy 11:54 UTC, 16 descartadas con motivo
+  (las otras 2 eran frenadas reales). Link de MA PROPIEDADES: sin pedidos.
+- **Resumen de las 9:00:** salió 9:04, sin repetidos (2 avisos extra). Para B: los
+  incidentes se repiten dentro de "Otros avisos" y las tendencias son viejas
+  (marzo, febrero).
+- **Luna (9:30):** terminó en 12,2 min, OK. Antes la cortaban el timeout (10) o el
+  reaper (12). Corte por agente verificado.
+- Cadena de publicación incluye clientes plantilla (Cliente Natural, Cliente
+  Inmobiliario) en Hoy: para B.
 
 ### 06/10 05:40: reloj verificado, PR #2 de B revisado (vuelve con dos arreglos)
 
