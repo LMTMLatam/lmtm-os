@@ -95,7 +95,11 @@ describe("resumirCorrida", () => {
   });
 
   it("si no hay estructurado, rescata el JSON del texto", () => {
-    const c = resumirCorrida([{ type: "result", subtype: "success", result: 'listo: {"resumen":"Terminó","verificado":[],"supuestos":[]}' }]);
+    const c = resumirCorrida([
+      usar("1", "mcp__lmtm__x", {}),
+      volver("1", "{}"),
+      { type: "result", subtype: "success", result: 'listo: {"resumen":"Terminó","verificado":[],"supuestos":[]}' },
+    ]);
     expect(c.resultado).toEqual({ resumen: "Terminó", verificado: [], supuestos: [] });
   });
 
@@ -121,8 +125,21 @@ describe("resumirCorrida", () => {
     expect(c.error).toMatch(/Todas las herramientas fallaron/);
   });
 
+  it("si el formato estructurado falla 5 veces, rescata el último intento con resumen", () => {
+    const c = resumirCorrida([
+      usar("1", "mcp__lmtm__lmtmGetClientCampaigns", {}),
+      volver("1", '{"campanas":[]}'),
+      usar("2", "StructuredOutput", { resumen: "Objetivo de interacción", verificado: "una sola línea", supuestos: null }),
+      { type: "result", subtype: "error_max_structured_output_retries", errors: ["Failed to provide valid structured output after 5 attempts"] },
+    ]);
+    expect(c.error).toBeNull();
+    expect(c.resultado).toMatchObject({ resumen: "Objetivo de interacción", verificado: ["una sola línea"], supuestos: [] });
+  });
+
   it("corta las etiquetas que MiniMax deja adentro de un campo", () => {
     const c = resumirCorrida([
+      usar("1", "mcp__lmtm__x", {}),
+      volver("1", "{}"),
       {
         type: "result",
         subtype: "success",
@@ -130,6 +147,12 @@ describe("resumirCorrida", () => {
       },
     ]);
     expect(c.resultado).toEqual({ resumen: "Sube el tope.", verificado: ["a"], supuestos: [], siguientePaso: { quien: "cliente", que: "Recargar" } });
+  });
+
+  it("un resultado sin ninguna herramienta consultada es fallo", () => {
+    const c = resumirCorrida([{ type: "result", subtype: "success", structured_output: { resumen: "Seguro es saldo", verificado: [], supuestos: [] } }]);
+    expect(c.resultado).toBeNull();
+    expect(c.error).toMatch(/no consultó ninguna herramienta/);
   });
 
   it("sin mensaje de resultado es error", () => {

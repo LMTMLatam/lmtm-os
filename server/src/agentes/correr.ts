@@ -102,10 +102,14 @@ export function resumirCorrida(mensajes: ReadonlyArray<Record<string, any>>): Co
   let tokensEntrada: number | null = null;
   let tokensSalida: number | null = null;
 
+  // El último intento de resultado estructurado: si MiniMax no logra cumplir el
+  // formato exacto en 5 intentos (06/10, PKT GLOBAL), se rescata si trae resumen.
+  let ultimoIntento: Record<string, unknown> | null = null;
   for (const m of mensajes) {
     const bloques: any[] = Array.isArray(m.message?.content) ? m.message.content : [];
     if (m.type === "assistant") {
       for (const b of bloques) {
+        if (b?.type === "tool_use" && b.name === "StructuredOutput" && b.input && typeof b.input === "object") ultimoIntento = b.input;
         if (b?.type === "tool_use" && b.name !== "StructuredOutput") {
           usos.set(b.id, { herramienta: String(b.name).replace(`mcp__${SERVIDOR_MCP}__`, ""), entrada: b.input });
         }
@@ -126,6 +130,9 @@ export function resumirCorrida(mensajes: ReadonlyArray<Record<string, any>>): Co
         const so = m.structured_output;
         resultado = so && typeof so === "object" ? (so as Record<string, unknown>) : parsearJson(String(m.result ?? ""));
         if (!resultado && m.result) resultado = { resumen: recortar(String(m.result), 1_000), verificado: [], supuestos: [] };
+      } else if (m.subtype === "error_max_structured_output_retries" && typeof ultimoIntento?.resumen === "string") {
+        const lista = (x: unknown) => (Array.isArray(x) ? x.map(String) : typeof x === "string" ? [x] : []);
+        resultado = { ...ultimoIntento, verificado: lista(ultimoIntento.verificado), supuestos: lista(ultimoIntento.supuestos) };
       } else {
         error = [m.subtype, ...(Array.isArray(m.errors) ? m.errors : [])].join(": ");
       }
@@ -138,6 +145,9 @@ export function resumirCorrida(mensajes: ReadonlyArray<Record<string, any>>): Co
   const fallaHerramienta = (p: Paso) => p.error === true || /failed with \d{3}|"status":\s*[45]\d\d/.test(p.salida);
   if (pasos.length > 0 && pasos.every(fallaHerramienta)) {
     error = `Todas las herramientas fallaron: ${pasos[0].salida.slice(0, 300)}`;
+    resultado = null;
+  } else if (pasos.length === 0 && resultado) {
+    error = "El agente no consultó ninguna herramienta: el resultado no se apoya en datos.";
     resultado = null;
   }
   return { pasos, resultado, error, turnos, tokensEntrada, tokensSalida };
