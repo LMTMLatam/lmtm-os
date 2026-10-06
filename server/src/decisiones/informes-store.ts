@@ -15,6 +15,7 @@ import {
   esSemanaValida,
   numerosDeMetricas,
   semanaAnterior,
+  TIPOS_QUE_VE_EL_CLIENTE,
   ultimaSemana,
   validarNarrativa,
   type Auditoria,
@@ -267,7 +268,7 @@ async function decisionesDeSemana(db: Db, clientId: string, semana: { desde: str
     ));
   // Abiertas de las reglas: lo que escribe un agente no va solo al cliente.
   const abiertas = await db
-    .select({ que: decisiones.que, responsable: decisiones.responsable })
+    .select({ que: decisiones.que, responsable: decisiones.responsable, tipo: decisiones.tipo })
     .from(decisiones)
     .where(and(
       eq(decisiones.clientId, clientId),
@@ -279,7 +280,9 @@ async function decisionesDeSemana(db: Db, clientId: string, semana: { desde: str
   return {
     hechas: hechas.map((h) => h.que),
     abiertasEquipo: abiertas.filter((a) => a.responsable !== "cliente").map((a) => a.que),
-    abiertasCliente: abiertas.filter((a) => a.responsable === "cliente").map((a) => a.que),
+    // Lo mismo que el link: aunque el borrador lo publica una persona, lo que se
+    // le pide al cliente sale solo de las reglas que dicen un hecho medido.
+    abiertasCliente: abiertas.filter((a) => a.responsable === "cliente" && TIPOS_QUE_VE_EL_CLIENTE.has(a.tipo)).map((a) => a.que),
   };
 }
 

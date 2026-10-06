@@ -28,6 +28,9 @@ export interface IncidenteNuevo {
 }
 
 /** Dominio de producción (CONTEXTO.md). Se usa si no está PAPERCLIP_PUBLIC_URL. */
+/** El origen con el que los incidentes entran al embudo (la política lo deja interrumpir). */
+export const ORIGEN_INCIDENTES = "incidentes";
+
 const URL_PRODUCCION = "https://lmtm-os-production.up.railway.app";
 
 /** Link absoluto a Hoy: el que se toca desde el WhatsApp tiene que abrir. */
@@ -57,7 +60,7 @@ export async function avisarIncidentes(db: Db, incidentes: IncidenteNuevo[]): Pr
   const texto = armarMensajeIncidentes(incidentes, await urlDeHoy(db));
   if (!texto) return null;
   return avisarAlEquipo(db, {
-    origen: "incidentes",
+    origen: ORIGEN_INCIDENTES,
     nivel: 5,
     // El mismo conjunto de incidentes no se avisa dos veces en 24 h.
     clave: `incidentes:${incidentes.map((i) => i.clave).sort().join(",")}`,

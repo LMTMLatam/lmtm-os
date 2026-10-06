@@ -6,8 +6,9 @@
 // que estamos viendo (cobertura). Diseño: skill lmtm-diseno, dirección
 // "Parte del día" (ver el PR de B2 para la comparación con la otra).
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Hourglass, OctagonAlert, WifiOff } from "lucide-react";
+import { ChevronDown, Hourglass, OctagonAlert, WifiOff } from "lucide-react";
 import { decisionesApi, type Fuente, type Hoy as DatosHoy } from "../api/decisiones";
 import {
   BarraCobertura,
@@ -18,6 +19,7 @@ import {
   LmtmPantalla,
 } from "../lmtm/componentes";
 import { fechaLarga, haceCuanto, horaCorta, pesos } from "../lmtm/formato";
+import { frasePlegadas, plegarSinPlata } from "../lmtm/plegar";
 
 const NOMBRE_FUENTE: Record<Fuente, string> = { meta_ads: "Meta", google_ads: "Google", organico: "Redes" };
 
@@ -52,6 +54,11 @@ function Contenido({ h }: { h: DatosHoy }) {
   // La cuenta de clientes viene del server, del mismo conjunto que sumó la
   // plata: contarlos acá mezclaba los que no tienen plata medida.
   const clientesParados = h.clientesParados;
+  // Todo lo que tiene plata se ve; de lo que no, unas pocas y el resto contado
+  // en una línea (ver lmtm/plegar.ts: el primer día son ~80 sin plata).
+  const [verTodas, setVerTodas] = useState(false);
+  const { visibles, plegadas, porFamilia } = plegarSinPlata(h.decisiones);
+  const aMostrar = verTodas ? h.decisiones : visibles;
 
   return (
     <>
@@ -92,11 +99,27 @@ function Contenido({ h }: { h: DatosHoy }) {
         {h.decisiones.length === 0 ? (
           <p className="text-[14px] text-l-tinta-2">No hay nada para decidir. Si algo cambia, aparece acá.</p>
         ) : (
-          <ul>
-            {h.decisiones.map((d, i) => (
-              <FilaDecision key={d.id} d={d} n={i + 1} />
-            ))}
-          </ul>
+          <>
+            <ul>
+              {aMostrar.map((d, i) => (
+                <FilaDecision key={d.id} d={d} n={i + 1} />
+              ))}
+            </ul>
+            {plegadas.length > 0 && !verTodas && (
+              <div className="mt-3 text-[14px] text-l-tinta-2">
+                <p>
+                  {plegadas.length === 1 ? "Queda 1 más sin plata medida" : `Quedan ${plegadas.length} más sin plata medida`}: {frasePlegadas(porFamilia)}.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setVerTodas(true)}
+                  className="mt-1 inline-flex min-h-11 items-center gap-1 text-[14px] font-semibold text-l-marca"
+                >
+                  Ver las {plegadas.length} <ChevronDown className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            )}
+          </>
         )}
       </Franja>
 

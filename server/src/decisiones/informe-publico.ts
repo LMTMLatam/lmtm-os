@@ -21,6 +21,7 @@ import {
   renderizarNarrativa,
   semanaAnterior,
   ultimaSemana,
+  TIPOS_QUE_VE_EL_CLIENTE,
   type EstadoObjetivo,
   type Narrativa,
   type NumerosInforme,
@@ -86,7 +87,12 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
   const medida = numeros.costoPorCalificado != null ? "calificado" : "lead";
   // Con conversiones de Google que no son consultas, el costo por consulta
   // del total no se compara con nada: "En el objetivo" sería falso.
-  const estado = numeros.leadsDudosos && medida === "lead" ? "sin_dato" : estadoContraObjetivo(medida === "calificado" ? numeros.costoPorCalificado : numeros.cpl, numeros.objetivo);
+  const estado =
+    numeros.leadsDudosos && medida === "lead"
+      ? "sin_dato"
+      : medida === "calificado"
+        ? estadoContraObjetivo(numeros.costoPorCalificado, numeros.objetivo)
+        : estadoContraObjetivo(numeros.cpl, numeros.objetivo, { gasto: numeros.inversion, consultas: numeros.leads });
 
   // Tendencia: la semana pedida y las 7 anteriores, cada una de metricasCliente().
   const semanas: Array<{ desde: string; hasta: string }> = [semana];
@@ -130,7 +136,7 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
           inversion: c.inversion,
           leads: c.leads,
           cpl: c.cpl,
-          estado: noSeMidePorCpl(c, vara) ? "sin_dato" : estadoContraObjetivo(c.cpl, vara.tcpl[c.plataforma]),
+          estado: noSeMidePorCpl(c, vara) ? "sin_dato" : estadoContraObjetivo(c.cpl, vara.tcpl[c.plataforma], { gasto: c.inversion, consultas: c.leads }),
           leadsDudosos: c.leadsDudosos,
         }))
     : null;
@@ -145,6 +151,7 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
       inArray(decisiones.estado, ["abierta", "aprobada"]),
       eq(decisiones.responsable, "cliente"),
       sql`${decisiones.creadaPor} like 'regla:%'`,
+      inArray(decisiones.tipo, [...TIPOS_QUE_VE_EL_CLIENTE]),
     ))
     .orderBy(sql`${decisiones.arsPorDia} desc nulls last`);
   const narrativa = publicado ? renderizarNarrativa(publicado.narrativa, publicado.numeros) : null;
