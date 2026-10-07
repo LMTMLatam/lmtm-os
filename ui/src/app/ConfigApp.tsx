@@ -9,7 +9,8 @@ import { Tarjeta, TituloFranja } from "./HoyApp";
 
 const AJUSTES = [
   { to: "/conexiones", titulo: "Conexiones de pauta", detalle: "Meta Ads y Google Ads de cada cliente" },
-  { to: "/whatsapp", titulo: "WhatsApp", detalle: "Grupos de clientes, avisos y bot" },
+  { to: "/avisos", titulo: "Avisos de WhatsApp", detalle: "Qué se mandó, qué va al resumen y qué se descartó, con el motivo" },
+  { to: "/whatsapp", titulo: "WhatsApp", detalle: "Grupos de clientes y bot" },
   { to: "/preparacion", titulo: "Preparación de clientes", detalle: "Qué le falta a cada cliente para operar solo" },
   { to: "/company/settings/access", titulo: "Equipo y accesos", detalle: "Quién entra y con qué permisos" },
   { to: "/company/settings", titulo: "Empresa", detalle: "Datos generales" },

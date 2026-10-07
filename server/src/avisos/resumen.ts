@@ -185,7 +185,7 @@ const NOMBRE_ORIGEN: Record<string, string> = {
   brief: "Brief",
 };
 
-const nombreDeOrigen = (origen: string) => NOMBRE_ORIGEN[origen] ?? "Otros avisos";
+export const nombreDeOrigen = (origen: string) => NOMBRE_ORIGEN[origen] ?? (origen === ORIGEN_RESUMEN ? "Resumen de las 9:00" : "Otros avisos");
 
 /** Monitores cuyo aviso es el estado completo del momento: el más nuevo reemplaza a los anteriores. */
 export const ORIGENES_FOTO: ReadonlySet<string> = new Set([

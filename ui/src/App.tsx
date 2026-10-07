@@ -70,6 +70,7 @@ import { ConfigApp } from "./app/ConfigApp";
 import { ContenidoApp } from "./app/ContenidoApp";
 import { LicitacionesApp } from "./app/LicitacionesApp";
 import { PautaApp } from "./app/PautaApp";
+import { AvisosApp } from "./app/AvisosApp";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -353,6 +354,7 @@ export function App() {
             <Route path="config" element={<ConfigApp />} />
             <Route path="semaforo" element={<Pagina><Growth /></Pagina>} />
             <Route path="pauta" element={<PautaApp />} />
+            <Route path="avisos" element={<AvisosApp />} />
             <Route path="contenido" element={<ContenidoApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<LicitacionesApp />} />
