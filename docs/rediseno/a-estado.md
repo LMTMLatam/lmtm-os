@@ -12,7 +12,8 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 | A4. Agentes con objetivo (piloto, motor actual) | **piloto en sombra corriendo** desde 06/10 (Milo, 3 clientes, 2 semanas) | `rediseno/a-agentes`, `rediseno/a-campanas` |
 | A5. Resto de los roles | pendiente (pasa a C2b: cada rol migra al runner propio) | |
 | C2a. Runner propio | **en producción** (`LMTM_RUNNER=1`); roles media buyer, estratega, contenido | `rediseno/c2-*` |
-| C1. App propia (Hoy, Clientes, Cliente, Agentes, Config y las de "Más") | **en producción**; falta el retiro de las pantallas de paperclip (C3) | `rediseno/c1-*` |
+| C1. App propia (Hoy, Clientes, Contenido, Agentes, Config y las de "Más") | **en producción**; sin puerta a "Sistema" desde el 07/10; faltan rehacer Pauta, Semáforo, Inteligencia, Finanzas, WhatsApp (hoy con la paleta nueva) | `rediseno/c1-*` |
+| Optimización del equipo | **fase 1 aplicada** (`OPTIMIZACION-EQUIPO.md`) | main |
 
 **Integración:** A es el integrador (mergea, deploya y verifica en producción, lo
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
@@ -39,6 +40,33 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 - Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
 
 ## Bitácora
+
+### 07/10 mañana: avisos honestos, panel nuevo y optimización del equipo
+
+Pedidos de Nazareno: "las alertas notificaban cosas que no eran reales"; "todo
+panel nuevo, sin lo viejo; Hoy más fácil de atacar y que no todo sea pausar";
+"Super Redes con Higgsfield/Magnific, el alta desde ClickUp y licitaciones tienen
+que seguir"; y el optimizador de equipos de agentes como objetivo.
+
+- **Avisos (`2bf39c0`, en prod):** auditado `wa_outbox` 05–07/10. Seis señales
+  mentían (DUNOD "98 días" sin leer su página, el despachador acusado de sobrar,
+  fallas de Make del 2/10 repetidas, "destino de papel" con post del día,
+  plantillas y pruebas, tendencias con links inventados). Los monitores corrían
+  con cada deploy: `tocaHoy()` persistido. El resumen muestra la última foto de
+  cada monitor. Tests 375/375.
+- **Contenido (`4d00e27`, en prod):** sección principal nueva; calendario de Super
+  Redes de toda la agencia (ClickUp en vivo) y "Generar" con la generación de
+  siempre, viendo el pedido antes de pagar. Fuera "Sistema"; /dashboard → Hoy.
+- **Hoy (`6bc5793`):** por tema, la acción a la vista, tareas que esperan a una
+  persona contestadas en el lugar, propuestas de pauta abajo.
+- **Paleta (`52ac34c`):** lo de antes adentro de la app con los colores de LMTM;
+  conexiones y preparación en el shell.
+- **Optimización (`e68dd11`):** `OPTIMIZACION-EQUIPO.md` (A–J con datos de prod).
+  Fase 1 aplicada en prod: rutinas de Pablo que duplicaban al motor en pausa
+  (abrían ~28 tareas bloqueadas por semana) y latido de la flota a 12 h (287
+  corridas por reloj en 7 días, Delfina contestando "no tengo tarea").
+- Verificado: licitaciones activa (hoy 10:02), alta por ClickUp montada
+  (`/api/clickup`, secreto cargado), Higgsfield y Magnific con credenciales.
 
 ### 06/10 tarde: fase C, investigación, runner propio y app propia
 
