@@ -106,6 +106,19 @@ agentes y basate en eso". Respuesta honesta: hasta hoy, sí sobre paperclip.
 - **App**: Semáforo, Pauta, Contenido, Inteligencia, Licitaciones, Finanzas y
   WhatsApp dentro del shell propio (`d816ce2`); título "LMTM" (`cfdb4ba`).
 
+**De noche (06/10 23:00–00:00):**
+- Los 28 calendarios de contenido salieron (1,3 M tokens). Revisados a mano: buena
+  voz y fechas, pero con afirmaciones sin fuente ("vendimos +100 propiedades",
+  "pileta y spa"): regla explícita y paso de revisión (`7297fae`). Los 28 ya hechos
+  quedan como propuesta para revisar.
+- Plantillas de ClickUp fuera del runner (`62e2e06`).
+- Agentes: tarjeta por rol con la nota del evaluador (`137dd92`); el evaluador pasó
+  a `metricas/eval-recientes.ts`. API verificada: media buyer 29/29, Milo 20/22.
+- **Sync diario una vez por día de verdad** (`1be34f0`): con el día en memoria,
+  cada deploy disparaba el sync completo (~12 el 06/10). Verificado: el arranque
+  de las 23:45 no disparó otro.
+- Login en castellano y con la marca (`e9c6bdd`).
+
 **Qué queda (C):** rol inteligencia y operaciones en el runner; apagar por rol los
 agentes de paperclip cuando el del runner gane en el evaluador (media buyer:
 22/22 vs 20/22 el primer día, falta más de un día); C3 retiro de paperclip.
