@@ -79,6 +79,14 @@ Contenido (`70b3395`):
   el dato). Panel: "Qué funciona" en Contenido, tarjeta en Hoy y `/nichos` nuevo
   con todo lo de la pantalla vieja.
 
+- **El modelo de texto de NVIDIA había muerto (410)** y nadie se enteró: las ideas
+  caían a MiniMax en silencio, la voz de marca dejó de aprenderse y el
+  clasificador no clasificó nada en su primera vuelta. Probado contra la API:
+  `nemotron-3-super` (texto) y `gpt-oss-20b` (clasificar y respaldo automático ante
+  404/410). También en `litellm-config.yaml`.
+- También: pestaña "Qué funciona" en la ficha del cliente, resumen de los lunes con
+  lo que mejor funcionó en la semana, Inteligencia sin salud inventada.
+
 Verificación: tests propios 65/65, tsc server y ui limpios, ui 403/403. Las 64
 fallas de la batería completa son de paperclip (base embebida que no corre en
 Windows), ninguna toca lo cambiado.
