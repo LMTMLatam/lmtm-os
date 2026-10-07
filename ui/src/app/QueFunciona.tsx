@@ -215,3 +215,70 @@ export function TarjetaQueFunciona() {
     </Link>
   );
 }
+
+/** Lo de un cliente, para su ficha: sus mejores publicaciones, su mejor ángulo
+ *  y lo que funciona en su rubro y no usa. */
+export function QueFuncionaCliente({ clientId }: { clientId: string }) {
+  const q = useQueFunciona();
+  if (q.isLoading) return <p className="text-[14px] text-l-tinta-3">Midiendo…</p>;
+  const c = q.data?.clientes.find((x) => x.clientId === clientId);
+  if (!c) {
+    return (
+      <p className="text-[14px] text-l-tinta-2">
+        Esta cuenta no tiene publicaciones suficientes leídas para medirla: hacen falta al menos 8 en una red y que lo normal sea 5 interacciones o más.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Tarjeta>
+          <TituloFranja>Sus publicaciones que mejor rindieron</TituloFranja>
+          <ul>
+            {c.top.map((e) => (
+              <li key={`${e.permalink}-${e.fecha}`} className="flex items-start gap-3 border-b border-l-linea py-2.5 last:border-b-0">
+                <span className="w-12 shrink-0 pt-0.5 text-right text-[14px] font-semibold tabular-nums">{veces(e.indice)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] text-l-tinta-3">{RED[e.red] ?? e.red} {e.formato}{e.anguloNombre ? ` · ${e.anguloNombre}` : ""} · {e.fecha.split("-").reverse().join("/")}</span>
+                  <span className="block text-[14px] [overflow-wrap:anywhere]">{e.texto.slice(0, 160)}</span>
+                </span>
+                {e.permalink && (
+                  <a href={e.permalink} target="_blank" rel="noreferrer" className="shrink-0 pt-0.5 text-l-tinta-3 hover:text-l-tinta" aria-label="Ver la publicación">
+                    <ExternalLink className="h-4 w-4" aria-hidden />
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[12px] text-l-tinta-3">Contra lo normal de esta cuenta en esa red, sobre {c.publicaciones} publicaciones medidas. Para reutilizar con otro formato u otro gancho.</p>
+        </Tarjeta>
+        <Tarjeta>
+          <TituloFranja>Ángulos</TituloFranja>
+          <div className="space-y-3 text-[14px]">
+            {c.mejorAngulo ? (
+              <p><span className="font-medium">Su mejor ángulo:</span> {c.mejorAngulo.nombre} <span className="text-l-tinta-3">{veces(c.mejorAngulo.indice)} en {c.mejorAngulo.publicaciones} publicaciones</span></p>
+            ) : (
+              <p className="text-l-tinta-3">Todavía no hay ningún ángulo con 3 publicaciones clasificadas en esta cuenta.</p>
+            )}
+            {c.oportunidad ? (
+              <p className="flex gap-2">
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-l-marca" aria-hidden />
+                <span>
+                  <span className="font-medium">Para probar:</span> {c.oportunidad.nombre} rinde {veces(c.oportunidad.indiceEnNicho)} en {c.nicho} ({c.oportunidad.publicacionesNicho} publicaciones de {c.oportunidad.cuentasNicho} cuentas) y esta cuenta lo usó {c.oportunidad.usosPropios} {c.oportunidad.usosPropios === 1 ? "vez" : "veces"}.
+                </span>
+              </p>
+            ) : (
+              <p className="text-l-tinta-3">Sin un ángulo del rubro que rinda más y esta cuenta no esté usando.</p>
+            )}
+          </div>
+        </Tarjeta>
+      </div>
+      {c.nicho && (
+        <Tarjeta>
+          <TituloFranja>Lo que funciona en {c.nicho}</TituloFranja>
+          <QueFuncionaNicho nicho={c.nicho} />
+        </Tarjeta>
+      )}
+    </div>
+  );
+}

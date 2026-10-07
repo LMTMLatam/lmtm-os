@@ -15,12 +15,13 @@ import { ClientResourcesPanel, TABS, TabContent, type Tab } from "../pages/Clien
 import { agentesApi, nombreRol, ROLES } from "./api";
 import { EstadoPunto, HallazgoAgente, Tarjeta, TituloFranja } from "./HoyApp";
 import { Encabezado } from "./Shell";
+import { QueFuncionaCliente } from "./QueFunciona";
 
-type Seccion = Tab | "agentes";
+type Seccion = Tab | "agentes" | "que-funciona";
 
 /** Orden de la ficha nueva: lo de decidir primero, lo de contenido después. */
-const ORDEN: Seccion[] = ["resumen", "plan-accion", "dashboard", "agentes", "calendario", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"];
-const NOMBRE: Partial<Record<Seccion, string>> = { dashboard: "Pauta", agentes: "Agentes", tasks: "Tareas", productos: "Marca", competidores: "Competencia" };
+const ORDEN: Seccion[] = ["resumen", "plan-accion", "dashboard", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"];
+const NOMBRE: Partial<Record<Seccion, string>> = { dashboard: "Pauta", agentes: "Agentes", "que-funciona": "Qué funciona", tasks: "Tareas", productos: "Marca", competidores: "Competencia" };
 
 export function ClienteApp() {
   const { slug = "", seccion } = useParams<{ slug: string; seccion?: string }>();
@@ -83,7 +84,9 @@ export function ClienteApp() {
                 })}
               </ul>
             </nav>
-            <div className="py-6">{activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}</div>
+            <div className="py-6">
+              {activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : activa === "que-funciona" ? <QueFuncionaCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}
+            </div>
           </>
         )}
       </div>
