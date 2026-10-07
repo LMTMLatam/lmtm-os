@@ -79,16 +79,16 @@ export function AuthPage() {
         <div className="w-full max-w-md mx-auto my-auto px-8 py-12">
           <div className="flex items-center gap-2 mb-8">
             <Sparkles className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Paperclip</span>
+            <span className="text-sm font-medium">LMTM</span>
           </div>
 
           <h1 className="text-xl font-semibold">
-            {mode === "sign_in" ? "Sign in to Paperclip" : "Create your Paperclip account"}
+            {mode === "sign_in" ? "Entrar a LMTM" : "Crear tu cuenta de LMTM"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {mode === "sign_in"
-              ? "Use your email and password to access this instance."
-              : "Create an account for this instance. Email confirmation is not required in v1."}
+              ? "Con tu email y tu contraseña."
+              : "Una cuenta para el equipo de LMTM."}
           </p>
 
           <form
@@ -99,7 +99,7 @@ export function AuthPage() {
               event.preventDefault();
               if (mutation.isPending) return;
               if (!canSubmit) {
-                setError("Please fill in all required fields.");
+                setError("Completá todos los campos.");
                 return;
               }
               mutation.mutate();
@@ -107,7 +107,7 @@ export function AuthPage() {
           >
             {mode === "sign_up" && (
               <div>
-                <label htmlFor="name" className="text-xs text-muted-foreground mb-1 block">Name</label>
+                <label htmlFor="name" className="text-xs text-muted-foreground mb-1 block">Nombre</label>
                 <input
                   id="name"
                   name="name"
@@ -133,7 +133,7 @@ export function AuthPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="text-xs text-muted-foreground mb-1 block">Password</label>
+              <label htmlFor="password" className="text-xs text-muted-foreground mb-1 block">Contraseña</label>
               <input
                 id="password"
                 name="password"
@@ -152,15 +152,15 @@ export function AuthPage() {
               className={`w-full ${!canSubmit && !mutation.isPending ? "opacity-50" : ""}`}
             >
               {mutation.isPending
-                ? "Working…"
+                ? "Un momento…"
                 : mode === "sign_in"
-                  ? "Sign In"
-                  : "Create Account"}
+                  ? "Entrar"
+                  : "Crear la cuenta"}
             </Button>
           </form>
 
           <div className="mt-5 text-sm text-muted-foreground">
-            {mode === "sign_in" ? "Need an account?" : "Already have an account?"}{" "}
+            {mode === "sign_in" ? "¿No tenés cuenta?" : "¿Ya tenés cuenta?"}{" "}
             <button
               type="button"
               className="font-medium text-foreground underline underline-offset-2"
@@ -169,7 +169,7 @@ export function AuthPage() {
                 setMode(mode === "sign_in" ? "sign_up" : "sign_in");
               }}
             >
-              {mode === "sign_in" ? "Create one" : "Sign in"}
+              {mode === "sign_in" ? "Crear una" : "Entrar"}
             </button>
           </div>
         </div>
