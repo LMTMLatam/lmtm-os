@@ -4,7 +4,6 @@ import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
 import { Companies } from "./pages/Companies";
-import { Finance } from "./pages/Finance";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
 import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
@@ -71,6 +70,7 @@ import { ContenidoApp } from "./app/ContenidoApp";
 import { LicitacionesApp } from "./app/LicitacionesApp";
 import { PautaApp } from "./app/PautaApp";
 import { AvisosApp } from "./app/AvisosApp";
+import { FinanzasApp } from "./app/FinanzasApp";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -358,7 +358,7 @@ export function App() {
             <Route path="contenido" element={<ContenidoApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<LicitacionesApp />} />
-            <Route path="finanzas" element={<Pagina><Finance /></Pagina>} />
+            <Route path="finanzas" element={<FinanzasApp />} />
             <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
             {/* Ajustes que se abrían en el layout de paperclip: ahora adentro de la app. */}
             <Route path="conexiones" element={<Pagina><AdsIntegrations /></Pagina>} />
