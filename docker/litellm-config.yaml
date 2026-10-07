@@ -36,9 +36,10 @@ model_list:
   # que llegó a su end of life el 14/9/26 (HTTP 410) tres días después de
   # integrarlo. OJO: flash SÍ devuelve reasoning_content, así que necesita
   # presupuesto de tokens amplio o vuelve vacío con HTTP 200.
+  # 7/10/26: flash-0731 también murió (410). Mismo modelo que nvidia-modelos.ts.
   - model_name: lmtm-deepseek
     litellm_params:
-      model: openai/deepseek-ai/deepseek-v4-flash-0731
+      model: openai/nvidia/nemotron-3-super-120b-a12b
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY_TEXTO
   # Fallback: MiniMax-M3 over its Anthropic-compatible endpoint (the fleet default).
