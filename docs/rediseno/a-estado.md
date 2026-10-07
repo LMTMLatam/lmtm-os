@@ -67,6 +67,18 @@ que seguir"; y el optimizador de equipos de agentes como objetivo.
   corridas por reloj en 7 días, Delfina contestando "no tengo tarea").
 - Verificado: licitaciones activa (hoy 10:02), alta por ClickUp montada
   (`/api/clickup`, secreto cargado), Higgsfield y Magnific con credenciales.
+- **Limpieza con OK de Nazareno:** 165 tareas viejas de "recargar saldo /
+  spendCap" (99 de Pablo desde el 20/07, 66 de Milo, Caro, Luna, Carla y
+  Esteban) canceladas con comentario de motivo; las que mezclaban otra decisión
+  (creatividades, reuniones, bajas, mapear) quedaron abiertas. El saldo lo sigue
+  la decisión del motor en Hoy.
+- **Agentes** muestra la flota heredada (`/api/agentes/flota`); los monitores
+  que quedaban con el día en memoria (vigilantes, ideas, eval) pasaron a
+  `tocaHoy`. Hoy suma la tarjeta de Contenido de la semana.
+- **saas-marketing-agents (`b851864`):** reglas tomadas para media buyer,
+  contenido y estratega (ver INVESTIGACION.md). El sync trae la categoría
+  especial de Meta; se verificó que la de vivienda no es obligatoria en Argentina.
+  Cambia el rol del media buyer en el día 2 del piloto: se anota en PILOTO.md.
 
 ### 06/10 tarde: fase C, investigación, runner propio y app propia
 

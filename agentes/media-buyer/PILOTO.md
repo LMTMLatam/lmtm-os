@@ -79,6 +79,12 @@ estar evaluadas contra datos viejos.
 | 06/10 | 22 (4 subir, 18 pausar) | 20/22 (91%) | pendientes | 6 min | Las 2 fallas: escaló contra el objetivo total (972) y no el de Meta (790). Arreglado en la tool (`2b95887`). |
 | 06/10 runner | 22 (2 subir, 20 pausar) | **22/22 (100%)** | pendientes | 4 min (70–93 s por cliente), 173 mil tokens de entrada y 28 mil de salida | Primera corrida en el runner propio (15:48). No escaló MERLO ni LINIERS (CPL arriba del objetivo); vio los 3 conjuntos de REPARACIÓN LLANTAS de Distrillantas; avisó que BEIRO y PILAR vencen el 09/10 y que en SEBASTIAN las 4 campañas buenas no tienen presupuesto propio. |
 
+**07/10, antes de la corrida del día 2:** el rol del runner suma cuatro reglas
+(`b851864`, tomadas de saas-marketing-agents): lo planeado no es lo entregado
+(causa "canibalización"), volumen antes del veredicto, categoría de vivienda y
+"si pausás, decí adónde va la plata". Desde el día 2 el runner no corre con el
+mismo prompt que el día 1: comparar días 1 y 2 entre sí con ese cuidado.
+
 Cobertura contra `--referencia` del 05/10: MA PROPIEDADES 12 → propuso 13; SEBASTIAN
 RAMASCO PADILLA 5 → 4 (dejó la de interacción); Distrillantas: propuso 1 de los 3
 conjuntos y no vio WP AVELLANEDA (la misma causa del objetivo total).
