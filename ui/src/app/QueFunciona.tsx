@@ -21,6 +21,7 @@ export interface AnalisisContenido {
   angulos: Fila[]; formatos: Fila[];
   nichos: Array<{ nicho: string; cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] }>;
   reutilizar: Ejemplo[];
+  recientes?: Ejemplo[];
   clientes: Array<{
     clientId: string; cliente: string; slug: string; nicho: string | null; publicaciones: number; top: Ejemplo[];
     mejorAngulo: Fila | null;

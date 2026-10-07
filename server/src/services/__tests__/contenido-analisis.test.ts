@@ -1,7 +1,7 @@
 // Comparar contenido entre cuentas sin premiar al que tiene más seguidores
 // (pedido 7/10). Cada publicación se mide contra lo normal de SU cuenta.
 import { describe, expect, it } from "vitest";
-import { analizarPublicaciones, mediana, MIN_POR_CUENTA, type PublicacionMedida } from "../contenido-analisis.js";
+import { analizarPublicaciones, armarContenidoSemanal, mediana, MIN_POR_CUENTA, type PublicacionMedida } from "../contenido-analisis.js";
 import { leerClasificacion } from "../contenido-angulos.js";
 
 let n = 0;
@@ -88,5 +88,23 @@ describe("leerClasificacion", () => {
   });
   it("respuesta ilegible = nada clasificado (no se adivina)", () => {
     expect(leerClasificacion("no sé", [0]).size).toBe(0);
+  });
+});
+
+describe("resumen de los lunes", () => {
+  it("trae lo que dobló lo normal en los últimos 7 días y el link al detalle", () => {
+    const ahora = new Date("2026-10-12T12:00:00Z");
+    const pubs = cuenta("lunes", 10, [
+      { angulo: "mito", engagement: 50 },
+    ]).map((p) => ({ ...p, fecha: p.angulo === "mito" ? "2026-10-09" : "2026-09-01" }));
+    const a = analizarPublicaciones(pubs, 180, ahora);
+    expect(a.recientes).toHaveLength(1);
+    const texto = armarContenidoSemanal(a, "https://x/contenido#que-funciona")!;
+    expect(texto).toContain("LUNES");
+    expect(texto).toContain("5,0×");
+    expect(texto).toContain("https://x/contenido#que-funciona");
+  });
+  it("sin nada medido no hay bloque", () => {
+    expect(armarContenidoSemanal(analizarPublicaciones([], 180), "u")).toBeNull();
   });
 });

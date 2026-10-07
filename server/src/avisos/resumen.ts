@@ -108,6 +108,8 @@ export function armarResumen(
   tendencias: Tendencia[] = [],
   /** id de decisión → lo que encontró el agente (runner propio). */
   hallazgos: Map<string, string> = new Map(),
+  /** Los lunes: qué contenido funcionó la semana pasada (contenido-analisis). */
+  contenido: string | null = null,
 ): string {
   const lineas: string[] = [`*Hoy, ${fechaLarga(ahora)}*`, ""];
 
@@ -148,6 +150,7 @@ export function armarResumen(
     lineas.push("", "Tendencias de hoy, para reenviar a clientes:");
     for (const t of tendencias) lineas.push(`• ${t.title}${t.url ? ` ${t.url}` : ""}`);
   }
+  if (contenido) lineas.push("", contenido);
   return lineas.join("\n");
 }
 
@@ -259,10 +262,22 @@ async function yaSalioHoy(db: Db, ahora: Date): Promise<boolean> {
   return (r?.n ?? 0) > 0;
 }
 
+/** Solo los lunes: el análisis de contenido de la semana. Si falla, el resumen sale igual. */
+async function contenidoDelLunes(db: Db, ahora: Date): Promise<string | null> {
+  const { relojLocal } = await import("../agentes/cola.js");
+  if (relojLocal(ahora).dia !== 1) return null;
+  try {
+    const { analisisContenido, armarContenidoSemanal } = await import("../services/contenido-analisis.js");
+    return armarContenidoSemanal(await analisisContenido(db, 180), (await urlDeHoy(db)).replace(/\/hoy$/, "/contenido#que-funciona"));
+  } catch {
+    return null;
+  }
+}
+
 export async function mandarResumen(db: Db, ahora = new Date()): Promise<{ enviado: boolean; motivo?: string }> {
   if (await yaSalioHoy(db, ahora)) return { enviado: false, motivo: "ya salió hoy" };
   const hoy = await datosDeHoy(db);
-  const encabezado = armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy));
+  const encabezado = armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora));
   // Una sola lectura de lo pendiente: lo que se resume es exactamente lo que
   // después se marca como agrupado.
   const filas = await db
@@ -281,7 +296,7 @@ export async function ensayarResumen(db: Db, ahora = new Date()): Promise<{ text
     .from(waOutbox)
     .where(eq(waOutbox.estado, "pendiente"))
     .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));
-  const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy)), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
+  const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora)), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
   return { texto, pendientes: filas.length };
 }
 

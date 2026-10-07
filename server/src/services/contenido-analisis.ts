@@ -85,6 +85,8 @@ export interface AnalisisContenido {
   formatos: Fila[];
   nichos: Array<{ nicho: string; cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] }>;
   reutilizar: Ejemplo[];
+  /** Publicaciones de los últimos 7 días que doblaron lo normal de su cuenta. */
+  recientes: Ejemplo[];
   clientes: Array<{
     clientId: string; cliente: string; slug: string; nicho: string | null;
     publicaciones: number;
@@ -185,6 +187,21 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
     .slice(0, 40)
     .map(ejemplo);
 
+  // 3b) Lo de la última semana, para el resumen de los lunes (máximo 2 por cuenta).
+  const desdeSemana = new Date(ahora.getTime() - 7 * 86_400_000).toISOString().slice(0, 10);
+  const porClienteSemana = new Map<string, number>();
+  const recientes = medidas
+    .filter((p) => p.fecha >= desdeSemana && p.indice >= INDICE_DESTACADO && p.engagement >= 10)
+    .sort((a, b) => b.indice - a.indice)
+    .filter((p) => {
+      const k = porClienteSemana.get(p.clientId) ?? 0;
+      if (k >= 2) return false;
+      porClienteSemana.set(p.clientId, k + 1);
+      return true;
+    })
+    .slice(0, 5)
+    .map(ejemplo);
+
   // 4) Por cliente: sus mejores, su mejor ángulo y el que funciona en su rubro y no usa.
   const nichoPorNombre = new Map(nichos.map((n) => [n.nicho, n]));
   const clientesMap = new Map<string, ConIndice[]>();
@@ -213,7 +230,7 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
     publicaciones: medidas.length,
     cuentas: new Set(medidas.map((p) => p.clientId)).size,
     clasificadas: medidas.filter((p) => claveAngulo(p)).length,
-    angulos, formatos, nichos, reutilizar, clientes,
+    angulos, formatos, nichos, reutilizar, recientes, clientes,
   };
 }
 
@@ -270,7 +287,8 @@ export async function analisisContenido(db: Db, dias = 180, fresco = false): Pro
   return data;
 }
 
-const veces = (x: number) => `${x.toFixed(2).replace(".", ",")}×`;
+// Un decimal, igual que el panel: "1,9×".
+const veces = (x: number) => `${x.toFixed(x >= 10 ? 0 : 1).replace(".", ",")}×`;
 const linea = (f: Fila) => `${f.nombre} ${veces(f.indice)} (${f.publicaciones} publicaciones, ${f.cuentas} cuenta${f.cuentas === 1 ? "" : "s"})`;
 const citar = (e: Ejemplo) => `${e.cliente}, ${e.fecha}, ${e.red} ${e.formato}${e.anguloNombre ? `, ángulo ${e.anguloNombre}` : ""}: ${veces(e.indice)} — "${e.texto.slice(0, 110)}"${e.permalink ? ` ${e.permalink}` : ""}`;
 
@@ -310,4 +328,25 @@ export function textoParaAgente(a: AnalisisContenido, opts: { nicho?: string | n
   if (a.reutilizar.length && !c) out.push("", "Publicaciones que doblaron lo normal de su cuenta:", ...a.reutilizar.slice(0, 5).map((e) => `  · ${citar(e)}`));
   out.push("", "Usalo así: proponé desde los ángulos y formatos que rinden, citá el dato (rubro, índice, ejemplo) y no inventes números que no estén acá.");
   return out.join("\n");
+}
+
+/**
+ * El bloque de contenido del resumen de los lunes (mejora constante: qué rindió
+ * la semana y qué ángulo conviene repetir). Puro. null si no hay nada medido.
+ */
+export function armarContenidoSemanal(a: AnalisisContenido, url: string): string | null {
+  if (!a.recientes.length && !a.angulos.length) return null;
+  const lineas: string[] = [];
+  if (a.recientes.length) {
+    lineas.push("Lo que mejor funcionó la semana pasada (contra lo normal de cada cuenta):");
+    for (const e of a.recientes) {
+      lineas.push(`• *${e.cliente}* — ${e.red === "instagram" ? "Instagram" : "Facebook"} ${e.formato}${e.anguloNombre ? `, ${e.anguloNombre}` : ""}: ${veces(e.indice)}${e.permalink ? ` ${e.permalink}` : ""}`);
+    }
+  } else {
+    lineas.push("La semana pasada ninguna publicación dobló lo normal de su cuenta.");
+  }
+  const top = a.angulos[0];
+  if (top) lineas.push(`El ángulo que más rinde en todas las cuentas: ${top.nombre} (${veces(top.indice)}, ${top.publicaciones} publicaciones de ${top.cuentas} cuentas).`);
+  lineas.push(`Detalle y qué probar en cada cliente: ${url}`);
+  return lineas.join("\n");
 }
