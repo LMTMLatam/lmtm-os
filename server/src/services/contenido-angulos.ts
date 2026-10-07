@@ -51,7 +51,7 @@ export function leerClasificacion(texto: string, indices: number[]): Map<number,
 let corriendo = false;
 
 /** Clasifica hasta `max` publicaciones pendientes (las más nuevas primero). */
-export async function clasificarPendientes(db: Db, max = 200): Promise<{ clasificadas: number; sinTexto: number; fallas: number }> {
+export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasificadas: number; sinTexto: number; fallas: number }> {
   if (corriendo) return { clasificadas: 0, sinTexto: 0, fallas: 0 };
   corriendo = true;
   try {
