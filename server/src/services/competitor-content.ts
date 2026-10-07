@@ -1121,7 +1121,6 @@ export async function sweepContentReviewOnce(db: Db): Promise<{ clients: number;
 }
 
 let contentTimer: ReturnType<typeof setInterval> | null = null;
-let lastContentDay = "";
 
 export function initContentIdeas(db: Db): void {
   if (contentTimer) return;
@@ -1150,9 +1149,9 @@ export function initContentIdeas(db: Db): void {
 
   // Daily: one idea per client per calendar day (checks every 3h, fires once/day).
   const tick = async () => {
-    const day = new Date().toISOString().slice(0, 10);
-    if (day === lastContentDay) return;
-    lastContentDay = day;
+    // Una vez por día aunque haya deploys (el lunes además manda el digest de ideas).
+    const { tocaHoy } = await import("./una-vez-por-dia.js");
+    if (!(await tocaHoy(db, "monitor:ideas-contenido"))) return;
     // Feedback first, so today's ideas are generated with yesterday's lessons.
     // Lunes: digest de ideas pendientes al equipo (el ritual del que depende el loop).
     await sweepSuperRedesFeedback(db, { digest: new Date().getDay() === 1 })

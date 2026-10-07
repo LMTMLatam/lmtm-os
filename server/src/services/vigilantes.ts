@@ -348,14 +348,13 @@ export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: num
 }
 
 let vigilanteTimer: ReturnType<typeof setInterval> | null = null;
-let lastVigilanteDay = "";
 
 export function initVigilantes(db: Db): void {
   if (!vigilanteTimer) {
     const tick = async () => {
-      const day = new Date().toISOString().slice(0, 10);
-      if (day === lastVigilanteDay) return; // 1×/día (el balance-monitor ya corre aparte)
-      lastVigilanteDay = day;
+      // 1×/día de verdad: con el día en memoria, cada deploy los volvía a correr.
+      const { tocaHoy } = await import("./una-vez-por-dia.js");
+      if (!(await tocaHoy(db, "monitor:vigilantes"))) return;
       try {
         const r = await runVigilanteFinanciera(db);
         console.log(`[vigilantes] financiera: ${r.nuevas} nuevas, ${r.enviadas} enviadas`);

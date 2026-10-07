@@ -245,16 +245,14 @@ export async function runAgentEvals(db: Db): Promise<{ evaluated: number; skippe
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let lastRunDay = "";
 
 export function initAgentEval(db: Db): void {
   if (timer) return;
-  // Weekly, Mondays: checks every 6h, fires once per Monday.
+  // Weekly, Mondays: checks every 6h, fires once per Monday (persistido: un deploy no la repite).
   const tick = async () => {
-    const now = new Date();
-    const dayKey = now.toISOString().slice(0, 10);
-    if (dayKey === lastRunDay || now.getUTCDay() !== 1) return;
-    lastRunDay = dayKey;
+    if (new Date().getUTCDay() !== 1) return;
+    const { tocaHoy } = await import("./una-vez-por-dia.js");
+    if (!(await tocaHoy(db, "monitor:agent-eval"))) return;
     await runAgentEvals(db).catch((e) => console.warn("[agent-eval] run failed:", e));
   };
   setTimeout(() => { void tick(); }, 12 * 60 * 1000);
