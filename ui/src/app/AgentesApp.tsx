@@ -4,8 +4,9 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, OctagonAlert, Send, Wrench } from "lucide-react";
+import { ArrowLeft, ChevronDown, OctagonAlert, Send } from "lucide-react";
 import { Link, useParams } from "@/lib/router";
+import { api } from "../api/client";
 import { carteraApi } from "../api/informes";
 import { haceCuanto } from "../lmtm/formato";
 import { agentesApi, nombreRol, ROLES, type EstadoTrabajo, type PasoAgente, type Trabajo } from "./api";
@@ -94,18 +95,54 @@ function ListaTrabajos() {
               {ts.length} trabajos · {Math.round(tokens / 1000).toLocaleString("es-AR")} mil tokens (MiniMax)
             </p>
           </Tarjeta>
-          <Tarjeta>
-            <TituloFranja>Agentes de paperclip</TituloFranja>
-            <p className="text-[13px] leading-[1.5] text-l-tinta-2">
-              Los 14 agentes viejos siguen corriendo en paperclip mientras cada rol pasa al runner propio y supera al viejo en el evaluador.
-            </p>
-            <Link to="/agents/all" className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-l-marca">
-              <Wrench className="h-3.5 w-3.5" aria-hidden /> Ver en Sistema
-            </Link>
-          </Tarjeta>
+          <Flota />
         </aside>
       </div>
     </>
+  );
+}
+
+interface AgenteFlota {
+  name: string;
+  status: string;
+  latido: number | null;
+  corridas: number;
+  fallas: number;
+  ultima: string | null;
+  rutinas: Array<{ titulo: string; cron: string | null }>;
+}
+
+/**
+ * Los agentes heredados de paperclip, sin salir de la app: siguen corriendo
+ * mientras cada rol pasa al runner y le gana en el evaluador
+ * (docs/rediseno/OPTIMIZACION-EQUIPO.md).
+ */
+function Flota() {
+  const q = useQuery({ queryKey: ["lmtm", "agentes", "flota"], queryFn: () => api.get<{ agentes: AgenteFlota[] }>("/agentes/flota"), staleTime: 5 * 60_000 });
+  const as = q.data?.agentes ?? [];
+  return (
+    <Tarjeta>
+      <TituloFranja>Agentes heredados · 7 días</TituloFranja>
+      <p className="-mt-1.5 mb-2 text-[12px] leading-[1.45] text-l-tinta-3">Siguen corriendo mientras cada rol pasa al runner propio.</p>
+      {q.isLoading && <p className="text-[13px] text-l-tinta-3">Cargando…</p>}
+      <ul className="space-y-2.5">
+        {as.map((a) => (
+          <li key={a.name} className="text-[13px]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-medium text-l-tinta">{a.name}</span>
+              <span className="shrink-0 tabular-nums text-l-tinta-3">
+                {a.corridas} corridas{a.fallas > 0 && <span className="text-l-critico-texto"> · {a.fallas} fallas</span>}
+              </span>
+            </div>
+            <div className="text-[12px] text-l-tinta-3">
+              {a.rutinas.length > 0 ? a.rutinas.map((r) => r.titulo).join(" · ") : "sin rutinas"}
+              {a.latido ? ` · latido cada ${Math.round(a.latido / 3600)} h` : ""}
+              {a.ultima ? ` · ${haceCuanto(a.ultima)}` : ""}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Tarjeta>
   );
 }
 

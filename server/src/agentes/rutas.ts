@@ -197,6 +197,26 @@ export function agentesRoutes(db: Db) {
     }
   });
 
+  // La flota heredada de paperclip, para verla sin salir de la app: cada agente
+  // con su latido, sus rutinas activas y lo que corrió en 7 días. Solo lectura.
+  router.get("/agentes/flota", async (req, res) => {
+    try {
+      assertBoardOrgAccess(req);
+      const r = (await db.execute(sql`
+        select a.name, a.status,
+          (a.runtime_config->'heartbeat'->>'intervalSec')::int as latido,
+          (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days') as corridas,
+          (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days' and r.status in ('failed', 'timed_out')) as fallas,
+          (select max(r.created_at) from heartbeat_runs r where r.agent_id = a.id) as ultima,
+          coalesce((select json_agg(json_build_object('titulo', ro.title, 'cron', (select t.cron_expression from routine_triggers t where t.routine_id = ro.id limit 1)) order by ro.title)
+            from routines ro where ro.assignee_agent_id = a.id and ro.status = 'active'), '[]'::json) as rutinas
+        from agents a where a.adapter_type = 'claude_local' order by corridas desc, a.name`)) as unknown as Array<Record<string, unknown>> & { rows?: Array<Record<string, unknown>> };
+      res.json({ agentes: r.rows ?? [...r] });
+    } catch (e) {
+      responderError(res, e);
+    }
+  });
+
   router.post("/agentes/trabajos", async (req, res) => {
     try {
       assertBoard(req);
