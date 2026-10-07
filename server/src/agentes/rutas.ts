@@ -64,6 +64,8 @@ export function agruparPropuestas(
 }
 const ESTADOS = new Set(["pendiente", "corriendo", "hecho", "fallo", "cancelado"]);
 
+let cacheNotas: { at: number; notas: Array<{ agente: string; propuestas: number; defendibles: number }> } | null = null;
+
 export function agentesRoutes(db: Db) {
   const router = Router();
 
@@ -148,6 +150,48 @@ export function agentesRoutes(db: Db) {
         .where(and(eq(approvals.type, TIPO_ACCION_PAUTA), eq(approvals.status, "pending")))
         .orderBy(approvals.createdAt);
       res.json({ propuestas: agruparPropuestas(filas) });
+    } catch (e) {
+      responderError(res, e);
+    }
+  });
+
+  // Por rol, los últimos 7 días: hechos, fallos, tokens y la nota del evaluador
+  // (el supervisor es código). La corrección de propuestas recalcula métricas:
+  // se guarda 10 minutos.
+  router.get("/agentes/resumen", async (req, res) => {
+    try {
+      assertBoardOrgAccess(req);
+      const porRol = await db
+        .select({
+          rol: agenteTrabajos.rol,
+          hechos: sql<number>`count(*) filter (where ${agenteTrabajos.estado} = 'hecho')::int`,
+          fallos: sql<number>`count(*) filter (where ${agenteTrabajos.estado} = 'fallo')::int`,
+          enCurso: sql<number>`count(*) filter (where ${agenteTrabajos.estado} in ('pendiente', 'corriendo'))::int`,
+          tokens: sql<number>`coalesce(sum(coalesce(${agenteTrabajos.tokensEntrada}, 0) + coalesce(${agenteTrabajos.tokensSalida}, 0)), 0)::int`,
+          segundos: sql<number | null>`avg(extract(epoch from (${agenteTrabajos.finishedAt} - ${agenteTrabajos.startedAt}))) filter (where ${agenteTrabajos.estado} = 'hecho')`,
+          ultimo: sql<string | null>`max(${agenteTrabajos.finishedAt})`,
+        })
+        .from(agenteTrabajos)
+        .where(sql`${agenteTrabajos.createdAt} > now() - interval '7 days'`)
+        .groupBy(agenteTrabajos.rol);
+      if (!cacheNotas || Date.now() - cacheNotas.at > 10 * 60_000) {
+        const { evaluarRecientes, notaPorAgente } = await import("../metricas/eval-recientes.js");
+        cacheNotas = { at: Date.now(), notas: notaPorAgente(await evaluarRecientes(db, 7)) };
+      }
+      const notas = cacheNotas.notas;
+      res.json({
+        roles: porRol.map((r) => {
+          let agente: string | null = null;
+          try {
+            agente = cargarRol(r.rol).agente;
+          } catch {
+            /* rol borrado: queda sin nota */
+          }
+          return { ...r, segundos: r.segundos == null ? null : Math.round(Number(r.segundos)), agente, evaluador: notas.find((n) => n.agente === agente) ?? null };
+        }),
+        // Para comparar: la nota de los agentes de paperclip que proponen lo mismo.
+        evaluador: notas,
+      });
     } catch (e) {
       responderError(res, e);
     }

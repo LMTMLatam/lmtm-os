@@ -42,6 +42,7 @@ function ListaTrabajos() {
   return (
     <>
       <Encabezado titulo="Agentes" bajada="Corren en el runner propio de LMTM: cada trabajo nace de un hecho y deja su registro." />
+      <Roles />
       <div className="grid gap-8 px-4 md:px-8 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0">
           <div className="mb-3 flex gap-1.5 overflow-x-auto" role="tablist">
@@ -105,6 +106,61 @@ function ListaTrabajos() {
         </aside>
       </div>
     </>
+  );
+}
+
+/**
+ * Una tarjeta por rol, últimos 7 días. La nota del evaluador es código (las
+ * reglas del playbook contra los números del día), no la opinión de otro agente;
+ * al lado, la de los agentes de paperclip que hacen lo mismo, para comparar.
+ */
+function Roles() {
+  const q = useQuery({ queryKey: ["lmtm", "agentes", "resumen"], queryFn: () => agentesApi.resumen(), refetchInterval: 120_000 });
+  const roles = q.data?.roles ?? [];
+  if (roles.length === 0) return null;
+  const viejos = (q.data?.evaluador ?? []).filter((n) => !roles.some((r) => r.agente === n.agente));
+  return (
+    <div className="mb-6 grid gap-3 px-4 sm:grid-cols-2 md:px-8 xl:grid-cols-3">
+      {roles.map((r) => (
+        <Tarjeta key={r.rol}>
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-[15px] font-semibold">{nombreRol(r.rol)}</div>
+            <div className="text-[12px] text-l-tinta-3">últimos 7 días</div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+            <span>
+              <span className="font-semibold tabular-nums">{r.hechos}</span> <span className="text-l-tinta-3">hechos</span>
+            </span>
+            {r.fallos > 0 && (
+              <span>
+                <span className="font-semibold tabular-nums text-l-critico-texto">{r.fallos}</span> <span className="text-l-tinta-3">fallaron</span>
+              </span>
+            )}
+            {r.enCurso > 0 && (
+              <span>
+                <span className="font-semibold tabular-nums">{r.enCurso}</span> <span className="text-l-tinta-3">en curso</span>
+              </span>
+            )}
+            <span className="text-l-tinta-3">
+              {Math.round(r.tokens / 1000).toLocaleString("es-AR")} mil tokens{r.segundos != null ? ` · ${r.segundos} s promedio` : ""}
+            </span>
+          </div>
+          {r.evaluador && (
+            <div className="mt-2 text-[13px]">
+              <span className="font-semibold">
+                {r.evaluador.defendibles}/{r.evaluador.propuestas}
+              </span>{" "}
+              <span className="text-l-tinta-2">propuestas defendibles según el evaluador</span>
+              {viejos.map((v) => (
+                <span key={v.agente} className="block text-[12px] text-l-tinta-3">
+                  {v.agente} (paperclip): {v.defendibles}/{v.propuestas}
+                </span>
+              ))}
+            </div>
+          )}
+        </Tarjeta>
+      ))}
+    </div>
   );
 }
 

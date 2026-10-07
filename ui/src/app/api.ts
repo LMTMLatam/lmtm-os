@@ -43,7 +43,21 @@ export interface TrabajoCompleto extends Trabajo {
   pasos: PasoAgente[];
 }
 
+export interface ResumenRol {
+  rol: string;
+  hechos: number;
+  fallos: number;
+  enCurso: number;
+  tokens: number;
+  segundos: number | null;
+  ultimo: string | null;
+  agente: string | null;
+  evaluador: { agente: string; propuestas: number; defendibles: number } | null;
+}
+
 export const agentesApi = {
+  resumen: () =>
+    api.get<{ roles: ResumenRol[]; evaluador: Array<{ agente: string; propuestas: number; defendibles: number }> }>("/agentes/resumen"),
   trabajos: (q: { clientId?: string; rol?: string; estado?: EstadoTrabajo; ref?: string; limite?: number } = {}) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));

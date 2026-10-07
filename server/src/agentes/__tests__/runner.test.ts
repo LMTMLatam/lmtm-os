@@ -3,6 +3,18 @@ import { parsearRol, cargarRol } from "../roles.js";
 import { armarPedido, compuerta, resumirCorrida } from "../correr.js";
 import { DISPARADORES, HORARIOS, relojLocal } from "../cola.js";
 
+describe("notaPorAgente", () => {
+  it("cuenta propuestas y defendibles por agente", async () => {
+    const { notaPorAgente } = await import("../../metricas/eval-recientes.js");
+    const e = (agente: string | null, ok: boolean) => ({ id: "x", agente, estado: "pending", resumen: "", ok, fallas: [], createdAt: "" });
+    expect(notaPorAgente([e("Milo", true), e("Milo", false), e("Media buyer", true), e(null, true)])).toEqual([
+      { agente: "Milo", propuestas: 2, defendibles: 1 },
+      { agente: "Media buyer", propuestas: 1, defendibles: 1 },
+      { agente: "sin agente", propuestas: 1, defendibles: 1 },
+    ]);
+  });
+});
+
 describe("agruparPropuestas", () => {
   it("una fila por cliente + acción, con los ids y agentes de todas las copias", async () => {
     const { agruparPropuestas } = await import("../rutas.js");
