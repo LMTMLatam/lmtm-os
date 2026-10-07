@@ -43,6 +43,10 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export function initDbMaintenance(db: Db): void {
   if (timer) return;
   const tick = async () => {
+    // El intervalo es diario pero el primer tick va a los 25 min de cada arranque:
+    // sin esto, cada deploy repetía todos los avisos de abajo.
+    const { tocaHoy } = await import("./una-vez-por-dia.js");
+    if (!(await tocaHoy(db, "monitor:db-maintenance"))) return;
     await runWakeupRetention(db)
       .then((r) => {
         if (r.noise || r.terminal) console.log(`[db-maintenance] wakeups purgados: ${r.noise} noise (>7d), ${r.terminal} terminal (>30d)`);

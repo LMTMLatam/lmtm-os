@@ -14,8 +14,8 @@
 
 import type { Db } from "@paperclipai/db";
 import { clients } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
 import { avisarAlEquipo } from "./wa-embudo.js";
+import { clienteReal } from "./intel-common.js";
 
 const MAKE_BASE = (process.env.MAKE_API_BASE?.trim() || "https://us2.make.com/api/v2").replace(/\/$/, "");
 const MAKE_TEAM_ID = process.env.MAKE_TEAM_ID?.trim() || "228071";
@@ -105,6 +105,24 @@ export async function makeScenarioLogs(scenarioId: number, limit = 20): Promise<
   return r.scenarioLogs ?? [];
 }
 
+/**
+ * Las corridas fallidas que siguen sin arreglo: las de la última semana que
+ * vinieron DESPUÉS de la última corrida buena. Antes se contaba todo fallo de
+ * 7 días, y CARVUK salía "falló al publicar" todos los días por un error del
+ * 2/10 aunque después hubiera publicado bien (07/10/26).
+ */
+export function fallasVigentes(logs: Pick<MakeLog, "status" | "timestamp">[], ahora: number): Pick<MakeLog, "status" | "timestamp">[] {
+  const recientes = logs
+    .filter((l) => ahora - new Date(l.timestamp).getTime() <= MAKE_ERROR_WINDOW_MS)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const fallas: Pick<MakeLog, "status" | "timestamp">[] = [];
+  for (const l of recientes) {
+    if (l.status < 3) break; // la más nueva buena corta: lo de antes ya se arregló
+    fallas.push(l);
+  }
+  return fallas;
+}
+
 function norm(s: string): string {
   return s
     .normalize("NFD")
@@ -144,7 +162,7 @@ export async function runMakeHealthCheck(
     return { configured: true, checked: 0, issues: [], delivered: false };
   }
 
-  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active"));
+  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(clienteReal());
   const now = Date.now();
   // Flag scenarios whose recent runs ERRORED — "posteó a Make pero falló". We do
   // NOT flag merely-idle scenarios: a poster that hasn't run because the client
@@ -164,12 +182,12 @@ export async function runMakeHealthCheck(
     } catch {
       continue;
     }
-    const errs = logs.filter((l) => l.status >= 3 && now - new Date(l.timestamp).getTime() <= MAKE_ERROR_WINDOW_MS);
+    const errs = fallasVigentes(logs, now);
     if (errs.length > 0) {
       const lastErrorAt = errs.map((e) => e.timestamp).sort().reverse()[0];
       flagged.push({
         name: c.name,
-        note: `${errs.length} ejecución(es) fallida(s) en 7d (últ. ${new Date(lastErrorAt).toLocaleString("es-AR")})`,
+        note: `${errs.length === 1 ? "falló la última corrida" : `fallaron las últimas ${errs.length} corridas`} (${new Date(lastErrorAt).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })})`,
         errors: errs.length,
       });
     }
@@ -181,7 +199,7 @@ export async function runMakeHealthCheck(
   if (issues.length > 0 && !opts.dryRun) {
     const lines = ["*⚙️ AutoPoster de Make falló al publicar*", ""];
     for (const it of issues.slice(0, 25)) lines.push(`• *${it.name}*: ${it.note}`);
-    lines.push("", "_El scenario corrió pero falló — el post no salió. Abrir Make (executions_get-detail): conexión caída, módulo roto o dato faltante._");
+    lines.push("", "_Siguen fallando: no hubo una corrida buena después. Abrir Make (executions_get-detail): conexión caída, módulo roto o dato faltante._");
     // Nivel 4: el scenario corrio y el post NO salio. Es entrega caida.
     const r = await avisarAlEquipo(db, {
       origen: "make-autoposter",

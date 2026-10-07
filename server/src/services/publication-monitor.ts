@@ -8,9 +8,10 @@
 
 import type { Db } from "@paperclipai/db";
 import { clients, organicPosts, contentIdeas } from "@paperclipai/db";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
+import { clienteReal } from "./intel-common.js";
 import { getRedesScheduledContent, getRedesCalendar, type RedesCalendarItem } from "./clickup-sync.js";
-import { networkActivity } from "./auditor.js";
+import { networkActivity, paginaLeida } from "./auditor.js";
 import { runMakeHealthCheck } from "./make.js";
 import { avisarAlEquipo } from "./wa-embudo.js";
 
@@ -32,7 +33,7 @@ export async function findStalledOnboarding(db: Db): Promise<Array<{ name: strin
     id: clients.id, name: clients.name, createdAt: clients.createdAt,
     posts: sql<number>`(select count(*) from ${organicPosts} p where p.client_id = ${clients.id})`,
     ideas: sql<number>`(select count(*) from ${contentIdeas} ci where ci.client_id = ${clients.id})`,
-  }).from(clients).where(and(eq(clients.status, "active"), sql`${clients.createdAt} < ${cutoff}`));
+  }).from(clients).where(and(clienteReal(), sql`${clients.createdAt} < ${cutoff}`));
   return rows
     .filter((r) => Number(r.posts) === 0 && Number(r.ideas) === 0)
     .map((r) => ({ name: r.name, ageDays: Math.floor((Date.now() - new Date(r.createdAt).getTime()) / DAY) }))
@@ -63,7 +64,7 @@ export async function runPublicationCheck(
   db: Db,
   opts: { dryRun?: boolean } = {},
 ): Promise<{ clients: number; overdue: OverdueItem[]; stalledOnboarding: number; delivered: boolean }> {
-  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active"));
+  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(clienteReal());
   const now = Date.now();
   const overdue: OverdueItem[] = []; // start_date passed, no tag → webhook never fired
 
@@ -93,7 +94,11 @@ export async function runPublicationCheck(
       lines.push(`*${clientName}* (${its.length}):`);
       for (const it of its.slice(0, 5)) lines.push(`  • "${it.name.slice(0, 50)}" — ${it.daysLate}d vencido (${it.status})`);
     }
-    lines.push("", "_Estas piezas pasaron su FECHA DE INICIO sin la etiqueta \"mandado a make\" — el webhook no disparó a Make. Revisar el scenario / reprogramar._");
+    // No se afirma la causa: la etiqueta la pone ClickUp, no Make, y una pieza
+    // "en curso" o "pendiente" no estaba terminada — el despachador la descarta
+    // igual. Decir "el webhook no disparó" mandaba a revisar Make por trabajo
+    // que faltaba hacer (07/10/26).
+    lines.push("", "_Pasaron su fecha y no salieron. Si figuran en curso o pendientes, no estaban terminadas: completarlas y reprogramar. Si estaban aprobadas, revisar el escenario del cliente en Make._");
     if (!opts.dryRun) {
       // Nivel 4: una pieza que paso su fecha sin publicarse es lo que tuvo a
       // MAERS 8 dias sin salir. Interrumpe, con tope diario.
@@ -165,12 +170,14 @@ export async function runInactivityCheck(
     return { checked: 0, inactive: [], syncStale: true, delivered: false };
   }
 
-  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active"));
+  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(clienteReal());
   const inactive: Array<{ name: string; hoursSince: number }> = [];
   for (const c of rows) {
     const na = await networkActivity(db, c.id, now - 30 * DAY, now).catch(() => null);
-    // Only clients we CAN verify: page connected + data synced + a known last post.
-    if (!na || !na.hasPage || !na.everSynced || !na.latestAt) continue;
+    // Only clients we CAN verify: page connected + data synced + a known last post
+    // + leída hace poco. Sin lo último, DUNOD salía "98 días sin postear" cuando
+    // lo que pasaba era que su página no se lee desde el 01/07 (07/10/26).
+    if (!na || !na.hasPage || !na.everSynced || !na.latestAt || !paginaLeida(na, now)) continue;
     const since = now - na.latestAt.getTime();
     if (since <= INACTIVITY_ALERT_MS) continue; // fresh organic post → active
     // Meta's organic API fails per-page (permission #10), so a silent organic
@@ -224,7 +231,7 @@ export async function runDiversificationCheck(
   opts: { dryRun?: boolean } = {},
 ): Promise<{ reviewed: number; issues: Array<{ name: string; note: string }>; delivered: boolean }> {
   const now = Date.now();
-  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active"));
+  const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(clienteReal());
   const issues: Array<{ name: string; note: string }> = [];
   let reviewed = 0;
   for (const c of rows) {
@@ -271,13 +278,11 @@ export async function runDiversificationCheck(
 }
 
 let pubTimer: ReturnType<typeof setInterval> | null = null;
-let lastPubDay = "";
 export function initPublicationMonitor(db: Db): void {
   if (pubTimer) return;
   const tick = async () => {
-    const day = new Date().toISOString().slice(0, 10);
-    if (day === lastPubDay) return; // once per day
-    lastPubDay = day;
+    const { tocaHoy } = await import("./una-vez-por-dia.js");
+    if (!(await tocaHoy(db, "monitor:publicacion"))) return; // una vez por día, aunque haya deploys
     await runPublicationCheck(db)
       .then((r) => console.log(`[publication-monitor] ${r.overdue.length} sin publicar (webhook no disparó), across ${r.clients} clients, delivered=${r.delivered}`))
       .catch((e) => console.warn("[publication-monitor] run failed:", e));

@@ -21,8 +21,9 @@
 // esté muda es consecuencia, no un problema aparte. Un diagnóstico por cliente.
 
 import type { Db } from "@paperclipai/db";
-import { clients, organicPosts } from "@paperclipai/db";
+import { clients, organicPostInsights, organicPosts } from "@paperclipai/db";
 import { eq, sql } from "drizzle-orm";
+import { clienteReal } from "./intel-common.js";
 import { makeConfigured, makeDestinos, makeListScenarios, matchScenario } from "./make.js";
 import { getRedesCalendar } from "./clickup-sync.js";
 import { avisarAlEquipo } from "./wa-embudo.js";
@@ -118,7 +119,10 @@ export function diagnosticar(e: EstadoCliente): Eslabon | null {
   // como trabajo pendiente del CM. Se exige que NUNCA haya despachado para no
   // acusar por un nombre de escenario que no matchea: si despachó alguna vez,
   // algo hay detrás.
-  if (e.tieneDestino && e.destinoConEscenario === false && (e.diasDesdeDespacho === null || e.diasDesdeDespacho === undefined)) {
+  // Y un post visto en la red estos días es un hecho que gana: el cliente
+  // publica (a mano o por otro escenario), así que "nadie publica" sería falso.
+  const publicaEnLaRed = e.diasDesdeUltimoPost !== null && e.diasDesdeUltimoPost <= DIAS_DESPACHO_SIN_RED;
+  if (e.tieneDestino && e.destinoConEscenario === false && (e.diasDesdeDespacho === null || e.diasDesdeDespacho === undefined) && !publicaEnLaRed) {
     return "destino_sin_escenario";
   }
   // El contenido va ANTES del despacho porque es su causa: un despachador mudo
@@ -183,7 +187,7 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
   const activos = await db
     .select({ id: clients.id, name: clients.name })
     .from(clients)
-    .where(eq(clients.status, "active"));
+    .where(clienteReal());
 
   // Última publicación REAL por cliente y cuándo corrió el sync que la trajo.
   // Las dos fechas juntas separan "la red no muestra nada" de "no estamos
@@ -196,12 +200,24 @@ export async function revisarCadena(db: Db): Promise<{ rotas: CadenaRota[]; revi
     })
     .from(organicPosts)
     .groupBy(organicPosts.clientId);
+  // El synced_at del post solo avanza cuando entra uno nuevo (insert ON CONFLICT
+  // DO NOTHING): un cliente que no publicó en 4 días salía "sync parado". La
+  // última vez que de verdad leímos la página es cuando se reescribieron las
+  // métricas de sus posts, que pasa en cada sync.
+  const lecturas = await db
+    .select({ clientId: organicPosts.clientId, at: sql<string | null>`max(${organicPostInsights.syncedAt})` })
+    .from(organicPostInsights)
+    .innerJoin(organicPosts, eq(organicPosts.id, organicPostInsights.postId))
+    .groupBy(organicPosts.clientId);
+  const leidaEl = new Map(lecturas.filter((l) => l.clientId && l.at).map((l) => [l.clientId!, new Date(l.at!)]));
   const ultimoEnRed = new Map<string, Date | null>();
   const ultimoSync = new Map<string, Date | null>();
   for (const r of red) {
     if (!r.clientId) continue;
     ultimoEnRed.set(r.clientId, r.ultimo ? new Date(r.ultimo) : null);
-    ultimoSync.set(r.clientId, r.ultimoSync ? new Date(r.ultimoSync) : null);
+    const insertado = r.ultimoSync ? new Date(r.ultimoSync) : null;
+    const leida = leidaEl.get(r.clientId) ?? null;
+    ultimoSync.set(r.clientId, leida && (!insertado || leida > insertado) ? leida : insertado);
   }
 
   const rotas: CadenaRota[] = [];

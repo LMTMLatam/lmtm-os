@@ -138,6 +138,7 @@ describe("destino_sin_escenario — la fila en el datastore no es un caño", () 
     ...sano,
     destinoConEscenario: false,
     diasDesdeDespacho: null,
+    diasDesdeUltimoPost: 30,
     postsFuturos: 0,
     postsFuturosListos: 0,
   };
@@ -157,10 +158,16 @@ describe("destino_sin_escenario — la fila en el datastore no es un caño", () 
 
   it("no acusa a un cliente que YA despachó alguna vez, aunque el nombre no matchee", () => {
     // Si despachó, algo hay detrás: el que falló es el match por nombre, no el caño.
-    expect(diagnosticar({ ...dePapel, diasDesdeDespacho: 2, postsFuturos: 5, postsFuturosListos: 5 })).toBeNull();
+    expect(diagnosticar({ ...dePapel, diasDesdeDespacho: 2, diasDesdeUltimoPost: 1, postsFuturos: 5, postsFuturosListos: 5 })).toBeNull();
   });
 
   it("sin destino gana sobre destino sin escenario", () => {
     expect(diagnosticar({ ...dePapel, tieneDestino: false })).toBe("sin_destino");
+  });
+
+  it("no acusa a un cliente que publicó en la red estos días: algo publica, aunque no sea Make", () => {
+    // 07/10/26: MA PROPIEDADES y Distrillantas salían "destino de papel" con un
+    // post de ese mismo día en la red.
+    expect(diagnosticar({ ...dePapel, diasDesdeUltimoPost: 0 })).toBe("sin_calendario");
   });
 });

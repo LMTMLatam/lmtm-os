@@ -9,8 +9,8 @@
 // alert (so the team gets one report, not three) and upcoming key dates.
 
 import type { Db } from "@paperclipai/db";
-import { organicPosts, adsAccountMappings } from "@paperclipai/db";
-import { and, eq, or, inArray, gte, lte } from "drizzle-orm";
+import { organicPosts, organicPostInsights, adsAccountMappings } from "@paperclipai/db";
+import { and, eq, or, inArray, gte, lte, sql } from "drizzle-orm";
 import { getRedesPostStats } from "./clickup-sync.js";
 import { avisarAlEquipo } from "./wa-embudo.js";
 import { activeClients } from "./intel-common.js";
@@ -72,7 +72,29 @@ export async function networkActivity(
     if (ms >= sinceMs && ms <= untilMs) count += 1;
     if (!latestAt || r.createdTime > latestAt) latestAt = r.createdTime;
   }
+  // El synced_at del post NO dice cuándo miramos la página: el insert es
+  // ON CONFLICT DO NOTHING, así que solo avanza cuando entra un post nuevo. Un
+  // cliente que no publica y un sync parado se veían iguales, y el 07/10 DUNOD
+  // figuraba "98 días sin postear" cuando la verdad era que no leemos su página
+  // desde el 01/07. Las métricas de los posts sí se reescriben en cada sync.
+  if (rows.length > 0) {
+    const [m] = await db
+      .select({ at: sql<string | null>`max(${organicPostInsights.syncedAt})` })
+      .from(organicPostInsights)
+      .innerJoin(organicPosts, eq(organicPosts.id, organicPostInsights.postId))
+      .where(match);
+    const leida = m?.at ? new Date(m.at) : null;
+    if (leida && (!lastSyncedAt || leida > lastSyncedAt)) lastSyncedAt = leida;
+  }
   return { hasPage, count, everSynced: rows.length > 0, latestAt, lastSyncedAt };
+}
+
+/** Sin una lectura de la página más nueva que esto, no se puede afirmar nada sobre lo que el cliente publicó. */
+export const LECTURA_CONFIABLE_MS = 36 * 3_600_000;
+
+/** ¿Leímos hace poco la página del cliente? Si no, "no publicó" no es un hecho: es que no miramos. */
+export function paginaLeida(na: Pick<NetworkActivity, "lastSyncedAt">, ahoraMs: number): boolean {
+  return na.lastSyncedAt !== null && ahoraMs - na.lastSyncedAt.getTime() <= LECTURA_CONFIABLE_MS;
 }
 
 interface ClientAudit {
@@ -101,11 +123,13 @@ async function auditClient(
   // genuinely cannot verify. Surface it as a blind spot (not a silent pass) so
   // the team connects/reconnects the page or checks by hand. Treating a data
   // gap as "0 posteos" would cry wolf, so we keep these separate.
-  if (!net.hasPage || !net.everSynced) {
+  if (!net.hasPage || !net.everSynced || !paginaLeida(net, nowMs)) {
     if (hasClickupActivity || plannedThisWeek > 0) {
       const reason = !net.hasPage
         ? "sin red de Meta conectada"
-        : "sin publicaciones sincronizadas de la red todavía";
+        : !net.everSynced
+          ? "sin publicaciones sincronizadas de la red todavía"
+          : `no leemos su página desde el ${net.lastSyncedAt?.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }) ?? "?"}`;
       return {
         name: client.name,
         status: "unverifiable",

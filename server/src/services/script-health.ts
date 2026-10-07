@@ -79,7 +79,11 @@ function judge(scriptId: string, procs: Proc[]): ScriptVerdict {
   const latest = sorted[0];
   const ageDays = (Date.now() - new Date(latest.startTime!).getTime()) / 86400000;
   const status = (latest.processStatus ?? "").toUpperCase();
-  if (status === "FAILED" || status === "TIMED_OUT") {
+  const fallo = (p: Proc | undefined) => ["FAILED", "TIMED_OUT"].includes((p?.processStatus ?? "").toUpperCase());
+  // Una sola corrida fallida entre muchas buenas es un tropiezo, no un script
+  // roto: el 06/10 MONDINO tenía 8 COMPLETED y 1 FAILED y abrió tarea urgente.
+  // Hacen falta dos fallas seguidas (o que sea la única corrida que hay).
+  if (fallo(latest) && (sorted.length === 1 || fallo(sorted[1]))) {
     return {
       scriptId,
       state: "failing",
@@ -145,8 +149,12 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
           `3) Si el trigger está caído, reinstalalo (función ${pipeline.trigger}).\n` +
           `4) Mientras tanto, si hay filas del Sheet sin pasar a ClickUp, transcribilas para no perder piezas.`,
         taskType: "internal",
-        priority: "high",
+        // Media y no alta: alta la deriva por WhatsApp al responsable de diseño
+        // del cliente, y un Apps Script lo arregla un agente, no la diseñadora.
+        priority: "medium",
         source: "script-health-monitor",
+        // Que el agente la cierre no habilita a abrirla de nuevo en la próxima pasada.
+        noRepetirDias: CHECK_EVERY_DAYS,
       }).catch(() => {});
     }
   }
@@ -155,7 +163,6 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let lastRunDay = "";
 const CHECK_EVERY_DAYS = Math.max(1, Number(process.env.LMTM_SCRIPT_CHECK_DAYS ?? 5));
 
 export function initScriptHealth(db: Db): void {
@@ -164,11 +171,10 @@ export function initScriptHealth(db: Db): void {
   // modulo so it fires roughly every N days regardless of restarts.
   const tick = async () => {
     const now = new Date();
-    const dayKey = now.toISOString().slice(0, 10);
-    if (dayKey === lastRunDay) return;
     const dayOfYear = Math.floor((now.getTime() - Date.UTC(now.getUTCFullYear(), 0, 0)) / 86400000);
     if (dayOfYear % CHECK_EVERY_DAYS !== 0) return;
-    lastRunDay = dayKey;
+    const { tocaHoy } = await import("./una-vez-por-dia.js");
+    if (!(await tocaHoy(db, "monitor:script-health"))) return;
     await runScriptHealthCheck(db).catch((e) => console.warn("[script-health] run failed:", e));
   };
   setTimeout(() => { void tick(); }, 8 * 60 * 1000);

@@ -42,6 +42,9 @@ async function urlViva(url: string): Promise<boolean> {
   }
 }
 
+/** ¿Responde el link? Lo mismo que se le exige a un entregable. */
+export const linkResponde = (url: string) => urlViva(url);
+
 /** Nombres de clientes "chequeables" (largos o de 2+ palabras; los cortos dan falsos positivos). */
 async function nombresClientes(db: Db): Promise<Array<{ id: string; name: string }>> {
   const rows = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.status, "active")).limit(200);

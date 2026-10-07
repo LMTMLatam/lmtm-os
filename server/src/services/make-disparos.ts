@@ -196,6 +196,15 @@ export function sospechosoClaro(
 
 /** Escenarios que no publican contenido de clientes: no tiene sentido mirarlos. */
 const NO_PUBLICAN = /gateway|health|monitor|todoist|plantilla|template/i;
+/**
+ * El despachador ("AutoPoster: CU -> Redes sociales"): recibe el webhook de
+ * ClickUp y reparte cada post al escenario de su cliente. Corre al lado de
+ * TODOS por diseño y dos posts a la misma hora son dos corridas pegadas, así
+ * que el detector lo acusaba de "autoposter genérico de más" y sugería
+ * apagarlo — eso corta las publicaciones de toda la agencia (07/10/26). Una
+ * duplicación real se ve igual en el escenario del cliente, que sí se mira.
+ */
+export const DESPACHADOR_ID = 1427144;
 /** Tope de escenarios por barrido, para no comerse el rate limit de Make. */
 export const TOPE_ESCENARIOS = 60;
 
@@ -208,7 +217,7 @@ export interface Cosecha {
 export async function juntarDisparos(): Promise<Cosecha> {
   if (!makeConfigured()) return { disparos: [], leidos: 0, fallados: 0 };
   const escenarios = (await makeListScenarios())
-    .filter((s) => s.isActive !== false && !NO_PUBLICAN.test(s.name ?? ""))
+    .filter((s) => s.isActive !== false && s.id !== DESPACHADOR_ID && !NO_PUBLICAN.test(s.name ?? ""))
     .slice(0, TOPE_ESCENARIOS);
 
   const disparos: Disparo[] = [];

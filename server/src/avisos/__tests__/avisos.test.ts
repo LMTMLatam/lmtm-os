@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { decidirAviso, nivelEfectivo, TOPE_INTERRUPCIONES_DIA } from "../politica.js";
 import { medirInterrupciones, type FilaOutbox } from "../medir.js";
 import { armarMensajeIncidentes } from "../incidentes.js";
-import { armarPendientesCortos, armarResumen, fechaLarga, tocaResumen } from "../resumen.js";
+import { armarPendientesCortos, armarResumen, elegirTendencias, esUrlDeNota, fechaLarga, tocaResumen } from "../resumen.js";
 
 describe("política", () => {
   it("solo los incidentes y los envíos manuales pueden ser nivel 5", () => {
@@ -187,10 +187,46 @@ describe("resumen de las 9:00", () => {
   });
 
   it("si son muchos, los que sobran van contados por tema", () => {
-    const filas = Array.from({ length: 15 }, (_, i) => ({ origen: i < 13 ? "sin-publicar" : "auditor", nivel: 3, texto: `aviso ${i}` }));
+    const filas = Array.from({ length: 15 }, (_, i) => ({ origen: i < 13 ? "derivacion-tareas" : "auditor", nivel: 3, texto: `aviso ${i}` }));
     const t = armarPendientesCortos(filas)!;
     expect(t.split("\n").filter((l) => l.startsWith("• "))).toHaveLength(12);
-    expect(t).toContain("_y 3 más: Auditoría diaria 2 · Clientes sin publicar 1._");
+    expect(t).toContain("_y 3 más: Auditoría diaria 2 · Tareas derivadas 1._");
+  });
+
+  it("de los que mandan la foto entera vale el último, aunque cambie la clave", () => {
+    // 07/10: salieron 4 "Make" y 2 "Cadena de publicación" porque la lista de
+    // clientes (y con ella la clave) cambiaba entre corrida y corrida.
+    const t = armarPendientesCortos([
+      { origen: "make-disparos", nivel: 4, clave: "duplicados:1,2", texto: "23 escenarios" },
+      { origen: "make-disparos", nivel: 4, clave: "duplicados:1,2,3", texto: "26 escenarios" },
+      { origen: "cadena-publicacion", nivel: 4, clave: "cadena-rota:A,B", texto: "A y B" },
+      { origen: "cadena-publicacion", nivel: 4, clave: "cadena-rota:A", texto: "solo A" },
+      { origen: "derivacion-tareas", nivel: 4, clave: "derivacion:LMTM-1", texto: "tarea 1" },
+      { origen: "derivacion-tareas", nivel: 4, clave: "derivacion:LMTM-2", texto: "tarea 2" },
+    ])!;
+    expect(t.split("\n")[0]).toBe("*Otros avisos desde ayer (4):*");
+    expect(t).toContain("26 escenarios");
+    expect(t).not.toContain("23 escenarios");
+    expect(t).toContain("solo A");
+    expect(t).not.toContain("A y B");
+    expect(t).toContain("tarea 1");
+    expect(t).toContain("tarea 2");
+  });
+
+  it("tendencias para reenviar: solo con link a la nota, una por link", () => {
+    expect(esUrlDeNota("https://www.infobae.com/economia/")).toBe(false);
+    expect(esUrlDeNota("https://trends.google.com/")).toBe(false);
+    expect(esUrlDeNota("https://www.afa.org.ar/play-video")).toBe(false);
+    expect(esUrlDeNota("https://buffer.com/resources/instagram-algorithms/")).toBe(true);
+    expect(esUrlDeNota("https://cace.org.ar/hot-sale-2026-mas-de-800-marcas")).toBe(true);
+    expect(esUrlDeNota(null)).toBe(false);
+    const elegidas = elegirTendencias([
+      { title: "WhatsApp IA", url: "https://www.reuters.com/tech/meta-whatsapp-ai-2026/" },
+      { title: "WhatsApp IA (universal)", url: "https://www.reuters.com/tech/meta-whatsapp-ai-2026/" },
+      { title: "PyMEs", url: "https://www.infobae.com/economia/" },
+      { title: "Reels", url: "https://buffer.com/resources/instagram-algorithms/" },
+    ]);
+    expect(elegidas.map((t) => t.title)).toEqual(["WhatsApp IA", "Reels"]);
   });
 
   it("se intenta de 9 a 12: un deploy a las 9:52 o el gateway caído a las 9 no pierden el día", () => {

@@ -1899,10 +1899,22 @@ export function agentToolsRoutes(
         if (nicheTags.length === 0 && /\b(ia|ai|chatgpt|claude|gemini|openai|anthropic|copilot|bing|cloudflare|product ?hunt|saas|seo|llm)\b/i.test(`${title} ${summary ?? ""}`)) {
           return reply(false, "Esto parece noticia de IA/herramientas/marketing, no un cambio universal de plataforma. Etiquetala niches=['agencia-marketing'] (o el rubro específico si de verdad aplica). niches=[] queda RESERVADO a cambios de plataforma (algoritmo de IG, features de Meta/TikTok/WhatsApp).");
         }
+        // La tendencia se reenvía a clientes: sin la nota de donde sale el dato no
+        // se guarda. El 07/10 había links a portadas (infobae.com/economia/) y uno
+        // de Reuters que no existe.
+        const url = typeof params.url === "string" ? params.url.trim().slice(0, 500) : "";
+        const { esUrlDeNota } = await import("../avisos/resumen.js");
+        if (!esUrlDeNota(url)) {
+          return reply(false, "Falta el link a la NOTA puntual de donde sale el dato (no la portada ni una sección del medio). Si no la tenés, no guardes la tendencia.");
+        }
+        const { linkResponde } = await import("../services/entrega-checks.js");
+        if (!(await linkResponde(url).catch(() => false))) {
+          return reply(false, `El link ${url} no responde: verificá que la nota exista. No inventes links.`);
+        }
         await db.insert(trends).values({
           day: dayStr(new Date()),
           title,
-          url: typeof params.url === "string" ? params.url.slice(0, 500) : null,
+          url,
           source: typeof params.source === "string" ? params.source.slice(0, 120) : null,
           tag: ["potencial-de-gancho", "explicativo", "ignorar"].includes(params.tag as string) ? (params.tag as string) : "potencial-de-gancho",
           niches: nicheTags,

@@ -40,13 +40,58 @@ export interface Tendencia {
 export async function tendenciasDelDia(db: Db, ahora = new Date()): Promise<Tendencia[]> {
   const { trends } = await import("@paperclipai/db");
   const desde = new Date(ahora.getTime() - 86_400_000).toISOString().slice(0, 10);
-  return db
+  const filas = await db
     .select({ title: trends.title, url: trends.url })
     .from(trends)
     .where(and(gte(trends.day, desde), sql`${trends.tag} <> 'ignorar'`))
-    .orderBy(desc(trends.day))
-    .limit(3)
+    .orderBy(desc(trends.createdAt))
+    .limit(30)
     .catch(() => []);
+  // Además de la forma, que el link conteste: una nota inventada da 404.
+  const { linkResponde } = await import("../services/entrega-checks.js");
+  const vivas: Tendencia[] = [];
+  for (const t of elegirTendencias(filas, 10)) {
+    if (await linkResponde(t.url!).catch(() => false)) vivas.push(t);
+    if (vivas.length === 3) break;
+  }
+  return vivas;
+}
+
+/**
+ * ¿El link apunta a una nota puntual y no a la portada o a una sección? Las
+ * tendencias que salían para "reenviar a clientes" traían infobae.com/economia/
+ * o trends.google.com/ como fuente de un dato concreto: no hay forma de
+ * chequear de dónde salió (07/10/26).
+ */
+export function esUrlDeNota(url: string | null | undefined): boolean {
+  if (!url) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const partes = u.pathname.split("/").filter(Boolean);
+  if (partes.length >= 2) return true;
+  return partes.length === 1 && partes[0].split("-").length >= 3;
+}
+
+/**
+ * Las que se pueden reenviar a un cliente: con link a la nota (no a la
+ * portada) y una por link. El 07/10 salían dos versiones de la misma noticia
+ * con un link de Reuters que no existe; sin fuente verificable no se reenvía.
+ */
+export function elegirTendencias(filas: Tendencia[], max = 3): Tendencia[] {
+  const vistas = new Set<string>();
+  const salida: Tendencia[] = [];
+  for (const t of filas) {
+    if (!esUrlDeNota(t.url) || vistas.has(t.url!)) continue;
+    vistas.add(t.url!);
+    salida.push(t);
+    if (salida.length === max) break;
+  }
+  return salida;
 }
 
 /** Lo que investigaron los agentes de las decisiones de hoy. Si falla, el resumen sale igual. */
@@ -142,6 +187,20 @@ const NOMBRE_ORIGEN: Record<string, string> = {
 
 const nombreDeOrigen = (origen: string) => NOMBRE_ORIGEN[origen] ?? "Otros avisos";
 
+/** Monitores cuyo aviso es el estado completo del momento: el más nuevo reemplaza a los anteriores. */
+export const ORIGENES_FOTO: ReadonlySet<string> = new Set([
+  "cadena-publicacion",
+  "sin-publicar",
+  "inactividad-redes",
+  "make-autoposter",
+  "make-disparos",
+  "contaminacion-clientes",
+  "diversificacion",
+  "ideas-pendientes",
+  "reporte-semanal",
+  "onboarding-trabado",
+]);
+
 /** Cuántos avisos pendientes van con su texto; los demás, contados por tema. */
 const MAX_LINEAS_CON_TEXTO = 12;
 
@@ -166,9 +225,12 @@ export function armarPendientesCortos(todas: Array<{ origen: string; nivel: numb
   // texto cambia en "96d 19h" → "96d 20h"): sin esto el resumen repetía el mismo
   // aviso 4-5 veces. Uno por origen + clave, con el texto más nuevo (llegan del
   // más viejo al más nuevo).
+  // Los que mandan la FOTO entera (la lista completa de hoy) cambian de clave
+  // cuando cambia la lista, así que por clave seguían saliendo 4 "Make" y 2
+  // "Cadena" el 07/10: de ésos vale solo el último.
   const porClave = new Map<string, { origen: string; nivel: number; texto?: string }>();
   for (const f of todas) {
-    const k = `${f.origen}|${f.clave ?? f.texto ?? ""}`;
+    const k = ORIGENES_FOTO.has(f.origen) ? f.origen : `${f.origen}|${f.clave ?? f.texto ?? ""}`;
     const previa = porClave.get(k);
     porClave.set(k, { origen: f.origen, nivel: Math.max(f.nivel, previa?.nivel ?? f.nivel), texto: f.texto ?? previa?.texto });
   }
