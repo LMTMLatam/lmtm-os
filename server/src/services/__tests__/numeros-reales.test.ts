@@ -68,3 +68,23 @@ describe("formato de Instagram", () => {
     expect(formatoInstagram(null)).toBe("posteos");
   });
 });
+
+describe("benchmark por rubro: CTR solo de Meta y sin conversiones dudosas", () => {
+  it("el CTR de búsqueda de Google no entra y las conversiones de Google infladas no bajan el costo por resultado", async () => {
+    const { desglosarPorCliente } = await import("../learning-engine.js");
+    // MA PROPIEDADES del 7/10: Google 36.418 clics y 19.103 "conversiones" (52%).
+    const [ma] = desglosarPorCliente([
+      { industry: "inmobiliaria", clientId: "ma", platform: "meta", spend: 1_371_746, impressions: 400_000, clicks: 5_120, leads: 320 },
+      { industry: "inmobiliaria", clientId: "ma", platform: "google", spend: 906_425, impressions: 300_000, clicks: 36_418, leads: 19_103 },
+    ]);
+    expect(ma.ctrMeta).toBeCloseTo(5_120 / 400_000);
+    expect(ma.cpl).toBeCloseTo(1_371_746 / 320); // ~4.287, no 47
+    expect(ma.leadsDudosos).toBe(true);
+  });
+  it("sin Meta no hay CTR comparable", async () => {
+    const { desglosarPorCliente } = await import("../learning-engine.js");
+    const [g] = desglosarPorCliente([{ industry: "x", clientId: "g", platform: "google", spend: 1000, impressions: 5000, clicks: 600, leads: 10 }]);
+    expect(g.ctrMeta).toBeNull();
+    expect(g.cpl).toBe(100);
+  });
+});

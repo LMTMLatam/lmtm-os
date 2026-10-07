@@ -3714,6 +3714,7 @@ export function adsRoutes(db: Db): Router {
   router.get("/growth/niches", async (_req, res) => {
     try {
       const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+      const hoyNichos = new Date().toISOString().slice(0, 10);
       const EXCLUDED = ["interno-test", "agencia-marketing"];
 
       const clientRows = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
@@ -3726,29 +3727,22 @@ export function adsRoutes(db: Db): Router {
         byNiche.set(c.industry, arr);
       }
 
-      const [aggRows, perClientRows, campaignRows, hookRows, trendRows, videoRefRows, allLearnings, topContentRows, compRows, syncLogRows] = await Promise.all([
-        db.select({
-          industry: clients.industry,
-          spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
-          impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
-          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
-          leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-        }).from(adsInsights)
-          .innerJoin(clients, eq(adsInsights.clientId, clients.id))
-          .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry)))
-          .groupBy(clients.industry),
-        // Per-client 30d aggregates — the cross-view: each client vs its
-        // niche's achievable ideal (best quartile), the panel's semáforo.
+      const [perClientRows, campaignRows, hookRows, trendRows, videoRefRows, allLearnings, topContentRows, compRows, syncLogRows] = await Promise.all([
+        // Per-client × plataforma, 30 días completos — the cross-view: each
+        // client vs its niche's achievable ideal (best quartile). Por plataforma
+        // para comparar CTR solo en Meta y dejar afuera del costo por resultado
+        // las conversiones dudosas de Google (7/10, ver desglosarPorCliente).
         db.select({
           clientId: adsInsights.clientId,
+          platform: adsInsights.platform,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
           impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
           clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
         }).from(adsInsights)
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
-          .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry)))
-          .groupBy(adsInsights.clientId),
+          .where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyNichos}`, eq(clients.status, "active"), isNotNull(clients.industry)))
+          .groupBy(adsInsights.clientId, adsInsights.platform),
         // Best real campaigns of the niche (30d, min volume) — "qué funcionó".
         db.select({
           industry: clients.industry,
@@ -3760,7 +3754,8 @@ export function adsRoutes(db: Db): Router {
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
         }).from(adsInsights)
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
-          .where(and(gte(adsInsights.date, since30), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+          // Solo Meta: una campaña de búsqueda de Google siempre gana por CTR.
+          .where(and(gte(adsInsights.date, since30), eq(adsInsights.platform, "meta"), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
           .groupBy(clients.industry, clients.name, adsInsights.campaignName)
           .having(sql`sum(${adsInsights.impressions}) >= 500`),
         // Ideas del baúl y tendencias del nicho (recién sembrados — crecen solos).
@@ -3803,7 +3798,22 @@ export function adsRoutes(db: Db): Router {
           .limit(500),
       ]);
 
-      const aggByNiche = new Map(aggRows.map((r) => [r.industry!, r]));
+      const { desglosarPorCliente } = await import("../services/learning-engine.js");
+      const { conversionesDudosas } = await import("../metricas/index.js");
+      const industriaDe = new Map(clientRows.map((c) => [c.id, c.industry]));
+      const filasCliente = perClientRows.filter((r) => r.clientId).map((r) => ({ ...r, clientId: r.clientId as string, industry: industriaDe.get(r.clientId as string) ?? null }));
+      const desglose = new Map(desglosarPorCliente(filasCliente).map((d) => [d.clientId, d]));
+      type Suma = { spend: number; impressions: number; leads: number; spendConfiable: number; metaImp: number; metaClicks: number };
+      const sumar = (filas: typeof filasCliente): Suma => {
+        const t: Suma = { spend: 0, impressions: 0, leads: 0, spendConfiable: 0, metaImp: 0, metaClicks: 0 };
+        for (const r of filas) {
+          const spend = Number(r.spend), leads = Number(r.leads), clicks = Number(r.clicks), imp = Number(r.impressions);
+          t.spend += spend; t.impressions += imp;
+          if (r.platform === "meta") { t.metaImp += imp; t.metaClicks += clicks; }
+          if (!conversionesDudosas(r.platform, leads, clicks)) { t.leads += leads; t.spendConfiable += spend; }
+        }
+        return t;
+      };
       const learningByNiche = (scope: string) =>
         new Map(allLearnings.filter((l) => l.scope === scope).map((l) => [l.scopeKey ?? "", l]));
       const benchmarks = learningByNiche("niche_benchmark");
@@ -3812,15 +3822,15 @@ export function adsRoutes(db: Db): Router {
       const experiments = learningByNiche("niche_experiment");
       const actionPlans = learningByNiche("niche_actions");
 
-      const perClient = new Map(perClientRows.map((r) => {
-        const imp = Number(r.impressions);
-        const spend = Number(r.spend);
-        const leads = Number(r.leads);
-        return [r.clientId, {
-          spend, leads,
-          ctr: imp > 0 ? Number(r.clicks) / imp : 0,
-          cpl: leads > 0 ? spend / leads : null,
-          impressions: imp,
+      // CTR de Meta (null sin Meta); resultados y costo por resultado sin las
+      // conversiones dudosas de Google; inversión total.
+      const perClient = new Map([...new Set(filasCliente.map((r) => r.clientId))].map((id) => {
+        const t = sumar(filasCliente.filter((r) => r.clientId === id));
+        return [id, {
+          spend: t.spend, leads: t.leads, impressions: t.impressions,
+          ctr: t.metaImp > 0 ? t.metaClicks / t.metaImp : null,
+          cpl: desglose.get(id)?.cpl ?? null,
+          leadsDudosos: desglose.get(id)?.leadsDudosos ?? false,
         }];
       }));
 
@@ -3837,10 +3847,8 @@ export function adsRoutes(db: Db): Router {
       }
 
       const niches = [...byNiche.entries()].map(([niche, members]) => {
-        const agg = aggByNiche.get(niche);
-        const imp = Number(agg?.impressions ?? 0);
-        const spend = Number(agg?.spend ?? 0);
-        const leads = Number(agg?.leads ?? 0);
+        const ids = new Set(members.map((m) => m.id));
+        const agg = sumar(filasCliente.filter((r) => ids.has(r.clientId)));
         const bench = benchmarks.get(niche);
         const fmt = formats.get(niche);
         const fmtAds = adsFormats.get(niche);
@@ -3864,9 +3872,9 @@ export function adsRoutes(db: Db): Router {
           niche,
           clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name, ads30d: perClient.get(m.id) ?? null, syncStatus: syncByClient.get(m.id) ?? null })),
           ads30d: {
-            spend, leads,
-            ctr: imp > 0 ? Number(agg!.clicks) / imp : 0,
-            cpl: leads > 0 ? spend / leads : null,
+            spend: agg.spend, leads: agg.leads,
+            ctr: agg.metaImp > 0 ? agg.metaClicks / agg.metaImp : null,
+            cpl: agg.leads > 0 ? agg.spendConfiable / agg.leads : null,
           },
           benchmark: bench ? { pattern: bench.pattern, evidence: bench.evidence } : null,
           winningFormat: fmt ? { pattern: fmt.pattern, evidence: fmt.evidence } : null,

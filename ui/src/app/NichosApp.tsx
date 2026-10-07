@@ -106,23 +106,27 @@ function Rubro({ n }: { n: NicheIntel }) {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Cifra etiqueta="Inversión" valor={pesos(n.ads30d.spend)} />
           <Cifra etiqueta="Resultados" valor={n.ads30d.leads.toLocaleString("es-AR")} />
-          <Cifra etiqueta="CTR" valor={pct(n.ads30d.ctr)} meta={ev?.idealCtr != null ? pct(ev.idealCtr) : null} />
+          <Cifra etiqueta="CTR en Meta" valor={n.ads30d.ctr != null ? pct(n.ads30d.ctr) : "—"} meta={ev?.idealCtr != null ? pct(ev.idealCtr) : null} />
           <Cifra etiqueta="Costo por resultado" valor={n.ads30d.cpl != null ? pesos(n.ads30d.cpl) : "—"} meta={ev?.idealCpl != null ? pesos(ev.idealCpl) : null} />
         </div>
-        {ev && <p className="mt-2 text-[12px] text-l-tinta-3">Meta alcanzable: el promedio del cuarto de mejores cuentas del rubro ({ev.clients ?? "?"} cuentas con pauta).</p>}
+        <p className="mt-2 text-[12px] text-l-tinta-3">
+          {ev ? `Meta alcanzable: el promedio del cuarto de mejores cuentas del rubro (${ev.clients ?? "?"} cuentas con pauta). ` : ""}
+          El CTR se compara solo en Meta (el de búsqueda de Google es de otra escala). Resultados y costo por resultado no incluyen las cuentas de Google que cuentan como conversión cualquier acción.
+        </p>
         {conPauta.length > 0 && (
           <ul className="mt-3">
             {conPauta.map((c) => {
               const a = c.ads30d!;
-              const ctrOk = ev?.idealCtr != null ? a.ctr >= ev.idealCtr : null;
+              const ctrOk = ev?.idealCtr != null && a.ctr != null ? a.ctr >= ev.idealCtr : null;
               const cplOk = a.cpl != null && ev?.idealCpl != null ? a.cpl <= ev.idealCpl : null;
               return (
                 <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-b border-l-linea py-2 text-[13px] last:border-b-0">
                   <Link to={`/clientes/${c.slug}`} className="min-w-[10rem] flex-1 font-medium text-inherit hover:text-l-marca">{c.name}</Link>
                   <span className="tabular-nums text-l-tinta-3">{pesos(a.spend)}</span>
                   <span className="tabular-nums text-l-tinta-3">{a.leads} resultados</span>
-                  <span className={`tabular-nums ${ctrOk === false ? "text-l-atencion-texto" : "text-l-tinta-2"}`}>CTR {pct(a.ctr)}</span>
+                  {a.ctr != null && <span className={`tabular-nums ${ctrOk === false ? "text-l-atencion-texto" : "text-l-tinta-2"}`}>CTR {pct(a.ctr)}</span>}
                   <span className={`tabular-nums ${cplOk === false ? "text-l-atencion-texto" : "text-l-tinta-2"}`}>{a.cpl != null ? `${pesos(a.cpl)} c/u` : "sin resultados"}</span>
+                  {a.leadsDudosos && <span className="rounded-full border border-l-atencion px-2 py-0.5 text-[11px] font-medium text-l-atencion-texto" title="Google cuenta como conversión más de un tercio de los clics: no son leads. Hay que corregir las acciones de conversión en la cuenta.">conversiones de Google sin confirmar</span>}
                 </li>
               );
             })}

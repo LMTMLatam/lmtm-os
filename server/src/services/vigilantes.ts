@@ -13,7 +13,7 @@
 // actividad, y todo queda persistido en `interventions` para el dashboard.
 
 import type { Db } from "@paperclipai/db";
-import { adsInsights, clients, interventions } from "@paperclipai/db";
+import { adsAccountMappings, adsInsights, clients, interventions } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { fetchAccountBalances, mereceAvisoDeSaldo, motivoFrenada } from "./balance-monitor.js";
 import { dayStr } from "./agency-ops.js";
@@ -77,8 +77,28 @@ async function markSent(db: Db, ids: string[]): Promise<void> {
 
 // ── Vigilante: Salud Financiera de Campañas ────────────────────────────────
 
+/** Guarda la moneda que informó cada cuenta (ver migración 0154). Solo escribe
+ *  si cambió. Los ids se comparan sin "act_" ni guiones: Meta y Google los
+ *  escriben distinto que el mapeo. */
+export async function guardarMonedas(db: Db, balances: Array<{ account: string; currency: string }>): Promise<number> {
+  let n = 0;
+  for (const b of balances) {
+    if (!b.currency) continue;
+    const filas = await db.update(adsAccountMappings)
+      .set({ currency: b.currency, updatedAt: new Date() })
+      .where(and(
+        sql`regexp_replace(${adsAccountMappings.adAccountId}, '^act_|-', '', 'g') = regexp_replace(${b.account}, '^act_|-', '', 'g')`,
+        sql`${adsAccountMappings.currency} is distinct from ${b.currency}`,
+      ))
+      .returning({ id: adsAccountMappings.id });
+    n += filas.length;
+  }
+  return n;
+}
+
 export async function runVigilanteFinanciera(db: Db): Promise<{ nuevas: number; enviadas: number }> {
   const balances = await fetchAccountBalances(db);
+  await guardarMonedas(db, balances).catch((e) => console.warn("[vigilantes] monedas:", e instanceof Error ? e.message : e));
   const today = dayStr(new Date());
   const yesterday = dayStr(new Date(Date.now() - 86_400_000));
   const since8 = dayStr(new Date(Date.now() - 8 * 86_400_000));

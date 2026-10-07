@@ -9,6 +9,7 @@
 import type { Db } from "@paperclipai/db";
 import { adsCreatives, clients, learnings, companies, adsInsights } from "@paperclipai/db";
 import { and, eq, gte, isNotNull, notInArray, sql } from "drizzle-orm";
+import { conversionesDudosas } from "../metricas/index.js";
 
 export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
@@ -144,12 +145,14 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
   if (!company) return { benchmarks: 0 };
   const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const hoy = new Date().toISOString().slice(0, 10);
 
-  // Per-client 30d aggregates, joined to the client's niche.
+  // Por cliente y plataforma, 30 días completos (hoy está a medio sincronizar).
   const rows = await db
     .select({
       industry: clients.industry,
       clientId: clients.id,
+      platform: adsInsights.platform,
       spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
       impressions: sql<number>`coalesce(sum(${adsInsights.impressions}), 0)::int`,
       clicks: sql<number>`coalesce(sum(${adsInsights.clicks}), 0)::int`,
@@ -159,21 +162,18 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
     .innerJoin(clients, eq(adsInsights.clientId, clients.id))
     .where(and(
       gte(adsInsights.date, since),
+      sql`${adsInsights.date} < ${hoy}`,
       eq(clients.status, "active"),
       isNotNull(clients.industry),
       notInArray(clients.industry, NON_BENCHMARK_NICHES),
     ))
-    .groupBy(clients.industry, clients.id);
+    .groupBy(clients.industry, clients.id, adsInsights.platform);
 
-  const byNiche = new Map<string, Array<{ ctr: number; cpl: number | null; spend: number; leads: number }>>();
-  for (const r of rows) {
-    const imp = Number(r.impressions);
-    if (imp < 500) continue; // too little signal to benchmark
-    const spend = Number(r.spend);
-    const leads = Number(r.leads);
-    const arr = byNiche.get(r.industry!) ?? [];
-    arr.push({ ctr: Number(r.clicks) / imp, cpl: leads > 0 ? spend / leads : null, spend, leads });
-    byNiche.set(r.industry!, arr);
+  const byNiche = new Map<string, Array<{ ctr: number | null; cpl: number | null }>>();
+  for (const r of desglosarPorCliente(rows)) {
+    const arr = byNiche.get(r.industry) ?? [];
+    arr.push({ ctr: r.ctrMeta, cpl: r.cpl });
+    byNiche.set(r.industry, arr);
   }
 
   // Benchmarks are a live snapshot, not history — and the pattern text embeds
@@ -183,32 +183,70 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
 
   let count = 0;
   for (const [niche, entries] of byNiche) {
-    if (entries.length < 2) continue; // a benchmark of one client is just that client
-    const ctrs = entries.map((e) => e.ctr).sort((a, b) => b - a);
+    const ctrs = entries.filter((e) => e.ctr != null).map((e) => e.ctr!).sort((a, b) => b - a);
     const cpls = entries.filter((e) => e.cpl != null).map((e) => e.cpl!).sort((a, b) => a - b);
+    // Un benchmark de un solo cliente es ese cliente.
+    if (ctrs.length < 2 && cpls.length < 2) continue;
     const avg = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
     const topQ = <T,>(xs: T[]) => xs.slice(0, Math.max(1, Math.ceil(xs.length / 4)));
-    const avgCtr = avg(ctrs);
-    const idealCtr = avg(topQ(ctrs));
-    const avgCpl = cpls.length ? avg(cpls) : null;
-    const idealCpl = cpls.length ? avg(topQ(cpls)) : null;
+    const avgCtr = ctrs.length >= 2 ? avg(ctrs) : null;
+    const idealCtr = ctrs.length >= 2 ? avg(topQ(ctrs)) : null;
+    const avgCpl = cpls.length >= 2 ? avg(cpls) : null;
+    const idealCpl = cpls.length >= 2 ? avg(topQ(cpls)) : null;
     // Two layers: the numbers, then a plain-language read + what to do with it
     // (pedido del usuario: "que me dé un detalle para alguien no experto").
-    const pattern = `Benchmark de "${niche}" (30d, ${entries.length} clientes): CTR prom. ${(avgCtr * 100).toFixed(2)}% / ideal (mejor cuartil) ${(idealCtr * 100).toFixed(2)}%${avgCpl != null ? `; CPL prom. $${Math.round(avgCpl)} / ideal $${Math.round(idealCpl!)}` : ""}. ` +
-      `En criollo: de cada 1.000 personas que ven un anuncio de este rubro, ~${Math.round(avgCtr * 1000)} hacen clic (los mejores logran ~${Math.round(idealCtr * 1000)})${avgCpl != null ? `, y cada consulta cuesta ~$${Math.round(avgCpl)} (los mejores la consiguen a ~$${Math.round(idealCpl!)})` : ""}. ` +
+    const partes: string[] = [];
+    if (avgCtr != null) partes.push(`CTR de Meta prom. ${(avgCtr * 100).toFixed(2)}% / ideal (mejor cuartil) ${(idealCtr! * 100).toFixed(2)}% (${ctrs.length} clientes)`);
+    if (avgCpl != null) partes.push(`costo por resultado prom. $${Math.round(avgCpl)} / ideal $${Math.round(idealCpl!)} (${cpls.length} clientes)`);
+    const criollo: string[] = [];
+    if (avgCtr != null) criollo.push(`de cada 1.000 personas que ven un anuncio de este rubro en Meta, ~${Math.round(avgCtr * 1000)} hacen clic (los mejores logran ~${Math.round(idealCtr! * 1000)})`);
+    if (avgCpl != null) criollo.push(`cada consulta cuesta ~$${Math.round(avgCpl)} (los mejores la consiguen a ~$${Math.round(idealCpl!)})`);
+    const pattern = `Benchmark de "${niche}" (30d): ${partes.join("; ")}. En criollo: ${criollo.join(", y ")}. ` +
       `Qué hacer: cliente por debajo del promedio → cambiar creatividad/segmentación ya; entre promedio e ideal → copiar el formato ganador del rubro; en el ideal → escalar presupuesto.`;
+    const evidence = { avgCtr, idealCtr, avgCpl, idealCpl, clients: Math.max(ctrs.length, cpls.length), clientesCtr: ctrs.length, clientesCpl: cpls.length, ctrDe: "meta", windowDays: 30 };
     await db.insert(learnings).values({
-      companyId: company.id, scope: "niche_benchmark", scopeKey: niche, pattern,
-      evidence: { avgCtr, idealCtr, avgCpl, idealCpl, clients: entries.length, windowDays: 30 },
+      companyId: company.id, scope: "niche_benchmark", scopeKey: niche, pattern, evidence,
       metricImpact: "ads_benchmark", confidence: String(Math.min(0.9, 0.5 + entries.length * 0.05)),
       occurrences: entries.length, lastSeenAt: new Date(),
     }).onConflictDoUpdate({
       target: [learnings.scope, learnings.scopeKey, learnings.pattern],
-      set: { evidence: { avgCtr, idealCtr, avgCpl, idealCpl, clients: entries.length, windowDays: 30 }, occurrences: entries.length, lastSeenAt: new Date() },
+      set: { evidence, occurrences: entries.length, lastSeenAt: new Date() },
     });
     count += 1;
   }
   return { benchmarks: count };
+}
+
+/**
+ * Puro: de filas (cliente × plataforma) a lo comparable por cliente.
+ *
+ * - CTR solo de Meta: el de Google búsqueda (10-20%) no se compara con el de
+ *   Meta (1-3%), y mezclados el "ideal" de automotor daba 21,77%.
+ * - Costo por resultado sin las cuentas de Google que cuentan como conversión
+ *   cualquier cosa (conversionesDudosas): con ellas el ideal de inmobiliaria
+ *   daba $263, por las 19.103 "conversiones" de MA PROPIEDADES en 30 días.
+ *   Se descartan inversión y resultados de esa plataforma para el CPL.
+ */
+export function desglosarPorCliente(rows: Array<{ industry: string | null; clientId: string; platform: string; spend: string | number; impressions: number; clicks: number; leads: number }>): Array<{
+  industry: string; clientId: string; ctrMeta: number | null; cpl: number | null; leadsDudosos: boolean;
+}> {
+  const porCliente = new Map<string, { industry: string; metaImp: number; metaClicks: number; spend: number; leads: number; dudosos: boolean }>();
+  for (const r of rows) {
+    if (!r.industry) continue;
+    const c = porCliente.get(r.clientId) ?? { industry: r.industry, metaImp: 0, metaClicks: 0, spend: 0, leads: 0, dudosos: false };
+    const clicks = Number(r.clicks), leads = Number(r.leads), spend = Number(r.spend);
+    if (r.platform === "meta") { c.metaImp += Number(r.impressions); c.metaClicks += clicks; }
+    if (conversionesDudosas(r.platform, leads, clicks)) c.dudosos = true;
+    else { c.spend += spend; c.leads += leads; }
+    porCliente.set(r.clientId, c);
+  }
+  return [...porCliente.entries()].map(([clientId, c]) => ({
+    industry: c.industry,
+    clientId,
+    ctrMeta: c.metaImp >= 500 ? c.metaClicks / c.metaImp : null, // con menos, no hay señal
+    cpl: c.leads > 0 ? c.spend / c.leads : null,
+    leadsDudosos: c.dudosos,
+  }));
 }
 
 /**
@@ -293,17 +331,20 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     .select({ id: clients.id, slug: clients.slug, name: clients.name, industry: clients.industry })
     .from(clients)
     .where(and(eq(clients.status, "active"), isNotNull(clients.industry), notInArray(clients.industry, NON_BENCHMARK_NICHES)));
+  // Por cliente y plataforma: el CTR se compara solo en Meta y el CPL sin las
+  // conversiones dudosas de Google (desglosarPorCliente), igual que el benchmark.
   const insightRows = await db
     .select({
       clientId: adsInsights.clientId,
+      platform: adsInsights.platform,
       spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
       impressions: sql<number>`coalesce(sum(${adsInsights.impressions}), 0)::int`,
       clicks: sql<number>`coalesce(sum(${adsInsights.clicks}), 0)::int`,
       leads: sql<number>`coalesce(sum(${adsInsights.leads}), 0)::int`,
     })
     .from(adsInsights)
-    .where(gte(adsInsights.date, since))
-    .groupBy(adsInsights.clientId);
+    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${new Date().toISOString().slice(0, 10)}`))
+    .groupBy(adsInsights.clientId, adsInsights.platform);
   const campaignRows = await db
     .select({
       industry: clients.industry,
@@ -314,7 +355,8 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     })
     .from(adsInsights)
     .innerJoin(clients, eq(adsInsights.clientId, clients.id))
-    .where(and(gte(adsInsights.date, since), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+    // Solo Meta: una campaña de búsqueda de Google siempre "gana" por CTR.
+    .where(and(gte(adsInsights.date, since), eq(adsInsights.platform, "meta"), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
     .groupBy(clients.industry, clients.name, adsInsights.campaignName)
     .having(sql`sum(${adsInsights.impressions}) >= 500`);
 
@@ -323,7 +365,12 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
   const evOf = (scope: string, niche: string) =>
     (mined.find((l) => l.scope === scope && l.scopeKey === niche)?.evidence ?? null) as Record<string, unknown> | null;
 
-  const perClient = new Map(insightRows.map((r) => [r.clientId, r]));
+  const industriaDe = new Map(clientRows.map((c) => [c.id, c.industry]));
+  const perClient = new Map(desglosarPorCliente(insightRows
+    .filter((r) => r.clientId && industriaDe.has(r.clientId))
+    .map((r) => ({ ...r, clientId: r.clientId as string, industry: industriaDe.get(r.clientId as string) ?? null }))).map((d) => [d.clientId, d]));
+  const impresiones = new Map<string, number>();
+  for (const r of insightRows) if (r.clientId) impresiones.set(r.clientId, (impresiones.get(r.clientId) ?? 0) + Number(r.impressions));
   const byNiche = new Map<string, typeof clientRows>();
   for (const c of clientRows) {
     const arr = byNiche.get(c.industry!) ?? [];
@@ -336,7 +383,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
   let count = 0;
   for (const [niche, members] of byNiche) {
     const bench = evOf("niche_benchmark", niche) as { avgCtr?: number; idealCtr?: number; avgCpl?: number; idealCpl?: number } | null;
-    if (!bench?.idealCtr) continue; // sin benchmark no hay meta contra la cual accionar
+    if (!bench || (bench.idealCtr == null && bench.idealCpl == null)) continue; // sin benchmark no hay meta contra la cual accionar
     const fmtAds = (evOf("niche_ads_format", niche) as { ranked?: Array<{ format: string; ctr: number }> } | null)?.ranked?.[0] ?? null;
     const topCampaign = campaignRows
       .filter((c) => c.industry === niche && Number(c.impressions) > 0)
@@ -346,21 +393,25 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     const actions: NicheAction[] = [];
     const sinPauta: string[] = [];
     for (const m of members) {
-      const a = perClient.get(m.id);
-      const imp = Number(a?.impressions ?? 0);
-      if (imp < 500) { sinPauta.push(m.name); continue; }
-      const ctr = Number(a!.clicks) / imp;
-      const spend = Number(a!.spend);
-      const leads = Number(a!.leads);
-      const cpl = leads > 0 ? spend / leads : null;
+      const d = perClient.get(m.id);
+      if ((impresiones.get(m.id) ?? 0) < 500) { sinPauta.push(m.name); continue; }
+      const ctr = d?.ctrMeta ?? null;
+      const cpl = d?.cpl ?? null;
+      if (d?.leadsDudosos) {
+        actions.push({
+          priority: 1,
+          action: `Corregir las conversiones de Google de ${m.name}: cuenta como conversión más de un tercio de los clics, así que no son leads. Revisar qué acciones están como "principales" en Google Ads; hasta entonces su costo por resultado de Google no se usa.`,
+          clientSlug: m.slug, kind: "accion",
+        });
+      }
       const replicar = [
         fmtAds ? `pasar la pauta a formato "${fmtAds.format}" (CTR ${(fmtAds.ctr * 100).toFixed(2)}% en el nicho)` : "",
         topCampaign && topCampaign.clientName !== m.name ? `replicar la estructura de "${topCampaign.name}" (${topCampaign.clientName}, CTR ${(topCampaign.ctr * 100).toFixed(2)}%)` : "",
       ].filter(Boolean).join(" y ");
-      if (ctr < bench.idealCtr * 0.9) {
+      if (ctr != null && bench.idealCtr != null && ctr < bench.idealCtr * 0.9) {
         actions.push({
           priority: bench.avgCtr != null && ctr < bench.avgCtr ? 1 : 2,
-          action: `Subir el CTR de ${m.name}: ${(ctr * 100).toFixed(2)}% hoy vs meta ${(bench.idealCtr * 100).toFixed(2)}%${replicar ? ` — ${replicar}` : ""}.`,
+          action: `Subir el CTR en Meta de ${m.name}: ${(ctr * 100).toFixed(2)}% hoy vs meta ${(bench.idealCtr * 100).toFixed(2)}%${replicar ? ` — ${replicar}` : ""}.`,
           clientSlug: m.slug, kind: "accion",
         });
       } else if (cpl != null && bench.idealCpl != null && cpl > bench.idealCpl * 1.2) {
@@ -369,10 +420,10 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
           action: `Bajar el CPL de ${m.name}: $${Math.round(cpl)} hoy vs meta $${Math.round(bench.idealCpl)} — revisar segmentación y oferta; sus pares del nicho lo consiguen.`,
           clientSlug: m.slug, kind: "accion",
         });
-      } else {
+      } else if (ctr != null || cpl != null) {
         actions.push({
           priority: 2,
-          action: `Escalar presupuesto de ${m.name}: ya rinde en la meta del nicho (CTR ${(ctr * 100).toFixed(2)}%${cpl != null ? `, CPL $${Math.round(cpl)}` : ""}) — subir inversión gradual manteniendo la creatividad.`,
+          action: `Escalar presupuesto de ${m.name}: ya rinde en la meta del nicho (${[ctr != null ? `CTR en Meta ${(ctr * 100).toFixed(2)}%` : "", cpl != null ? `CPL ${Math.round(cpl)}` : ""].filter(Boolean).join(", ")}) — subir inversión gradual manteniendo la creatividad.`,
           clientSlug: m.slug, kind: "accion",
         });
       }
@@ -380,7 +431,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     if (sinPauta.length > 0) {
       actions.push({
         priority: 3,
-        action: `Activar pauta en ${sinPauta.slice(0, 4).join(", ")}${sinPauta.length > 4 ? ` (+${sinPauta.length - 4})` : ""}: el nicho tiene meta clara (CTR ${(bench.idealCtr * 100).toFixed(2)}%${bench.idealCpl != null ? `, CPL $${Math.round(bench.idealCpl)}` : ""}) — proponer plan de medios.`,
+        action: `Activar pauta en ${sinPauta.slice(0, 4).join(", ")}${sinPauta.length > 4 ? ` (+${sinPauta.length - 4})` : ""}: el nicho tiene meta clara (${[bench.idealCtr != null ? `CTR en Meta ${(bench.idealCtr * 100).toFixed(2)}%` : "", bench.idealCpl != null ? `CPL ${Math.round(bench.idealCpl)}` : ""].filter(Boolean).join(", ")}) — proponer plan de medios.`,
         kind: "accion",
       });
     }
@@ -396,7 +447,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
         ].join("\n"),
         [
           `Rubro: ${niche} (${members.length} clientes).`,
-          `Benchmark 30d: CTR prom ${((bench.avgCtr ?? 0) * 100).toFixed(2)}% / meta ${(bench.idealCtr * 100).toFixed(2)}%${bench.idealCpl != null ? `; CPL meta $${Math.round(bench.idealCpl)}` : ""}.`,
+          `Benchmark 30d: ${[bench.idealCtr != null ? `CTR en Meta prom ${((bench.avgCtr ?? 0) * 100).toFixed(2)}% / meta ${(bench.idealCtr * 100).toFixed(2)}%` : "", bench.idealCpl != null ? `CPL meta ${Math.round(bench.idealCpl)}` : ""].filter(Boolean).join("; ")}.`,
           fmtAds ? `Formato que gana en ads: ${fmtAds.format} (CTR ${(fmtAds.ctr * 100).toFixed(2)}%).` : "",
           topCampaign ? `Mejor campaña real: "${topCampaign.name}" de ${topCampaign.clientName} (CTR ${(topCampaign.ctr * 100).toFixed(2)}%).` : "",
         ].filter(Boolean).join("\n"),

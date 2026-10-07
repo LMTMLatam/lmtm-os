@@ -30,6 +30,8 @@ export const adsAccountMappings = pgTable(
     pageId: text("page_id"),
     label: text("label"),
     includedAdsets: jsonb("included_adsets").$type<string[]>().notNull().default([]),
+    /** Moneda de la cuenta según Meta/Google (ARS, USD…); la guarda el vigilante financiero. */
+    currency: text("currency"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

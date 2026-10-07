@@ -946,6 +946,13 @@
       "when": 1781800000153,
       "tag": "0153_organic_angulo",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1781800000154,
+      "tag": "0154_moneda_cuenta",
+      "breakpoints": true
     }
   ]
 }

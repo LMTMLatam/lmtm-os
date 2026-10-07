@@ -2,10 +2,14 @@ import { api } from "./client";
 
 export interface ClientAds30d {
   spend: number;
+  /** Sin las conversiones dudosas de Google. */
   leads: number;
-  ctr: number;
+  /** CTR de Meta; null si el cliente no tiene Meta. */
+  ctr: number | null;
   cpl: number | null;
   impressions: number;
+  /** Google cuenta como conversión más de un tercio de los clics: no son leads. */
+  leadsDudosos?: boolean;
 }
 
 /** Structured numbers mined into learnings.evidence (niche_benchmark). */
@@ -21,7 +25,7 @@ export interface BenchmarkEvidence {
 export interface NicheIntel {
   niche: string;
   clients: Array<{ id: string; slug: string; name: string; ads30d: ClientAds30d | null; syncStatus: { status: string; error: string | null } | null }>;
-  ads30d: { spend: number; leads: number; ctr: number; cpl: number | null };
+  ads30d: { spend: number; leads: number; ctr: number | null; cpl: number | null };
   benchmark: { pattern: string; evidence: BenchmarkEvidence | null } | null;
   winningFormat: { pattern: string; evidence: { topFormat?: string; topAvg?: number; samples?: number } | null } | null;
   winningFormatAds: { pattern: string; evidence: { ranked?: Array<{ format: string; ctr: number; n: number }> } | null } | null;
