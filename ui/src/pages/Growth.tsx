@@ -79,6 +79,7 @@ interface CotizadoRow {
   cotizado: { igPosteosSemana: number | null; igStoriesSemana: number | null; pautaIg: boolean; pautaMeta: boolean; pautaGoogle: boolean };
   realizado: { posteosMes: number; videosMes: number; storiesMes: number; spendMeta: number; spendGoogle: number };
   sinListaClickup: boolean;
+  fuente: "instagram" | "clickup" | null;
   esperadoMes: { posteos: number; videos: number; stories: number };
   cumplimientoPct: number | null;
 }
@@ -126,6 +127,7 @@ function CotizadoVsRealizado() {
                 <th className="pr-2 text-right">Videos y reels</th>
                 <th className="pr-2 text-right">Stories</th>
                 <th className="pr-2 text-right">Cumplimiento</th>
+                <th className="pr-2">Medido en</th>
                 <th className="pr-2 text-right">Pauta Meta</th>
                 <th className="pr-2 text-right">Pauta Google</th>
               </tr>
@@ -140,6 +142,7 @@ function CotizadoVsRealizado() {
                   <td className="pr-2 text-right">{r.sinListaClickup ? <span className="text-muted-foreground/50">—</span> : hechoVsCotizado(r.realizado.videosMes, r.esperadoMes.videos)}</td>
                   <td className="pr-2 text-right text-muted-foreground">{r.sinListaClickup || !r.esperadoMes.stories ? "—" : `${r.realizado.storiesMes}/${r.esperadoMes.stories}`}</td>
                   <td className={`pr-2 text-right font-semibold ${pctColor(r.cumplimientoPct)}`}>{r.cumplimientoPct != null ? `${r.cumplimientoPct}%` : r.sinListaClickup ? "sin lista" : "—"}</td>
+                  <td className="pr-2 text-muted-foreground" title={r.fuente === "clickup" ? "Etiqueta 'mandado a make' de ClickUp: no confirma que se haya publicado" : undefined}>{r.fuente === "instagram" ? "Instagram" : r.fuente === "clickup" ? "ClickUp (sin verificar)" : "—"}</td>
                   <td className="pr-2 text-right text-muted-foreground">{r.realizado.spendMeta ? `$${r.realizado.spendMeta.toLocaleString("es-AR")}` : (r.cotizado.pautaMeta || r.cotizado.pautaIg) ? <span className="text-amber-500">cotizada, $0</span> : "—"}</td>
                   <td className="pr-2 text-right text-muted-foreground">{r.realizado.spendGoogle ? `$${r.realizado.spendGoogle.toLocaleString("es-AR")}` : r.cotizado.pautaGoogle ? <span className="text-amber-500">cotizada, $0</span> : "—"}</td>
                 </tr>
@@ -150,7 +153,7 @@ function CotizadoVsRealizado() {
             <div className="text-[11px] text-muted-foreground mt-2">Sin match con clientes del sistema: {data.sinMatch.join(", ")}</div>
           )}
           <div className="text-[11px] text-muted-foreground mt-1">
-            El "hecho" sale del calendario Redes de ClickUp: piezas con tag "mandado a make" en el período. Las stories se muestran pero no pesan en el % — el equipo todavía no las registra como tareas del calendario.
+            "Instagram": el hecho son las publicaciones leídas de la cuenta, contra lo cotizado para Instagram (LinkedIn y TikTok no se leen). "ClickUp (sin verificar)": piezas con la etiqueta "mandado a make" — solo para clientes cuya cuenta no leemos, y no confirma que se haya publicado. Las stories se muestran pero no pesan en el %.
             {data.prorrateoPct != null && data.prorrateoPct < 100 && ` El cotizado está prorrateado al ${data.prorrateoPct}% del período transcurrido (no se exige el mes entero a mitad de mes).`}
             {" "}"Sin lista" = cliente sin calendario Redes mapeado. La inversión cotizada en $ se suma cuando esté la planilla de facturación.
           </div>
@@ -162,7 +165,7 @@ function CotizadoVsRealizado() {
 
 interface TriageCliente {
   clientId: string; name: string; slug: string; industry: string | null;
-  semaforo: "rojo" | "amarillo" | "verde";
+  semaforo: "rojo" | "amarillo" | "verde" | "sin-datos";
   salud: number | null; scorePauta: number | null; cumplimientoPct: number | null;
   problemas: string[]; acciones: string[];
 }
@@ -174,16 +177,17 @@ function SemaforoGeneral() {
   const [abierto, setAbierto] = useState<string | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: ["growth", "triage"],
-    queryFn: () => api.get<{ rojo: TriageCliente[]; amarillo: TriageCliente[]; verde: TriageCliente[] }>("/growth/triage"),
+    queryFn: () => api.get<{ rojo: TriageCliente[]; amarillo: TriageCliente[]; verde: TriageCliente[]; sinDatos?: TriageCliente[] }>("/growth/triage"),
     staleTime: 5 * 60_000,
     retry: false,
   });
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
-  const secciones: Array<{ key: "rojo" | "amarillo" | "verde"; titulo: string; sub: string; borde: string; dot: string; rows: TriageCliente[] }> = [
+  const secciones: Array<{ key: "rojo" | "amarillo" | "verde" | "sin-datos"; titulo: string; sub: string; borde: string; dot: string; rows: TriageCliente[] }> = [
     { key: "rojo", titulo: "Rojo — atender ya", sub: "incumplimiento, problemas abiertos o pauta rota", borde: "border-rose-500/40", dot: "bg-rose-500", rows: data.rojo },
     { key: "amarillo", titulo: "Amarillo — seguimiento", sub: "algo flojea: no dejar que caiga a rojo", borde: "border-amber-500/40", dot: "bg-amber-500", rows: data.amarillo },
     { key: "verde", titulo: "Verde — sostener", sub: "en orden: buscar la próxima palanca de crecimiento", borde: "border-emerald-500/40", dot: "bg-emerald-500", rows: data.verde },
+    { key: "sin-datos", titulo: "Sin datos para juzgar", sub: "no hay pauta corriendo, ni cuenta leída, ni calendario con fechas: no se puede decir si está bien", borde: "border-border", dot: "bg-muted-foreground/40", rows: data.sinDatos ?? [] },
   ];
   return (
     <div className="space-y-4">
@@ -281,7 +285,7 @@ function CargaEquipo() {
 
 interface SemaforoCliente {
   id: string; name: string; slug: string; industry: string | null;
-  score: number; semaforo: "verde" | "amarillo" | "rojo"; oportunidades: string[];
+  score: number | null; semaforo: "verde" | "amarillo" | "rojo" | "sin-pauta"; oportunidades: string[];
 }
 
 /** Tablero master de pauta: cada cliente en semáforo + oportunidades, con el
@@ -294,7 +298,7 @@ function SemaforoPauta() {
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : "bg-rose-500";
+  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : s === "sin-pauta" ? "bg-muted-foreground/40" : "bg-rose-500";
   const copiar = async (slug: string, name: string) => {
     const a = await api.get<{ resumen: string[] }>(`/clients/${slug}/analisis-estrategico`);
     await navigator.clipboard.writeText([`📊 Análisis de pauta — ${name}`, "", ...(a.resumen ?? [])].join("\n"));
@@ -312,7 +316,7 @@ function SemaforoPauta() {
             <div className="flex items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${dot(c.semaforo)}`} />
               <Link to={`/c/${c.slug}`} className="font-medium hover:underline truncate">{c.name}</Link>
-              <span className="text-muted-foreground">{c.score}/100</span>
+              <span className="text-muted-foreground">{c.score != null ? `${c.score}/100` : "sin pauta"}</span>
               <button onClick={() => void copiar(c.slug, c.name)} className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">Copiar</button>
               {c.oportunidades.length > 0 && (
                 <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">{c.oportunidades.length} opp</button>

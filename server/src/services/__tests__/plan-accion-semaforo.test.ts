@@ -76,8 +76,9 @@ describe("decidirSemaforo", () => {
     expect(decidirSemaforo({ ...sano, cumplimientoPct: 0, salud: 60, cumplimientoCiego: true })).toBe("amarillo");
   });
 
-  it("sin dato de salud ni de cumplimiento no se condena a nadie", () => {
-    expect(decidirSemaforo({ ...sano, salud: null, cumplimientoPct: null, scorePauta: null })).toBe("verde");
+  it("sin dato de salud ni de cumplimiento no se condena a nadie, ni se lo da por sano", () => {
+    // Hasta el 7/10 esto daba verde: "en orden, sostener" sin haber mirado nada.
+    expect(decidirSemaforo({ ...sano, salud: null, cumplimientoPct: null, scorePauta: null })).toBe("sin-datos");
   });
 });
 

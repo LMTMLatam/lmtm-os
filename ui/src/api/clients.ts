@@ -149,10 +149,10 @@ export const clientsApi = {
   runPortfolioBrief: () =>
     api.post<{ delivered: boolean; error?: string; brief: string }>(`/clients/portfolio/brief`, null),
   // Intelligence layer
-  scores: () => api.get<Record<string, { health: number; ops: number }>>(`/clients/scores`),
+  scores: () => api.get<Record<string, { health: number | null; ops: number | null }>>(`/clients/scores`),
   adsMetrics: () => api.get<Record<string, { spend: number; leads: number; cpl: number | null }>>(`/clients-ads-metrics`),
   intel: (idOrSlug: string) => api.get<ClientIntel>(`/clients/${idOrSlug}/intel`),
-  runScore: (idOrSlug: string) => api.post<{ healthScore: number; opsScore: number; components: Record<string, unknown> }>(`/clients/${idOrSlug}/score/run`, null),
+  runScore: (idOrSlug: string) => api.post<{ healthScore: number | null; opsScore: number | null; components: Record<string, unknown> }>(`/clients/${idOrSlug}/score/run`, null),
   refreshBrain: (idOrSlug: string) => api.post<{ updated: number }>(`/clients/${idOrSlug}/brain/refresh`, null),
   // Banco de información: carga manual de contexto al brain del cliente
   addBrainNote: (idOrSlug: string, body: { content: string; kind?: string; key?: string }) =>
@@ -327,7 +327,7 @@ export interface ContentIdea {
 
 export interface ClientIntel {
   client: { id: string; slug: string; name: string; enfoqueTecnicoUrl: string | null };
-  score: { healthScore: number; opsScore: number; components: Record<string, unknown>; date: string } | null;
+  score: { healthScore: number | null; opsScore: number | null; components: Record<string, unknown>; date: string } | null;
   brain: Array<{ id: string; kind: string; key: string; content: string; pinned: boolean; updatedAt: string }>;
   opportunities: Array<{ id: string; kind: string; title: string; rationale: string | null; suggestedAction: string | null; priority: number; status: string }>;
   feedback: Array<{ id: string; classification: string | null; sentiment: string | null; rawText: string; status: string; createdAt: string }>;

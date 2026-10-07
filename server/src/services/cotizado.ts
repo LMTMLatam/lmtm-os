@@ -8,10 +8,17 @@
 // también cuentan). La pauta realizada sigue saliendo de ads_insights. La
 // inversión COTIZADA en $ no vive en esta planilla (pendiente: planilla de
 // facturación del usuario).
+//
+// 7/10: la etiqueta de ClickUp ya nos mintió dos veces (daba por publicado lo
+// que no salía, y lo que no se etiquetaba contaba cero). Si leemos la cuenta de
+// Instagram del cliente, el "hecho" sale de ahí: publicaciones reales, contra
+// lo cotizado PARA INSTAGRAM. ClickUp queda solo para quien no tiene la cuenta
+// leída, y la fila lo dice (fuente "clickup").
 
 import type { Db } from "@paperclipai/db";
-import { adsInsights, clients } from "@paperclipai/db";
-import { eq, gte, sql } from "drizzle-orm";
+import { adsInsights, clients, organicPostInsights, organicPosts } from "@paperclipai/db";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { LECTURA_CONFIABLE_MS } from "./auditor.js";
 import { googleTools } from "./agent-mcp-tools.js";
 import { getRedesCalendar } from "./clickup-sync.js";
 
@@ -43,6 +50,9 @@ export interface CotizadoRow {
   };
   /** El cliente no tiene lista Redes de ClickUp mapeada → no se puede medir. */
   sinListaClickup: boolean;
+  /** De dónde sale el "hecho": publicaciones leídas de Instagram, o la
+   *  etiqueta "mandado a make" de ClickUp (sin verificar en la red). */
+  fuente: "instagram" | "clickup" | null;
   esperadoMes: { posteos: number; videos: number; stories: number };
   cumplimientoPct: number | null;
 }
@@ -124,6 +134,38 @@ async function contarHechoReal(db: Db, clientIds: string[], sinceMs: number, unt
   return map;
 }
 
+/** Clasifica un tipo de publicación de Instagram como posteo o video. */
+export function formatoInstagram(tipo: string | null): "videos" | "posteos" {
+  return /reel|video|clip/i.test(tipo ?? "") ? "videos" : "posteos";
+}
+
+const ES_INSTAGRAM = sql`${organicPosts.permalinkUrl} like '%instagram.com%'`;
+
+/** Publicaciones reales de Instagram en el período, solo de clientes cuya
+ *  cuenta leímos hace poco (sin lectura, un cero no es un hecho). */
+async function contarPublicadoInstagram(db: Db, clientIds: string[], desde: Date): Promise<Map<string, { posteos: number; videos: number }>> {
+  const out = new Map<string, { posteos: number; videos: number }>();
+  if (!clientIds.length) return out;
+  const lecturas = await db.select({ clientId: organicPosts.clientId, ultima: sql<string | null>`max(${organicPostInsights.syncedAt})` })
+    .from(organicPosts)
+    .innerJoin(organicPostInsights, eq(organicPostInsights.postId, organicPosts.id))
+    .where(and(inArray(organicPosts.clientId, clientIds), ES_INSTAGRAM))
+    .groupBy(organicPosts.clientId);
+  const ahora = Date.now();
+  for (const l of lecturas) {
+    if (l.clientId && l.ultima && ahora - new Date(l.ultima).getTime() <= LECTURA_CONFIABLE_MS) out.set(l.clientId, { posteos: 0, videos: 0 });
+  }
+  if (!out.size) return out;
+  const posts = await db.select({ clientId: organicPosts.clientId, tipo: organicPosts.postType })
+    .from(organicPosts)
+    .where(and(inArray(organicPosts.clientId, [...out.keys()]), gte(organicPosts.createdTime, desde), ES_INSTAGRAM));
+  for (const p of posts) {
+    const c = p.clientId ? out.get(p.clientId) : undefined;
+    if (c) c[formatoInstagram(p.tipo)] += 1;
+  }
+  return out;
+}
+
 export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}): Promise<{ month: string; rows: CotizadoRow[]; sinMatch: string[]; prorrateoPct: number }> {
   const months = Math.min(Math.max(opts.months ?? 1, 1), 6);
   const now = new Date();
@@ -139,6 +181,7 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
   // Hecho = calendario Redes de ClickUp con tag "mandado a make" en el período,
   // clasificado por formato ("Tipo de Contenido" o tag reel/story/etc.).
   const postsByClient = await contarHechoClickUp(db, activos.map((c) => c.id), from.getTime(), now.getTime());
+  const instagram = await contarPublicadoInstagram(db, activos.map((c) => c.id), from);
   const fromDay = from.toISOString().slice(0, 10);
   const spend = await db.select({
     clientId: adsInsights.clientId,
@@ -179,11 +222,14 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
       pautaMeta: boolCell(row[22]),
       pautaGoogle: boolCell(row[23]),
     };
+    const ig = match ? instagram.get(match.id) ?? null : null;
     const hecho = match ? postsByClient.get(match.id) ?? null : null;
-    const sinListaClickup = !!match && hecho === null;
+    const fuente: CotizadoRow["fuente"] = ig ? "instagram" : match && hecho ? "clickup" : null;
+    const sinListaClickup = !!match && !ig && hecho === null;
     const real = {
-      posteosMes: hecho?.posteos ?? 0,
-      videosMes: hecho?.videos ?? 0,
+      posteosMes: ig?.posteos ?? hecho?.posteos ?? 0,
+      videosMes: ig?.videos ?? hecho?.videos ?? 0,
+      // Las stories no se leen de la red (la API solo da las de 24 h).
       storiesMes: hecho?.stories ?? 0,
       spendMeta: match ? Math.round(spendByClient.get(match.id)?.meta ?? 0) : 0,
       spendGoogle: match ? Math.round(spendByClient.get(match.id)?.google ?? 0) : 0,
@@ -191,8 +237,11 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
 
     // Esperado del período: semanal ×4.33×meses, mensual ×meses — prorrateado
     // a los días transcurridos (a mitad de mes no se exige el mes entero).
-    const esperadoPosteos = Math.round(((cot.igPosteosSemana ?? 0) * 4.33 + (cot.linkedinPosteosSemana ?? 0) * 4.33) * months * prorrateo);
-    const esperadoVideos = Math.round(((cot.igReelesMes ?? 0) + (cot.igVideosMes ?? 0) + (cot.tiktokVideosMes ?? 0)) * months * prorrateo);
+    // Con fuente Instagram se compara solo contra lo cotizado para Instagram:
+    // LinkedIn y TikTok no se leen, y sumarlos daría un incumplimiento falso.
+    const soloIg = fuente === "instagram";
+    const esperadoPosteos = Math.round(((cot.igPosteosSemana ?? 0) * 4.33 + (soloIg ? 0 : (cot.linkedinPosteosSemana ?? 0) * 4.33)) * months * prorrateo);
+    const esperadoVideos = Math.round(((cot.igReelesMes ?? 0) + (cot.igVideosMes ?? 0) + (soloIg ? 0 : (cot.tiktokVideosMes ?? 0))) * months * prorrateo);
     const esperadoStories = Math.round((cot.igStoriesSemana ?? 0) * 4.33 * months * prorrateo);
     // Stories fuera del %: el equipo aún no las registra como tareas en el
     // calendario (0 en los 41 clientes) — mostrarlas sí, castigar no.
@@ -206,8 +255,9 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
       cotizado: cot,
       realizado: real,
       sinListaClickup,
+      fuente,
       esperadoMes: { posteos: esperadoPosteos, videos: esperadoVideos, stories: esperadoStories },
-      cumplimientoPct: esperadoTotal > 0 && match && !sinListaClickup ? Math.round((realizadoTotal / esperadoTotal) * 100) : null,
+      cumplimientoPct: esperadoTotal > 0 && match && fuente ? Math.round((realizadoTotal / esperadoTotal) * 100) : null,
     });
   }
   rows.sort((a, b) => (a.cumplimientoPct ?? 999) - (b.cumplimientoPct ?? 999));

@@ -15,9 +15,10 @@
 import type { Db } from "@paperclipai/db";
 import { adsInsights, clients, interventions } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { fetchAccountBalances } from "./balance-monitor.js";
+import { fetchAccountBalances, mereceAvisoDeSaldo, motivoFrenada } from "./balance-monitor.js";
 import { dayStr } from "./agency-ops.js";
 import { avisarAlEquipo } from "./wa-embudo.js";
+import { operativaMedida } from "./account-scoring.js";
 
 const MAX_INTERRUPTIONS_DAY = Number(process.env.LMTM_MAX_INTERRUPTIONS_DAY) || 8;
 
@@ -103,8 +104,16 @@ export async function runVigilanteFinanciera(db: Db): Promise<{ nuevas: number; 
   const fmt = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("es-AR")}`;
   let nuevas = 0;
   const toSend: Array<{ id: string; level: number; line: string }> = [];
+  // Cuentas que se pudieron leer y las que siguen en falta. Solo se cierra lo
+  // que se volvió a mirar: una cuenta que esta vez no se leyó no prueba nada.
+  // Sin esto el aviso no se cerraba nunca: el 7/10 había 30 "saldo por
+  // agotarse" del 3/9 abiertos, y la salud los contaba como saldo crítico.
+  const leidas = new Set<string>();
+  const enFalta = new Set<string>();
 
   for (const b of balances) {
+    leidas.add(`financiera:saldo:${b.account}`);
+    leidas.add(`financiera:sin-actividad:${b.account}`);
     const days = byAccount.get(bare(b.account)) ?? [];
     const latest = days.find((d) => d.date === yesterday) ?? days.find((d) => d.date === today);
     const prior = days.filter((d) => d.date !== yesterday && d.date !== today && d.spend > 0);
@@ -112,7 +121,10 @@ export async function runVigilanteFinanciera(db: Db): Promise<{ nuevas: number; 
 
     // Regla: saldo bajo / frenada (nivel 5) — la detección vive en balance-monitor,
     // acá solo se persiste para el dashboard/brief (el WA ya lo manda ese monitor).
-    if (b.low || [2, 3, 7].includes(b.accountStatus)) {
+    // Mismo criterio que la decisión de saldo de Hoy (motor): una cuenta con
+    // poco saldo que no está gastando no está "por agotarse".
+    if (mereceAvisoDeSaldo(b) || motivoFrenada(b)) {
+      enFalta.add(`financiera:saldo:${b.account}`);
       const halted = [2, 3, 7].includes(b.accountStatus);
       const r = await recordIntervention(db, {
         vigilante: "financiera", level: 5, clientId: b.clientId,
@@ -142,6 +154,7 @@ export async function runVigilanteFinanciera(db: Db): Promise<{ nuevas: number; 
     const recent2 = days.filter((d) => d.date >= dayStr(new Date(Date.now() - 2 * 86_400_000)));
     const active2 = recent2.some((d) => d.spend > 0 || d.impressions > 0);
     if (!active2 && avgPrior > 1000 && b.accountStatus === 1) {
+      enFalta.add(`financiera:sin-actividad:${b.account}`);
       const r = await recordIntervention(db, {
         vigilante: "financiera", level: 4, clientId: b.clientId,
         title: `${b.clientName}: cuenta sin actividad hace 48h`,
@@ -152,6 +165,7 @@ export async function runVigilanteFinanciera(db: Db): Promise<{ nuevas: number; 
       if (r.isNew) { nuevas++; toSend.push({ id: r.id, level: 4, line: `😴 *${b.clientName}*: cuenta activa pero sin gasto/impresiones hace 48h` }); }
     }
   }
+  await resolverLeidasQueYaNoFaltan(db, leidas, enFalta);
 
   // Envío nivel 4 AGRUPADO en un solo WhatsApp, respetando el tope diario.
   let enviadas = 0;
@@ -189,6 +203,19 @@ async function autoResolve(db: Db, prefix: string, activeKeys: Set<string>): Pro
       .where(inArray(interventions.id, gone.map((g) => g.id)));
   }
   return gone.length;
+}
+
+/** Cierra las intervenciones cuyo dedupe_key se volvió a mirar en esta corrida
+ *  (`leidas`) y ya no está en falta. Las que no se pudieron mirar quedan como
+ *  están. */
+export async function resolverLeidasQueYaNoFaltan(db: Db, leidas: Set<string>, enFalta: Set<string>): Promise<number> {
+  const cerrar = [...leidas].filter((k) => !enFalta.has(k));
+  if (!cerrar.length) return 0;
+  const filas = await db.update(interventions)
+    .set({ status: "resolved", updatedAt: new Date() })
+    .where(and(inArray(interventions.status, ["open", "sent"]), inArray(interventions.dedupeKey, cerrar)))
+    .returning({ id: interventions.id });
+  return filas.length;
 }
 
 export async function runVigilanteContenido(db: Db): Promise<{ nuevas: number; resueltas: number }> {
@@ -250,15 +277,42 @@ export async function runVigilanteContenido(db: Db): Promise<{ nuevas: number; r
   return { nuevas, resueltas };
 }
 
-// ── Vigilante: Salud del Cliente (índice /100 + "estoy preocupado") ────────
-// Compone las señales disponibles: salud de pauta (accountScores.health),
-// operativa (accountScores.ops), contenido (piezas vencidas / inactividad,
-// desde las intervenciones abiertas del vigilante de contenido) y tendencia
-// de inversión. Señales de relación (responde rápido, aprueba, reuniones)
-// quedan para cuando se integre la lectura de WhatsApp (postergada 18/7).
+/// ── Vigilante: Salud del Cliente (índice /100 + "estoy preocupado") ────────
+// Compone tres señales: pauta (accountScores.health, solo si la pauta corre),
+// operativa (accountScores.ops, solo si ClickUp tiene fechas para medirla) y
+// contenido (avisos vigentes del vigilante de contenido, solo si leímos la
+// página o hay un aviso vigente). Señales de relación (responde rápido,
+// aprueba, reuniones) quedan para cuando se integre la lectura de WhatsApp.
+//
+// Regla (7/10): ningún componente se inventa. Antes, lo que no se podía medir
+// valía 50 o 100 y el número salía igual: clientes sin ningún dato daban 78,
+// y MONDINO daba 100 con "saldo crítico" como razón. Lo que no se midió queda
+// afuera y los pesos se reparten entre lo que sí; sin nada medido, no hay
+// salud (null), no un número.
+
+/** Avisos más viejos que esto ya se resolvieron solos o dejaron de importar
+ *  (mismo corte que la lista de intervenciones del panel). */
+export const VIGENCIA_INTERVENCION_DIAS = 21;
+
+const PESOS_SALUD = { pauta: 0.4, operativa: 0.3, contenido: 0.3 } as const;
+
+export interface ComponentesSalud { pauta: number | null; operativa: number | null; contenido: number | null }
+
+/** Promedio ponderado de los componentes medidos; null si no se midió ninguno. */
+export function componerSalud(c: ComponentesSalud): number | null {
+  let suma = 0, peso = 0;
+  for (const k of Object.keys(PESOS_SALUD) as Array<keyof ComponentesSalud>) {
+    const v = c[k];
+    if (v == null) continue;
+    suma += PESOS_SALUD[k] * v;
+    peso += PESOS_SALUD[k];
+  }
+  return peso > 0 ? Math.round(suma / peso) : null;
+}
 
 export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: number; preocupado: number }> {
-  const { accountScores } = await import("@paperclipai/db");
+  const { accountScores, organicPosts, organicPostInsights } = await import("@paperclipai/db");
+  const { LECTURA_CONFIABLE_MS } = await import("./auditor.js");
   const activos = await db.select({ id: clients.id, name: clients.name, metadata: clients.metadata })
     .from(clients).where(eq(clients.status, "active"));
 
@@ -266,18 +320,33 @@ export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: num
   const today = dayStr(new Date());
   const back14 = dayStr(new Date(Date.now() - 14 * 86_400_000));
   const scoreRows = await db.select().from(accountScores).where(gte(accountScores.date, back14));
-  const latestByClient = new Map<string, { health: number; ops: number; date: string; noAds: boolean }>();
-  const oldestByClient = new Map<string, { health: number; date: string }>();
+  const latestByClient = new Map<string, { health: number; ops: number | null; date: string; noAds: boolean }>();
+  const oldestByClient = new Map<string, { health: number; date: string; noAds: boolean }>();
   for (const r of scoreRows.sort((a, b) => a.date.localeCompare(b.date))) {
-    const noAds = Boolean((r.components as { noAds?: boolean } | null)?.noAds);
-    const cur = { health: Number(r.healthScore ?? 0), ops: Number(r.opsScore ?? 0), date: r.date, noAds };
+    const comp = r.components as Record<string, unknown> | null;
+    const noAds = Boolean(comp?.noAds);
+    const cur = { health: Number(r.healthScore), ops: operativaMedida(comp) ? Number(r.opsScore) : null, date: r.date, noAds };
     latestByClient.set(r.clientId, cur);
-    if (!oldestByClient.has(r.clientId)) oldestByClient.set(r.clientId, { health: cur.health, date: r.date });
+    if (!oldestByClient.has(r.clientId)) oldestByClient.set(r.clientId, { health: cur.health, date: r.date, noAds });
   }
 
-  // Intervenciones abiertas por cliente (señales de contenido/financieras vivas).
+  // Última lectura de la página de cada cliente: sin lectura reciente, que no
+  // haya avisos de contenido no prueba que el contenido esté bien.
+  const lecturas = await db.select({
+    clientId: organicPosts.clientId,
+    ultima: sql<string | null>`max(${organicPostInsights.syncedAt})`,
+  }).from(organicPosts)
+    .innerJoin(organicPostInsights, eq(organicPostInsights.postId, organicPosts.id))
+    .groupBy(organicPosts.clientId);
+  const ahora = Date.now();
+  const conPaginaLeida = new Set(lecturas
+    .filter((l) => l.clientId && l.ultima && ahora - new Date(l.ultima).getTime() <= LECTURA_CONFIABLE_MS)
+    .map((l) => l.clientId as string));
+
+  // Intervenciones VIGENTES por cliente (señales de contenido/financieras vivas).
+  const corte = new Date(ahora - VIGENCIA_INTERVENCION_DIAS * 86_400_000);
   const abiertas = await db.select({ clientId: interventions.clientId, vigilante: interventions.vigilante, level: interventions.level, title: interventions.title })
-    .from(interventions).where(inArray(interventions.status, ["open", "sent"]));
+    .from(interventions).where(and(inArray(interventions.status, ["open", "sent"]), gte(interventions.createdAt, corte)));
   const abiertasByClient = new Map<string, Array<{ vigilante: string; level: number; title: string }>>();
   for (const a of abiertas) {
     if (!a.clientId) continue;
@@ -294,42 +363,50 @@ export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: num
     const score = latestByClient.get(c.id);
     const propias = [...(abiertasByClient.get(c.id) ?? []), ...abiertasPorNombre(c.name)];
     const razones: string[] = [];
-    // Base: pauta 40% + ops 30% + contenido 30% (contenido arranca en 100 y
-    // pierde por señales abiertas).
-    const health = score?.health ?? 50;
-    const ops = score?.ops ?? 50;
-    let contenido = 100;
-    for (const p of propias) {
-      if (p.vigilante === "contenido" && p.level >= 5) { contenido -= 30; razones.push("piezas programadas sin publicar"); }
-      else if (p.vigilante === "contenido") { contenido -= 20; razones.push("sin actividad en redes"); }
-      else if (p.vigilante === "financiera" && p.level >= 5) { razones.push("saldo/cuenta de pauta crítica"); }
-    }
-    contenido = Math.max(0, contenido);
-    // Sin pauta corriendo (components.noAds) el health=0 no es "pauta rota":
-    // se repesa ops/contenido y no se castiga la salud por algo que no existe.
-    const sinPauta = score?.noAds ?? false;
-    if (!sinPauta && health < 40) razones.push("pauta floja (CTR/CPL)");
-    if (ops < 40) razones.push("operativa floja");
-    const salud = sinPauta
-      ? Math.round(0.5 * ops + 0.5 * contenido)
-      : Math.round(0.4 * health + 0.3 * ops + 0.3 * contenido);
 
-    // Tendencia: caída de salud de pauta ≥15 pts en ~14 días.
+    // Pauta: solo si corre. Sin pauta (noAds) el health=0 no es "pauta rota".
+    let pauta: number | null = score && !score.noAds ? score.health : null;
+    if (pauta != null && pauta < 40) razones.push("pauta floja (CTR/CPL)");
+    // Saldo crítico vigente: la pauta se corta. Descuenta de pauta; si no hay
+    // pauta medida no se lista (una razón que no mueve el número confunde).
+    if (pauta != null && propias.some((p) => p.vigilante === "financiera" && p.level >= 5)) {
+      pauta = Math.max(0, pauta - 20);
+      razones.push("saldo/cuenta de pauta crítica");
+    }
+
+    const operativa = score?.ops ?? null;
+    if (operativa != null && operativa < 40) razones.push("operativa floja");
+
+    const avisosContenido = propias.filter((p) => p.vigilante === "contenido");
+    let contenido: number | null = null;
+    if (conPaginaLeida.has(c.id) || avisosContenido.length > 0) {
+      contenido = 100;
+      for (const p of avisosContenido) {
+        if (p.level >= 5) { contenido -= 30; razones.push("piezas programadas sin publicar"); }
+        else { contenido -= 20; razones.push("sin actividad en redes"); }
+      }
+      contenido = Math.max(0, contenido);
+    }
+
+    const salud = componerSalud({ pauta, operativa, contenido });
+    const medido = Object.entries({ pauta, operativa, contenido }).filter(([, v]) => v != null).map(([k]) => k);
+
+    // Tendencia: caída de salud de pauta ≥15 pts en ~14 días (las dos puntas con pauta corriendo).
     const old = oldestByClient.get(c.id);
-    const caida = old && old.date < today ? old.health - health : 0;
+    const caida = old && score && !old.noAds && !score.noAds && old.date < today ? old.health - score.health : 0;
     if (caida >= 15) razones.push(`la salud de pauta cayó ${caida} pts en 2 semanas`);
 
     // Stamp para el dashboard.
     try {
       const meta = { ...((c.metadata as Record<string, unknown>) ?? {}) };
-      meta.salud = { score: salud, health, ops, contenido, razones: [...new Set(razones)], checkedAt: new Date().toISOString() };
+      meta.salud = { score: salud, pauta, operativa, contenido, medido, razones: [...new Set(razones)], checkedAt: new Date().toISOString() };
       await db.update(clients).set({ metadata: meta as never, updatedAt: new Date() }).where(eq(clients.id, c.id));
     } catch { /* stamp es best-effort */ }
 
     // "Estoy preocupado": score bajo O 3+ señales degradándose a la vez. No es
     // una regla puntual — es el patrón multi-señal que pidió el doc del 18/7.
     const señales = new Set(razones).size;
-    if (salud < 45 || (señales >= 3 && caida > 0)) {
+    if (salud != null && (salud < 45 || (señales >= 3 && caida > 0))) {
       const key = `salud:preocupado:${c.id}`;
       activeKeys.add(key);
       const r = await recordIntervention(db, {
@@ -337,7 +414,7 @@ export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: num
         title: `Estoy preocupado por ${c.name} (salud ${salud}/100)`,
         body: `No hay UN error puntual, pero se juntan señales: ${[...new Set(razones)].join("; ")}. Mi impresión es que esta cuenta necesita atención esta semana.`,
         dedupeKey: key,
-        evidence: { salud, health, ops, contenido, razones: [...new Set(razones)] },
+        evidence: { salud, pauta, operativa, contenido, razones: [...new Set(razones)] },
       });
       if (r.isNew) preocupado++;
     }

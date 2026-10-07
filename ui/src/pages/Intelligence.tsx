@@ -163,8 +163,8 @@ export function Intelligence() {
             <div className="flex items-center gap-2 mb-3"><Gauge className="h-4 w-4" /><h2 className="font-medium">Scores</h2></div>
             {intel.score ? (
               <div className="flex gap-8">
-                <div><p className="text-xs text-muted-foreground">Salud de cuenta</p><p className={`text-3xl font-semibold ${scoreColor(intel.score.healthScore)}`}>{intel.score.healthScore}</p></div>
-                <div><p className="text-xs text-muted-foreground">Operativo</p><p className={`text-3xl font-semibold ${scoreColor(intel.score.opsScore)}`}>{intel.score.opsScore}</p></div>
+                <div><p className="text-xs text-muted-foreground">Salud de cuenta</p>{intel.score.healthScore != null ? <p className={`text-3xl font-semibold ${scoreColor(intel.score.healthScore)}`}>{intel.score.healthScore}</p> : <p className="text-sm text-muted-foreground">sin pauta corriendo</p>}</div>
+                <div><p className="text-xs text-muted-foreground">Operativo</p>{intel.score.opsScore != null ? <p className={`text-3xl font-semibold ${scoreColor(intel.score.opsScore)}`}>{intel.score.opsScore}</p> : <p className="text-sm text-muted-foreground">sin fechas en ClickUp</p>}</div>
                 <div className="flex-1 text-xs text-muted-foreground self-center">
                   {Object.entries(intel.score.components).map(([k, v]) => <span key={k} className="inline-block mr-3">{k}: {String(v)}</span>)}
                 </div>

@@ -49,7 +49,7 @@ import { detectClientClickUpLists, refreshEnfoqueTecnicoContext, getEnfoqueTecni
 import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumber, runPortfolioBrief } from "../services/agency-ops.js";
 import { avisarAlEquipo } from "../services/wa-embudo.js";
 import { esPropuestaViva, resumirPropuesta } from "../services/propuestas-cliente.js";
-import { computeClientScore, runClientScores, getLatestScore, getScoreHistory } from "../services/account-scoring.js";
+import { computeClientScore, runClientScores, getLatestScore, getScoreHistory, scoreVisible } from "../services/account-scoring.js";
 import { getClientBrain, refreshClientBrain, upsertMemory } from "../services/customer-brain.js";
 import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
 import { autoDetectClientSheet, setClientSheet, clearClientSheet } from "../services/sheets-mapping.js";
@@ -959,10 +959,10 @@ export function adsRoutes(db: Db): Router {
   // Registered before /clients/:id so the static path wins over the dynamic one.
   router.get("/clients/scores", async (_req, res) => {
     const since = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
-    const rows = await db.select({ clientId: accountScores.clientId, date: accountScores.date, healthScore: accountScores.healthScore, opsScore: accountScores.opsScore })
+    const rows = await db.select({ clientId: accountScores.clientId, date: accountScores.date, healthScore: accountScores.healthScore, opsScore: accountScores.opsScore, components: accountScores.components })
       .from(accountScores).where(gte(accountScores.date, since)).orderBy(sql`${accountScores.date} DESC`);
-    const map: Record<string, { health: number; ops: number }> = {};
-    for (const r of rows) if (!map[r.clientId]) map[r.clientId] = { health: r.healthScore, ops: r.opsScore };
+    const map: Record<string, { health: number | null; ops: number | null }> = {};
+    for (const r of rows.map(scoreVisible)) if (!map[r.clientId]) map[r.clientId] = { health: r.healthScore, ops: r.opsScore };
     res.json(map);
   });
 
@@ -3064,7 +3064,7 @@ export function adsRoutes(db: Db): Router {
   router.post("/clients/:id/score/run", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });
-    res.json(await computeClientScore(db, row.id));
+    res.json(scoreVisible(await computeClientScore(db, row.id)));
   });
   router.post("/clients/:id/brain/refresh", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
@@ -3374,8 +3374,9 @@ export function adsRoutes(db: Db): Router {
 
   router.get("/growth/semaforo-pauta", async (_req, res) => {
     const { accountScores: scores, opportunities: opps } = await import("@paperclipai/db");
+    const { clienteReal } = await import("../services/intel-common.js");
     const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
-      .from(clients).where(eq(clients.status, "active"));
+      .from(clients).where(clienteReal());
     const hoy = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
     const scoreRows = await db.select().from(scores).where(gte(scores.date, hoy)).orderBy(desc(scores.date));
     const latest = new Map<string, number>();
@@ -3401,17 +3402,18 @@ export function adsRoutes(db: Db): Router {
     const rows = activos
       .filter((c) => latest.has(c.id))
       .map((c) => {
-        const score = latest.get(c.id)!;
+        // Sin pauta no hay score: un 0 se leía como "pauta pésima".
+        const score = sinPauta.has(c.id) ? null : latest.get(c.id)!;
         return {
           id: c.id, name: c.name, slug: c.slug, industry: c.industry,
           score,
           sinPauta: sinPauta.has(c.id),
-          semaforo: sinPauta.has(c.id) ? "sin-pauta"
+          semaforo: score == null ? "sin-pauta"
             : score >= 70 ? "verde" : score >= 40 ? "amarillo" : "rojo",
           oportunidades: oppsByClient.get(c.id) ?? [],
         };
       })
-      .sort((a, b) => a.score - b.score);
+      .sort((a, b) => (a.score ?? 999) - (b.score ?? 999));
     res.json({ clientes: rows });
   });
 
@@ -3562,6 +3564,9 @@ export function adsRoutes(db: Db): Router {
     try {
       const since30 = defaultSince();
       const since56 = new Date(Date.now() - 56 * 86_400_000);
+      // Hoy está a medio sincronizar: en la tendencia se veía como una caída.
+      const hoyDia = new Date().toISOString().slice(0, 10);
+      const { clienteReal } = await import("../services/intel-common.js");
 
       // Independent reads — run concurrently (5 round-trips → 1).
       const [
@@ -3572,21 +3577,24 @@ export function adsRoutes(db: Db): Router {
         doneRows,
         roundtables,
       ] = await Promise.all([
-        db.select({ n: sql<number>`count(*)::int` }).from(clients).where(eq(clients.status, "active")),
+        // Sin clientes de prueba ni plantillas.
+        db.select({ n: sql<number>`count(*)::int` }).from(clients).where(clienteReal()),
         db.selectDistinct({ currency: clients.currency }).from(clients).where(eq(clients.status, "active")),
         db.select({
           date: adsInsights.date,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-        }).from(adsInsights).where(gte(adsInsights.date, since30)).groupBy(adsInsights.date).orderBy(adsInsights.date),
+        }).from(adsInsights).where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyDia}`)).groupBy(adsInsights.date).orderBy(adsInsights.date),
         db.select({
           week: sql<string>`to_char(date_trunc('week', ${issues.createdAt}), 'YYYY-MM-DD')`,
           n: sql<number>`count(*)::int`,
         }).from(issues).where(gte(issues.createdAt, since56)).groupBy(sql`1`).orderBy(sql`1`),
         db.select({
-          week: sql<string>`to_char(date_trunc('week', ${issues.updatedAt}), 'YYYY-MM-DD')`,
+          // completed_at, no updated_at: cualquier comentario sobre una tarea
+          // cerrada la volvía a contar como cerrada esa semana.
+          week: sql<string>`to_char(date_trunc('week', ${issues.completedAt}), 'YYYY-MM-DD')`,
           n: sql<number>`count(*)::int`,
-        }).from(issues).where(and(eq(issues.status, "done"), gte(issues.updatedAt, since56))).groupBy(sql`1`).orderBy(sql`1`),
+        }).from(issues).where(and(eq(issues.status, "done"), gte(issues.completedAt, since56))).groupBy(sql`1`).orderBy(sql`1`),
         db.select({
           id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, createdAt: issues.createdAt,
         }).from(issues).where(sql`${issues.title} ilike '[MESA REDONDA]%'`).orderBy(desc(issues.createdAt)).limit(12),

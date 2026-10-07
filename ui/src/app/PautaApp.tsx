@@ -16,7 +16,7 @@ interface ClienteSemaforo {
   name: string;
   slug: string;
   industry: string | null;
-  score: number;
+  score: number | null;
   semaforo: "verde" | "amarillo" | "rojo" | "sin-pauta";
   oportunidades: string[];
 }
@@ -38,7 +38,7 @@ export function PautaApp() {
   });
   const texto = buscar.trim().toLowerCase();
   const todos = (q.data?.clientes ?? []).filter((c) => !texto || c.name.toLowerCase().includes(texto));
-  const atender = todos.filter((c) => c.semaforo === "rojo" || c.semaforo === "amarillo").sort((a, b) => a.score - b.score);
+  const atender = todos.filter((c) => c.semaforo === "rojo" || c.semaforo === "amarillo").sort((a, b) => (a.score ?? 999) - (b.score ?? 999));
   const bien = todos.filter((c) => c.semaforo === "verde").sort((a, b) => a.name.localeCompare(b.name));
   const sinPauta = todos.filter((c) => c.semaforo === "sin-pauta");
 
@@ -106,7 +106,7 @@ function Lista({ clientes }: { clientes: ClienteSemaforo[] }) {
               {c.oportunidades.length > 0 && <span className="block truncate text-[12px] text-l-tinta-3">{c.oportunidades.slice(0, 2).join(" · ")}</span>}
             </span>
             <span className="shrink-0 text-right text-[12px] tabular-nums text-l-tinta-3">
-              {c.score}/100 · {PALABRA[c.semaforo]}
+              {c.score != null ? `${c.score}/100 · ` : ""}{PALABRA[c.semaforo]}
             </span>
             <ChevronRight className="h-4 w-4 shrink-0 text-l-tinta-3" aria-hidden />
           </Link>

@@ -13,8 +13,12 @@ import type { Db } from "@paperclipai/db";
 import { accountScores, adsAccountMappings, agentDeliverables, clientMemory, clients, interventions, nicheReports, opportunities } from "@paperclipai/db";
 import { and, desc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
 import { cotizadoVsRealizado } from "./cotizado.js";
+import { clienteReal } from "./intel-common.js";
+import { VIGENCIA_INTERVENCION_DIAS } from "./vigilantes.js";
 
-export type Semaforo = "rojo" | "amarillo" | "verde";
+/** "sin-datos": no hay ninguna señal medida. Antes caía en verde ("en orden,
+ *  sostener") — afirmar que un cliente está bien sin haberlo mirado. */
+export type Semaforo = "rojo" | "amarillo" | "verde" | "sin-datos";
 
 /**
  * ¿El cumplimiento está midiendo, o está ciego?
@@ -67,6 +71,9 @@ export function decidirSemaforo(s: SenalesCliente): Semaforo {
   if (saludMala || s.maxLevel >= 5 || pautaRota) return "rojo";
   // El cumplimiento suma como SEGUNDA señal, nunca como única.
   if (cumplMalo && (saludFloja || s.maxLevel >= 4)) return "rojo";
+
+  const algoMedido = s.salud != null || (s.cumplimientoPct != null && !s.cumplimientoCiego) || (s.scorePauta != null && s.pautaCorre) || s.maxLevel > 0;
+  if (!algoMedido) return "sin-datos";
 
   const verde =
     (s.salud == null || s.salud >= 70) &&
@@ -129,7 +136,7 @@ function recompute(db: Db): Promise<PlanAccionCliente[]> {
   return inflight;
 }
 
-export async function triageGrowth(db: Db): Promise<{ rojo: PlanAccionCliente[]; amarillo: PlanAccionCliente[]; verde: PlanAccionCliente[] }> {
+export async function triageGrowth(db: Db): Promise<{ rojo: PlanAccionCliente[]; amarillo: PlanAccionCliente[]; verde: PlanAccionCliente[]; sinDatos: PlanAccionCliente[] }> {
   let rows: PlanAccionCliente[];
   if (cache) {
     rows = cache.rows;
@@ -141,6 +148,7 @@ export async function triageGrowth(db: Db): Promise<{ rojo: PlanAccionCliente[];
     rojo: rows.filter((r) => r.semaforo === "rojo"),
     amarillo: rows.filter((r) => r.semaforo === "amarillo"),
     verde: rows.filter((r) => r.semaforo === "verde"),
+    sinDatos: rows.filter((r) => r.semaforo === "sin-datos"),
   };
 }
 
@@ -151,7 +159,7 @@ export function warmTriage(db: Db): void {
 
 export async function planAccionCliente(db: Db, clientId: string): Promise<PlanAccionCliente | null> {
   const t = await triageGrowth(db);
-  const row = [...t.rojo, ...t.amarillo, ...t.verde].find((r) => r.clientId === clientId) ?? null;
+  const row = [...t.rojo, ...t.amarillo, ...t.verde, ...t.sinDatos].find((r) => r.clientId === clientId) ?? null;
   if (!row) return null;
   // El reporte del agente se busca fresco (no vive en el cache de 5 min).
   const [rep] = await db.select({ title: agentDeliverables.title, content: agentDeliverables.content, createdAt: agentDeliverables.createdAt })
@@ -165,9 +173,9 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
   const activos = await db.select({
     id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry,
     salud: sql<{ score?: number; razones?: string[] } | null>`${clients.metadata}->'salud'`,
-  }).from(clients).where(eq(clients.status, "active"));
+  }).from(clients).where(clienteReal());
 
-  // Cumplimiento del cotizado (planilla + ClickUp; cacheado adentro).
+  // Cumplimiento del cotizado (planilla + Instagram/ClickUp; cacheado adentro).
   const cot = await cotizadoVsRealizado(db, { months: 1 }).catch(() => null);
   const cotByClient = new Map((cot?.rows ?? []).filter((r) => r.clientId).map((r) => [r.clientId as string, r]));
 
@@ -197,9 +205,14 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
       .map((r) => r.clientId).filter((x): x is string => !!x),
   );
 
-  // Intervenciones abiertas por cliente.
+  // Intervenciones abiertas y VIGENTES por cliente. Sin el corte, 536 avisos
+  // de más de 21 días (saldos del 3/9 ya recargados) se leían como problemas
+  // de hoy y pintaban de rojo (7/10).
   const ints = await db.select({ clientId: interventions.clientId, level: interventions.level, title: interventions.title, body: interventions.body })
-    .from(interventions).where(inArray(interventions.status, ["open", "sent"]));
+    .from(interventions).where(and(
+      inArray(interventions.status, ["open", "sent"]),
+      gte(interventions.createdAt, new Date(Date.now() - VIGENCIA_INTERVENCION_DIAS * 86_400_000)),
+    ));
   const intsByClient = new Map<string, Array<{ level: number; title: string; body: string | null }>>();
   for (const i of ints) {
     if (!i.clientId) continue;
@@ -242,7 +255,8 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
   // El síntoma de que está ciego es sistémico, no individual: si media cartera
   // marca 0%, lo que falla es el contador, no treinta clientes a la vez. En ese
   // caso el número se sigue mostrando pero NO decide el semáforo.
-  const valoresCumpl = [...cotByClient.values()].map((r) => r.cumplimientoPct ?? null);
+  // Solo el conteo de ClickUp puede estar ciego; el de Instagram es lectura de la red.
+  const valoresCumpl = [...cotByClient.values()].filter((r) => r.fuente === "clickup").map((r) => r.cumplimientoPct ?? null);
   const cumplimientoCiego = cumplimientoEstaCiego(valoresCumpl);
   if (cumplimientoCiego) {
     const conCumpl = valoresCumpl.filter((v) => v != null);
@@ -259,6 +273,8 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
     const razones = Array.isArray(c.salud?.razones) ? c.salud.razones : [];
     const cotRow = cotByClient.get(c.id) ?? null;
     const cumpl = cotRow?.cumplimientoPct ?? null;
+    const ciegoAca = cumplimientoCiego && cotRow?.fuente === "clickup";
+    const fuenteCumpl = cotRow?.fuente === "instagram" ? "publicaciones leídas de Instagram" : "etiqueta de ClickUp, sin verificar en la red";
     const score = pauta.get(c.id) ?? null;
     const clientInts = (intsByClient.get(c.id) ?? []).sort((a, b) => b.level - a.level);
     const maxLevel = clientInts[0]?.level ?? 0;
@@ -268,9 +284,9 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
 
     if (cumpl != null && cumpl < 85) {
       problemas.push(
-        cumplimientoCiego
-          ? `Cumplimiento del cotizado: ${cumpl}% (sin verificar — el contador de piezas está marcando 0% en media cartera)`
-          : `Cumplimiento del cotizado: ${cumpl}%`,
+        ciegoAca
+          ? `Cumplimiento del cotizado: ${cumpl}% (sin verificar — el contador de ClickUp marca 0% en media cartera)`
+          : `Cumplimiento del cotizado: ${cumpl}% (${fuenteCumpl})`,
       );
       const faltanP = Math.max(0, (cotRow?.esperadoMes.posteos ?? 0) - (cotRow?.realizado.posteosMes ?? 0));
       const faltanV = Math.max(0, (cotRow?.esperadoMes.videos ?? 0) - (cotRow?.realizado.videosMes ?? 0));
@@ -300,8 +316,14 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
       }
     }
     if ((cotRow?.cotizado.pautaMeta || cotRow?.cotizado.pautaGoogle) && (cotRow?.realizado.spendMeta ?? 0) + (cotRow?.realizado.spendGoogle ?? 0) === 0) {
-      problemas.push("Pauta cotizada pero $0 invertidos en el período");
-      acciones.push("Activar (o mapear) la pauta cotizada: hay presupuesto vendido sin correr.");
+      // Sin cuenta conectada, $0 no es "no se invirtió": es que no lo vemos.
+      if (conMapeo.has(c.id)) {
+        problemas.push("Pauta cotizada pero $0 invertidos en el período");
+        acciones.push("Activar la pauta cotizada: hay presupuesto vendido sin correr.");
+      } else {
+        problemas.push("Pauta cotizada, pero la cuenta de anuncios no está conectada: no podemos ver cuánto se invierte");
+        acciones.push("Conectar la cuenta de anuncios del cliente (Config → Conexiones de pauta).");
+      }
     }
     // Las oportunidades de CONTENIDO no van al plan de acción: su lugar es la
     // lista de ClickUp, donde el equipo las produce. Acá aparecían como
@@ -330,10 +352,14 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
       scorePauta: score,
       pautaCorre,
       maxLevel,
-      cumplimientoCiego,
+      cumplimientoCiego: ciegoAca,
     });
 
     if (semaforo === "verde" && acciones.length === 0) acciones.push("Sostener el ritmo. Buscar la próxima palanca de crecimiento (radar del rubro / propuesta CM).");
+    if (semaforo === "sin-datos") {
+      problemas.push("No hay nada medido: ni pauta corriendo, ni cuenta de redes leída, ni calendario con fechas.");
+      acciones.unshift("Conectar lo que falte para poder medir (pauta, página/Instagram, calendario Redes con fechas).");
+    }
 
     out.push({
       clientId: c.id, name: c.name, slug: c.slug, industry: c.industry,

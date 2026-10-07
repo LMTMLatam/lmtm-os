@@ -795,8 +795,8 @@ function MemoriaTab({ client }: { client: Client }) {
 
       {intel?.score && (
         <div className="flex gap-2">
-          <Card className="p-3 flex-1"><p className="text-xs text-muted-foreground">Salud de cuenta</p><p className="text-lg font-semibold tabular-nums">{intel.score.healthScore}/100</p></Card>
-          <Card className="p-3 flex-1"><p className="text-xs text-muted-foreground">Score operativo</p><p className="text-lg font-semibold tabular-nums">{intel.score.opsScore}/100</p></Card>
+          <Card className="p-3 flex-1"><p className="text-xs text-muted-foreground">Salud de pauta</p><p className="text-lg font-semibold tabular-nums">{intel.score.healthScore != null ? `${intel.score.healthScore}/100` : <span className="text-sm font-normal text-muted-foreground">sin pauta corriendo</span>}</p></Card>
+          <Card className="p-3 flex-1"><p className="text-xs text-muted-foreground">Score operativo</p><p className="text-lg font-semibold tabular-nums">{intel.score.opsScore != null ? `${intel.score.opsScore}/100` : <span className="text-sm font-normal text-muted-foreground">sin fechas en ClickUp</span>}</p></Card>
         </div>
       )}
 
@@ -1314,7 +1314,7 @@ function PlanAccionTab({ client }: { client: Client }) {
   const q = useQuery({
     queryKey: ["plan-accion", client.slug],
     queryFn: () => api.get<{ plan: {
-      semaforo: "rojo" | "amarillo" | "verde";
+      semaforo: "rojo" | "amarillo" | "verde" | "sin-datos";
       salud: number | null; scorePauta: number | null; cumplimientoPct: number | null;
       problemas: string[]; acciones: string[];
       reporteAgente: { title: string; content: string; createdAt: string } | null;
@@ -1336,13 +1336,13 @@ function PlanAccionTab({ client }: { client: Client }) {
     </div>
   );
   if (!p) return <p className="text-sm text-muted-foreground">Sin datos de triage todavía (corre con los vigilantes diarios).</p>;
-  const dot = p.semaforo === "verde" ? "bg-emerald-500" : p.semaforo === "amarillo" ? "bg-amber-500" : "bg-rose-500";
+  const dot = p.semaforo === "verde" ? "bg-emerald-500" : p.semaforo === "amarillo" ? "bg-amber-500" : p.semaforo === "sin-datos" ? "bg-muted-foreground/40" : "bg-rose-500";
   return (
     <div className="space-y-4">
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`h-3 w-3 rounded-full ${dot}`} />
-          <h3 className="font-semibold text-sm capitalize">{p.semaforo}</h3>
+          <h3 className="font-semibold text-sm capitalize">{p.semaforo === "sin-datos" ? "Sin datos para juzgar" : p.semaforo}</h3>
           {p.salud != null && <span className="text-[11px] text-muted-foreground">salud {p.salud}/100</span>}
           {p.cumplimientoPct != null && <span className="text-[11px] text-muted-foreground">cotizado {p.cumplimientoPct}%</span>}
           {p.scorePauta != null && <span className="text-[11px] text-muted-foreground">pauta {p.scorePauta}/100</span>}

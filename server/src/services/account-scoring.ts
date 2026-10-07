@@ -6,7 +6,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { accountScores, adsAlerts } from "@paperclipai/db";
-import { and, eq, inArray, desc } from "drizzle-orm";
+import { and, eq, gte, inArray, desc } from "drizzle-orm";
 import { aggInsights, dayStr } from "./agency-ops.js";
 import { getRedesPostStats } from "./clickup-sync.js";
 import { resolveCompanyId, activeClients, clamp } from "./intel-common.js";
@@ -20,9 +20,11 @@ export interface ScoreResult {
 export async function computeClientScore(db: Db, clientId: string): Promise<ScoreResult> {
   const today = new Date();
   const d = (back: number) => dayStr(new Date(today.getTime() - back * 86400000));
-  const w7 = await aggInsights(db, clientId, d(7), d(0));
+  // Días completos, sin hoy: ads_insights de hoy está a medio sincronizar y
+  // contarlo bajaba el CTR, subía el CPL y comparaba 8 días contra 7.
+  const w7 = await aggInsights(db, clientId, d(7), d(1));
   const wPrev = await aggInsights(db, clientId, d(14), d(8));
-  const w2 = await aggInsights(db, clientId, d(2), d(0));
+  const w2 = await aggInsights(db, clientId, d(2), d(1));
 
   const components: Record<string, unknown> = {};
 
@@ -46,14 +48,20 @@ export async function computeClientScore(db: Db, clientId: string): Promise<Scor
     components.noAds = true;
     health = 0;
   }
+  // Solo alertas recientes: había 37 "pending" de más de dos semanas restando
+  // 5 puntos cada una por problemas que ya no se sabe si siguen.
   const activeAlerts = await db.select({ id: adsAlerts.id }).from(adsAlerts)
-    .where(and(eq(adsAlerts.clientId, clientId), inArray(adsAlerts.status, ["pending", "acknowledged"])));
+    .where(and(eq(adsAlerts.clientId, clientId), inArray(adsAlerts.status, ["pending", "acknowledged"]),
+      gte(adsAlerts.createdAt, new Date(today.getTime() - 14 * 86400000))));
   components.activeAlerts = activeAlerts.length;
   health -= activeAlerts.length * 5;
   const healthScore = clamp(Math.round(health));
 
   // ── Ops (posting compliance) ──
-  let ops = 70;
+  // Solo se mide con fechas en ClickUp. Sin eso el número era inventado (70,
+  // 75, 55 o 50 según el caso): queda en 0 con opsSinDato y nadie lo usa como
+  // dato (ver operativaMedida en vigilantes.ts). La columna es NOT NULL.
+  let ops = 0;
   const weekAgoMs = today.getTime() - 7 * 86400000;
   const redes = await getRedesPostStats(db, clientId, weekAgoMs, today.getTime() + 86400000).catch(() => null);
   if (redes) {
@@ -64,12 +72,12 @@ export async function computeClientScore(db: Db, clientId: string): Promise<Scor
       ops = Math.round(rate * 100);
       components.compliance = Number(rate.toFixed(2));
     } else {
-      ops = redes.publishedThisWeek > 0 ? 75 : 55;
+      components.opsSinDato = true;
       components.opsNote = "cargar fechas + estado Publicado en ClickUp para medir cumplimiento";
     }
   } else {
     components.noClickup = true;
-    ops = 50;
+    components.opsSinDato = true;
   }
   const opsScore = clamp(Math.round(ops));
 
@@ -96,15 +104,32 @@ export async function runClientScores(db: Db): Promise<{ scored: number }> {
   return { scored };
 }
 
+/** ¿El score de operativa salió de datos o de un valor por defecto? */
+export function operativaMedida(components: Record<string, unknown> | null | undefined): boolean {
+  const c = components ?? {};
+  return !c.noClickup && !c.opsNote && !c.opsSinDato;
+}
+
+/** El score como se muestra: lo que no se midió va null, nunca 0 ni un
+ *  default. Sin pauta (noAds) no hay salud de pauta; sin fechas en ClickUp no
+ *  hay operativa. Todo lo que sale de acá hacia el panel o los agentes pasa
+ *  por esta función. */
+export function scoreVisible<T extends { healthScore: number; opsScore: number; components: unknown }>(row: T):
+  Omit<T, "healthScore" | "opsScore"> & { healthScore: number | null; opsScore: number | null } {
+  const c = (row.components ?? {}) as Record<string, unknown>;
+  return { ...row, healthScore: c.noAds ? null : row.healthScore, opsScore: operativaMedida(c) ? row.opsScore : null };
+}
+
 export async function getLatestScore(db: Db, clientId: string) {
   const [row] = await db.select().from(accountScores).where(eq(accountScores.clientId, clientId))
     .orderBy(desc(accountScores.date)).limit(1);
-  return row ?? null;
+  return row ? scoreVisible(row) : null;
 }
 
 export async function getScoreHistory(db: Db, clientId: string, limit = 30) {
-  return db.select().from(accountScores).where(eq(accountScores.clientId, clientId))
+  const rows = await db.select().from(accountScores).where(eq(accountScores.clientId, clientId))
     .orderBy(desc(accountScores.date)).limit(limit);
+  return rows.map(scoreVisible);
 }
 
 let scoreTimer: ReturnType<typeof setInterval> | null = null;
