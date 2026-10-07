@@ -88,7 +88,8 @@ export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasifi
       const lote = conTexto.slice(k, k + POR_LOTE);
       const usuario = lote.map((p, i) => {
         const red = /instagram\.com/.test(p.permalink ?? "") ? "instagram" : "facebook";
-        return `[${i}] (${red}, ${p.tipo ?? "post"}) ${(p.texto ?? "").replace(/\s+/g, " ").slice(0, 400)}`;
+        // Por caracteres completos: un .slice puede partir un emoji en dos.
+        return `[${i}] (${red}, ${p.tipo ?? "post"}) ${Array.from((p.texto ?? "").replace(/\s+/g, " ")).slice(0, 400).join("")}`;
       }).join("\n");
       const r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0, modelo: MODELO_CLASIFICAR });
       const mapa = r.texto ? leerClasificacion(r.texto, lote.map((_, i) => i)) : new Map<number, string>();

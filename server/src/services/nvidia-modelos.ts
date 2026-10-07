@@ -75,6 +75,18 @@ export interface RespuestaModelo {
 
 type Contenido = string | Array<Record<string, unknown>>;
 
+/**
+ * Saca las mitades sueltas de pares sustitutos (un emoji o una letra en negrita
+ * tipo "𝗘𝗡 𝗩𝗘𝗡𝗧𝗔" cortados por un .slice). JSON.stringify las escribe como
+ * "\ud835" y NVIDIA rechaza el pedido entero con HTTP 400 ("unexpected end of
+ * hex escape"): el 7/10 tiró 3 de cada 4 lotes del clasificador de ángulos.
+ */
+export function sinSustitutosSueltos(texto: string): string {
+  return texto.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
+const limpiarContenido = (c: Contenido): Contenido => (typeof c === "string" ? sinSustitutosSueltos(c) : c);
+
 async function llamar(
   modelo: string,
   clave: string,
@@ -88,7 +100,7 @@ async function llamar(
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${clave}` },
       body: JSON.stringify({
         model: modelo,
-        messages: mensajes,
+        messages: mensajes.map((m) => ({ ...m, content: limpiarContenido(m.content) })),
         max_tokens,
         temperature: opts.temperature ?? 0.4,
         stream: false,

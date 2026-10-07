@@ -153,3 +153,14 @@ describe("modelo muerto", () => {
     expect(modeloMuerto({ motivo: "red", detalle: "timeout" })).toBe(false);
   });
 });
+
+describe("pares sustitutos sueltos", () => {
+  it("saca la mitad suelta de un emoji cortado y deja los enteros", async () => {
+    const { sinSustitutosSueltos } = await import("../nvidia-modelos.js");
+    const negrita = "𝗘𝗡 𝗩𝗘𝗡𝗧𝗔";
+    const cortado = negrita.slice(0, 3); // "𝗘" + la primera mitad de "𝗡"
+    expect(sinSustitutosSueltos(cortado)).toBe("𝗘");
+    expect(sinSustitutosSueltos(negrita)).toBe(negrita);
+    expect(JSON.parse(JSON.stringify(sinSustitutosSueltos("hola 🏡".slice(0, 6))))).toBe("hola ");
+  });
+});
