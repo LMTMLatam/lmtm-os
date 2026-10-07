@@ -40,7 +40,6 @@ import { WhatsApp } from "./pages/WhatsApp";
 import { Intelligence } from "./pages/Intelligence";
 import { Growth } from "./pages/Growth";
 import { Niches } from "./pages/Niches";
-import { Licitaciones } from "./pages/Licitaciones";
 import { Readiness } from "./pages/Readiness";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
@@ -70,6 +69,7 @@ import { ClienteApp } from "./app/ClienteApp";
 import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
 import { ContenidoApp } from "./app/ContenidoApp";
+import { LicitacionesApp } from "./app/LicitacionesApp";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -355,7 +355,7 @@ export function App() {
             <Route path="pauta" element={<Pagina><PaidMediaHub /></Pagina>} />
             <Route path="contenido" element={<ContenidoApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
-            <Route path="licitaciones" element={<Pagina><Licitaciones /></Pagina>} />
+            <Route path="licitaciones" element={<LicitacionesApp />} />
             <Route path="finanzas" element={<Pagina><Finance /></Pagina>} />
             <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
             {/* Ajustes que se abrían en el layout de paperclip: ahora adentro de la app. */}
