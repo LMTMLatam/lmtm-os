@@ -1,13 +1,13 @@
 // LMTM: el shell de la app propia (fase C1). Navegación nuestra, sin la barra,
-// el selector de empresa ni el organigrama de paperclip. Lo de paperclip queda
-// bajo "Sistema" hasta el retiro.
+// el selector de empresa ni el organigrama de paperclip (07/10: sin la puerta a
+// "Sistema"; lo que hace falta de ahí se muda a la app).
 //
-// Escritorio: riel a la izquierda. Celular: barra abajo con las 4 secciones.
+// Escritorio: riel a la izquierda. Celular: barra abajo con las 5 secciones.
 
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Inbox, Moon, Settings2, Sun, Users, Wrench } from "lucide-react";
-import { Link, NavLink, Outlet, useLocation } from "@/lib/router";
+import { Bot, Clapperboard, Inbox, Moon, Settings2, Sun, Users } from "lucide-react";
+import { NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
 import { agentesApi } from "./api";
@@ -15,6 +15,7 @@ import { agentesApi } from "./api";
 const SECCIONES = [
   { to: "/hoy", label: "Hoy", Icono: Inbox },
   { to: "/clientes", label: "Clientes", Icono: Users },
+  { to: "/contenido", label: "Contenido", Icono: Clapperboard },
   { to: "/agentes", label: "Agentes", Icono: Bot },
   { to: "/config", label: "Config", Icono: Settings2 },
 ] as const;
@@ -23,7 +24,6 @@ const SECCIONES = [
 export const MAS = [
   { to: "/semaforo", label: "Semáforo de clientes" },
   { to: "/pauta", label: "Pauta" },
-  { to: "/contenido", label: "Contenido" },
   { to: "/inteligencia", label: "Inteligencia" },
   { to: "/licitaciones", label: "Licitaciones" },
   { to: "/finanzas", label: "Finanzas" },
@@ -98,14 +98,7 @@ export function Shell() {
               </li>
             ))}
           </ul>
-          <div className="mt-auto flex items-center gap-1 px-1 pt-4">
-            <Link
-              to="/dashboard"
-              className="flex min-h-9 flex-1 items-center gap-2 rounded-[8px] px-1.5 text-[13px] text-l-tinta-3 hover:text-l-tinta"
-              title="Lo de paperclip (issues, proyectos, organigrama) hasta el retiro"
-            >
-              <Wrench className="h-4 w-4" aria-hidden /> Sistema
-            </Link>
+          <div className="mt-auto flex items-center justify-end px-1 pt-4">
             <BotonTema oscuro={theme === "dark"} onClick={toggleTheme} />
           </div>
         </aside>
@@ -117,7 +110,7 @@ export function Shell() {
 
       {/* Barra (celular) */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
         aria-label="Secciones"
       >
         {SECCIONES.map(({ to, label, Icono }) => (

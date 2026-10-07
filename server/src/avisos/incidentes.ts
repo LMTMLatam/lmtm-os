@@ -15,7 +15,6 @@
 // solo WhatsApp con los tres, no tres.
 
 import type { Db } from "@paperclipai/db";
-import { companies } from "@paperclipai/db";
 import { avisarAlEquipo } from "../services/wa-embudo.js";
 
 export interface IncidenteNuevo {
@@ -33,11 +32,14 @@ export const ORIGEN_INCIDENTES = "incidentes";
 
 const URL_PRODUCCION = "https://lmtm-os-production.up.railway.app";
 
-/** Link absoluto a Hoy: el que se toca desde el WhatsApp tiene que abrir. */
-export async function urlDeHoy(db: Db): Promise<string> {
+/**
+ * Link absoluto a Hoy: el que se toca desde el WhatsApp tiene que abrir. Sin
+ * el prefijo de empresa: la app propia vive en /hoy, y /LMTM/... es lo de
+ * paperclip.
+ */
+export async function urlDeHoy(_db: Db): Promise<string> {
   const base = (process.env.PAPERCLIP_PUBLIC_URL?.trim() || URL_PRODUCCION).replace(/\/+$/, "");
-  const [c] = await db.select({ prefijo: companies.issuePrefix }).from(companies).limit(1).catch(() => []);
-  return `${base}/${c?.prefijo ?? "LMTM"}/hoy`;
+  return `${base}/hoy`;
 }
 
 const pesos = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;

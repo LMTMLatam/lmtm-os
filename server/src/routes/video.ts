@@ -9,6 +9,7 @@ import type { Db } from "@paperclipai/db";
 import { agentDeliverables, clients } from "@paperclipai/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { barrerPendientes, estadoCuenta, generarVideoDePieza, piezasPendientes, previsualizarPieza, TAG_PEDIDO } from "../services/video-higgsfield.js";
+import { hayMagnific } from "../services/magnific.js";
 
 export function videoRoutes(db: Db): Router {
   const router = Router();
@@ -28,6 +29,7 @@ export function videoRoutes(db: Db): Router {
         creditos: cuenta.creditosPlan,
         avisoSesion: cuenta.motivo,
         etiqueta: TAG_PEDIDO,
+        magnific: hayMagnific(),
         pendientes: pendientes.map((p) => ({
           clientId: p.clientId, cliente: p.clientName,
           taskId: p.tarea.id, titulo: p.tarea.name, url: p.tarea.url,
@@ -153,5 +155,48 @@ export function videoRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/contenido/tablero?dias=14 — Super Redes de toda la agencia: las
+  // piezas de la lista "Redes Sociales" de cada cliente, de anteayer a N días,
+  // con lo que les falta para salir. Es ClickUp en vivo (una lectura por
+  // cliente), así que se guarda 10 minutos; ?fresco=1 la vuelve a leer.
+  router.get("/contenido/tablero", async (req, res) => {
+    try {
+      const dias = Math.min(31, Math.max(1, Number(req.query.dias) || 14));
+      if (cacheTablero && cacheTablero.dias === dias && Date.now() - cacheTablero.at < 10 * 60_000 && req.query.fresco !== "1") {
+        return res.json(cacheTablero.data);
+      }
+      const data = await armarTablero(db, dias);
+      cacheTablero = { at: Date.now(), dias, data };
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   return router;
 }
+
+let cacheTablero: { at: number; dias: number; data: unknown } | null = null;
+
+async function armarTablero(db: Db, dias: number) {
+  const { getRedesCalendar } = await import("../services/clickup-sync.js");
+  const { clienteReal } = await import("../services/intel-common.js");
+  const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug }).from(clients).where(clienteReal());
+  const desde = Date.now() - 2 * 86_400_000;
+  const hasta = Date.now() + dias * 86_400_000;
+  const piezas: Array<Record<string, unknown>> = [];
+  const sinLista: string[] = [];
+  const conError: string[] = [];
+  // De a seis: 59 lecturas seguidas a ClickUp tardan, todas juntas pegan en su límite.
+  for (let i = 0; i < activos.length; i += 6) {
+    await Promise.all(activos.slice(i, i + 6).map(async (c) => {
+      const cal = await getRedesCalendar(db, c.id, desde, hasta).catch(() => undefined);
+      if (cal === undefined) conError.push(c.name);
+      else if (cal === null) sinLista.push(c.name);
+      else for (const p of cal) piezas.push({ ...p, clientId: c.id, cliente: c.name, slug: c.slug });
+    }));
+  }
+  piezas.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  return { generadoAt: new Date().toISOString(), dias, piezas, sinLista: sinLista.sort(), conError: conError.sort() };
+}
+

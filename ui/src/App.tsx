@@ -3,8 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
-import { Dashboard } from "./pages/Dashboard";
-import { DashboardLive } from "./pages/DashboardLive";
 import { Companies } from "./pages/Companies";
 import { Finance } from "./pages/Finance";
 import { ConnectAds } from "./pages/ConnectAds";
@@ -44,7 +42,6 @@ import { Growth } from "./pages/Growth";
 import { Niches } from "./pages/Niches";
 import { Licitaciones } from "./pages/Licitaciones";
 import { Readiness } from "./pages/Readiness";
-import { Contenido } from "./pages/Contenido";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
 import { CompanyImport } from "./pages/CompanyImport";
@@ -72,6 +69,7 @@ import { ClientesApp } from "./app/ClientesApp";
 import { ClienteApp } from "./app/ClienteApp";
 import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
+import { ContenidoApp } from "./app/ContenidoApp";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -83,8 +81,9 @@ function boardRoutes() {
     <>
       {/* La portada es Hoy de la app propia (fase C1). */}
       <Route index element={<Navigate to="/hoy" replace />} />
-      <Route path="dashboard" element={<Dashboard />} />
-      <Route path="dashboard/live" element={<DashboardLive />} />
+      {/* El tablero de paperclip ya no es la entrada: lo que servía está en Hoy. */}
+      <Route path="dashboard" element={<Navigate to="/hoy" replace />} />
+      <Route path="dashboard/live" element={<Navigate to="/agentes" replace />} />
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="clients" element={<Navigate to="/clientes" replace />} />
@@ -344,15 +343,15 @@ export function App() {
             <Route path="config" element={<ConfigApp />} />
             <Route path="semaforo" element={<Pagina><Growth /></Pagina>} />
             <Route path="pauta" element={<Pagina><PaidMediaHub /></Pagina>} />
-            <Route path="contenido" element={<Pagina><Contenido /></Pagina>} />
+            <Route path="contenido" element={<ContenidoApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<Pagina><Licitaciones /></Pagina>} />
             <Route path="finanzas" element={<Pagina><Finance /></Pagina>} />
             <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
           </Route>
           <Route path="cartera" element={<Navigate to="/clientes" replace />} />
-          <Route path="dashboard" element={<UnprefixedBoardRedirect />} />
-          <Route path="dashboard/live" element={<UnprefixedBoardRedirect />} />
+          <Route path="dashboard" element={<Navigate to="/hoy" replace />} />
+          <Route path="dashboard/live" element={<Navigate to="/agentes" replace />} />
           <Route path="clients" element={<Navigate to="/clientes" replace />} />
           <Route path="finance" element={<Navigate to="/finanzas" replace />} />
           <Route path="intelligence" element={<Navigate to="/inteligencia" replace />} />
