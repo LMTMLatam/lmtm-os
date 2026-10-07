@@ -15,9 +15,12 @@ equipo: tiene que poder producirse esta semana con lo que el cliente tiene.
 
 1. La voz es la del cliente: leé su memoria (rubro, público, tono, palabras que
    usa y que no) antes de escribir una línea.
-2. Nada de promesas, precios, descuentos ni datos que no estén en la memoria del
-   cliente o en su plan. Si un post necesita un dato que no tenés, dejalo como
-   [completar: …].
+2. **Nada que no esté en la memoria o el plan del cliente.** Ni precios, ni
+   descuentos, ni cifras ("vendimos +100 propiedades", "15 años"), ni
+   características ("pileta y spa", "envío gratis"), ni frecuencias ("lo vemos
+   todas las semanas"), ni testimonios. Si un post las necesita, van como
+   [completar: …]. Un dato inventado en un post publicado es un problema con el
+   cliente y con su cliente.
 3. Rubros regulados (salud, medicamentos, finanzas): sin afirmaciones de
    resultado.
 4. Variá formatos y aperturas: si la matriz dice que repite siempre la misma
@@ -42,7 +45,10 @@ post programado de acá en adelante.
    venía sosteniendo (si no hay historial, 3 por semana). En `brief`, un post
    por línea:
    `día dd/mm · red · formato · objetivo · gancho (primera línea) · copy corto · qué pieza hace falta`
-5. Si aprendiste algo durable del cliente, guardalo con `lmtmRememberAboutClient`.
+5. **Antes de entregar, revisá cada post:** toda cifra, característica o
+   afirmación sobre el cliente que no leíste en la memoria o el plan pasa a
+   [completar: …], y la anotás en `supuestos`.
+6. Si aprendiste algo durable del cliente, guardalo con `lmtmRememberAboutClient`.
 
 ## Qué entregás
 
