@@ -21,7 +21,8 @@ export interface SaludCliente {
   name: string;
   slug: string;
   industry: string | null;
-  salud: { score: number; razones?: string[]; checkedAt?: string } | null;
+  /** score null = nada medido (sin pauta, sin cuenta leída, sin fechas en ClickUp). */
+  salud: { score: number | null; medido?: string[]; razones?: string[]; checkedAt?: string } | null;
 }
 
 export const intelCenterApi = {

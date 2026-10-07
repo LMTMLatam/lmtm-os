@@ -35,7 +35,8 @@ function CentroDeInteligencia() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["intel-center"] }),
   });
   const items: Intervention[] = iq.data?.interventions ?? [];
-  const salud = (sq.data?.clientes ?? []).filter((c) => c.salud != null);
+  const salud = (sq.data?.clientes ?? []).filter((c) => c.salud?.score != null);
+  const sinMedir = (sq.data?.clientes ?? []).filter((c) => c.salud != null && c.salud.score == null);
 
   return (
     <div className="space-y-4">
@@ -75,15 +76,16 @@ function CentroDeInteligencia() {
         <div className="flex items-center gap-2">
           <HeartPulse className="h-4 w-4 text-rose-500" />
           <h2 className="font-semibold">Salud de clientes</h2>
-          <span className="text-[11px] text-muted-foreground ml-auto">índice /100: pauta 40% + operativa 30% + contenido 30% — los peores primero</span>
+          <span className="text-[11px] text-muted-foreground ml-auto">índice /100: pauta 40% + operativa 30% + contenido 30%, solo con lo que se pudo medir — los peores primero</span>
         </div>
         {salud.length === 0 && <div className="text-sm text-muted-foreground">Todavía sin índice — el vigilante lo estampa en su próxima corrida diaria.</div>}
         <div className="grid md:grid-cols-2 gap-1.5">
           {salud.map((c) => (
             <div key={c.id} className="flex items-start gap-2 text-xs rounded-md border border-border p-2">
-              <span className={`font-bold text-sm w-10 shrink-0 ${scoreColor(c.salud!.score)}`}>{c.salud!.score}</span>
+              <span className={`font-bold text-sm w-10 shrink-0 ${scoreColor(c.salud!.score!)}`}>{c.salud!.score}</span>
               <div className="min-w-0">
                 <Link to={`/c/${c.slug}`} className="font-medium hover:underline">{c.name}</Link>
+                {c.salud!.medido && c.salud!.medido.length < 3 && <div className="text-muted-foreground">medido: {c.salud!.medido.join(", ")}</div>}
                 {(c.salud!.razones?.length ?? 0) > 0 && (
                   <div className="text-muted-foreground truncate" title={c.salud!.razones!.join("; ")}>{c.salud!.razones!.join("; ")}</div>
                 )}
@@ -91,6 +93,9 @@ function CentroDeInteligencia() {
             </div>
           ))}
         </div>
+        {sinMedir.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">Sin nada para medir (ni pauta corriendo, ni cuenta leída, ni calendario con fechas): {sinMedir.map((c) => c.name).join(", ")}.</p>
+        )}
       </Card>
     </div>
   );
