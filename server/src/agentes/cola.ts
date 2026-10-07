@@ -8,6 +8,7 @@ import type { Db } from "@paperclipai/db";
 import { agenteTrabajos, clients, decisiones, informesSemanales } from "@paperclipai/db";
 import { and, eq, sql } from "drizzle-orm";
 import { ultimaSemana } from "../decisiones/informe.js";
+import { FOLDERS_ORIGEN_PLANTILLA } from "../ingest/plantilla-clickup.js";
 
 export type Trabajo = typeof agenteTrabajos.$inferSelect;
 
@@ -237,6 +238,9 @@ export async function encolarDecisiones(db: Db): Promise<number> {
         and(
           eq(decisiones.tipo, d.tipo),
           eq(decisiones.estado, "abierta"),
+          // "Cliente Natural" y "Cliente Inmobiliario" son las carpetas plantilla
+          // de ClickUp, no clientes (mismo criterio que el motor).
+          sql`coalesce(${clients.clickupFolderId}, '') not in (${sql.join(FOLDERS_ORIGEN_PLANTILLA.map((f) => sql`${f}`), sql`, `)})`,
           sql`not exists (
             select 1 from agente_trabajos t
             where t.rol = ${d.rol} and t.ref = ${ref}
