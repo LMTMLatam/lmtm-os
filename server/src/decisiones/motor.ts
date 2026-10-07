@@ -76,7 +76,7 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   const v = ventanas(ahora);
 
   const activos = await db
-    .select({ id: clients.id, name: clients.name, folder: clients.clickupFolderId })
+    .select({ id: clients.id, name: clients.name, folder: clients.clickupFolderId, industry: clients.industry })
     .from(clients)
     .where(eq(clients.status, "active"));
   const nombres = new Map(activos.map((c) => [c.id, c.name.trim()]));
@@ -84,7 +84,11 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   // "Cliente Natural" y "Cliente Inmobiliario" son las carpetas de las que se
   // copia la plantilla de ClickUp, no clientes: la cadena de publicación les
   // abría decisiones (06/10). Se reconocen por la carpeta, como en el ingest.
-  const plantillas = new Set(activos.filter((c) => c.folder && FOLDERS_ORIGEN_PLANTILLA.includes(c.folder)).map((c) => c.id));
+  // Y los de prueba (TESTEO MARCOS, rubro interno-test) tampoco: el 07/10
+  // tenía dos decisiones abiertas en Hoy.
+  const plantillas = new Set(
+    activos.filter((c) => (c.folder && FOLDERS_ORIGEN_PLANTILLA.includes(c.folder)) || c.industry === "interno-test").map((c) => c.id),
+  );
 
   // Lo que comparten varias reglas se lee una vez.
   const salud = await saludFuentes(db).catch((e) => {
