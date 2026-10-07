@@ -86,6 +86,17 @@ Contenido (`70b3395`):
   404/410). También en `litellm-config.yaml`.
 - También: pestaña "Qué funciona" en la ficha del cliente, resumen de los lunes con
   lo que mejor funcionó en la semana, Inteligencia sin salud inventada.
+- Ángulos: con la lista sin "emocional" los posteos aspiracionales caían en
+  vitrina/novedad; se sumó la categoría y el clasificador usa el modelo grande. A
+  las 16:56: 400 clasificadas (63 emocionales), 2.000 en cola a 500 por hora.
+- Ficha del cliente (Resumen): "Iniciativas activas 0 · Across 14 agents" y "The 14
+  agents are idle" estaban fijos en el código; fuera. Resultados de 30 días sin las
+  conversiones dudosas de Google, con aviso. Fuera el test huérfano de Dashboard.tsx.
+
+**Para mañana (08/10):** vigilantes de la mañana → salud nueva estampada y avisos de
+saldo viejos cerrados; monedas guardadas en `ads_account_mappings.currency` →
+separar cuentas no ARS de las sumas en pesos; resumen de las 9:00 sin cambios de
+formato (el bloque de contenido sale solo los lunes, 12/10).
 
 Verificación: tests propios 65/65, tsc server y ui limpios, ui 403/403. Las 64
 fallas de la batería completa son de paperclip (base embebida que no corre en
