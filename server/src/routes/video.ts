@@ -173,6 +173,24 @@ export function videoRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/contenido/que-funciona?dias=180 — qué ángulos y formatos rinden,
+  // comparando todas las cuentas contra lo normal de cada una; qué reutilizar;
+  // y por cliente, el ángulo que funciona en su rubro y no usa. Solo lectura.
+  router.get("/contenido/que-funciona", async (req, res) => {
+    try {
+      const dias = Math.min(365, Math.max(30, Number(req.query.dias) || 180));
+      const { analisisContenido } = await import("../services/contenido-analisis.js");
+      const { pendientesDeClasificar } = await import("../services/contenido-angulos.js");
+      const [analisis, sinClasificar] = await Promise.all([
+        analisisContenido(db, dias, req.query.fresco === "1"),
+        pendientesDeClasificar(db),
+      ]);
+      res.json({ ...analisis, sinClasificar });
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   return router;
 }
 

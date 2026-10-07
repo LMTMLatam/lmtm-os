@@ -23,6 +23,7 @@ const SECCIONES = [
 /** Las demás pantallas propias: viven en el shell, con su diseño de antes hasta rehacerlas. */
 export const MAS = [
   { to: "/semaforo", label: "Semáforo de clientes" },
+  { to: "/nichos", label: "Nichos" },
   { to: "/pauta", label: "Pauta" },
   { to: "/inteligencia", label: "Inteligencia" },
   { to: "/licitaciones", label: "Licitaciones" },

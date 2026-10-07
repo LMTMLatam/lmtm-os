@@ -169,6 +169,10 @@ export const organicPosts = pgTable("organic_posts", {
   postType: text("post_type"),
   raw: jsonb("raw").$type<Record<string, unknown>>().default({}),
   syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Desde dónde se cuenta la publicación (ids de angulos-creativos.ts). Lo
+   *  completa contenido-angulos.ts; null = sin clasificar. */
+  angulo: text("angulo"),
+  anguloAt: timestamp("angulo_at", { withTimezone: true }),
 }, (t) => ({
   companyIdx: index("organic_posts_company_idx").on(t.companyId),
   clientIdx: index("organic_posts_client_idx").on(t.clientId),

@@ -63,6 +63,31 @@ export const ANGULOS: AnguloCreativo[] = [
     ejemplo: "Quedan pocas unidades de esta tanda y no sé cuándo vuelvo a reponer." },
 ];
 
+/** Formas de contar que aparecen en el orgánico real y no son ángulos de venta
+ *  de la guía. Solo sirven para CLASIFICAR publicaciones ya hechas
+ *  (contenido-angulos.ts); las ideas nuevas se piden con ANGULOS. */
+export const ANGULOS_ORGANICO: AnguloCreativo[] = [
+  { id: "vitrina", nombre: "Mostrar el producto o la propiedad", como: "Presenta lo que se vende con sus datos (fotos, características, ubicación), sin otro enfoque.",
+    ejemplo: "Departamento de 2 ambientes en Fisherton, 54 m², con cochera." },
+  { id: "educativo", nombre: "Enseñar algo útil", como: "Da información o consejos del rubro sin vender directo.",
+    ejemplo: "Tres cosas a revisar antes de firmar una reserva." },
+  { id: "promo", nombre: "Oferta, precio o financiación", como: "El centro es un precio, un descuento, cuotas o una promoción.",
+    ejemplo: "Este mes, 12 cuotas sin interés." },
+  { id: "efemeride", nombre: "Fecha especial", como: "Saluda o se cuelga de una fecha del calendario (Día del Padre, Navidad, un feriado).",
+    ejemplo: "¡Feliz Día de la Madre!" },
+  { id: "institucional", nombre: "Marca y equipo", como: "Habla de la empresa: equipo, valores, aniversario, logros, oficina.",
+    ejemplo: "Cumplimos 10 años acompañando familias." },
+  { id: "interaccion", nombre: "Pregunta, encuesta o sorteo", como: "Pide participación: comentar, votar, etiquetar, participar de un sorteo.",
+    ejemplo: "¿Casa o departamento? Te leemos en comentarios." },
+  { id: "novedad", nombre: "Novedad o evento", como: "Anuncia algo nuevo: lanzamiento, ingreso de producto, evento, apertura, noticia.",
+    ejemplo: "Llegó la nueva colección." },
+];
+
+/** Nombre legible de un ángulo (de la guía o del orgánico). */
+export function nombreDeAngulo(id: string): string {
+  return [...ANGULOS, ...ANGULOS_ORGANICO].find((a) => a.id === id)?.nombre ?? id;
+}
+
 /** Ángulos que solo funcionan con un producto físico que se vende por unidad.
  *  Para una inmobiliaria o una agencia, "queda poco stock" o "precio por día"
  *  suenan falsos, y la escasez inventada es justo lo que la guía marca como

@@ -174,6 +174,21 @@ async function angulosRecientes(db: Db, clientId: string): Promise<string[]> {
   return vistos.slice(0, 6);
 }
 
+/** Qué funciona en orgánico: todas las cuentas, cada publicación contra lo
+ *  normal de su cuenta (contenido-analisis.ts). Con esto las ideas salen de
+ *  ángulos y formatos que rindieron, no de intuición (pedido 7/10). */
+async function queFuncionaBlock(db: Db, client: { id: string; industry: string | null }): Promise<string> {
+  try {
+    const { analisisContenido, textoParaAgente } = await import("./contenido-analisis.js");
+    return "\n" + textoParaAgente(await analisisContenido(db, 180), { nicho: client.industry, clientId: client.id });
+  } catch {
+    return "";
+  }
+}
+
+const USAR_LO_QUE_FUNCIONA =
+  "Si el contexto trae 'QUÉ FUNCIONA EN ORGÁNICO', elegí ángulos y formatos que rinden en el rubro o en la cuenta (o reutilizá una publicación que dobló lo normal con una vuelta nueva) y nombrá el dato en el rationale (por ejemplo: 'cliente-real rinde 1,9× en inmobiliaria'). Ese es el único dato de performance que podés citar.";
+
 export async function generateContentPlan(db: Db, clientId: string): Promise<{ batchId: string; created: number; ideas: GeneratedIdea[]; motivo?: string }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { batchId: "", created: 0, ideas: [] };
@@ -222,6 +237,7 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     // es desde dónde se cuenta, y cambia la pieza entera (18/8).
     bloqueDeAngulos(client.industry ?? null, await angulosRecientes(db, clientId).catch(() => [])),
     "Cada una de las 6 ideas usa un ÁNGULO DISTINTO de la lista. Repetir ángulo es repetir la idea con otras palabras.",
+    USAR_LO_QUE_FUNCIONA,
     "Generá 3 ideas de pauta y 3 de posteo (6 en total) — profundidad antes que cantidad.",
   ].join("\n");
 
@@ -231,6 +247,7 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     `\nCompetencia:\n${compBlock}`,
     await videoRefsBlock(db, clientId),
     await ideasRecientesBlock(db, clientId).catch(() => ""),
+    await queFuncionaBlock(db, client),
   ].join("\n");
 
   let ideas: GeneratedIdea[] = [];
@@ -616,6 +633,7 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     "TODO el texto va en ESPAÑOL. Está PROHIBIDO dejar palabras en inglés sueltas — el equipo lee esto tal cual y lo tiene que corregir a mano. Nada de 'strangers', 'pillows menu', 'linking', 'tactile', 'fiber'. Se dicen: desconocidos, menú de almohadas, se conecta, táctil, fibra. Revisá el texto antes de responder.",
     GROUNDING_RULE,
     "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
+    USAR_LO_QUE_FUNCIONA,
     'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"<UNA de: Post|Photo Post|Story|Carrusel|Tips y Trucos|Guia|Clip corto|Reel|Video Largo|Vivo|Articulo|Blog>","title":"la idea en una línea","copy":"la idea CERRADA según el spec de abajo","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',
     IDEA_CERRADA_SPEC,
   ].join("\n");
@@ -626,6 +644,7 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     `\nCompetencia:\n${compBlock}`,
     vids,
     await ideasRecientesBlock(db, clientId).catch(() => ""),
+    await queFuncionaBlock(db, client),
   ].join("\n");
 
   let idea: GeneratedIdea | null = null;

@@ -16,7 +16,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, contentPerformance, agentDeliverables, hooks, issues, agents, trends, nicheReports } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, agentDeliverables, hooks, issues, agents, trends, nicheReports } from "@paperclipai/db";
 import { isNotNull, isNull, ne } from "drizzle-orm";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
@@ -1768,7 +1768,10 @@ export function agentToolsRoutes(
           .orderBy(desc(accountScores.date))
           .limit(1);
         if (!row) return reply(true, "(Sin scores calculados todavía para este cliente.)");
-        return reply(true, JSON.stringify({ date: row.date, healthScore: row.healthScore, opsScore: row.opsScore }));
+        // null = no medido (sin pauta corriendo / sin fechas en ClickUp), no 0.
+        const { scoreVisible } = await import("../services/account-scoring.js");
+        const v = scoreVisible(row);
+        return reply(true, JSON.stringify({ date: v.date, healthScore: v.healthScore, opsScore: v.opsScore, nota: "null = no se pudo medir; no afirmar nada sobre ese componente" }));
       }
 
       if (tool === "portfolio_snapshot") {
@@ -2299,8 +2302,10 @@ export function agentToolsRoutes(
         const conds = [inArray(learnings.scope, scopes)];
         if (niche) conds.push(eq(learnings.scopeKey, niche));
         const rows = await db.select().from(learnings).where(and(...conds)).orderBy(learnings.scopeKey);
-        if (rows.length === 0) return reply(true, niche ? `Sin inteligencia minada para el nicho "${niche}" todavía (se mina cada 24h; necesita >=2 clientes con pauta).` : "Sin inteligencia de nichos minada todavía.");
+        if (rows.length === 0 && !niche) return reply(true, "Sin inteligencia de nichos minada todavía.");
         const lines: string[] = [];
+        // Sin benchmarks igual sigue: el análisis de contenido de abajo no depende de la pauta.
+        if (rows.length === 0) lines.push(`Sin benchmarks de pauta minados para "${niche}" todavía (se minan cada 24h; necesitan >=2 clientes con pauta).`);
         const label: Record<string, string> = { niche: "Formato ganador orgánico", niche_benchmark: "Benchmark", niche_experiment: "Experimento sugerido", niche_ads_format: "Formato ganador en ads", niche_actions: "Plan de acción" };
         for (const r of rows) {
           lines.push(`[${r.scopeKey}] ${label[r.scope] ?? r.scope}: ${r.pattern}`);
@@ -2312,14 +2317,15 @@ export function agentToolsRoutes(
           }
         }
         if (niche) {
-          const top = await db.select({ title: contentPerformance.title, format: contentPerformance.format, score: contentPerformance.score, clientName: clients.name })
-            .from(contentPerformance)
-            .innerJoin(clients, eq(contentPerformance.clientId, clients.id))
-            .where(and(eq(clients.status, "active"), eq(clients.industry, niche)))
-            .orderBy(desc(contentPerformance.score)).limit(5);
-          if (top.length) {
-            lines.push("", "Mejor contenido del nicho:");
-            for (const t of top) lines.push(`- "${t.title ?? "(sin título)"}" (${t.format ?? "?"}, score ${Math.round(Number(t.score ?? 0))}) — ${t.clientName}`);
+          // Qué funciona en orgánico, comparando cuentas contra lo normal de
+          // cada una. Reemplaza al "mejor contenido del nicho" por score, que
+          // mezclaba anuncios (leads/CTR) con orgánico y premiaba a la cuenta
+          // más grande (7/10).
+          try {
+            const { analisisContenido, textoParaAgente } = await import("../services/contenido-analisis.js");
+            lines.push("", textoParaAgente(await analisisContenido(db, 180), { nicho: niche }));
+          } catch (e) {
+            lines.push("", `(No se pudo leer el análisis de contenido: ${e instanceof Error ? e.message : String(e)})`);
           }
           const comps = await db.select({ name: competitors.name, clientName: clients.name })
             .from(competitors).innerJoin(clients, eq(competitors.clientId, clients.id))

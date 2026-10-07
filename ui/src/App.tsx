@@ -37,7 +37,6 @@ import { AdsIntegrations } from "./pages/AdsIntegrations";
 import { WhatsApp } from "./pages/WhatsApp";
 import { Intelligence } from "./pages/Intelligence";
 import { Growth } from "./pages/Growth";
-import { Niches } from "./pages/Niches";
 import { Readiness } from "./pages/Readiness";
 import { Secrets } from "./pages/Secrets";
 import { CompanyExport } from "./pages/CompanyExport";
@@ -67,6 +66,7 @@ import { ClienteApp } from "./app/ClienteApp";
 import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
 import { ContenidoApp } from "./app/ContenidoApp";
+import { NichosApp } from "./app/NichosApp";
 import { LicitacionesApp } from "./app/LicitacionesApp";
 import { PautaApp } from "./app/PautaApp";
 import { AvisosApp } from "./app/AvisosApp";
@@ -96,13 +96,13 @@ function boardRoutes() {
       <Route path="whatsapp" element={<Navigate to="/whatsapp" replace />} />
       <Route path="intelligence" element={<Navigate to="/inteligencia" replace />} />
       <Route path="growth" element={<Navigate to="/semaforo" replace />} />
-      <Route path="niches" element={<Niches />} />
+      <Route path="niches" element={<Navigate to="/nichos" replace />} />
       <Route path="licitaciones" element={<Navigate to="/licitaciones" replace />} />
       <Route path="readiness" element={<Readiness />} />
       <Route path="contenido" element={<Navigate to="/contenido" replace />} />
       <Route path="videos" element={<Navigate to="/contenido" replace />} />
       {/* Competencia global se unificó: cliente→tab Competidores, agregado→Nichos (pedido 18/7) */}
-      <Route path="competitors" element={<Navigate to="../niches" replace />} />
+      <Route path="competitors" element={<Navigate to="/nichos" replace />} />
       {/* También existe top-level; acá cubre los links con prefijo de company
           (ej. el redirect del OAuth de Meta a /lmtm/connect-ads). */}
       <Route path="connect-ads" element={<ConnectAds />} />
@@ -356,6 +356,7 @@ export function App() {
             <Route path="pauta" element={<PautaApp />} />
             <Route path="avisos" element={<AvisosApp />} />
             <Route path="contenido" element={<ContenidoApp />} />
+            <Route path="nichos" element={<NichosApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<LicitacionesApp />} />
             <Route path="finanzas" element={<FinanzasApp />} />
@@ -371,7 +372,7 @@ export function App() {
           <Route path="finance" element={<Navigate to="/finanzas" replace />} />
           <Route path="intelligence" element={<Navigate to="/inteligencia" replace />} />
           <Route path="growth" element={<Navigate to="/semaforo" replace />} />
-          <Route path="niches" element={<UnprefixedBoardRedirect />} />
+          <Route path="niches" element={<Navigate to="/nichos" replace />} />
           <Route path="readiness" element={<UnprefixedBoardRedirect />} />
           <Route path="videos" element={<Navigate to="/contenido" replace />} />
           <Route path="competitors" element={<UnprefixedBoardRedirect />} />

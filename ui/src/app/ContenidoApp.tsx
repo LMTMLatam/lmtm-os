@@ -18,6 +18,7 @@ import { Boton } from "../lmtm/componentes";
 import { horaCorta } from "../lmtm/formato";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
+import { QueFunciona } from "./QueFunciona";
 
 interface Pieza {
   id: string;
@@ -187,6 +188,14 @@ export function ContenidoApp() {
             </p>
           )}
           {tablero.data && <Calendario t={tablero.data} puede={puedeGenerar} />}
+        </section>
+
+        <section id="que-funciona" className="scroll-mt-4">
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <TituloFranja>Qué funciona · todas las cuentas</TituloFranja>
+            <Link to="/nichos" className="text-[13px] text-l-tinta-2 hover:text-l-marca">Ver por rubro →</Link>
+          </div>
+          <QueFunciona />
         </section>
 
         <section>

@@ -7,66 +7,46 @@
 // and agent context.
 
 import type { Db } from "@paperclipai/db";
-import { adsCreatives, contentPerformance, clients, learnings, companies, adsInsights } from "@paperclipai/db";
+import { adsCreatives, clients, learnings, companies, adsInsights } from "@paperclipai/db";
 import { and, eq, gte, isNotNull, notInArray, sql } from "drizzle-orm";
-import { num } from "./intel-common.js";
 
 export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
   if (!company) return { learnings: 0 };
 
-  // ORGANIC only: mixing ad creatives in (score = leads/CTR, always > 0)
-  // against organic posts (engagement, often 0) made "ad" the winning
-  // "format" of every niche — a meaningless learning that only says "paid
-  // beats organic". Ads have their own miner (mineAdsWinningFormats).
-  const cps = await db.select({ clientId: contentPerformance.clientId, format: contentPerformance.format, score: contentPerformance.score })
-    .from(contentPerformance).where(eq(contentPerformance.source, "organic")).limit(5000);
-  if (cps.length === 0) return { learnings: 0 };
-  const clientRows = await db.select({ id: clients.id, industry: clients.industry }).from(clients);
-  const industryOf = new Map(clientRows.map((c) => [c.id, (c.industry ?? "general").toLowerCase()]));
+  // ORGANIC only (los anuncios tienen su propio minero, mineAdsWinningFormats).
+  //
+  // 7/10: antes se promediaba la interacción CRUDA por formato y rubro. Eso
+  // premia a la cuenta con más seguidores, no al formato; y además el score
+  // orgánico estaba en 0 para todas las publicaciones (nombres de métricas mal
+  // leídos), así que el "formato ganador" no salía de ningún dato. Ahora sale
+  // de contenido-analisis.ts: cada publicación contra lo normal de su cuenta.
+  const { analisisContenido } = await import("./contenido-analisis.js");
+  const a = await analisisContenido(db, 180);
+  const fmt = (x: number) => x.toFixed(2).replace(".", ",");
 
-  // Aggregate avg score by (niche, format).
-  const agg = new Map<string, { niche: string; format: string; sum: number; n: number }>();
-  for (const cp of cps) {
-    const niche = cp.clientId ? industryOf.get(cp.clientId) ?? "general" : "general";
-    const format = (cp.format ?? "otro").toLowerCase();
-    const key = `${niche}|${format}`;
-    const e = agg.get(key) ?? { niche, format, sum: 0, n: 0 };
-    e.sum += num(cp.score); e.n += 1;
-    agg.set(key, e);
-  }
-
-  // Per niche, rank formats; emit a learning for the top format (min 3 samples).
-  const byNiche = new Map<string, Array<{ format: string; avg: number; n: number }>>();
-  for (const e of agg.values()) {
-    const arr = byNiche.get(e.niche) ?? [];
-    arr.push({ format: e.format, avg: e.n > 0 ? e.sum / e.n : 0, n: e.n });
-    byNiche.set(e.niche, arr);
-  }
-
-  // Live snapshot: replace the scope wholesale so stale winners (e.g. the old
-  // contaminated "formato ad") don't linger next to the fresh mining.
+  // Live snapshot: se reemplaza el scope entero para que no queden ganadores viejos.
   await db.delete(learnings).where(eq(learnings.scope, "niche"));
 
   let count = 0;
-  for (const [niche, formats] of byNiche) {
-    const ranked = formats.filter((f) => f.n >= 3).sort((a, b) => b.avg - a.avg);
-    if (ranked.length < 1) continue;
+  for (const n of a.nichos) {
+    const ranked = n.formatos; // ya ordenados por índice, solo los que tienen muestra suficiente
     const top = ranked[0];
-    if (top.avg <= 0) continue; // no measured engagement anywhere — nothing learned
-    const rest = ranked.slice(1);
-    const restAvg = rest.length ? rest.reduce((a, f) => a + f.avg, 0) / rest.length : null;
-    const pattern = restAvg != null
-      ? `En orgánico de "${niche}", el formato "${top.format}" rinde mejor (score prom. ${top.avg.toFixed(0)} vs ${restAvg.toFixed(0)} del resto).`
-      : `En orgánico de "${niche}", el formato "${top.format}" es el de mejor desempeño (score prom. ${top.avg.toFixed(0)}).`;
-    const confidence = Math.min(0.95, 0.4 + top.n * 0.05);
+    if (!top || top.indice <= 1) continue; // nada rinde por encima de lo normal: no hay ganador
+    const peor = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+    const pattern = `En orgánico de "${n.nicho}", ${top.clave} rinde ${fmt(top.indice)} veces lo normal de cada cuenta (${top.publicaciones} publicaciones de ${top.cuentas} cuentas)` +
+      (peor ? `; ${peor.clave} rinde ${fmt(peor.indice)} veces.` : ".");
+    const evidence = {
+      topFormat: top.clave, topAvg: top.indice, samples: top.publicaciones, cuentas: top.cuentas, medida: "indice-vs-cuenta",
+      ranked: ranked.slice(0, 6).map((f) => ({ format: f.clave, avg: f.indice, n: f.publicaciones })),
+    };
+    const confidence = Math.min(0.95, 0.4 + top.cuentas * 0.1);
     await db.insert(learnings).values({
-      companyId: company.id, scope: "niche", scopeKey: niche, pattern,
-      evidence: { topFormat: top.format, topAvg: Number(top.avg.toFixed(1)), samples: top.n, ranked: ranked.slice(0, 5) },
-      metricImpact: "content_score", confidence: String(confidence), occurrences: top.n, lastSeenAt: new Date(),
+      companyId: company.id, scope: "niche", scopeKey: n.nicho, pattern, evidence,
+      metricImpact: "content_score", confidence: String(confidence), occurrences: top.publicaciones, lastSeenAt: new Date(),
     }).onConflictDoUpdate({
       target: [learnings.scope, learnings.scopeKey, learnings.pattern],
-      set: { evidence: { topFormat: top.format, topAvg: Number(top.avg.toFixed(1)), samples: top.n }, confidence: String(confidence), occurrences: top.n, lastSeenAt: new Date() },
+      set: { evidence, confidence: String(confidence), occurrences: top.publicaciones, lastSeenAt: new Date() },
     });
     count += 1;
   }
@@ -255,7 +235,9 @@ export async function mineExperiments(db: Db): Promise<{ experiments: number }> 
     testedByNiche.set(key, tested);
     // A "winner" needs real signal: enough samples AND a positive score. A top
     // format with score 0 just means nothing measured — not worth exporting.
-    if (ev.topFormat && (ev.samples ?? 0) >= 5 && (ev.topAvg ?? 0) > 0) winners.push({ niche: key, format: ev.topFormat, avg: ev.topAvg ?? 0 });
+    // topAvg es el índice contra lo normal de cada cuenta (1 = lo normal): un
+    // ganador tiene que rendir por encima de eso. Comparable entre rubros.
+    if (ev.topFormat && (ev.samples ?? 0) >= 5 && (ev.topAvg ?? 0) > 1) winners.push({ niche: key, format: ev.topFormat, avg: ev.topAvg ?? 0 });
   }
 
   // Same live-snapshot semantics as benchmarks: the suggestion embeds scores,
@@ -276,7 +258,7 @@ export async function mineExperiments(db: Db): Promise<{ experiments: number }> 
       if (!picks.some((p) => p.format === c.format)) picks.push(c);
     }
     for (const candidate of picks) {
-      const pattern = `Experimento sugerido para "${niche}": probar el formato "${candidate.format}" — en "${candidate.niche}" es el de mejor desempeño (score prom. ${candidate.avg.toFixed(1)}) y en este rubro no hay datos todavía.`;
+      const pattern = `Experimento sugerido para "${niche}": probar ${candidate.format} — en "${candidate.niche}" rinde ${candidate.avg.toFixed(2).replace(".", ",")} veces lo normal de cada cuenta y en este rubro no hay datos suficientes todavía.`;
       await db.insert(learnings).values({
         companyId: company.id, scope: "niche_experiment", scopeKey: niche, pattern,
         evidence: { format: candidate.format, sourceNiche: candidate.niche, sourceAvg: candidate.avg },

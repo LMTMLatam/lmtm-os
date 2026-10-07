@@ -19,6 +19,7 @@ import { agentesApi, nombreRol, type Trabajo } from "./api";
 import { Encabezado } from "./Shell";
 import { PropuestasAgentes } from "./Propuestas";
 import { TareasEsperando } from "./Esperando";
+import { TarjetaQueFunciona } from "./QueFunciona";
 
 // Por tema y no por "quién": el 07/10 Nazareno pidió que sea más fácil de
 // atacar. Se entra por lo que hay que hacer (plata, contenido, conexiones,
@@ -121,7 +122,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
         )}
 
         {/* Los números del día. La plata es el héroe. */}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr]">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <Tarjeta>
             <div className="text-[13px] font-medium text-l-tinta-2">Plata parada por día</div>
             {h.plataParada != null ? (
@@ -152,6 +153,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
             </div>
           </Tarjeta>
           <TarjetaContenido />
+          <TarjetaQueFunciona />
         </div>
 
         <section className="mt-7">

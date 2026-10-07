@@ -40,12 +40,15 @@ export interface ResumenOrganico {
   totalPosts: number;
   conMetricas: number;
   promedio: number;
-  porTipo: Array<{ tipo: string; posts: number; promedio: number; vsCuenta: number }>;
+  /** Por red y formato ("instagram reel"). vsCuenta compara contra el promedio
+   *  de la MISMA red: Facebook rinde menos que Instagram en casi todas las
+   *  cuentas, y mezclarlas hacía pasar "la red" por "el formato" (7/10). */
+  porTipo: Array<{ tipo: string; red: string; posts: number; promedio: number; vsCuenta: number }>;
   top: PostConRendimiento[];
   flojos: PostConRendimiento[];
 }
 
-const engagementDe = (r: number, c: number, s: number) => r + c * 3 + s * 5;
+export const engagementDe = (r: number, c: number, s: number) => r + c * 3 + s * 5;
 
 /** Posts del cliente con sus métricas, ordenados por rendimiento. */
 export async function rendimientoOrganico(
@@ -110,16 +113,22 @@ export async function rendimientoOrganico(
   const conMetricas = posts.filter((p) => p.engagement > 0);
   const promedio = conMetricas.length ? conMetricas.reduce((a, p) => a + p.engagement, 0) / conMetricas.length : 0;
 
+  const redDe = (p: PostConRendimiento) => (/instagram\.com/.test(p.permalink ?? "") ? "instagram" : "facebook");
   const agrupado = new Map<string, PostConRendimiento[]>();
+  const porRed = new Map<string, PostConRendimiento[]>();
   for (const p of conMetricas) {
-    const t = (p.tipo ?? "sin tipo").toLowerCase();
+    const t = `${redDe(p)} ${(p.tipo ?? "sin tipo").toLowerCase()}`;
     agrupado.set(t, [...(agrupado.get(t) ?? []), p]);
+    porRed.set(redDe(p), [...(porRed.get(redDe(p)) ?? []), p]);
   }
+  const promedioRed = new Map([...porRed].map(([r, ps]) => [r, ps.reduce((a, p) => a + p.engagement, 0) / ps.length]));
   const porTipo = [...agrupado.entries()]
     .filter(([, ps]) => ps.length >= MINIMO_POR_TIPO)
     .map(([tipo, ps]) => {
+      const red = tipo.split(" ")[0];
       const prom = ps.reduce((a, p) => a + p.engagement, 0) / ps.length;
-      return { tipo, posts: ps.length, promedio: Math.round(prom * 10) / 10, vsCuenta: promedio > 0 ? Math.round((prom / promedio - 1) * 100) : 0 };
+      const base = promedioRed.get(red) ?? 0;
+      return { tipo, red, posts: ps.length, promedio: Math.round(prom * 10) / 10, vsCuenta: base > 0 ? Math.round((prom / base - 1) * 100) : 0 };
     })
     .sort((a, b) => b.promedio - a.promedio);
 
@@ -186,10 +195,14 @@ export async function destilarOrganico(db: Db, clientId: string): Promise<string
   // "sin tipo" no es un formato que alguien pueda proponer: sale del ranking de
   // mejor/peor y se explica aparte, si no el consejo queda inservible
   // ("el que peor rinde: sin tipo").
-  const formatosReales = r.porTipo.filter((t) => t.tipo !== "sin tipo");
+  // Se comparan formatos dentro de la red con más publicaciones medidas.
+  const cuentaRed = new Map<string, number>();
+  for (const t of r.porTipo) cuentaRed.set(t.red, (cuentaRed.get(t.red) ?? 0) + t.posts);
+  const redPrincipal = [...cuentaRed].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const formatosReales = r.porTipo.filter((t) => t.red === redPrincipal && !t.tipo.endsWith("sin tipo"));
   if (formatosReales.length >= 2) {
     const mejor = formatosReales[0], peor = formatosReales[formatosReales.length - 1];
-    lineas.push(`- Formato que mejor rinde: **${mejor.tipo}** (${mejor.promedio} de promedio, ${mejor.vsCuenta >= 0 ? "+" : ""}${mejor.vsCuenta}% vs la cuenta, ${mejor.posts} posts).`);
+    lineas.push(`- Formato que mejor rinde: **${mejor.tipo}** (${mejor.promedio} de promedio, ${mejor.vsCuenta >= 0 ? "+" : ""}${mejor.vsCuenta}% vs el promedio de la cuenta en ${mejor.red}, ${mejor.posts} posts).`);
     // Solo vale llamarlo "el peor" si la diferencia es real, no ruido.
     if (peor.tipo !== mejor.tipo && peor.promedio < mejor.promedio * 0.75) {
       lineas.push(`- El que peor rinde: **${peor.tipo}** (${peor.promedio}, ${peor.vsCuenta}%). Antes de proponer más de este formato, mirá si vale la pena.`);
@@ -209,7 +222,7 @@ export async function destilarOrganico(db: Db, clientId: string): Promise<string
     lineas.push(`- El mejor post del período (${r.top[0].engagement} de engagement): "${r.top[0].texto.slice(0, 120).replace(/\s+/g, " ")}…"`);
   }
 
-  const sinTipo = r.porTipo.find((t) => t.tipo === "sin tipo");
+  const sinTipo = r.porTipo.find((t) => t.tipo.endsWith("sin tipo"));
   if (sinTipo && sinTipo.vsCuenta < -50) {
     lineas.push(`- OJO: ${sinTipo.posts} publicaciones sin formato identificado rinden ${sinTipo.vsCuenta}% — probablemente son fotos sueltas sin trabajo de diseño.`);
   }

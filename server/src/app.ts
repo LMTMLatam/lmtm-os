@@ -392,6 +392,16 @@ export async function createApp(
         console.warn("[content-ideas] init failed:", e);
       }
     })();
+    // El ángulo de cada publicación real, para comparar qué funciona entre
+    // todas las cuentas (contenido-analisis.ts). Cada hora clasifica lo nuevo.
+    void (async () => {
+      try {
+        const { initContenidoAngulos } = await import("./services/contenido-angulos.js");
+        initContenidoAngulos(db);
+      } catch (e) {
+        console.warn("[contenido-angulos] init failed:", e);
+      }
+    })();
     // Weekly growth roundtable: agents debate agency-level growth (automation,
     // upsell, efficiency, brand) on a recurring issue, invited by @mention.
     void (async () => {

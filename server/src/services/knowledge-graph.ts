@@ -7,6 +7,7 @@ import type { Db } from "@paperclipai/db";
 import { organicPosts, organicPostInsights, adsCreatives, adsInsights, contentPerformance } from "@paperclipai/db";
 import { eq, desc } from "drizzle-orm";
 import { resolveCompanyId, activeClients, num } from "./intel-common.js";
+import { engagementDe } from "./organico-aprendizaje.js";
 
 const STOP = new Set("de la el en y a los las un una que con por para del al se su lo es más o the and for".split(" "));
 function tagsFrom(text: string): string[] {
@@ -33,8 +34,11 @@ export async function rebuildClientContent(db: Db, clientId: string): Promise<{ 
       .from(organicPostInsights).where(eq(organicPostInsights.postId, p.id));
     const metrics: Record<string, number> = {};
     for (const r of ins) metrics[r.metric] = num(r.value);
-    const engagement = (metrics.reactions ?? 0) + (metrics.comments ?? 0) + (metrics.shares ?? 0);
-    const score = metrics.engagement ?? (engagement > 0 ? engagement : (metrics.impressions ?? 0));
+    // Meta guarda las métricas como post_reactions_by_type_total, post_comments
+    // y post_shares. Se leían como reactions/comments/shares: las 3.644
+    // publicaciones orgánicas quedaron con score 0 y nada sabía qué funcionaba
+    // (7/10). Misma fórmula que organico-aprendizaje.
+    const score = engagementDe(metrics.post_reactions_by_type_total ?? 0, metrics.post_comments ?? 0, metrics.post_shares ?? 0);
     await upsertContent(db, {
       companyId, clientId, contentRef: p.id, source: "organic",
       title: (p.message ?? p.story ?? "").slice(0, 140) || null, format: p.postType ?? null,

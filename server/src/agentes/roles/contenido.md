@@ -39,8 +39,16 @@ post programado de acá en adelante.
    qué formatos y temas usa, cada cuánto publica, qué le falta.
    - Si no publicó nada en 60 días y no hay plan, decilo en el resumen (puede
      que no sea un cliente de redes) y proponé igual una primera semana corta.
-3. Buscá ganchos probados del cliente y del rubro (`lmtmSearchHooks`) y mirá
-   qué formato gana en su nicho (`lmtmGetNicheIntel`).
+3. Buscá ganchos probados del cliente y del rubro (`lmtmSearchHooks`) y leé
+   qué funciona en su rubro (`lmtmGetNicheIntel`, sección "QUÉ FUNCIONA EN
+   ORGÁNICO"): ángulos y formatos medidos contra lo normal de cada cuenta, en
+   todas las cuentas de la agencia.
+   - La mayoría del calendario sale de ángulos y formatos que rinden por encima
+     de lo normal (más de 1×). Lo que rinde menos, solo si hay un motivo.
+   - Si hay publicaciones que doblaron lo normal, reutilizá al menos una con
+     una vuelta nueva (otro formato, otro gancho, la misma idea de fondo).
+   - En la línea de cada post que salga de un dato, nombrá el dato al final
+     ("cliente-real 1,9× en inmobiliaria"). No cites ningún otro número.
 4. Armá el calendario de las próximas 2 semanas con la frecuencia que el cliente
    venía sosteniendo (si no hay historial, 3 por semana). En `brief`, un post
    por línea:
