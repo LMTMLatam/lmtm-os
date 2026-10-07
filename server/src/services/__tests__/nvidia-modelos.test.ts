@@ -143,3 +143,13 @@ describe("analizarTexto", () => {
     expect(init.headers.Authorization).toBe("Bearer nvapi-secreta");
   });
 });
+
+describe("modelo muerto", () => {
+  it("410 (fin de vida) y 404 (no habilitado) disparan el respaldo; el resto no", async () => {
+    const { modeloMuerto } = await import("../nvidia-modelos.js");
+    expect(modeloMuerto({ motivo: "http", detalle: "410: gone" })).toBe(true);
+    expect(modeloMuerto({ motivo: "http", detalle: "404: {\"title\":\"Not Found\"}" })).toBe(true);
+    expect(modeloMuerto({ motivo: "http", detalle: "429: too many" })).toBe(false);
+    expect(modeloMuerto({ motivo: "red", detalle: "timeout" })).toBe(false);
+  });
+});

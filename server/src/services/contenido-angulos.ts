@@ -13,7 +13,10 @@ import type { Db } from "@paperclipai/db";
 import { clients, organicPosts } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { ANGULOS, ANGULOS_ORGANICO } from "./angulos-creativos.js";
-import { analizarTexto } from "./nvidia-modelos.js";
+import { analizarTexto, MODELO_TEXTO_RESPALDO } from "./nvidia-modelos.js";
+
+/** Clasificar es una tarea corta: el modelo rápido alcanza (3 s por lote en la prueba del 7/10). */
+const MODELO_CLASIFICAR = process.env.NVIDIA_MODEL_CLASIFICAR?.trim() || MODELO_TEXTO_RESPALDO;
 
 const TODOS = [...ANGULOS, ...ANGULOS_ORGANICO];
 const IDS = new Set(TODOS.map((a) => a.id));
@@ -77,11 +80,11 @@ export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasifi
         const red = /instagram\.com/.test(p.permalink ?? "") ? "instagram" : "facebook";
         return `[${i}] (${red}, ${p.tipo ?? "post"}) ${(p.texto ?? "").replace(/\s+/g, " ").slice(0, 400)}`;
       }).join("\n");
-      const r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0 });
+      const r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0, modelo: MODELO_CLASIFICAR });
       const mapa = r.texto ? leerClasificacion(r.texto, lote.map((_, i) => i)) : new Map<number, string>();
       if (mapa.size === 0) {
         fallas += 1;
-        console.warn(`[contenido-angulos] lote sin clasificar (${r.motivo ?? "respuesta ilegible"})`);
+        console.warn(`[contenido-angulos] lote sin clasificar (${r.motivo ?? "respuesta ilegible"}${r.detalle ? `: ${r.detalle.slice(0, 120)}` : ""})`);
         if (fallas >= 3) break; // el modelo no está contestando: se reintenta en la próxima vuelta
         continue;
       }

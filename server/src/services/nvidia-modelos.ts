@@ -28,7 +28,21 @@ export const MODELO_VISION = process.env.NVIDIA_MODEL_VISION?.trim() || "moonsho
  * no un 404, así que se ve claro en `detalle` si vuelve a pasar. El reemplazo
  * es flash, verificado el mismo día.
  */
-export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "deepseek-ai/deepseek-v4-flash-0731";
+export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "nvidia/nemotron-3-super-120b-a12b";
+/**
+ * 7/10/26: deepseek-v4-flash-0731 también murió (HTTP 410) y nadie se enteró:
+ * aiNarrative caía a MiniMax en silencio y la voz de marca (marca-aprendida)
+ * dejó de aprenderse. Reemplazo: nemotron-3-super (23 s, buen rioplatense).
+ * Si el principal devuelve 404/410 se reintenta con este, rápido y vivo
+ * (gpt-oss-20b, 3-11 s). deepseek-v4.1-flash y glm-5.3-flash no contestaban
+ * en 180 s; kimi-k2.6 y mistral-large dan 404 para esta cuenta.
+ */
+export const MODELO_TEXTO_RESPALDO = process.env.NVIDIA_MODEL_TEXTO_RESPALDO?.trim() || "openai/gpt-oss-20b";
+
+/** ¿El modelo ya no existe para esta cuenta? (fin de vida o no habilitado) */
+export function modeloMuerto(r: Pick<RespuestaModelo, "motivo" | "detalle">): boolean {
+  return r.motivo === "http" && /^(404|410)\b/.test(r.detalle ?? "");
+}
 
 /** Piso de tokens para un modelo de razonamiento. Por debajo de esto el
  *  razonamiento se come la respuesta y `content` vuelve vacío. Medido: 16 falla,
@@ -153,12 +167,17 @@ export async function verImagen(
 export async function analizarTexto(
   system: string,
   usuario: string,
-  opts: { maxTokens?: number; temperature?: number } = {},
+  opts: { maxTokens?: number; temperature?: number; modelo?: string } = {},
 ): Promise<RespuestaModelo> {
   const clave = claveTexto();
   if (!clave) return { texto: null, motivo: "sin_clave", detalle: "falta NVIDIA_API_KEY_TEXTO" };
-  return llamar(MODELO_TEXTO, clave, [
+  const mensajes = [
     { role: "system", content: system },
     { role: "user", content: usuario },
-  ], { ...opts, esDeRazonamiento: true });
+  ];
+  const modelo = opts.modelo ?? MODELO_TEXTO;
+  const r = await llamar(modelo, clave, mensajes, { ...opts, esDeRazonamiento: true });
+  if (!modeloMuerto(r) || modelo === MODELO_TEXTO_RESPALDO) return r;
+  console.warn(`[nvidia] ${modelo} no existe más (${(r.detalle ?? "").slice(0, 80)}): uso ${MODELO_TEXTO_RESPALDO}`);
+  return llamar(MODELO_TEXTO_RESPALDO, clave, mensajes, { ...opts, esDeRazonamiento: true });
 }
