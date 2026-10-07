@@ -93,6 +93,13 @@ Contenido (`70b3395`):
   agents are idle" estaban fijos en el código; fuera. Resultados de 30 días sin las
   conversiones dudosas de Google, con aviso. Fuera el test huérfano de Dashboard.tsx.
 
+- Clasificador: 3 de cada 4 lotes daban HTTP 400 porque un `.slice` partía emojis
+  (pares sustitutos sueltos en el JSON); se limpian en `llamar()`. Después, el
+  modelo que razona se quedaba sin tokens: 12k y respaldo al rápido. A las 18:47:
+  1.120 clasificadas, 0 lotes fallidos, 1.277 en cola.
+- **Voz de marca:** nada la llamaba desde el 14/9 (2 clientes). Ahora cada 7 días:
+  primera vuelta 22 clientes aprendidos, 34 sin publicaciones, 2 fallados.
+
 **Para mañana (08/10):** vigilantes de la mañana → salud nueva estampada y avisos de
 saldo viejos cerrados; monedas guardadas en `ads_account_mappings.currency` →
 separar cuentas no ARS de las sumas en pesos; resumen de las 9:00 sin cambios de
