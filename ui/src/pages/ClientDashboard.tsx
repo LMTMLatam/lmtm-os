@@ -30,7 +30,6 @@ import {
   BarChart3,
   AlertCircle,
   Calendar,
-  Briefcase,
   Facebook,
   CheckCircle2,
   RefreshCcw,
@@ -1499,58 +1498,30 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
     <ConsultasIaCard client={client} />
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
       <KpiCard
-        title="Spend (30d)"
+        title="Inversión (30 días)"
         value={hasSpend ? fmtSpend(totals!.spend) : "—"}
-        sub={hasAccounts ? `${Object.keys(ads!.insights.byPlatform).join(" + ") || "Meta + Google"}` : "No ad accounts linked"}
+        sub={hasAccounts ? `${Object.keys(ads!.insights.byPlatform).join(" + ") || "Meta + Google"}` : "Sin cuentas de anuncios conectadas"}
         icon={DollarSign}
         status={hasSpend ? "ok" : hasAccounts ? "empty" : "warn"}
       />
       <KpiCard
-        title="Impressions (30d)"
+        title="Impresiones (30 días)"
         value={hasSpend ? fmtInt(totals!.impressions) : "—"}
-        sub={hasSpend ? `${fmtInt(totals!.clicks)} clicks · ${fmtPct(totals!.ctr)} CTR` : "Connect Meta to see real numbers"}
+        sub={hasSpend ? `${fmtInt(totals!.clicks)} clics · CTR ${fmtPct(totals!.ctr)}` : "Sin gasto en 30 días"}
         icon={Eye}
         status={hasSpend ? "ok" : "empty"}
       />
       <KpiCard
-        title="Leads (30d)"
+        title="Resultados (30 días)"
         value={hasSpend ? fmtInt(totals!.leads) : "—"}
-        sub={hasSpend ? `CPC ${fmtSpend(totals!.cpc)}` : "Awaiting first sync"}
+        sub={hasSpend
+          ? (totals!.leadsExcluidos ?? 0) > 0
+            ? `sin ${fmtInt(totals!.leadsExcluidos!)} "conversiones" de Google que no son leads (más de un tercio de los clics): corregir en Google Ads`
+            : `CPC ${fmtSpend(totals!.cpc)}`
+          : "Sin gasto en 30 días"}
         icon={Target}
-        status={hasSpend ? "ok" : "empty"}
+        status={hasSpend ? ((totals!.leadsExcluidos ?? 0) > 0 ? "warn" : "ok") : "empty"}
       />
-      <KpiCard
-        title="Pipeline value"
-        value="—"
-        sub="ClickUp + CRM"
-        icon={Briefcase}
-        status="empty"
-      />
-      <KpiCard
-        title="Active initiatives"
-        value="0"
-        sub="Across 14 agents"
-        icon={Briefcase}
-        status="empty"
-      />
-      <KpiCard
-        title="Last activity"
-        value="—"
-        sub="From any agent"
-        icon={Calendar}
-        status="empty"
-      />
-
-      <Card className="p-4 md:col-span-2 lg:col-span-3">
-        <h3 className="text-sm font-medium">Recent activity</h3>
-        <p className="text-xs text-muted-foreground mt-2">
-          Activity feed will appear here once the agent wakeup loop runs.
-        </p>
-        <EmptyState
-          title="No activity yet"
-          body="The 14 agents (Luna, Pablo, Milo, ...) are idle. Their next heartbeat will start populating this feed."
-        />
-      </Card>
     </div>
     <ClientWhatsAppSection clientId={client.id} />
     </div>

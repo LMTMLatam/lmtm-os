@@ -1537,11 +1537,15 @@ export function adsRoutes(db: Db): Router {
       .where(and(eq(adsInsights.clientId, client.id), gte(adsInsights.date, sinceDate)))
       .groupBy(adsInsights.platform);
     debugInfo.step5_insights = { count: insightRows.length };
+    // Google que cuenta como conversión más de un tercio de los clics: esos
+    // "leads" no entran al total (misma regla que objetivos e informes).
+    const { conversionesDudosas } = await import("../metricas/index.js");
+    const dudosa = (r: { platform: string; leads: number; clicks: number }) => conversionesDudosas(r.platform, Number(r.leads ?? 0), Number(r.clicks ?? 0));
 
     const insights = {
       since: sinceDate,
       byPlatform: insightRows.reduce<Record<string, {
-        platform: string; impressions: number; clicks: number; spend: number; leads: number; days: number; ctr: number; cpc: number;
+        platform: string; impressions: number; clicks: number; spend: number; leads: number; leadsDudosos: boolean; days: number; ctr: number; cpc: number;
       }>>((acc, r) => {
         const impressions = Number(r.impressions ?? 0);
         const clicks = Number(r.clicks ?? 0);
@@ -1552,6 +1556,7 @@ export function adsRoutes(db: Db): Router {
           clicks,
           spend,
           leads: Number(r.leads ?? 0),
+          leadsDudosos: dudosa(r),
           days: Number(r.days ?? 0),
           ctr: impressions > 0 ? clicks / impressions : 0,
           cpc: clicks > 0 ? spend / clicks : 0,
@@ -1563,11 +1568,12 @@ export function adsRoutes(db: Db): Router {
           acc.impressions += Number(r.impressions ?? 0);
           acc.clicks += Number(r.clicks ?? 0);
           acc.spend += Number(r.spend ?? 0);
-          acc.leads += Number(r.leads ?? 0);
+          if (dudosa(r)) acc.leadsExcluidos += Number(r.leads ?? 0);
+          else acc.leads += Number(r.leads ?? 0);
           acc.days = Math.max(acc.days, Number(r.days ?? 0));
           return acc;
         },
-        { impressions: 0, clicks: 0, spend: 0, leads: 0, days: 0, ctr: 0, cpc: 0 },
+        { impressions: 0, clicks: 0, spend: 0, leads: 0, leadsExcluidos: 0, days: 0, ctr: 0, cpc: 0 },
       ),
     };
 

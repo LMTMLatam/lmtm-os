@@ -422,6 +422,8 @@ export interface ClientAdsSummary {
       clicks: number;
       spend: number;
       leads: number;
+      /** Google cuenta como conversión más de un tercio de los clics: no son leads. */
+      leadsDudosos?: boolean;
       days: number;
       ctr: number;
       cpc: number;
@@ -430,7 +432,9 @@ export interface ClientAdsSummary {
       impressions: number;
       clicks: number;
       spend: number;
+      /** Sin las conversiones dudosas de Google. */
       leads: number;
+      leadsExcluidos?: number;
       days: number;
       ctr: number;
       cpc: number;
