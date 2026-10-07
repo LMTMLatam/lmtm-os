@@ -29,9 +29,9 @@ const CHECK_LABELS: Record<string, string> = {
 };
 // Where each gap gets fixed (relative to the company prefix root).
 const FIX_LINK: Record<string, string> = {
-  metaAdAccount: "/company/settings/integrations/ads",
-  googleAdAccount: "/company/settings/integrations/ads",
-  metaPage: "/company/settings/integrations/ads",
+  metaAdAccount: "/conexiones",
+  googleAdAccount: "/conexiones",
+  metaPage: "/conexiones",
 };
 
 function Cell({ ok }: { ok: boolean }) {

@@ -115,7 +115,7 @@ function boardRoutes() {
       <Route path="company/export/*" element={<CompanyExport />} />
       <Route path="company/import" element={<CompanyImport />} />
       <Route path="company/settings/secrets" element={<Secrets />} />
-      <Route path="company/settings/integrations/ads" element={<AdsIntegrations />} />
+      <Route path="company/settings/integrations/ads" element={<AConexiones />} />
       <Route path="skills/*" element={<CompanySkills />} />
       <Route path="settings" element={<LegacySettingsRedirect />} />
       <Route path="settings/*" element={<LegacySettingsRedirect />} />
@@ -280,6 +280,16 @@ function NoCompaniesStartPage() {
   );
 }
 
+/**
+ * Las conexiones de pauta se abren adentro de la app. La vuelta del OAuth de
+ * Meta/Google sigue llegando a la ruta vieja con ?meta_error=… o ?connected=…:
+ * se reenvía con la búsqueda intacta para que la pantalla lo muestre.
+ */
+function AConexiones() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/conexiones${search}${hash}`} replace />;
+}
+
 /** Los links viejos a la ficha (/c/x/tab, con o sin prefijo) abren la ficha nueva. */
 function AFichaNueva() {
   const { slug, tab } = useParams<{ slug: string; tab?: string }>();
@@ -348,6 +358,9 @@ export function App() {
             <Route path="licitaciones" element={<Pagina><Licitaciones /></Pagina>} />
             <Route path="finanzas" element={<Pagina><Finance /></Pagina>} />
             <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
+            {/* Ajustes que se abrían en el layout de paperclip: ahora adentro de la app. */}
+            <Route path="conexiones" element={<Pagina><AdsIntegrations /></Pagina>} />
+            <Route path="preparacion" element={<Pagina><Readiness /></Pagina>} />
           </Route>
           <Route path="cartera" element={<Navigate to="/clientes" replace />} />
           <Route path="dashboard" element={<Navigate to="/hoy" replace />} />
@@ -363,6 +376,7 @@ export function App() {
           <Route path="c/:slug" element={<AFichaNueva />} />
           <Route path="c/:slug/:tab" element={<AFichaNueva />} />
           <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/settings/integrations/ads" element={<AConexiones />} />
           <Route path="company/settings/*" element={<UnprefixedBoardRedirect />} />
           <Route path="company/export" element={<UnprefixedBoardRedirect />} />
           <Route path="company/export/*" element={<UnprefixedBoardRedirect />} />

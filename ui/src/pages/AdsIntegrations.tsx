@@ -627,7 +627,7 @@ export function AdsIntegrations() {
             Mapear cuentas de Google
           </Button>
           <Link
-            to="/readiness"
+            to="/preparacion"
             className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
             Ver qué clientes están sin mapear

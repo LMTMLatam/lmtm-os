@@ -332,7 +332,7 @@ export function ConnectAds() {
               <Button size="sm" onClick={() => { pagesQuery.refetch(); connectionQuery.refetch(); setStep("loading"); }}>Reintentar</Button>
               {error?.includes("No hay conexión de Meta") && (
                 <Button size="sm" asChild>
-                  <Link to="/company/settings/integrations/ads">
+                  <Link to="/conexiones">
                     <Facebook className="h-3.5 w-3.5 mr-1.5" />
                     Conectar Meta
                   </Link>

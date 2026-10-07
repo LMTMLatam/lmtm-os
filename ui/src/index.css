@@ -1088,6 +1088,27 @@ span.paperclip-project-mention-chip {
   color: var(--l-tinta);
   font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Las pantallas de antes que viven en la app (Pauta, Semáforo, Licitaciones,
+     las secciones del cliente…) usan los componentes de shadcn, que leen estas
+     variables: así toman la paleta de LMTM en claro y en oscuro hasta que se
+     rehagan. (@theme inline: la utilidad resuelve la variable en el elemento.) */
+  --background: var(--l-papel);
+  --foreground: var(--l-tinta);
+  --card: var(--l-sup);
+  --card-foreground: var(--l-tinta);
+  --popover: var(--l-sup);
+  --popover-foreground: var(--l-tinta);
+  --primary: var(--l-marca);
+  --primary-foreground: var(--l-sup);
+  --secondary: var(--l-papel);
+  --secondary-foreground: var(--l-tinta-2);
+  --muted: var(--l-papel);
+  --muted-foreground: var(--l-tinta-3);
+  --accent: var(--l-marca-suave);
+  --accent-foreground: var(--l-marca);
+  --border: var(--l-linea);
+  --input: var(--l-linea-2);
+  --ring: var(--l-marca);
 }
 
 .lmtm[data-tema="oscuro"] {

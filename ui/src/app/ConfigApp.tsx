@@ -8,10 +8,10 @@ import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 
 const AJUSTES = [
-  { to: "/company/settings/integrations/ads", titulo: "Conexiones de pauta", detalle: "Meta Ads y Google Ads de cada cliente" },
+  { to: "/conexiones", titulo: "Conexiones de pauta", detalle: "Meta Ads y Google Ads de cada cliente" },
   { to: "/whatsapp", titulo: "WhatsApp", detalle: "Grupos de clientes, avisos y bot" },
+  { to: "/preparacion", titulo: "Preparación de clientes", detalle: "Qué le falta a cada cliente para operar solo" },
   { to: "/company/settings/access", titulo: "Equipo y accesos", detalle: "Quién entra y con qué permisos" },
-  { to: "/readiness", titulo: "Preparación de clientes", detalle: "Qué le falta a cada cliente para operar solo" },
   { to: "/company/settings", titulo: "Empresa", detalle: "Datos generales" },
 ] as const;
 
