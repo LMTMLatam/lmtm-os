@@ -8,8 +8,9 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronDown, Loader2, OctagonAlert, Search, Sparkles, WifiOff } from "lucide-react";
+import { Bot, ChevronDown, Clapperboard, Loader2, OctagonAlert, Search, Sparkles, WifiOff } from "lucide-react";
 import { Link } from "@/lib/router";
+import { api } from "../api/client";
 import { decisionesApi, type Decision, type Fuente, type Hoy } from "../api/decisiones";
 import { AccionesDecision, BarraCobertura, BloqueIncidente, LeyendaCobertura, Plata, PorQue } from "../lmtm/componentes";
 import { etiquetaAccion, etiquetaResponsable, fechaLarga, haceCuanto, horaCorta, pesos, tocaLaPauta } from "../lmtm/formato";
@@ -119,8 +120,8 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
           </section>
         )}
 
-        {/* Los tres números del día. La plata es el héroe. */}
-        <div className="grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr]">
+        {/* Los números del día. La plata es el héroe. */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <Tarjeta>
             <div className="text-[13px] font-medium text-l-tinta-2">Plata parada por día</div>
             {h.plataParada != null ? (
@@ -150,6 +151,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
               trabajos en 24 h · {investigadas} {investigadas === 1 ? "decisión investigada" : "decisiones investigadas"}
             </div>
           </Tarjeta>
+          <TarjetaContenido />
         </div>
 
         <section className="mt-7">
@@ -299,6 +301,46 @@ function Evolucion({ puntos }: { puntos: Array<{ fecha: string; plataParada: num
         desde el {fechaCorta(puntos[0].fecha)} · {puntos.length} días
       </div>
     </div>
+  );
+}
+
+/**
+ * Contenido de los próximos 7 días (Super Redes, ClickUp en vivo): cuántas
+ * piezas hay y a cuántas les falta algo para salir. Lo que no esté completo
+ * al llegar su fecha, el despachador lo descarta.
+ */
+function TarjetaContenido() {
+  const q = useQuery({
+    queryKey: ["lmtm", "contenido", "tablero"],
+    queryFn: () => api.get<{ piezas: Array<{ date: string; readyToPublish: boolean }> }>("/contenido/tablero?dias=14"),
+    staleTime: 5 * 60_000,
+  });
+  const hasta = Date.now() + 7 * 86_400_000;
+  const semana = (q.data?.piezas ?? []).filter((p) => {
+    const t = new Date(p.date).getTime();
+    return t >= Date.now() - 86_400_000 && t <= hasta;
+  });
+  const faltan = semana.filter((p) => !p.readyToPublish).length;
+  return (
+    <Link to="/contenido" className="block text-inherit">
+      <Tarjeta className="h-full hover:border-l-tinta-3">
+        <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
+          <Clapperboard className="h-4 w-4" aria-hidden /> Contenido, 7 días
+        </div>
+        {q.isLoading ? (
+          <div className="mt-2 text-[13px] text-l-tinta-3">Leyendo ClickUp…</div>
+        ) : q.error ? (
+          <div className="mt-1 text-[24px] italic text-l-tinta-3">sin dato</div>
+        ) : (
+          <>
+            <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{semana.length}</div>
+            <div className={`mt-1.5 text-[12px] ${faltan > 0 ? "font-medium text-l-atencion-texto" : "text-l-tinta-3"}`}>
+              {semana.length === 0 ? "piezas programadas" : faltan > 0 ? `${faltan} sin completar` : "todas listas para salir"}
+            </div>
+          </>
+        )}
+      </Tarjeta>
+    </Link>
   );
 }
 
