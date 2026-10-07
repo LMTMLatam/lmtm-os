@@ -8,7 +8,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsConnections, syncLogs } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { adsAggregator } from "./ads/aggregator.js";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -148,10 +148,27 @@ export async function runAllAdsSync(db: Db, opts?: { sinceDays?: number }): Prom
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let lastSyncDay = "";
 
+/**
+ * El día de la última corrida, leído del registro y no de la memoria: con la
+ * memoria, cada deploy volvía a correr el sync completo (el 06/10 fueron ~12
+ * syncs de todas las cuentas en un día, contra los límites de Meta y Google).
+ * ponytail: si un deploy corta la corrida a la mitad, las cuentas que faltaban
+ * esperan a mañana; si eso pesa, guardar el día solo al terminar todas.
+ */
+async function ultimoDiaDeSync(db: Db): Promise<string> {
+  const [r] = await db
+    .select({ at: sql<string | null>`max(${syncLogs.completedAt})` })
+    .from(syncLogs)
+    .where(eq(syncLogs.jobName, "ads-autosync"))
+    .catch(() => [{ at: null }]);
+  return r?.at ? new Date(r.at).toISOString().slice(0, 10) : "";
+}
+
 export function initAdsAutoSync(db: Db): void {
   if (syncTimer) return;
   const tick = async () => {
     const day = new Date().toISOString().slice(0, 10);
+    if (!lastSyncDay) lastSyncDay = await ultimoDiaDeSync(db);
     if (day === lastSyncDay) return; // once per day
     lastSyncDay = day;
     await runAllAdsSync(db).catch((e) => console.warn("[ads-autosync] run failed:", e));
