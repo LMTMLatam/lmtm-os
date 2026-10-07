@@ -13,7 +13,7 @@ import type { Db } from "@paperclipai/db";
 import { clients, organicPosts } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { ANGULOS, ANGULOS_ORGANICO } from "./angulos-creativos.js";
-import { analizarTexto, MODELO_TEXTO } from "./nvidia-modelos.js";
+import { analizarTexto, MODELO_TEXTO, MODELO_TEXTO_RESPALDO } from "./nvidia-modelos.js";
 
 /** El modelo general (nemotron-3-super): en los casos dudosos acertó más que el
  *  rápido (9 s por lote). Si muere, analizarTexto cae solo al de respaldo. */
@@ -91,7 +91,10 @@ export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasifi
         // Por caracteres completos: un .slice puede partir un emoji en dos.
         return `[${i}] (${red}, ${p.tipo ?? "post"}) ${Array.from((p.texto ?? "").replace(/\s+/g, " ")).slice(0, 400).join("")}`;
       }).join("\n");
-      const r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0, modelo: MODELO_CLASIFICAR });
+      // 12k: el modelo grande razona antes de contestar y con 4096 se quedaba
+      // sin espacio (finish_reason=length). Si igual no contesta, el rápido.
+      let r = await analizarTexto(SISTEMA, usuario, { maxTokens: 12_000, temperature: 0, modelo: MODELO_CLASIFICAR });
+      if (!r.texto && MODELO_CLASIFICAR !== MODELO_TEXTO_RESPALDO) r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0, modelo: MODELO_TEXTO_RESPALDO });
       const mapa = r.texto ? leerClasificacion(r.texto, lote.map((_, i) => i)) : new Map<number, string>();
       if (mapa.size === 0) {
         fallas += 1;
