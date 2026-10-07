@@ -12,19 +12,32 @@ import { Bot, ChevronDown, Loader2, OctagonAlert, Search, Sparkles, WifiOff } fr
 import { Link } from "@/lib/router";
 import { decisionesApi, type Decision, type Fuente, type Hoy } from "../api/decisiones";
 import { AccionesDecision, BarraCobertura, BloqueIncidente, LeyendaCobertura, Plata, PorQue } from "../lmtm/componentes";
-import { etiquetaResponsable, fechaLarga, haceCuanto, horaCorta, pesos, tocaLaPauta } from "../lmtm/formato";
+import { etiquetaAccion, etiquetaResponsable, fechaLarga, haceCuanto, horaCorta, pesos, tocaLaPauta } from "../lmtm/formato";
 import { frasePlegadas, plegarSinPlata } from "../lmtm/plegar";
 import { agentesApi, nombreRol, type Trabajo } from "./api";
 import { Encabezado } from "./Shell";
 import { PropuestasAgentes } from "./Propuestas";
+import { TareasEsperando } from "./Esperando";
 
-type Filtro = "todo" | "aprobar" | "equipo" | "cliente";
+// Por tema y no por "quién": el 07/10 Nazareno pidió que sea más fácil de
+// atacar. Se entra por lo que hay que hacer (plata, contenido, conexiones,
+// lo que espera una respuesta), no por "Equipo/Cliente".
+type Filtro = "todo" | "plata" | "contenido" | "conexiones" | "esperan";
+export function temaDe(d: Pick<Decision, "tipo">): Exclude<Filtro, "todo"> | null {
+  if (d.tipo.startsWith("pauta:") || d.tipo.startsWith("saldo:")) return "plata";
+  if (d.tipo.startsWith("cadena:")) return "contenido";
+  if (d.tipo.startsWith("cobertura:")) return "conexiones";
+  if (d.tipo === "cola:esperando_persona") return "esperan";
+  return null;
+}
 const FILTROS: Array<{ k: Filtro; label: string; pasa: (d: Decision) => boolean }> = [
   { k: "todo", label: "Todo", pasa: () => true },
-  { k: "aprobar", label: "Para aprobar", pasa: (d) => tocaLaPauta(d.accion) },
-  { k: "equipo", label: "Equipo", pasa: (d) => d.responsable === "equipo" && !tocaLaPauta(d.accion) },
-  { k: "cliente", label: "Cliente", pasa: (d) => d.responsable === "cliente" },
+  { k: "plata", label: "Pauta y saldo", pasa: (d) => temaDe(d) === "plata" },
+  { k: "contenido", label: "Contenido", pasa: (d) => temaDe(d) === "contenido" },
+  { k: "conexiones", label: "Conexiones", pasa: (d) => temaDe(d) === "conexiones" },
+  { k: "esperan", label: "Te esperan", pasa: (d) => temaDe(d) === "esperan" },
 ];
+const ES_COLA = (d: Decision) => d.tipo === "cola:esperando_persona";
 const NOMBRE_FUENTE: Record<Fuente, string> = { meta_ads: "Meta", google_ads: "Google", organico: "Redes" };
 
 export function HoyApp() {
@@ -139,15 +152,14 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
           </Tarjeta>
         </div>
 
-        <PropuestasAgentes />
-
         <section className="mt-7">
           <div className="sticky top-0 z-10 -mx-4 bg-l-papel/95 px-4 pb-3 pt-2 backdrop-blur md:-mx-8 md:px-8">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-1.5 overflow-x-auto" role="tablist" aria-label="Filtrar decisiones">
+              <div className="flex gap-1.5 overflow-x-auto" role="tablist" aria-label="Filtrar por tema">
                 {FILTROS.map((f) => {
                   const n = h.decisiones.filter(f.pasa).length;
                   const activo = f.k === filtro;
+                  if (n === 0 && f.k !== "todo" && !activo) return null;
                   return (
                     <button
                       key={f.k}
@@ -196,6 +208,10 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
             </div>
           )}
         </section>
+
+        {/* Los cambios en cuentas que proponen los agentes van después de lo que
+            hay que decidir: arriba de todo parecía que Hoy era pausar campañas. */}
+        {(filtro === "todo" || filtro === "plata") && <PropuestasAgentes />}
 
         {h.esperando.length > 0 && (
           <section className="mt-8">
@@ -350,6 +366,8 @@ function FilaAbrible({ d, agente, sinCliente }: { d: Decision; agente?: Trabajo;
             {agente && <ChipAgente t={agente} />}
           </div>
           <div className="mt-0.5 text-[15px] font-medium leading-[1.4]">{d.que}</div>
+          {/* Lo que se hace con esto, sin abrirla. */}
+          <div className="mt-0.5 text-[12px] font-medium text-l-marca">→ {ES_COLA(d) ? "Contestar acá" : etiquetaAccion(d)}</div>
         </div>
         <div className="flex items-start gap-2 text-right">
           <Plata valor={d.arsPorDia} />
@@ -360,10 +378,16 @@ function FilaAbrible({ d, agente, sinCliente }: { d: Decision; agente?: Trabajo;
         <div className="overflow-hidden">
           {abierta && (
             <div className="px-4 pb-4">
-              <PorQue d={d} max={6} />
-              {agente && <HallazgoAgente t={agente} />}
+              {ES_COLA(d) ? (
+                <TareasEsperando clientId={d.clientId} />
+              ) : (
+                <>
+                  <PorQue d={d} max={6} />
+                  {agente && <HallazgoAgente t={agente} />}
+                </>
+              )}
               <div className="flex flex-wrap items-center gap-x-4">
-                <AccionesDecision d={d} />
+                {!ES_COLA(d) && <AccionesDecision d={d} />}
                 <Link to={`/clientes/${d.clienteSlug}`} className="mt-3 text-[13px] font-semibold text-l-marca">
                   Ver el cliente
                 </Link>

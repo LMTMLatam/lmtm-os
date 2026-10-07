@@ -48,7 +48,7 @@ export function PropuestasAgentes() {
   for (const p of ps) porCliente.set(p.slug, [...(porCliente.get(p.slug) ?? []), p]);
   return (
     <section className="mt-7">
-      <TituloFranja>Propuestas de los agentes · {ps.length} para aprobar</TituloFranja>
+      <TituloFranja>Cambios en las cuentas que proponen los agentes · {ps.length}</TituloFranja>
       <p className="-mt-1.5 mb-3 text-[13px] text-l-tinta-3">Aprobar las ejecuta en la cuenta, con los mismos topes de siempre (20% por vez, una vez por día).</p>
       <div className="space-y-4">
         {[...porCliente.values()].map((lista) => (

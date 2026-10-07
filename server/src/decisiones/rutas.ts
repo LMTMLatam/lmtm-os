@@ -83,6 +83,23 @@ export function decisionesRoutes(db: Db) {
     }
   });
 
+  // Lo que espera a una persona, tarea por tarea, de un cliente: Hoy lo muestra
+  // como UNA decisión por cliente y desde acá se contesta cada tarea en el
+  // lugar (comentario + vuelve al agente), sin la pantalla de issues.
+  router.get("/hoy/esperando", async (req, res) => {
+    try {
+      assertBoardOrgAccess(req);
+      const clientId = typeof req.query.clientId === "string" ? req.query.clientId : "";
+      if (!/^[0-9a-f-]{36}$/i.test(clientId)) return res.status(400).json({ error: "Falta ?clientId=" });
+      assertCompanyAccess(req, await empresaParaAcceso(db, clientId));
+      const { filasColaHumana } = await import("../services/cola-humana.js");
+      const filas = (await filasColaHumana(db)).filter((f) => f.clientId === clientId).sort((a, b) => b.diasParado - a.diasParado);
+      res.json({ tareas: filas.map((f) => ({ identifier: f.identifier, titulo: f.title, motivo: f.motivo, agente: f.agente, diasParado: f.diasParado })) });
+    } catch (e) {
+      responderError(res, e);
+    }
+  });
+
   router.get("/decisiones", async (req, res) => {
     try {
       const clientId = typeof req.query.clientId === "string" && /^[0-9a-f-]{36}$/i.test(req.query.clientId) ? req.query.clientId : undefined;

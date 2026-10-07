@@ -22,7 +22,7 @@ describe("orden de la pantalla Hoy", () => {
     const orden = [
       posicionDe("<TituloFranja critico>Incidentes"),
       posicionDe("Plata parada por día"),
-      posicionDe('aria-label="Filtrar decisiones"'),
+      posicionDe('aria-label="Filtrar por tema"'),
       posicionDe("Hecho, esperando el dato"),
       posicionDe("Qué estamos viendo"),
     ];
@@ -38,5 +38,19 @@ describe("orden de la pantalla Hoy", () => {
   it("sin dato de plata parada dice 'sin dato', no $0", () => {
     const i = posicionDe("h.plataParada != null ?");
     expect(SRC.slice(i, i + 600)).toContain("sin dato");
+  });
+
+  it("los cambios de pauta que proponen los agentes van DESPUÉS de las decisiones", () => {
+    // 07/10: arriba de todo, Hoy parecía una lista de campañas para pausar.
+    expect(posicionDe("<PropuestasAgentes />")).toBeGreaterThan(posicionDe('aria-label="Filtrar por tema"'));
+  });
+
+  it("cada decisión cae en un tema", async () => {
+    const { temaDe } = await import("./HoyApp");
+    expect(temaDe({ tipo: "pauta:gasto_caido" })).toBe("plata");
+    expect(temaDe({ tipo: "saldo:bajo" })).toBe("plata");
+    expect(temaDe({ tipo: "cadena:sin_calendario" })).toBe("contenido");
+    expect(temaDe({ tipo: "cobertura:sin_meta" })).toBe("conexiones");
+    expect(temaDe({ tipo: "cola:esperando_persona" })).toBe("esperan");
   });
 });
