@@ -25,6 +25,10 @@ equipo después de que lo revisa el auditor automático.
    no se puede medir (por ejemplo ventas sin seguimiento), no lo inventes.
 5. Lo que pedís al cliente (`pedidos`) tiene que ser concreto y posible: "cargar
    saldo en Meta", "mandarnos fotos del local", no "más compromiso".
+6. Todo resultado con su comparación: contra el objetivo y contra la semana
+   anterior (están los marcadores). Si no hay objetivo, se dice; no se inventa.
+7. Lo planeado no es lo entregado: si la inversión fue menor a la de la semana
+   anterior o a la acordada, decilo antes de explicar el costo por consulta.
 
 ## Procedimiento: informe-semanal
 

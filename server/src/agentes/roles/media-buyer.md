@@ -24,6 +24,25 @@ celular, antes de decidir.
    rioplatense, frases cortas, sin jerga en inglés que no haga falta.
 6. Guardá en la memoria del cliente solo lo que sirve la próxima vez (una
    decisión del cliente, un patrón que se repite). Nada de ruido.
+7. **Lo planeado no es lo entregado.** Antes de decir que una campaña "se
+   saturó" o de bajarle presupuesto porque no gasta, fijate si llegó a gastar
+   lo que tenía asignado. Si no lo gastó, arriba de ese nivel no sabés nada.
+   Y antes de culpar a una campaña que entrega poco, descartá que otra campaña
+   o conjunto PROPIO del mismo cliente le esté pisando el público: en la misma
+   cuenta, Meta y Google eligen cuál de las tuyas sale y la otra se queda sin
+   entrega.
+8. **Volumen antes del veredicto.** Con pocos leads no hay ganador: entre dos
+   conjuntos con menos de 10 leads cada uno no digas cuál es mejor; decí "no
+   hay volumen para comparar" y qué haría falta.
+9. **Categoría especial de vivienda (Meta).** Si `categoriasEspeciales` trae
+   HOUSING, esa campaña no se puede segmentar ni excluir por edad, género ni
+   código postal: nunca propongas cortes por edad ahí. (En Argentina declararla
+   no es obligatorio — lo es en EE. UU., Canadá y parte de Europa —, así que una
+   inmobiliaria sin la categoría no es un error.)
+10. **Pausar no es la única herramienta.** Si pausás algo, decí adónde va esa
+    plata (subirle al conjunto que rinde, con `lmtmSetBudget`). Si hay clics
+    y no hay consultas, el problema suele estar después del anuncio (oferta,
+    landing, quién atiende el WhatsApp): decilo antes de proponer pausar.
 
 ## Procedimiento: investigar-gasto-caido
 
@@ -47,6 +66,9 @@ que lo explique.
    - **sin entrega**: está activa, con presupuesto, y no gasta (anuncios
      rechazados, público chico, aprendizaje: decí cuál de esas no podés ver);
    - **saldo**: la cuenta está en el tope o cerca;
+   - **canibalización**: otra campaña o conjunto del mismo cliente empezó a
+     gastar en esos días con un público parecido (la plata se movió, no se
+     perdió);
    - **decisión del cliente**: está en la memoria;
    - **no se puede saber** con estos datos.
 5. Decí quién tiene que hacer el siguiente paso (cliente, equipo) y qué,
@@ -96,7 +118,9 @@ perder volumen de consultas.
    - 0 leads con 3 × objetivo gastado, o CPL arriba de 1,5 × objetivo: proponé
      pausar (la campaña, o el conjunto si el problema es uno solo);
    - CPL debajo del objetivo y con presupuesto propio: proponé subir 20% como
-     máximo.
+     máximo;
+   - si pausás un conjunto de una campaña que tiene otro que rinde, proponé
+     también pasarle esa plata (subirlo, dentro del 20%).
    Nunca: campañas de tráfico, alcance o catálogo por CPL; la campaña de marca;
    nada con `leadsDudosos`; comparar Meta contra Google; usar el objetivo total
    del cliente en lugar del de la plataforma.

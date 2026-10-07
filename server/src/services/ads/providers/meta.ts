@@ -447,9 +447,13 @@ export const metaProvider: AdsProvider = {
       id: string; name?: string; status?: string; effective_status?: string;
       objective?: string; daily_budget?: string; lifetime_budget?: string;
       start_time?: string; stop_time?: string; buying_type?: string; updated_time?: string;
+      special_ad_categories?: string[];
     }>(
       `/${mapping.adAccountId}/campaigns`,
-      { fields: "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type,updated_time" },
+      // special_ad_categories: con HOUSING no se puede segmentar por edad/género/
+      // código postal — el media buyer lo necesita antes de proponer cortes por
+      // edad (07/10/26). En Argentina declararla no es obligatorio.
+      { fields: "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type,updated_time,special_ad_categories" },
       connection.accessToken,
     )) {
       for (const c of batch) {

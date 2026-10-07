@@ -1380,6 +1380,7 @@ export function agentToolsRoutes(
               "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivoCpl (cuántos leads 'deberías' tener).",
               "noSeMidePorCpl con texto = esa campaña NO se juzga por CPL (objetivo que no es leads, marca, Google dudoso o sin objetivo): no la pauses ni la escales por su CPL.",
               "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
+              "categoriasEspeciales (Meta): con HOUSING no se puede segmentar ni excluir por edad, género ni código postal — no propongas cortes por edad en esas campañas. En Argentina declararla no es obligatorio (sí en EE. UU., Canadá y parte de Europa). Si el campo no está, no se sabe todavía.",
               ...(total.leadsDudosos.length
                 ? ["leadsDudosos=true: Google cuenta como lead acciones que no lo son (convierte más de un tercio de los clics). NO uses ese CPL para comparar, escalar ni mover plata: avisá que la cuenta tiene mal configuradas las conversiones."]
                 : []),
@@ -1396,6 +1397,7 @@ export function agentToolsRoutes(
               gastoSobreObjetivo: tcpl && !motivo ? Number((c.inversion / tcpl).toFixed(1)) : null,
               diasConGasto: c.diasConGasto, ultimoDiaConGasto: c.ultimoDiaConGasto,
               ...(c.leadsDudosos ? { leadsDudosos: true } : {}),
+              ...(c.categoriasEspeciales ? { categoriasEspeciales: c.categoriasEspeciales } : {}),
               conjuntos: c.conjuntos.map((a) => ({
                 adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
               })),

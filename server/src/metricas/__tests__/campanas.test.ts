@@ -85,6 +85,22 @@ describe("armarCampanas", () => {
     expect(r.map((c) => [c.plataforma, c.inversion])).toEqual([["google", 20], ["meta", 10]]);
     expect(r[0].conjuntos).toEqual([]);
   });
+
+  it("la categoría especial de Meta pasa tal cual; sin sincronizar no se inventa 'ninguna'", () => {
+    const r = armarCampanas(
+      [],
+      [
+        { id: "viv", plataforma: "meta", nombre: "Depto", estado: "ACTIVE", presupuestoMenor: null, categorias: ["HOUSING"] },
+        { id: "sin", plataforma: "meta", nombre: "Sin categoría", estado: "ACTIVE", presupuestoMenor: null, categorias: [] },
+        { id: "nose", plataforma: "meta", nombre: "Viejo sync", estado: "ACTIVE", presupuestoMenor: null, categorias: null },
+      ],
+      [], "2026-10-04",
+    );
+    const por = new Map(r.map((c) => [c.campaignId, c]));
+    expect(por.get("viv")?.categoriasEspeciales).toEqual(["HOUSING"]);
+    expect(por.get("sin")?.categoriasEspeciales).toEqual([]);
+    expect(por.get("nose")).not.toHaveProperty("categoriasEspeciales");
+  });
 });
 
 describe("presupuestoEnMoneda", () => {

@@ -48,6 +48,8 @@ export interface MetricasCampana extends NumerosPauta {
   ultimoDiaConGasto: string | null;
   /** Google contando como lead acciones que no lo son: el CPL de esta campaña no sirve para decidir. */
   leadsDudosos: boolean;
+  /** Meta: categorías especiales declaradas (HOUSING, …). Ausente = todavía no sincronizado, no "ninguna". */
+  categoriasEspeciales?: string[];
   conjuntos: MetricasConjunto[];
 }
 
@@ -73,6 +75,7 @@ export interface FilaEntidad {
   campaignId?: string | null;
   /** YYYY-MM-DD. Meta sigue diciendo ACTIVE después de la fecha de fin. */
   fin?: string | null;
+  categorias?: string[] | null;
 }
 
 /** Google pone 2037-12-30 como fecha de fin de las campañas que no tienen. */
@@ -153,6 +156,7 @@ export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], 
       diasConGasto: dias.length,
       ultimoDiaConGasto: dias.at(-1) ?? null,
       leadsDudosos: cuentaDudosa[plataforma] || conversionesDudosas(plataforma, totales.leads, totales.clics),
+      ...(c?.categorias ? { categoriasEspeciales: c.categorias } : {}),
       conjuntos: conjuntosCamp,
     });
   }
@@ -187,7 +191,8 @@ export async function metricasCampanas(db: Db, clientId: string, v: VentanaMetri
         and platform in (${enPlat}) and campaign_id is not null
       group by platform, campaign_id, adset_id`),
     db.execute(sql`
-      select id, platform, name, status, objective, daily_budget, to_char(stop_time at time zone 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD') as fin
+      select id, platform, name, status, objective, daily_budget, to_char(stop_time at time zone 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD') as fin,
+             raw->'special_ad_categories' as categorias
       from ads_campaigns
       where client_id = ${clientId} and platform in (${enPlat})
         and (lower(status) in ('active', 'enabled') or id in (
@@ -213,6 +218,7 @@ export async function metricasCampanas(db: Db, clientId: string, v: VentanaMetri
       id: String(c.id), plataforma: c.platform as Plataforma, nombre: (c.name as string) ?? null,
       estado: (c.status as string) ?? null, objetivo: (c.objective as string) ?? null, presupuestoMenor: numOrNull(c.daily_budget),
       fin: (c.fin as string) ?? null,
+      categorias: Array.isArray(c.categorias) ? (c.categorias as string[]) : null,
     })),
     filas(sets).map((a) => ({
       id: String(a.id), plataforma: a.platform as Plataforma, campaignId: (a.campaign_id as string) ?? null,

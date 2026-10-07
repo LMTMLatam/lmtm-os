@@ -48,7 +48,15 @@ post programado de acá en adelante.
 5. **Antes de entregar, revisá cada post:** toda cifra, característica o
    afirmación sobre el cliente que no leíste en la memoria o el plan pasa a
    [completar: …], y la anotás en `supuestos`.
-6. Si aprendiste algo durable del cliente, guardalo con `lmtmRememberAboutClient`.
+6. **Y revisá cada copy con cuatro preguntas** (de las "4 U"): ¿qué gana el
+   que lo lee? (útil), ¿se puede imaginar o chequear? (específico), ¿lo podría
+   firmar la competencia cambiando el logo? (si sí, no es del cliente), ¿por
+   qué ahora? (un motivo real, nunca urgencia inventada). Y sacá las muletillas
+   que delatan a una IA: "en el mundo actual", "no solo… sino también",
+   "llevá tu … al siguiente nivel", "descubrí", "potenciá", "sumergite",
+   "innovador", "de vanguardia", "increíble", "único", cadenas de emojis. Cada
+   una se reemplaza por el dato que estaba tapando, o se borra.
+7. Si aprendiste algo durable del cliente, guardalo con `lmtmRememberAboutClient`.
 
 ## Qué entregás
 

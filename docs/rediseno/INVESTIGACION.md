@@ -95,6 +95,28 @@ aprobación por niveles (leer / escribir / irreversible), aprobar en tanda,
 | Escalones de autonomía con topes y registro con motivo (Smartly, Superscale) | Autonomía total desde el día uno |
 | Nuestras herramientas de pauta con guardas | Reemplazarlas por los MCP oficiales: el de Google es solo lectura y el de Meta no trae nuestras guardas ni el evaluador. Se puede sumar el de Meta más adelante para subir creativos |
 
+## saas-marketing-agents (07/10, pedido de Nazareno)
+
+[shalintripathi/saas-marketing-agents](https://github.com/shalintripathi/saas-marketing-agents)
+(MIT, © 2025 Shivaa Tripathi): 89 agentes de marketing B2B SaaS en Markdown, un
+orquestador, loops semanales y protocolos de traspaso. Mucho es SaaS (PLG, ABM,
+developer marketing) y no aplica a una agencia de pymes argentinas; lo que sí,
+adaptado a nuestras reglas y en castellano:
+
+| Tomamos | Dónde quedó |
+|---|---|
+| "Lo planeado no es lo entregado" (budget optimizer, reglas 9-10): no concluir saturación ni cortar presupuesto sin mirar si se gastó lo asignado, y descartar que dos campañas propias se pisen el público | `media-buyer.md` regla 7 y la causa **canibalización** en investigar-gasto-caido; `estratega.md` regla 7 |
+| "Potencia antes del veredicto" (creative strategist, regla 9): con poco volumen no hay ganador | `media-buyer.md` regla 8 |
+| Categoría especial de vivienda: con HOUSING no se segmenta por edad/género/CP | sync de campañas trae `special_ad_categories`; `get_client_campaigns` lo muestra; `media-buyer.md` regla 9. Verificado: en Argentina no es obligatoria (EE. UU., Canadá y parte de Europa sí), así que su ausencia NO se reporta como error |
+| Revisión de copy con las "4 U" y la lista de muletillas de IA (QA) | `contenido.md` paso 6 |
+| Contexto de marca vinculante: no inventar, marcar lo que falta (`[NEEDS INPUT]`) | ya estaba como `[completar: …]` en `contenido.md`; el "registro de correcciones" queda como idea para la memoria del cliente |
+| Cada número con su comparación y una acción (reporting specialist) | `estratega.md` regla 6 |
+
+No tomamos: el orquestador CATALYST (la orquestación es código: motor + cola),
+los 89 roles (cada rol nuestro justifica su existencia con un disparador), ni los
+protocolos de traspaso en texto libre (nuestro traspaso es el resultado
+estructurado del runner).
+
 ## Qué se mantiene sí o sí (pedido del 06/10)
 
 Todo lo de cada cliente (secciones de la ficha, plan de acción, panel público
