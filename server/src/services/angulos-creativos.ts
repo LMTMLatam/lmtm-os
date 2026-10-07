@@ -81,6 +81,10 @@ export const ANGULOS_ORGANICO: AnguloCreativo[] = [
     ejemplo: "¿Casa o departamento? Te leemos en comentarios." },
   { id: "novedad", nombre: "Novedad o evento", como: "Anuncia algo nuevo: lanzamiento, ingreso de producto, evento, apertura, noticia.",
     ejemplo: "Llegó la nueva colección." },
+  // Sin esta, los posteos aspiracionales ("Hay lugares que se convierten en tus
+  // mejores recuerdos", TAMARINDO) caían en vitrina o novedad (7/10).
+  { id: "emocional", nombre: "Emoción o aspiración", como: "Apela a un sentimiento o a un deseo (recuerdos, celebraciones, el hogar soñado) más que a datos del producto.",
+    ejemplo: "Hay lugares que se convierten en parte de tus mejores recuerdos." },
 ];
 
 /** Nombre legible de un ángulo (de la guía o del orgánico). */

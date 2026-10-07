@@ -11,12 +11,22 @@
 
 import type { Db } from "@paperclipai/db";
 import { clients, organicPosts } from "@paperclipai/db";
-import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { ANGULOS, ANGULOS_ORGANICO } from "./angulos-creativos.js";
-import { analizarTexto, MODELO_TEXTO_RESPALDO } from "./nvidia-modelos.js";
+import { analizarTexto, MODELO_TEXTO } from "./nvidia-modelos.js";
 
-/** Clasificar es una tarea corta: el modelo rápido alcanza (3 s por lote en la prueba del 7/10). */
-const MODELO_CLASIFICAR = process.env.NVIDIA_MODEL_CLASIFICAR?.trim() || MODELO_TEXTO_RESPALDO;
+/** El modelo general (nemotron-3-super): en los casos dudosos acertó más que el
+ *  rápido (9 s por lote). Si muere, analizarTexto cae solo al de respaldo. */
+const MODELO_CLASIFICAR = process.env.NVIDIA_MODEL_CLASIFICAR?.trim() || MODELO_TEXTO;
+
+/**
+ * Lo clasificado antes de esta hora usó el modelo rápido y una lista sin
+ * "emocional": se vuelve a clasificar. Una sola vez — lo nuevo queda con
+ * angulo_at posterior.
+ * ponytail: corte fijo por fecha; si se vuelve a cambiar la lista, mover la fecha.
+ */
+const RECLASIFICAR_ANTES_DE = new Date("2026-10-07T19:40:00Z");
+const pendiente = () => or(isNull(organicPosts.angulo), and(lt(organicPosts.anguloAt, RECLASIFICAR_ANTES_DE), ne(organicPosts.angulo, SIN_TEXTO)));
 
 const TODOS = [...ANGULOS, ...ANGULOS_ORGANICO];
 const IDS = new Set(TODOS.map((a) => a.id));
@@ -63,7 +73,7 @@ export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasifi
       .select({ id: organicPosts.id, texto: organicPosts.message, tipo: organicPosts.postType, permalink: organicPosts.permalinkUrl })
       .from(organicPosts)
       .innerJoin(clients, eq(clients.id, organicPosts.clientId))
-      .where(and(isNull(organicPosts.angulo), gte(organicPosts.createdTime, desde), eq(clients.status, "active")))
+      .where(and(pendiente(), gte(organicPosts.createdTime, desde), eq(clients.status, "active")))
       .orderBy(desc(organicPosts.createdTime))
       .limit(max);
 
@@ -102,7 +112,7 @@ export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasifi
 /** Cuántas quedan sin clasificar (para el panel). */
 export async function pendientesDeClasificar(db: Db): Promise<number> {
   const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(organicPosts)
-    .where(and(isNull(organicPosts.angulo), gte(organicPosts.createdTime, new Date(Date.now() - VENTANA_DIAS * 86_400_000))));
+    .where(and(pendiente(), gte(organicPosts.createdTime, new Date(Date.now() - VENTANA_DIAS * 86_400_000))));
   return Number(r?.n ?? 0);
 }
 
