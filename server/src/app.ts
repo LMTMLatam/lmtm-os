@@ -398,6 +398,8 @@ export async function createApp(
       try {
         const { initContenidoAngulos } = await import("./services/contenido-angulos.js");
         initContenidoAngulos(db);
+        const { initMarcaAprendida } = await import("./services/marca-aprendida.js");
+        initMarcaAprendida(db);
       } catch (e) {
         console.warn("[contenido-angulos] init failed:", e);
       }

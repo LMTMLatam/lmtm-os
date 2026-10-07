@@ -31,3 +31,22 @@ export async function tocaHoy(db: Db, trabajo: string, ahora = new Date()): Prom
     return false;
   }
 }
+
+/**
+ * Lo mismo que tocaHoy pero cada `dias` días (corridos desde la última marca).
+ * Para trabajos semanales que no tienen que esperar a un día fijo.
+ */
+export async function tocaCadaDias(db: Db, trabajo: string, dias: number, ahora = new Date()): Promise<boolean> {
+  try {
+    const [r] = await db
+      .select({ at: sql<string | null>`max(${syncLogs.createdAt})` })
+      .from(syncLogs)
+      .where(eq(syncLogs.jobName, trabajo));
+    if (r?.at && ahora.getTime() - new Date(r.at).getTime() < dias * 86_400_000) return false;
+    await db.insert(syncLogs).values({ jobName: trabajo, platform: "lmtm", status: "completed", completedAt: ahora });
+    return true;
+  } catch (e) {
+    console.warn(`[una-vez-por-dia] ${trabajo}: no se pudo leer el registro, no corre`, e instanceof Error ? e.message : e);
+    return false;
+  }
+}

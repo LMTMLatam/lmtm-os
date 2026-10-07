@@ -216,3 +216,22 @@ export async function aprenderTodas(db: Db): Promise<{
   }
   return { aprendidos, sinHistorial, muestraChica, fallados };
 }
+
+let timerMarca: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Cada 7 días vuelve a aprender la voz de los clientes. Hasta el 7/10 nada lo
+ * llamaba: se corrió a mano el 14/9 y quedaron 2 clientes con voz; las ideas
+ * del resto salían sin ella.
+ */
+export function initMarcaAprendida(db: Db): void {
+  if (timerMarca) return;
+  const vuelta = async () => {
+    const { tocaCadaDias } = await import("./una-vez-por-dia.js");
+    if (!(await tocaCadaDias(db, "marca:aprender", 7))) return;
+    const r = await aprenderTodas(db);
+    console.log(`[marca] voz aprendida: ${r.aprendidos} clientes, ${r.muestraChica} con pocos copys, ${r.sinHistorial} sin publicaciones, ${r.fallados} fallados`);
+  };
+  setTimeout(() => { void vuelta().catch((e) => console.warn("[marca] falló:", e instanceof Error ? e.message : e)); }, 20 * 60_000);
+  timerMarca = setInterval(() => { void vuelta().catch((e) => console.warn("[marca] falló:", e instanceof Error ? e.message : e)); }, 6 * 3600_000);
+}
