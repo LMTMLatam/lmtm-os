@@ -79,6 +79,13 @@ que seguir"; y el optimizador de equipos de agentes como objetivo.
   contenido y estratega (ver INVESTIGACION.md). El sync trae la categoría
   especial de Meta; se verificó que la de vivienda no es obligatoria en Argentina.
   Cambia el rol del media buyer en el día 2 del piloto: se anota en PILOTO.md.
+- **Más pantallas en la app nueva:** Licitaciones (`5034b30`, el porqué se
+  escribe en el lugar), Pauta (`2d63061`, cuentas para mirar → tablero en la
+  ficha), Avisos de WhatsApp (`242d372`, registro del embudo + ensayo del
+  resumen), Finanzas (`ccbdeba`). Quedan con la paleta nueva pero sin rehacer:
+  Semáforo, Inteligencia (sus "intervenciones" repiten parte de Hoy: pensar
+  antes de rehacer) y WhatsApp (vínculo del celular y grupos).
+- Motor: los clientes de prueba (`interno-test`) no abren decisiones (`81f8dc4`).
 
 ### 06/10 tarde: fase C, investigación, runner propio y app propia
 
