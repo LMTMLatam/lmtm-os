@@ -41,6 +41,48 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 07/10 tarde: ni un número falso, y qué contenido funciona
+
+Pedido de Nazareno: "que no haya ni un número falso, quizás en el semáforo"; "que
+los consejos sean sobre contenido: ángulos que funcionan, ideas, formatos según el
+nicho; mantener Nichos pero pulido; mejora constante comparando todas las cuentas".
+
+Números que mentían (verificados contra la base, solo lectura):
+- **Salud /100:** lo no medido valía 50 (pauta, operativa) o 100 (contenido sin
+  leer la página): clientes sin ningún dato daban 78; MONDINO daba 100 con "saldo
+  crítico" de razón. Ahora solo pesa lo medido; sin nada medido, no hay número.
+- **Saldo crítico:** salía de 30 avisos del 3/9 que nunca se cerraban. El
+  vigilante ahora cierra lo que volvió a leer y ya no falta (mismo criterio que el
+  motor). 536 avisos de más de 21 días se leían como problemas de hoy.
+- **Semáforo:** un cliente sin datos salía verde; ahora "sin datos para juzgar".
+  Cumplimiento del cotizado: sale de las publicaciones leídas de Instagram (23
+  clientes) y no de la etiqueta "mandado a make"; ClickUp queda marcado sin verificar.
+- **Score de pauta/operativa:** contaba el día a medio sincronizar y alertas de
+  meses; operativa sin fechas valía 75/55/50 inventados. Sin pauta: null, no 0/100.
+- **Orgánico:** las 3.644 publicaciones tenían score 0 (métricas leídas con otro
+  nombre): nada sabía qué funcionaba. Arreglado.
+- **Benchmarks por rubro:** mezclaban CTR de Google búsqueda con Meta (ideal de
+  automotor 21,77%) y las 19.103 "conversiones" de MA PROPIEDADES en Google (ideal
+  de CPL de inmobiliaria $263). Ahora CTR de Meta y CPL sin conversiones dudosas.
+- **Moneda:** GALA tiene costo por clic 0,15–0,28: sus cuentas están en dólares y
+  se sumaban como pesos. Migración 0154: el vigilante guarda la moneda que informan
+  Meta y Google. **Pendiente:** con el dato de mañana, ver qué cuentas no son ARS y
+  separarlas de las sumas en pesos.
+
+Contenido (`70b3395`):
+- Ángulo de cada publicación (migración 0153), clasificado cada hora con los 18
+  ángulos + 7 del orgánico. Cada publicación se mide contra lo normal de SU cuenta
+  y red (cuenta chica y grande se comparan sin que gane el tamaño). Primer corrido
+  real: 1.458 publicaciones de 23 cuentas; reels de Instagram 1,5× lo normal,
+  fotos 0,75×.
+- Lo usan las ideas de Super Redes, el rol de contenido y get_niche_intel (citan
+  el dato). Panel: "Qué funciona" en Contenido, tarjeta en Hoy y `/nichos` nuevo
+  con todo lo de la pantalla vieja.
+
+Verificación: tests propios 65/65, tsc server y ui limpios, ui 403/403. Las 64
+fallas de la batería completa son de paperclip (base embebida que no corre en
+Windows), ninguna toca lo cambiado.
+
 ### 07/10 mañana: avisos honestos, panel nuevo y optimización del equipo
 
 Pedidos de Nazareno: "las alertas notificaban cosas que no eran reales"; "todo
