@@ -8,7 +8,6 @@ import { Finance } from "./pages/Finance";
 import { ConnectAds } from "./pages/ConnectAds";
 import { PublicDashboard } from "./pages/PublicDashboard";
 import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
-import { PaidMediaHub } from "./pages/PaidMediaHub";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Projects } from "./pages/Projects";
@@ -70,6 +69,7 @@ import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
 import { ContenidoApp } from "./app/ContenidoApp";
 import { LicitacionesApp } from "./app/LicitacionesApp";
+import { PautaApp } from "./app/PautaApp";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -352,7 +352,7 @@ export function App() {
             <Route path="agentes/:id" element={<AgentesApp />} />
             <Route path="config" element={<ConfigApp />} />
             <Route path="semaforo" element={<Pagina><Growth /></Pagina>} />
-            <Route path="pauta" element={<Pagina><PaidMediaHub /></Pagina>} />
+            <Route path="pauta" element={<PautaApp />} />
             <Route path="contenido" element={<ContenidoApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<LicitacionesApp />} />

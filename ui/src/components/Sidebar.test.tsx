@@ -110,8 +110,8 @@ describe("sidebar: la lista de arriba no vuelve a crecer", () => {
 });
 
 describe("lo que volvió en la fase C", () => {
-  it("el hub de Pauta vive en la app propia y /paid-media lleva ahí", () => {
-    expect(APP).toMatch(/path="pauta" element=\{<Pagina><PaidMediaHub \/><\/Pagina>\}/);
+  it("Pauta vive en la app propia y /paid-media lleva ahí", () => {
+    expect(APP).toMatch(/path="pauta" element=\{<PautaApp \/>\}/);
     expect(APP).toMatch(/path="paid-media" element=\{<Navigate to="\/pauta" replace \/>\}/);
   });
 });
