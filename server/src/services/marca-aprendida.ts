@@ -161,7 +161,8 @@ export async function aprenderMarca(db: Db, clientId: string): Promise<Resultado
   ].join("\n");
 
   const { analizarTexto } = await import("./nvidia-modelos.js");
-  const r = await analizarTexto(PROMPT, cuerpo, { maxTokens: 6000, temperature: 0.3 });
+  // 12k: nemotron-3-super razona antes de contestar (7/10).
+  const r = await analizarTexto(PROMPT, cuerpo, { maxTokens: 12_000, temperature: 0.3 });
   if (!r.texto) {
     console.warn(`[marca] ${cli?.name ?? clientId}: el modelo no devolvió texto (${r.motivo}) ${r.detalle ?? ""}`);
     return { aprendido: false, motivo: "modelo_sin_texto", copysUsados: posts.length, respetados: [] };

@@ -398,7 +398,8 @@ export async function aiNarrative(systemPrompt: string, userContent: string): Pr
   try {
     const { analizarTexto, nvidiaConfigurado } = await import("./nvidia-modelos.js");
     if (nvidiaConfigurado()) {
-      const r = await analizarTexto(`${systemPrompt}\n\n${LANG_RULE}`, userContent, { maxTokens: 4000, temperature: 0.5 });
+      // 10k: nemotron-3-super razona antes de contestar; con 4000 podía quedarse sin texto (7/10).
+      const r = await analizarTexto(`${systemPrompt}\n\n${LANG_RULE}`, userContent, { maxTokens: 10_000, temperature: 0.5 });
       if (r.texto && !CJK_RE.test(r.texto)) return r.texto;
       if (r.motivo) console.warn(`[aiNarrative] deepseek sin texto (${r.motivo}): ${r.detalle ?? ""} — sigo con MiniMax`);
     }
