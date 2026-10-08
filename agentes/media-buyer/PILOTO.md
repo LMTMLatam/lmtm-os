@@ -78,6 +78,8 @@ estar evaluadas contra datos viejos.
 |---|---|---|---|---|---|
 | 06/10 | 22 (4 subir, 18 pausar) | 20/22 (91%) | pendientes | 6 min | Las 2 fallas: escaló contra el objetivo total (972) y no el de Meta (790). Arreglado en la tool (`2b95887`). |
 | 06/10 runner | 22 (2 subir, 20 pausar) | **22/22 (100%)** | pendientes | 4 min (70–93 s por cliente), 173 mil tokens de entrada y 28 mil de salida | Primera corrida en el runner propio (15:48). No escaló MERLO ni LINIERS (CPL arriba del objetivo); vio los 3 conjuntos de REPARACIÓN LLANTAS de Distrillantas; avisó que BEIRO y PILAR vencen el 09/10 y que en SEBASTIAN las 4 campañas buenas no tienen presupuesto propio. |
+| 07/10 | runner 15 · Milo 23 | ver acumulado | pendientes | runner: rol nuevo (b851864) | Primer día con las cuatro reglas de saas-marketing-agents. |
+| 08/10 | runner 14 · Milo 28 | acumulado 06–08/10: **runner 58/58**, Milo 70/73 | **0 de 131 decididas** | runner 3 × 78 s, 179 mil tokens de entrada | Sin aprobaciones ni descartes en tres días: el piloto no mide lo que más importa (si el equipo las usa). |
 
 **07/10, antes de la corrida del día 2:** el rol del runner suma cuatro reglas
 (`b851864`, tomadas de saas-marketing-agents): lo planeado no es lo entregado

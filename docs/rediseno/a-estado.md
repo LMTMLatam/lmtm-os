@@ -19,8 +19,8 @@ Se actualiza al final de cada vuelta. Lo más reciente arriba.
 suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 **Esperando a una persona:**
-- Aprobar o descartar (con motivo) las propuestas de pauta de Milo: son el dato
-  principal del piloto.
+- Aprobar o descartar (con motivo) las propuestas de pauta de Milo y del runner: son el
+  dato principal del piloto (08/10: 0 de 131 decididas en 3 días).
 - Revisar la cola de 27 issues `in_review` (desde el 15/07): cerrarlos o
   devolverlos. Los agentes no pueden avanzarlos.
 - Cargar `DATABASE_URL_RO` en el entorno de la sesión de B en la nube (B no puede
@@ -40,6 +40,57 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 - Accesos de Google en el MCC: SERRAT, HANSHI, SKYGARDEN, PRONE (403 desde 14/09).
 
 ## Bitácora
+
+### 08/10: la mañana revisada, oportunidades primero, competencia medida y plan personalizado
+
+**Lo que corrió solo (verificado en la base):** motor a las 8:33, incidente de
+SKYGARDEN a las 8:33, resumen a las 9:02, runner a las 8:34 (3 investigaciones) y
+a las 11:00 (revisión del piloto, 3 clientes, 78 s promedio). Ideas diarias de
+Super Redes: 55 hoy y 59 ayer, cargadas en ClickUp a las 2:20 (sigue activa).
+
+**Números que el resumen de las 9:00 afirmaba sin ser ciertos (`9297f4c`):**
+- SEBASTIAN y RENO "con la cuenta de Meta frenada": cuentas viejas con deuda y
+  sin gasto en 30 días; la activa gastaba $29.000 por día. La caída del cliente
+  (21.708) se le cargaba a la cuenta muerta. Frenada ahora exige gasto reciente.
+- "Gasto diario antes de frenarse" mezclaba la caída del cliente: dos datos.
+- Lo investigado por el agente el 6/10 ("hoy es 6/10") salía como de hoy: fecha.
+- "Tendencias de hoy": ICC de septiembre 2025 y una nota de octubre 2025.
+- Ideas con "promoción de otoño" en primavera: el prompt lleva fecha y estación.
+- Ventana del gasto caído: decía 3 días, el número era de 4.
+- "Cargar saldo: se frena en 36 días" ya no es decisión (solo si se agota en 7).
+
+**Oportunidades arriba (pedido: "que las principales sean de contenido o
+upsell"):** regla `oportunidades` en el motor desde el análisis de contenido:
+repetir el post de 2 semanas que dobló lo normal (con pauta: probarlo como
+anuncio), ofrecer pauta (sin anuncios en 30 días) y el ángulo del rubro que no
+usa. Con "subir presupuesto" van primero en Hoy y abren el resumen; el saldo por
+cargar va en una línea. Vista previa con datos reales: 8 repetir/upsell (DOMINGO
+BISIO reel 10,9× sin pauta; SEBASTIAN reel 4,2×), 9 ángulos, 4 subir presupuesto.
+Primera corrida real: mañana 8:30.
+
+**Nichos sin ángulos:** 5 de 6 hoteles y 4 de 5 de materiales no tienen ni una
+publicación propia con métricas (sin sync orgánico); MAERS tiene 53 pero su
+interacción normal es 2. Sin datos propios no se puede afirmar nada.
+
+**Competencia medida (`56bc3ef`, migración 0155):** los 485 competidores tenían
+una nota a mano y nadie medía qué publicaban. `competencia-ig.ts` lee con
+Business Discovery (conexión de Meta existente) hasta 30 posts por cuenta, 40
+cuentas cada 3 h; usuario mal cargado o cuenta personal quedan con su motivo.
+Mismo índice y clasificador que lo propio, en ranking aparte. Llega a Nichos ("La
+competencia"), a las ideas de Super Redes y a la herramienta de nicho.
+
+**Plan de acción personalizado:** dice dónde está parado el cliente (pauta y
+orgánico medidos, leída la pauta del gasto real) y arma las acciones con su
+contenido (post a repetir, su ángulo, el del rubro, el de la competencia) y su
+pauta con las decisiones del motor; sin pauta, el contenido va primero. Se fue
+"Revisar la pauta con el análisis estratégico" y "Sostener el ritmo".
+
+**Piloto, día 3:** runner 14 propuestas, Milo 28; evaluador acumulado: runner
+58/58, Milo 70/73. Ninguna aprobada ni descartada por una persona en 3 días.
+
+**Para mañana (09/10):** motor 8:30 con oportunidades y sin las dos frenadas
+falsas (deben quedar vencidas); resumen 9:00 arrancando por oportunidades;
+primera tanda de competencia medida (cuántas cuentas, cuántas no encontradas).
 
 ### 07/10 tarde: ni un número falso, y qué contenido funciona
 
