@@ -167,7 +167,7 @@ interface TriageCliente {
   clientId: string; name: string; slug: string; industry: string | null;
   semaforo: "rojo" | "amarillo" | "verde" | "sin-datos";
   salud: number | null; scorePauta: number | null; cumplimientoPct: number | null;
-  problemas: string[]; acciones: string[];
+  problemas: string[]; acciones: string[]; etapa?: string | null;
 }
 
 /** La vista principal de Growth (pedido 20/7): 3 secciones rojo/amarillo/verde
@@ -212,6 +212,7 @@ function SemaforoGeneral() {
                 </button>
                 {abierto === c.clientId && (
                   <div className="px-3 pb-2 text-xs space-y-2">
+                    {c.etapa && <p><span className="font-medium text-muted-foreground">Dónde está parado: </span>{c.etapa}</p>}
                     {c.problemas.length > 0 && (
                       <div>
                         <p className="font-medium text-muted-foreground mb-0.5">Problemas</p>

@@ -188,14 +188,16 @@ async function angulosRecientes(db: Db, clientId: string): Promise<string[]> {
 async function queFuncionaBlock(db: Db, client: { id: string; industry: string | null }): Promise<string> {
   try {
     const { analisisContenido, textoParaAgente } = await import("./contenido-analisis.js");
-    return "\n" + textoParaAgente(await analisisContenido(db, 180), { nicho: client.industry, clientId: client.id });
+    const { analisisCompetencia, textoCompetencia } = await import("./competencia-ig.js");
+    const comp = await analisisCompetencia(db).then((a) => textoCompetencia(a, client.industry)).catch(() => "");
+    return "\n" + textoParaAgente(await analisisContenido(db, 180), { nicho: client.industry, clientId: client.id }) + (comp ? `\n\n${comp}` : "");
   } catch {
     return "";
   }
 }
 
 const USAR_LO_QUE_FUNCIONA =
-  "Si el contexto trae 'QUÉ FUNCIONA EN ORGÁNICO', elegí ángulos y formatos que rinden en el rubro o en la cuenta (o reutilizá una publicación que dobló lo normal con una vuelta nueva) y nombrá el dato en el rationale (por ejemplo: 'cliente-real rinde 1,9× en inmobiliaria'). Ese es el único dato de performance que podés citar.";
+  "Si el contexto trae 'QUÉ FUNCIONA EN ORGÁNICO' o 'LO QUE LE FUNCIONA A LA COMPETENCIA', elegí ángulos y formatos que rinden en el rubro, en la cuenta o en la competencia (o reutilizá una publicación que dobló lo normal con una vuelta nueva) y nombrá el dato en el rationale (por ejemplo: 'cliente-real rinde 1,9× en inmobiliaria'). Esos son los únicos datos de performance que podés citar. De la competencia se toma el ángulo, nunca el texto.";
 
 export async function generateContentPlan(db: Db, clientId: string): Promise<{ batchId: string; created: number; ideas: GeneratedIdea[]; motivo?: string }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));

@@ -27,6 +27,13 @@ export interface AnalisisContenido {
     mejorAngulo: Fila | null;
     oportunidad: { angulo: string; nombre: string; indiceEnNicho: number; publicacionesNicho: number; cuentasNicho: number; usosPropios: number } | null;
   }>;
+  /** La competencia medida en Instagram (competencia-ig.ts): aparte, nunca en el mismo ranking. */
+  competencia?: {
+    cuentas: number; publicaciones: number;
+    nichos: Array<{ nicho: string; cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] }>;
+    reutilizar: Ejemplo[];
+    estado: { conInstagram: number; medidas: number; noEncontradas: number; noEmpresa: number; otras: number; sinRevisar: number };
+  };
 }
 
 export const queFuncionaApi = { leer: () => api.get<AnalisisContenido>("/contenido/que-funciona?dias=180") };
@@ -172,9 +179,33 @@ export function QueFunciona() {
 /** Lo de un rubro, para la pantalla de Nichos. */
 export function QueFuncionaNicho({ nicho }: { nicho: string }) {
   const q = useQueFunciona();
-  const n = q.data?.nichos.find((x) => x.nicho.toLowerCase() === nicho.toLowerCase());
+  const mismo = (x: { nicho: string }) => x.nicho.toLowerCase() === nicho.toLowerCase();
+  const n = q.data?.nichos.find(mismo);
+  const comp = q.data?.competencia;
+  const c = comp?.nichos.find(mismo);
   if (q.isLoading) return <p className="text-[13px] text-l-tinta-3">Midiendo…</p>;
-  if (!n) return <p className="text-[13px] text-l-tinta-3">Menos de dos cuentas de este rubro tienen publicaciones suficientes leídas: no se puede comparar todavía.</p>;
+  return (
+    <div className="space-y-6">
+      {n ? <RankingNicho n={n} /> : <p className="text-[13px] text-l-tinta-3">Menos de dos cuentas propias de este rubro tienen publicaciones suficientes leídas: no se puede comparar entre clientes todavía.</p>}
+      <div>
+        <div className="mb-1 text-[13px] font-semibold">La competencia</div>
+        {c ? (
+          <>
+            <RankingNicho n={c} />
+            <p className="mt-2 text-[12px] text-l-tinta-3">Cuentas de Instagram de los competidores cargados en cada cliente, cada publicación contra lo normal de su cuenta. Se toma el ángulo o el formato, nunca el texto.</p>
+          </>
+        ) : (
+          <p className="text-[13px] text-l-tinta-3">
+            Todavía no hay dos cuentas de la competencia medidas en este rubro.
+            {comp ? ` En toda la agencia: ${comp.estado.medidas} de ${comp.estado.conInstagram} cuentas con Instagram medidas${comp.estado.sinRevisar ? `, ${comp.estado.sinRevisar} por leer` : ""}${comp.estado.noEncontradas + comp.estado.noEmpresa ? `, ${comp.estado.noEncontradas + comp.estado.noEmpresa} que Instagram no devuelve (usuario mal cargado o cuenta personal)` : ""}.` : ""}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RankingNicho({ n }: { n: { cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] } }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <div>

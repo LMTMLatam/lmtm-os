@@ -400,6 +400,9 @@ export async function createApp(
         initContenidoAngulos(db);
         const { initMarcaAprendida } = await import("./services/marca-aprendida.js");
         initMarcaAprendida(db);
+        // La competencia medida en Instagram, para comparar rubros sin cuentas propias.
+        const { initCompetenciaIg } = await import("./services/competencia-ig.js");
+        initCompetenciaIg(db);
       } catch (e) {
         console.warn("[contenido-angulos] init failed:", e);
       }

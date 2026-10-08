@@ -296,8 +296,8 @@ export async function analisisContenido(db: Db, dias = 180, fresco = false): Pro
 
 // Un decimal, igual que el panel: "1,9×".
 const veces = (x: number) => `${x.toFixed(x >= 10 ? 0 : 1).replace(".", ",")}×`;
-const linea = (f: Fila) => `${f.nombre} ${veces(f.indice)} (${f.publicaciones} publicaciones, ${f.cuentas} cuenta${f.cuentas === 1 ? "" : "s"})`;
-const citar = (e: Ejemplo) => `${e.cliente}, ${e.fecha}, ${e.red} ${e.formato}${e.anguloNombre ? `, ángulo ${e.anguloNombre}` : ""}: ${veces(e.indice)} — "${e.texto.slice(0, 110)}"${e.permalink ? ` ${e.permalink}` : ""}`;
+export const linea = (f: Fila) => `${f.nombre} ${veces(f.indice)} (${f.publicaciones} publicaciones, ${f.cuentas} cuenta${f.cuentas === 1 ? "" : "s"})`;
+export const citar = (e: Ejemplo) => `${e.cliente}, ${e.fecha}, ${e.red} ${e.formato}${e.anguloNombre ? `, ángulo ${e.anguloNombre}` : ""}: ${veces(e.indice)} — "${e.texto.slice(0, 110)}"${e.permalink ? ` ${e.permalink}` : ""}`;
 
 /**
  * Lo que leen los agentes de contenido (ideas, calendario, radar del rubro).

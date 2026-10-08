@@ -181,11 +181,19 @@ export function videoRoutes(db: Db): Router {
       const dias = Math.min(365, Math.max(30, Number(req.query.dias) || 180));
       const { analisisContenido } = await import("../services/contenido-analisis.js");
       const { pendientesDeClasificar } = await import("../services/contenido-angulos.js");
-      const [analisis, sinClasificar] = await Promise.all([
+      const { analisisCompetencia, estadoCompetencia } = await import("../services/competencia-ig.js");
+      const [analisis, sinClasificar, comp, estado] = await Promise.all([
         analisisContenido(db, dias, req.query.fresco === "1"),
         pendientesDeClasificar(db),
+        analisisCompetencia(db, req.query.fresco === "1"),
+        estadoCompetencia(db),
       ]);
-      res.json({ ...analisis, sinClasificar });
+      // La competencia va aparte: nunca en el mismo ranking que lo propio.
+      res.json({
+        ...analisis,
+        sinClasificar,
+        competencia: { cuentas: comp.cuentas, publicaciones: comp.publicaciones, nichos: comp.nichos, reutilizar: comp.reutilizar.slice(0, 30), estado },
+      });
     } catch (e) {
       res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
     }

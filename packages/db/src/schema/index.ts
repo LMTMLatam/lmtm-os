@@ -122,7 +122,7 @@ export type {
   Opportunity, NewOpportunity,
 } from "./intelligence.js";
 // Competitors + content ideas (0108).
-export { competitors, contentIdeas } from "./competitors.js";
+export { competitors, contentIdeas, competenciaPosts } from "./competitors.js";
 export type { Competitor, NewCompetitor, ContentIdea, NewContentIdea } from "./competitors.js";
 export { publicDashboards } from "./public_dashboards.js";
 export type { PublicDashboard, NewPublicDashboard } from "./public_dashboards.js";

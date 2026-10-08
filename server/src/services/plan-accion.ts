@@ -10,7 +10,7 @@
 // (deliverable "Plan de acción", rutina de Luna).
 
 import type { Db } from "@paperclipai/db";
-import { accountScores, adsAccountMappings, agentDeliverables, clientMemory, clients, interventions, nicheReports, opportunities } from "@paperclipai/db";
+import { accountScores, adsAccountMappings, adsInsights, agentDeliverables, clientMemory, clients, competitors, decisiones, interventions, nicheReports, opportunities } from "@paperclipai/db";
 import { and, desc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
 import { cotizadoVsRealizado } from "./cotizado.js";
 import { clienteReal } from "./intel-common.js";
@@ -115,6 +115,8 @@ export interface PlanAccionCliente {
   cumplimientoPct: number | null;
   problemas: string[];
   acciones: string[];
+  /** Dónde está parado, con lo medido (pauta y orgánico). null = nada medido. */
+  etapa: string | null;
   reporteAgente: { title: string; content: string; createdAt: string } | null;
 }
 
@@ -267,6 +269,35 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
     );
   }
 
+  // Lo propio y lo de la competencia, medido (contenido-analisis.ts y
+  // competencia-ig.ts): el plan se arma con SU contenido, no con consejos
+  // que le sirven a cualquiera (pedido 08/10: "100% personalizado según
+  // dónde se encuentre parado el cliente").
+  const { analisisContenido } = await import("./contenido-analisis.js");
+  const { analisisCompetencia } = await import("./competencia-ig.js");
+  const contenido = await analisisContenido(db, 180).catch(() => null);
+  const competencia = await analisisCompetencia(db).catch(() => null);
+  const contenidoDe = new Map((contenido?.clientes ?? []).map((x) => [x.clientId, x]));
+  // Lo que el motor ya encontró en la pauta de cada cliente (con nombre de campaña).
+  const decsPauta = await db.select({ clientId: decisiones.clientId, que: decisiones.que })
+    .from(decisiones)
+    .where(and(inArray(decisiones.estado, ["abierta", "aprobada"]), sql`${decisiones.tipo} like 'pauta:%'`))
+    .orderBy(desc(decisiones.arsPorDia));
+  const pautaDe = new Map<string, string[]>();
+  for (const d of decsPauta) pautaDe.set(d.clientId, [...(pautaDe.get(d.clientId) ?? []), d.que]);
+  const conCompetidoresIg = new Set(
+    (await db.select({ clientId: competitors.clientId }).from(competitors).where(sql`${competitors.igHandle} is not null and ${competitors.igHandle} <> ''`))
+      .map((r) => r.clientId),
+  );
+  // Pauta que corre de verdad: gasto en ads_insights en 30 días (la planilla no tiene a todos).
+  const conGasto = new Set(
+    (await db.select({ clientId: adsInsights.clientId }).from(adsInsights)
+      .where(and(gte(adsInsights.date, new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)), sql`${adsInsights.spend} > 0`))
+      .groupBy(adsInsights.clientId))
+      .map((r) => r.clientId).filter((id): id is string => !!id),
+  );
+  const x = (n: number) => `${n.toFixed(1).replace(".", ",")}×`;
+
   const out: PlanAccionCliente[] = [];
   for (const c of activos) {
     const salud = typeof c.salud?.score === "number" ? c.salud.score : null;
@@ -298,11 +329,11 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
     // Score de pauta bajo solo cuenta como señal si la pauta CORRE de verdad:
     // score 0 con $0 de spend es casi siempre cuenta sin mapear, no pauta rota.
     const spendPeriodo = (cotRow?.realizado.spendMeta ?? 0) + (cotRow?.realizado.spendGoogle ?? 0);
-    const pautaCorre = spendPeriodo > 0;
-    if (score != null && score < 70 && pautaCorre) {
-      problemas.push(`Pauta ${score}/100`);
-      acciones.push("Revisar la pauta con el análisis estratégico del cliente (avisos fatigados y reinversión sugerida).");
-    }
+    const pautaCorre = spendPeriodo > 0 || conGasto.has(c.id);
+    if (score != null && score < 70 && pautaCorre) problemas.push(`Pauta ${score}/100`);
+    // La pauta con nombre de campaña, de las decisiones del motor. Sin eso no
+    // va ninguna acción de pauta: "revisar la pauta" le sirve a cualquiera.
+    for (const q of (pautaDe.get(c.id) ?? []).slice(0, 2)) acciones.push(`Pauta: ${q}`);
     for (const i of clientInts.slice(0, 3)) {
       // El problema NO se repite como acción. Antes salía "⚠ cuenta sin
       // actividad hace 48h" en problemas y "Resolver ya: cuenta sin actividad
@@ -312,7 +343,8 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
       problemas.push(`⚠ ${i.title}`);
       if (i.level >= 4) {
         const primeraLinea = (i.body ?? "").split("\n").map((l) => l.trim()).find((l) => l.length > 15);
-        if (primeraLinea) acciones.push(primeraLinea.slice(0, 220));
+        // Una línea que termina en ":" es el encabezado de una lista: sola no dice qué hacer.
+        if (primeraLinea && !primeraLinea.endsWith(":")) acciones.push(primeraLinea.slice(0, 220));
       }
     }
     if ((cotRow?.cotizado.pautaMeta || cotRow?.cotizado.pautaGoogle) && (cotRow?.realizado.spendMeta ?? 0) + (cotRow?.realizado.spendGoogle ?? 0) === 0) {
@@ -331,7 +363,7 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
     // desde el panel — es la duplicación que marcó el usuario (18/8).
     for (const o of oppsByClient.get(c.id) ?? []) {
       if (/^contenido |idea|posteo|carrusel|reel|efem[eé]ride/i.test(o)) continue;
-      acciones.push(`Oportunidad: ${o}`);
+      acciones.push(`Oportunidad: ${o.replace(/s+/g, " ").slice(0, 200)}`);
     }
     const radar = c.industry ? radarByNiche.get(c.industry) : null;
     const plan = radar?.sections?.planPorCliente?.find((p) => p.clientId === c.id || p.cliente.toLowerCase().includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(p.cliente.toLowerCase()));
@@ -355,7 +387,43 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
       cumplimientoCiego: ciegoAca,
     });
 
-    if (semaforo === "verde" && acciones.length === 0) acciones.push("Sostener el ritmo. Buscar la próxima palanca de crecimiento (radar del rubro / propuesta CM).");
+    // Contenido: lo suyo que funcionó, su ángulo, el del rubro y el de la competencia.
+    const cont = contenidoDe.get(c.id);
+    const delContenido: string[] = [];
+    const r = cont?.mejorReciente;
+    if (r) {
+      const pieza = `su ${r.formato} de ${r.red === "instagram" ? "Instagram" : "Facebook"} del ${r.fecha.slice(8, 10)}/${r.fecha.slice(5, 7)}`;
+      delContenido.push(`Repetir lo que funcionó: ${pieza} sacó ${x(r.indice)} lo normal de la cuenta${r.anguloNombre ? ` (ángulo «${r.anguloNombre}»)` : ""}; ${pautaCorre ? "probarlo también como anuncio" : "es la pieza para ofrecerle pauta"}.`);
+    }
+    if (cont?.mejorAngulo && cont.mejorAngulo.indice >= 1.2) {
+      delContenido.push(`Su mejor ángulo: «${cont.mejorAngulo.nombre}» rinde ${x(cont.mejorAngulo.indice)} lo normal en ${cont.mejorAngulo.publicaciones} publicaciones: que no falte en el calendario.`);
+    }
+    if (cont?.oportunidad) {
+      const o = cont.oportunidad;
+      delContenido.push(`Probar «${o.nombre}»: en ${c.industry} rinde ${x(o.indiceEnNicho)} lo normal (${o.publicacionesNicho} publicaciones de ${o.cuentasNicho} cuentas) y lo usó ${o.usosPropios === 1 ? "una vez" : `${o.usosPropios} veces`}.`);
+    }
+    const compNicho = c.industry ? competencia?.nichos.find((n) => n.nicho.toLowerCase() === c.industry!.toLowerCase()) : undefined;
+    const compAngulo = compNicho?.angulos.find((f) => f.indice >= 1.2);
+    if (compAngulo) {
+      delContenido.push(`A la competencia del rubro le funciona «${compAngulo.nombre}»: ${x(compAngulo.indice)} lo normal en ${compAngulo.publicaciones} publicaciones de ${compAngulo.cuentas} cuentas${compAngulo.mejor.permalink ? ` (ejemplo: ${compAngulo.mejor.permalink})` : ""}. Tomar el ángulo, no el texto.`);
+    }
+    if (!cont && semaforo !== "sin-datos") delContenido.push("Todavía no se puede medir qué le funciona en redes: hay menos de 8 publicaciones leídas o la interacción normal es casi nula (menos de 5 por publicación). Revisar que su Instagram o Facebook esté conectado.");
+    if (!conCompetidoresIg.has(c.id)) {
+      delContenido.push("Cargar el Instagram de 3 competidores (ficha → Competencia): sin eso no hay con qué compararlo.");
+    }
+    // Sin pauta, el contenido manda: va primero.
+    if (pautaCorre) acciones.push(...delContenido);
+    else acciones.unshift(...delContenido);
+
+    const etapa = pautaCorre && cont
+      ? `Pauta corriendo y orgánico medido (${cont.publicaciones} publicaciones)`
+      : pautaCorre
+        ? "Pauta corriendo; sus redes no tienen publicaciones suficientes leídas"
+        : cont
+          ? `Sin pauta en el período; orgánico medido (${cont.publicaciones} publicaciones)`
+          : null;
+
+    if (acciones.length === 0 && semaforo !== "sin-datos") acciones.push(cont ? "En orden con lo medido." : "Para proponer contenido con datos falta leer sus redes: conectar su Instagram o Facebook.");
     if (semaforo === "sin-datos") {
       problemas.push("No hay nada medido: ni pauta corriendo, ni cuenta de redes leída, ni calendario con fechas.");
       acciones.unshift("Conectar lo que falte para poder medir (pauta, página/Instagram, calendario Redes con fechas).");
@@ -364,7 +432,8 @@ async function computeAll(db: Db): Promise<PlanAccionCliente[]> {
     out.push({
       clientId: c.id, name: c.name, slug: c.slug, industry: c.industry,
       semaforo, salud, scorePauta: score, cumplimientoPct: cumpl,
-      problemas, acciones, reporteAgente: null,
+      // Tres avisos con el mismo cuerpo daban la misma acción tres veces.
+      problemas: [...new Set(problemas)], acciones: [...new Set(acciones)], etapa, reporteAgente: null,
     });
   }
   // Peores primero dentro de cada grupo (por salud, luego cumplimiento).

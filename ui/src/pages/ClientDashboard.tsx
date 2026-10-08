@@ -1315,7 +1315,7 @@ function PlanAccionTab({ client }: { client: Client }) {
     queryFn: () => api.get<{ plan: {
       semaforo: "rojo" | "amarillo" | "verde" | "sin-datos";
       salud: number | null; scorePauta: number | null; cumplimientoPct: number | null;
-      problemas: string[]; acciones: string[];
+      problemas: string[]; acciones: string[]; etapa?: string | null;
       reporteAgente: { title: string; content: string; createdAt: string } | null;
     } | null; profundo: PlanProfundo | null }>(`/clients/${client.slug}/plan-accion`),
     staleTime: 5 * 60_000,
@@ -1350,6 +1350,7 @@ function PlanAccionTab({ client }: { client: Client }) {
           </button>
         </div>
         {msg && <p className="text-[11px] text-muted-foreground">{msg}</p>}
+        {p.etapa && <p className="text-xs"><span className="font-medium text-muted-foreground">Dónde está parado: </span>{p.etapa}</p>}
         {p.problemas.length > 0 && (
           <div className="text-xs">
             <p className="font-medium text-muted-foreground mb-1">Problemas abiertos</p>

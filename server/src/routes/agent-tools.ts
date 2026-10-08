@@ -2327,6 +2327,9 @@ export function agentToolsRoutes(
           try {
             const { analisisContenido, textoParaAgente } = await import("../services/contenido-analisis.js");
             lines.push("", textoParaAgente(await analisisContenido(db, 180), { nicho: niche }));
+            const { analisisCompetencia, textoCompetencia } = await import("../services/competencia-ig.js");
+            const comp = textoCompetencia(await analisisCompetencia(db), niche);
+            if (comp) lines.push("", comp);
           } catch (e) {
             lines.push("", `(No se pudo leer el análisis de contenido: ${e instanceof Error ? e.message : String(e)})`);
           }

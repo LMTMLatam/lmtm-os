@@ -10,7 +10,7 @@
 // sin clasificar (null) y se reintenta en la próxima vuelta. Nunca se adivina.
 
 import type { Db } from "@paperclipai/db";
-import { clients, organicPosts } from "@paperclipai/db";
+import { clients, competenciaPosts, organicPosts } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { ANGULOS, ANGULOS_ORGANICO } from "./angulos-creativos.js";
 import { analizarTexto, MODELO_TEXTO, MODELO_TEXTO_RESPALDO } from "./nvidia-modelos.js";
@@ -61,6 +61,30 @@ export function leerClasificacion(texto: string, indices: number[]): Map<number,
   return out;
 }
 
+/** Clasifica textos en lotes: índice → ángulo. Lo que el modelo no contestó no está (se reintenta). */
+async function clasificarTextos(items: Array<{ texto: string; tipo: string | null; red: string }>): Promise<{ angulos: Map<number, string>; fallas: number }> {
+  const angulos = new Map<number, string>();
+  let fallas = 0;
+  for (let k = 0; k < items.length; k += POR_LOTE) {
+    const lote = items.slice(k, k + POR_LOTE);
+    // Por caracteres completos: un .slice puede partir un emoji en dos.
+    const usuario = lote.map((p, i) => `[${i}] (${p.red}, ${p.tipo ?? "post"}) ${Array.from(p.texto.replace(/\s+/g, " ")).slice(0, 400).join("")}`).join("\n");
+    // 12k: el modelo grande razona antes de contestar y con 4096 se quedaba
+    // sin espacio (finish_reason=length). Si igual no contesta, el rápido.
+    let r = await analizarTexto(SISTEMA, usuario, { maxTokens: 12_000, temperature: 0, modelo: MODELO_CLASIFICAR });
+    if (!r.texto && MODELO_CLASIFICAR !== MODELO_TEXTO_RESPALDO) r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0, modelo: MODELO_TEXTO_RESPALDO });
+    const mapa = r.texto ? leerClasificacion(r.texto, lote.map((_, i) => i)) : new Map<number, string>();
+    if (mapa.size === 0) {
+      fallas += 1;
+      console.warn(`[contenido-angulos] lote sin clasificar (${r.motivo ?? "respuesta ilegible"}${r.detalle ? `: ${r.detalle.slice(0, 120)}` : ""})`);
+      if (fallas >= 3) break; // el modelo no está contestando: se reintenta en la próxima vuelta
+      continue;
+    }
+    for (const [i, angulo] of mapa) angulos.set(k + i, angulo);
+  }
+  return { angulos, fallas };
+}
+
 let corriendo = false;
 
 /** Clasifica hasta `max` publicaciones pendientes (las más nuevas primero). */
@@ -83,31 +107,40 @@ export async function clasificarPendientes(db: Db, max = 500): Promise<{ clasifi
     }
     const conTexto = pendientes.filter((p) => (p.texto ?? "").trim().length >= 15);
 
-    let clasificadas = 0, fallas = 0;
-    for (let k = 0; k < conTexto.length; k += POR_LOTE) {
-      const lote = conTexto.slice(k, k + POR_LOTE);
-      const usuario = lote.map((p, i) => {
-        const red = /instagram\.com/.test(p.permalink ?? "") ? "instagram" : "facebook";
-        // Por caracteres completos: un .slice puede partir un emoji en dos.
-        return `[${i}] (${red}, ${p.tipo ?? "post"}) ${Array.from((p.texto ?? "").replace(/\s+/g, " ")).slice(0, 400).join("")}`;
-      }).join("\n");
-      // 12k: el modelo grande razona antes de contestar y con 4096 se quedaba
-      // sin espacio (finish_reason=length). Si igual no contesta, el rápido.
-      let r = await analizarTexto(SISTEMA, usuario, { maxTokens: 12_000, temperature: 0, modelo: MODELO_CLASIFICAR });
-      if (!r.texto && MODELO_CLASIFICAR !== MODELO_TEXTO_RESPALDO) r = await analizarTexto(SISTEMA, usuario, { maxTokens: 4096, temperature: 0, modelo: MODELO_TEXTO_RESPALDO });
-      const mapa = r.texto ? leerClasificacion(r.texto, lote.map((_, i) => i)) : new Map<number, string>();
-      if (mapa.size === 0) {
-        fallas += 1;
-        console.warn(`[contenido-angulos] lote sin clasificar (${r.motivo ?? "respuesta ilegible"}${r.detalle ? `: ${r.detalle.slice(0, 120)}` : ""})`);
-        if (fallas >= 3) break; // el modelo no está contestando: se reintenta en la próxima vuelta
-        continue;
-      }
-      for (const [i, angulo] of mapa) {
-        await db.update(organicPosts).set({ angulo, anguloAt: new Date() }).where(eq(organicPosts.id, lote[i].id));
-        clasificadas += 1;
-      }
+    const { angulos, fallas } = await clasificarTextos(conTexto.map((p) => ({
+      texto: p.texto ?? "", tipo: p.tipo, red: /instagram\.com/.test(p.permalink ?? "") ? "instagram" : "facebook",
+    })));
+    for (const [i, angulo] of angulos) {
+      await db.update(organicPosts).set({ angulo, anguloAt: new Date() }).where(eq(organicPosts.id, conTexto[i].id));
     }
-    return { clasificadas, sinTexto: vacias.length, fallas };
+    return { clasificadas: angulos.size, sinTexto: vacias.length, fallas };
+  } finally {
+    corriendo = false;
+  }
+}
+
+/** Lo mismo para las publicaciones de la competencia (competencia-ig.ts). */
+export async function clasificarCompetencia(db: Db, max = 300): Promise<{ clasificadas: number; sinTexto: number; fallas: number }> {
+  if (corriendo) return { clasificadas: 0, sinTexto: 0, fallas: 0 };
+  corriendo = true;
+  try {
+    const desde = new Date(Date.now() - VENTANA_DIAS * 86_400_000);
+    const pendientes = await db
+      .select({ id: competenciaPosts.id, texto: competenciaPosts.texto, tipo: competenciaPosts.formato })
+      .from(competenciaPosts)
+      .where(and(isNull(competenciaPosts.angulo), gte(competenciaPosts.publicadoAt, desde)))
+      .orderBy(desc(competenciaPosts.publicadoAt))
+      .limit(max);
+    const vacias = pendientes.filter((p) => (p.texto ?? "").trim().length < 15);
+    if (vacias.length) {
+      await db.update(competenciaPosts).set({ angulo: SIN_TEXTO, anguloAt: new Date() }).where(inArray(competenciaPosts.id, vacias.map((v) => v.id)));
+    }
+    const conTexto = pendientes.filter((p) => (p.texto ?? "").trim().length >= 15);
+    const { angulos, fallas } = await clasificarTextos(conTexto.map((p) => ({ texto: p.texto ?? "", tipo: p.tipo, red: "instagram" })));
+    for (const [i, angulo] of angulos) {
+      await db.update(competenciaPosts).set({ angulo, anguloAt: new Date() }).where(eq(competenciaPosts.id, conTexto[i].id));
+    }
+    return { clasificadas: angulos.size, sinTexto: vacias.length, fallas };
   } finally {
     corriendo = false;
   }
@@ -126,9 +159,12 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export function initContenidoAngulos(db: Db): void {
   if (timer) return;
   const vuelta = () => {
-    void clasificarPendientes(db)
-      .then((r) => { if (r.clasificadas || r.sinTexto || r.fallas) console.log(`[contenido-angulos] ${r.clasificadas} clasificadas, ${r.sinTexto} sin texto, ${r.fallas} lotes fallidos`); })
-      .catch((e) => console.warn("[contenido-angulos] falló:", e instanceof Error ? e.message : e));
+    void (async () => {
+      const r = await clasificarPendientes(db);
+      if (r.clasificadas || r.sinTexto || r.fallas) console.log(`[contenido-angulos] ${r.clasificadas} clasificadas, ${r.sinTexto} sin texto, ${r.fallas} lotes fallidos`);
+      const c = await clasificarCompetencia(db);
+      if (c.clasificadas || c.sinTexto || c.fallas) console.log(`[contenido-angulos] competencia: ${c.clasificadas} clasificadas, ${c.sinTexto} sin texto, ${c.fallas} lotes fallidos`);
+    })().catch((e) => console.warn("[contenido-angulos] falló:", e instanceof Error ? e.message : e));
   };
   setTimeout(vuelta, 8 * 60_000);
   timer = setInterval(vuelta, 60 * 60_000);

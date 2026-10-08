@@ -953,6 +953,13 @@
       "when": 1781800000154,
       "tag": "0154_moneda_cuenta",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1781800000155,
+      "tag": "0155_competencia_ig",
+      "breakpoints": true
     }
   ]
 }
