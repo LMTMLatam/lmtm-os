@@ -51,6 +51,10 @@ export function estadoDeError(msg: string): string {
 }
 
 const esLimite = (codigo: number | undefined, msg: string) => [4, 17, 32, 613].includes(codigo ?? -1) || /rate limit|too many calls|request limit/i.test(msg);
+/** Permiso o token: es de la conexión, no de la cuenta buscada. No se marca a nadie. */
+const esDeLaConexion = (codigo: number | undefined, msg: string) => [10, 190, 200].includes(codigo ?? -1) || /permission|access token|session has expired/i.test(msg);
+/** Lo que no es "ok" ni un motivo de la cuenta se reintenta en la próxima vuelta. */
+const ESTADOS_FINALES = new Set(["ok", "no_encontrada", "no_es_empresa"]);
 
 /** Una cuenta de Instagram de empresa nuestra desde la que preguntar, con su token de página. */
 async function cuentaParaBuscar(db: Db): Promise<{ igId: string; token: string } | null> {
@@ -84,7 +88,7 @@ export async function medirCompetencia(db: Db): Promise<{ medidas: number; publi
   corriendo = true;
   try {
     const filas = await db
-      .select({ id: competitors.id, ig: competitors.igHandle, revisado: competitors.igRevisadoAt })
+      .select({ id: competitors.id, ig: competitors.igHandle, revisado: competitors.igRevisadoAt, estado: competitors.igEstado })
       .from(competitors)
       .innerJoin(clients, eq(clients.id, competitors.clientId))
       .where(and(eq(clients.status, "active"), isNotNull(competitors.igHandle)));
@@ -93,7 +97,8 @@ export async function medirCompetencia(db: Db): Promise<{ medidas: number; publi
       const u = usuarioDeInstagram(f.ig);
       if (!u) continue;
       const prev = porUsuario.get(u);
-      const t = f.revisado ? new Date(f.revisado).getTime() : 0;
+      // Un error que no es de la cuenta (red, Instagram caído) no espera 6 días.
+      const t = f.revisado && f.estado && ESTADOS_FINALES.has(f.estado) ? new Date(f.revisado).getTime() : 0;
       porUsuario.set(u, { ids: [...(prev?.ids ?? []), f.id], revisado: Math.min(prev?.revisado ?? t, t) });
     }
     const limite = Date.now() - DIAS_ENTRE_LECTURAS * 86_400_000;
@@ -121,6 +126,7 @@ export async function medirCompetencia(db: Db): Promise<{ medidas: number; publi
           const msg = j.error?.message ?? `HTTP ${r.status}`;
           // Límite de Instagram: se corta la vuelta sin marcar nada; sigue en la próxima.
           if (esLimite(j.error?.code, msg)) { console.warn(`[competencia-ig] límite de Instagram después de ${medidas}: ${msg.slice(0, 120)}`); break; }
+          if (esDeLaConexion(j.error?.code, msg)) return { medidas, publicaciones, sinMedir: tanda.length - medidas, motivo: `la conexión no puede buscar cuentas: ${msg.slice(0, 160)}` };
           estado = estadoDeError(msg);
           sinMedir += 1;
         } else {
