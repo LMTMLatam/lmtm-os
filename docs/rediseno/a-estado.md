@@ -100,6 +100,14 @@ Contenido (`70b3395`):
 - **Voz de marca:** nada la llamaba desde el 14/9 (2 clientes). Ahora cada 7 días:
   primera vuelta 22 clientes aprendidos, 34 sin publicaciones, 2 fallados.
 
+- **08/10 00:07, vigilantes con el código nuevo (verificado):** los 59 clientes con
+  salud nueva (13 sin número: nada medido); avisos de saldo abiertos 35 → 24 (los
+  que quedan son de cuentas que ya no se leen, más de 21 días, fuera de salud y
+  semáforo); monedas guardadas: 46 ARS, 3 USD, 1 INR, 1 CLP, 8 Google sin dato.
+  Gastando en otra moneda en 30 días solo GALA (USD): fuera de sumas y benchmarks
+  en pesos, nombrada "en USD" en Nichos, ficha en su moneda (`577d8dc`).
+- Ángulos: 2.361 clasificadas al cierre del 07/10 (quedan las nuevas de cada día).
+
 **Para mañana (08/10):** vigilantes de la mañana → salud nueva estampada y avisos de
 saldo viejos cerrados; monedas guardadas en `ads_account_mappings.currency` →
 separar cuentas no ARS de las sumas en pesos; resumen de las 9:00 sin cambios de
