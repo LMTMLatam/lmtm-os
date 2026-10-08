@@ -88,3 +88,28 @@ describe("benchmark por rubro: CTR solo de Meta y sin conversiones dudosas", () 
     expect(g.cpl).toBe(100);
   });
 });
+
+describe("08/10: lo que el resumen de la mañana afirmaba sin ser cierto", () => {
+  it("una cuenta vieja con deuda y sin gasto en 30 días no está 'frenada'", async () => {
+    const { motivoFrenada } = await import("../balance-monitor.js");
+    const base = { accountStatus: 3, remaining: null, spendCap: 0, currency: "ARS" };
+    expect(motivoFrenada({ ...base, activaReciente: false })).toBeNull();
+    expect(motivoFrenada({ ...base, activaReciente: true })).toContain("deuda");
+  });
+
+  it("una tendencia que nombra un año anterior no es de hoy", async () => {
+    const { deAnioAnterior, elegirTendencias } = await import("../../avisos/resumen.js");
+    expect(deAnioAnterior("ICC septiembre 2025: +3,2% mensual", 2026)).toBe(true);
+    expect(deAnioAnterior("https://x.com/novedades/a31-autos-octubre-de-2025-argentina.phtml", 2026)).toBe(true);
+    expect(deAnioAnterior("Ventas de octubre 2026 https://x.com/nota/2019345-ventas", 2026)).toBe(false);
+    const t = (title: string) => ({ title, url: `https://medio.com/seccion/${title.replace(/\W+/g, "-")}` });
+    expect(elegirTendencias([t("dato de 2025"), t("dato de 2026")], 3, 2026).map((x) => x.title)).toEqual(["dato de 2026"]);
+  });
+
+  it("las ideas saben la estación en Argentina", async () => {
+    const { fechaDeHoy } = await import("../competitor-content.js");
+    expect(fechaDeHoy(new Date("2026-10-08T15:00:00Z"))).toContain("primavera");
+    expect(fechaDeHoy(new Date("2026-04-10T15:00:00Z"))).toContain("otoño");
+    expect(fechaDeHoy(new Date("2026-12-25T15:00:00Z"))).toContain("verano");
+  });
+});

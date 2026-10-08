@@ -91,6 +91,8 @@ export interface AnalisisContenido {
     clientId: string; cliente: string; slug: string; nicho: string | null;
     publicaciones: number;
     top: Ejemplo[];
+    /** Su mejor publicación de las últimas dos semanas que dobló lo normal (para repetirla u ofrecer pauta). */
+    mejorReciente: Ejemplo | null;
     mejorAngulo: Fila | null;
     oportunidad: Oportunidad | null;
   }>;
@@ -206,8 +208,12 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
   const nichoPorNombre = new Map(nichos.map((n) => [n.nicho, n]));
   const clientesMap = new Map<string, ConIndice[]>();
   for (const p of medidas) clientesMap.set(p.clientId, [...(clientesMap.get(p.clientId) ?? []), p]);
+  const desdeDos = new Date(ahora.getTime() - 14 * 86_400_000).toISOString().slice(0, 10);
   const clientes = [...clientesMap.values()].map((arr) => {
     const c = arr[0];
+    const reciente = arr
+      .filter((p) => p.fecha.slice(0, 10) >= desdeDos && p.indice >= INDICE_DESTACADO && p.engagement >= 10)
+      .reduce<ConIndice | null>((m, p) => (!m || p.indice > m.indice ? p : m), null);
     const propios = agrupar(arr, claveAngulo, nombreDeAngulo, { publicaciones: 3, cuentas: 1 });
     const usos = new Map<string, number>();
     for (const p of arr) { const k = claveAngulo(p); if (k) usos.set(k, (usos.get(k) ?? 0) + 1); }
@@ -217,6 +223,7 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
       clientId: c.clientId, cliente: c.cliente, slug: c.slug, nicho: c.nicho,
       publicaciones: arr.length,
       top: [...arr].sort((a, b) => b.indice - a.indice).slice(0, 3).map(ejemplo),
+      mejorReciente: reciente ? ejemplo(reciente) : null,
       mejorAngulo: propios[0] ?? null,
       oportunidad: candidata
         ? { angulo: candidata.clave, nombre: candidata.nombre, indiceEnNicho: candidata.indice, publicacionesNicho: candidata.publicaciones, cuentasNicho: candidata.cuentas, usosPropios: usos.get(candidata.clave) ?? 0 }

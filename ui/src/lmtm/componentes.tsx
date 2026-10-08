@@ -334,7 +334,13 @@ export function PorQue({ d, max = 3 }: { d: Decision; max?: number }) {
           {datos.map((x) => (
             <li key={x.etiqueta}>
               <span className="text-l-tinta-3">{x.etiqueta}: </span>
-              <span className="font-medium text-l-tinta">{formatoDato(x.valor, x.unidad)}</span>
+              {typeof x.valor === "string" && /^https?:\/\//.test(x.valor) ? (
+                <a href={x.valor} target="_blank" rel="noreferrer" className="font-medium text-l-marca underline underline-offset-2">
+                  Ver
+                </a>
+              ) : (
+                <span className="font-medium text-l-tinta">{formatoDato(x.valor, x.unidad)}</span>
+              )}
             </li>
           ))}
         </ul>

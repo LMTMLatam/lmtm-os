@@ -263,8 +263,13 @@ const HALTED_STATUS: Record<number, string> = {
  * segunda definición de "frenada".
  */
 export function motivoFrenada(b: Pick<BalanceInfo, "accountStatus" | "remaining" | "activaReciente" | "spendCap" | "currency">): string | null {
+  // Solo cuentas que venían gastando, también para la deuda. El 08/10 SEBASTIAN
+  // y RENO salían "frenadas, no muestran anuncios" por cuentas viejas con deuda
+  // y sin un peso en 30 días, mientras su cuenta activa gastaba $29.000 por
+  // día; y la caída de gasto del cliente se le cargaba a la cuenta muerta.
+  if (!b.activaReciente) return null;
   if (HALTED_STATUS[b.accountStatus]) return HALTED_STATUS[b.accountStatus];
-  if (b.remaining !== null && b.remaining < 1 && b.activaReciente) {
+  if (b.remaining !== null && b.remaining < 1) {
     return `consumió el tope de ${b.currency} ${Math.round(b.spendCap).toLocaleString("es-AR")}: las campañas siguen activas pero no se muestran`;
   }
   return null;

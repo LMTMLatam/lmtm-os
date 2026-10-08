@@ -86,6 +86,8 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
   const [buscar, setBuscar] = useState("");
   const [agrupar, setAgrupar] = useState(false);
   const [verTodas, setVerTodas] = useState(false);
+  const [verOportunidades, setVerOportunidades] = useState(false);
+  const oportunidades = h.oportunidades ?? [];
   const texto = buscar.trim().toLowerCase();
   const filtradas = h.decisiones.filter(FILTROS.find((f) => f.k === filtro)!.pasa).filter((d) => !texto || d.cliente.toLowerCase().includes(texto) || d.que.toLowerCase().includes(texto));
   // Todo lo que tiene plata se ve; de lo que no, unas pocas y el resto contado
@@ -108,8 +110,21 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
           </p>
         )}
 
-        {/* Arriba SOLO los incidentes (PLAN, superficies): lo que no puede esperar
-            va antes que cualquier número. */}
+        {/* Primero lo que hay para ganar (08/10: "que las principales sean
+            oportunidades de contenido o de upsell, no todo saldo y pausar"). */}
+        {oportunidades.length > 0 && (
+          <section className="mb-7">
+            <TituloFranja>Oportunidades · {oportunidades.length}</TituloFranja>
+            <Lista decisiones={verOportunidades ? oportunidades : oportunidades.slice(0, 5)} porDecision={porDecision} />
+            {oportunidades.length > 5 && (
+              <button type="button" onClick={() => setVerOportunidades((v) => !v)} className="mt-2 text-[13px] font-semibold text-l-marca">
+                {verOportunidades ? "Ver menos" : `Ver las ${oportunidades.length}`}
+              </button>
+            )}
+          </section>
+        )}
+
+        {/* Después los incidentes: lo que no puede esperar va antes que cualquier número. */}
         {h.incidentes.length > 0 && (
           <section className="mb-7">
             <TituloFranja critico>Incidentes · {h.incidentes.length}</TituloFranja>

@@ -204,12 +204,18 @@ export async function hallazgosDeDecisiones(db: Db, ids: string[]): Promise<Map<
   if (ids.length === 0) return new Map();
   const refs = ids.map((id) => `decision:${id}`);
   const filas = await db
-    .select({ ref: agenteTrabajos.ref, resumen: sql<string | null>`${agenteTrabajos.resultado}->>'resumen'` })
+    .select({ ref: agenteTrabajos.ref, resumen: sql<string | null>`${agenteTrabajos.resultado}->>'resumen'`, fin: agenteTrabajos.finishedAt })
     .from(agenteTrabajos)
     .where(and(eq(agenteTrabajos.estado, "hecho"), sql`${agenteTrabajos.ref} in (${sql.join(refs.map((r) => sql`${r}`), sql`, `)})`))
     .orderBy(agenteTrabajos.finishedAt);
-  // Del más viejo al más nuevo: el último que se escribe gana.
-  return new Map(filas.filter((f) => f.ref && f.resumen).map((f) => [f.ref!.slice("decision:".length), f.resumen!]));
+  // Del más viejo al más nuevo: el último que se escribe gana. Si no es de hoy
+  // lleva la fecha: el 08/10 el resumen mostraba "(hoy es 6/10)" como actual.
+  const dia = (d: Date) => d.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "numeric" });
+  const hoy = dia(new Date());
+  return new Map(filas.filter((f) => f.ref && f.resumen).map((f) => {
+    const cuando = f.fin ? dia(new Date(f.fin)) : null;
+    return [f.ref!.slice("decision:".length), cuando && cuando !== hoy ? `Investigado el ${cuando}: ${f.resumen!}` : f.resumen!];
+  }));
 }
 
 // ── Disparadores por hecho ──────────────────────────────────────────────────

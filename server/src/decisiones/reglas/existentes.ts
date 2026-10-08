@@ -98,7 +98,7 @@ export const DIAS_PARA_AGOTARSE = 7;
 export function propuestasDeSaldo(
   balances: BalanceInfo[],
   costos: Map<string, CostoCliente>,
-  fns: { motivoFrenada: (b: BalanceInfo) => string | null; mereceAvisoDeSaldo: (b: BalanceInfo) => boolean },
+  fns: { motivoFrenada: (b: BalanceInfo) => string | null },
 ): Propuesta[] {
   const out: Propuesta[] = [];
   // La plata parada es del CLIENTE, no de cada cuenta: si tiene dos cuentas
@@ -129,8 +129,12 @@ export function propuestasDeSaldo(
           resumen: yaContada
             ? `La cuenta ${motivo}. La plata parada de este cliente ya está contada en su otra cuenta frenada.`
             : `La cuenta ${motivo}.`,
+          // Dos números distintos con su nombre: lo que gastó la cuenta en la
+          // semana y la caída del cliente. "Gasto diario antes de frenarse" con
+          // la caída del cliente adentro decía 21.708 de una cuenta que gastaba 32.000.
           datos: [
-            { etiqueta: "Gasto diario antes de frenarse", valor: gastaba > 0 ? gastaba : null, unidad: "ars_dia" },
+            { etiqueta: "Gasto diario de la cuenta (7 días)", valor: b.gastoConocido ? gastoDiario : null, unidad: "ars_dia" },
+            ...(yaContada ? [] : [{ etiqueta: "Caída de gasto del cliente por día", valor: parada > 0 ? parada : null, unidad: "ars_dia" as const }]),
             { etiqueta: "Saldo restante", valor: b.remaining != null ? Math.round(b.remaining) : null, unidad: "ars" },
           ],
           // Frenada con pauta activa (venía gastando): plata que se pierde hoy.
@@ -156,7 +160,9 @@ export function propuestasDeSaldo(
     // null (cuentas sin uso, saldo 0) y llegaban al link del cliente como pedido:
     // MA PROPIEDADES lo veía con su Meta gastando ARS 287.000 por semana.
     const gasta = b.gastoConocido && b.dailySpend > 0;
-    if (gasta && (fns.mereceAvisoDeSaldo(b) || porAgotarse)) {
+    // Solo si se agota en una semana. "Cargar saldo: se frena en 36 días"
+    // (MUNDO INFLABLE, 08/10) llenaba Hoy de saldo sin nada urgente.
+    if (gasta && porAgotarse) {
       const dias = b.daysLeft != null ? Math.max(0, Math.floor(b.daysLeft)) : null;
       out.push({
         clientId: b.clientId,

@@ -13,6 +13,7 @@ import { activityLog, clients, waBotConfig } from "@paperclipai/db";
 import { desc, eq } from "drizzle-orm";
 import { saludFuentes, type EstadoFuente, type Fuente } from "../ingest/salud.js";
 import { listarDecisiones, type DecisionConCliente } from "./store.js";
+import { esOportunidad } from "./tipos.js";
 
 export interface CoberturaHoy {
   /** Clientes activos mirados. */
@@ -28,6 +29,8 @@ export interface Hoy {
   /** El WhatsApp del sistema: si está caído, no sale ningún aviso. */
   whatsapp: "conectado" | "conectando" | "desconectado" | "sin_dato";
   incidentes: DecisionConCliente[];
+  /** Lo que hay para ganar: contenido que funcionó, upsell, subir presupuesto. Va arriba. */
+  oportunidades: DecisionConCliente[];
   decisiones: DecisionConCliente[];
   /** Ejecutadas, esperando que el próximo dato las confirme. */
   esperando: DecisionConCliente[];
@@ -68,9 +71,20 @@ const TIPOS_PLATA_PARADA = new Set(["saldo:frenada", "pauta:gasto_caido"]);
 
 export const esIncidente = (d: Pick<DecisionConCliente, "porque">) => d.porque?.nivel === 5;
 
-/** Separa lo vivo en las cuatro franjas de Hoy. Pura. */
+/**
+ * Primero lo que trae plata nueva (subir presupuesto, ofrecer pauta), después
+ * el contenido por cuánto rindió. Pura.
+ */
+export function ordenarOportunidades<T extends Pick<DecisionConCliente, "tipo" | "porque">>(xs: T[]): T[] {
+  const peso = (d: T) => (d.tipo === "pauta:escalar" ? 0 : d.tipo.startsWith("upsell:") ? 1 : d.tipo === "contenido:reutilizar" ? 2 : 3);
+  const veces = (d: T) => Number(d.porque?.datos?.find((x) => x.unidad === "veces")?.valor ?? 0);
+  return [...xs].sort((a, b) => peso(a) - peso(b) || veces(b) - veces(a));
+}
+
+/** Separa lo vivo en las franjas de Hoy. Pura. */
 export function armarFranjas(vivas: DecisionConCliente[]) {
   const incidentes: DecisionConCliente[] = [];
+  const oportunidades: DecisionConCliente[] = [];
   const decisiones: DecisionConCliente[] = [];
   const esperando: DecisionConCliente[] = [];
   const sinMeta: DecisionConCliente[] = [];
@@ -78,6 +92,7 @@ export function armarFranjas(vivas: DecisionConCliente[]) {
     // Un incidente se ve arriba mientras dure, aunque ya se haya hecho algo.
     if (esIncidente(d)) incidentes.push(d);
     else if (d.estado === "ejecutada") esperando.push(d);
+    else if (esOportunidad(d.tipo)) oportunidades.push(d);
     else if (d.tipo === "cobertura:sin_meta") sinMeta.push(d);
     else decisiones.push(d);
   }
@@ -88,7 +103,7 @@ export function armarFranjas(vivas: DecisionConCliente[]) {
   const conPlata = vivas.filter((d) => TIPOS_PLATA_PARADA.has(d.tipo) && d.arsPorDia != null);
   const plataParada = conPlata.length ? conPlata.reduce((s, d) => s + (d.arsPorDia ?? 0), 0) : null;
   const clientesParados = new Set(conPlata.map((d) => d.clientId)).size;
-  return { incidentes, decisiones, esperando, sinMeta, plataParada, clientesParados };
+  return { incidentes, oportunidades: ordenarOportunidades(oportunidades), decisiones, esperando, sinMeta, plataParada, clientesParados };
 }
 
 /** Cuenta clientes por fuente y estado. Pura. */

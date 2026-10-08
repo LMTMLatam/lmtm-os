@@ -18,6 +18,7 @@
 // nada de lo suyo: no ver no es lo mismo que estar bien.
 
 import { deMenor } from "../services/ads-budget.js";
+import { seAprovecha } from "./tipos.js";
 import type { Accion, EstadoDecision, Propuesta, ResultadoEjecucion, ResultadoRegla } from "./tipos.js";
 
 export interface Viva {
@@ -129,7 +130,9 @@ export function planificar(
           propuesta: p,
           nota: v.ejecutadaAt ? `Se marcó hecha el ${fecha(v.ejecutadaAt)} y empeoró.` : "Se marcó hecha y empeoró.",
         });
-      } else if (v.estado === "ejecutada" && !verificaPorEfecto(v.accion) && v.ejecutadaAt) {
+      } else if (v.estado === "ejecutada" && !verificaPorEfecto(v.accion) && v.ejecutadaAt && !seAprovecha(p.tipo)) {
+        // Una oportunidad hecha sigue apareciendo (el post sigue siendo bueno):
+        // eso no es "el dato sigue igual", no se reabre.
         const limite = v.ejecutadaAt.getTime() + gracia(v.accion) * DIA;
         if (r.datosHasta.getTime() > limite) {
           ops.push({

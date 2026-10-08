@@ -8,6 +8,14 @@
 export const ESTADOS = ["abierta", "aprobada", "ejecutada", "verificada", "descartada", "vencida"] as const;
 export type EstadoDecision = (typeof ESTADOS)[number];
 
+/**
+ * Lo que hay para aprovechar (contenido que funcionó, upsell): no es un
+ * problema que "se arregla", así que hacerlo no se verifica con el dato.
+ */
+export const seAprovecha = (tipo: string) => /^(contenido|upsell):/.test(tipo);
+/** Oportunidades: van arriba en Hoy y abren el resumen (pedido 08/10). Subir presupuesto también es crecer. */
+export const esOportunidad = (tipo: string) => seAprovecha(tipo) || tipo === "pauta:escalar";
+
 /** Las que todavía piden algo a alguien. Hoy muestra solo estas. */
 export const ESTADOS_VIVOS: readonly EstadoDecision[] = ["abierta", "aprobada", "ejecutada"];
 

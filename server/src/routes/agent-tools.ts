@@ -1908,9 +1908,12 @@ export function agentToolsRoutes(
         // se guarda. El 07/10 había links a portadas (infobae.com/economia/) y uno
         // de Reuters que no existe.
         const url = typeof params.url === "string" ? params.url.trim().slice(0, 500) : "";
-        const { esUrlDeNota } = await import("../avisos/resumen.js");
+        const { esUrlDeNota, deAnioAnterior } = await import("../avisos/resumen.js");
         if (!esUrlDeNota(url)) {
           return reply(false, "Falta el link a la NOTA puntual de donde sale el dato (no la portada ni una sección del medio). Si no la tenés, no guardes la tendencia.");
+        }
+        if (deAnioAnterior(`${title} ${url}`)) {
+          return reply(false, `Esa nota es de un año anterior. Hoy es ${new Date().toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}: una tendencia tiene que ser de este año. Buscá lo último.`);
         }
         const { linkResponde } = await import("../services/entrega-checks.js");
         if (!(await linkResponde(url).catch(() => false))) {

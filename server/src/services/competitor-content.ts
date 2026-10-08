@@ -132,6 +132,14 @@ const GROUNDING_RULE =
   "Usá SOLO lugares y datos que aparezcan explícitamente en el contexto del cliente. " +
   "Si el contexto no dice dónde opera, NO nombres lugares específicos.";
 
+/** Hoy y la estación en Argentina. El 08/10 salió "Promoción de otoño con 20% de descuento" en primavera. */
+export function fechaDeHoy(ahora = new Date()): string {
+  const [dia, mes, anio] = ahora.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }).split("/").map(Number);
+  const md = mes * 100 + dia;
+  const estacion = md >= 1221 || md < 321 ? "verano" : md < 621 ? "otoño" : md < 921 ? "invierno" : "primavera";
+  return `HOY es ${dia}/${mes}/${anio} y en Argentina es ${estacion}. Nada de otra estación ni de fechas que ya pasaron. No inventes descuentos, porcentajes, aniversarios ni testimonios: solo los que estén en el contexto del cliente.`;
+}
+
 function clientLine(client: { name: string; industry: string | null; metadata: unknown }): string {
   const location = ((client.metadata as Record<string, unknown> | null)?.location as string | undefined)?.trim();
   return `Cliente: ${client.name}${client.industry ? ` — rubro: ${client.industry}` : ""}${location ? ` — opera en: ${location} (cualquier referencia geográfica debe ser de acá)` : ""}`;
@@ -224,6 +232,7 @@ export async function generateContentPlan(db: Db, clientId: string): Promise<{ b
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
     "TODO el texto va en ESPAÑOL. Está PROHIBIDO dejar palabras en inglés sueltas — el equipo lee esto tal cual y lo tiene que corregir a mano. Nada de 'strangers', 'pillows menu', 'linking', 'tactile', 'fiber'. Se dicen: desconocidos, menú de almohadas, se conecta, táctil, fibra. Revisá el texto antes de responder.",
     GROUNDING_RULE,
+    fechaDeHoy(),
     "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
     // La voz de la marca, aprendida de lo que el cliente YA publicó. Sin esto el
     // copy salía correcto pero genérico: la misma pieza le servía a una
@@ -632,6 +641,7 @@ export async function generateDailyIdeaForClient(db: Db, clientId: string): Prom
     "Español rioplatense, concreto. Nunca inventes datos de performance.",
     "TODO el texto va en ESPAÑOL. Está PROHIBIDO dejar palabras en inglés sueltas — el equipo lee esto tal cual y lo tiene que corregir a mano. Nada de 'strangers', 'pillows menu', 'linking', 'tactile', 'fiber'. Se dicen: desconocidos, menú de almohadas, se conecta, táctil, fibra. Revisá el texto antes de responder.",
     GROUNDING_RULE,
+    fechaDeHoy(),
     "Si el contexto del cliente incluye 'Feedback Super Redes', aplicalo a rajatabla: más de los patrones que el equipo aprueba, nada de lo que descarta.",
     USAR_LO_QUE_FUNCIONA,
     'Respondé SOLO con un array JSON de UN elemento: [{"kind":"posteo","format":"<UNA de: Post|Photo Post|Story|Carrusel|Tips y Trucos|Guia|Clip corto|Reel|Video Largo|Vivo|Articulo|Blog>","title":"la idea en una línea","copy":"la idea CERRADA según el spec de abajo","objetivo":"COMERCIAL|ENGAGMENT|CONCEPTO","rationale":"en qué se diferencia de la competencia"}]',

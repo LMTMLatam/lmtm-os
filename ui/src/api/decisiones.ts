@@ -62,6 +62,8 @@ export interface Hoy {
   ultimaCorrida: string | null;
   whatsapp: "conectado" | "conectando" | "desconectado" | "sin_dato";
   incidentes: Decision[];
+  /** Contenido que funcionó, upsell y subir presupuesto: van arriba. */
+  oportunidades?: Decision[];
   decisiones: Decision[];
   esperando: Decision[];
   sinMeta: Decision[];

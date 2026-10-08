@@ -78,15 +78,25 @@ export function esUrlDeNota(url: string | null | undefined): boolean {
 }
 
 /**
+ * ¿Nombra un año anterior? El 08/10/26 salieron como "tendencias de hoy" el
+ * ICC de septiembre 2025 y una nota de ventas de octubre de 2025: los agentes
+ * buscan con la fecha de su entrenamiento. ponytail: una nota de este año que
+ * compara contra el anterior también queda afuera; se acepta.
+ */
+export function deAnioAnterior(texto: string, anio = new Date().getFullYear()): boolean {
+  return [...texto.matchAll(/(?<![0-9])(20[0-9]{2})(?![0-9])/g)].some((m) => Number(m[1]) < anio);
+}
+
+/**
  * Las que se pueden reenviar a un cliente: con link a la nota (no a la
  * portada) y una por link. El 07/10 salían dos versiones de la misma noticia
  * con un link de Reuters que no existe; sin fuente verificable no se reenvía.
  */
-export function elegirTendencias(filas: Tendencia[], max = 3): Tendencia[] {
+export function elegirTendencias(filas: Tendencia[], max = 3, anio = new Date().getFullYear()): Tendencia[] {
   const vistas = new Set<string>();
   const salida: Tendencia[] = [];
   for (const t of filas) {
-    if (!esUrlDeNota(t.url) || vistas.has(t.url!)) continue;
+    if (!esUrlDeNota(t.url) || vistas.has(t.url!) || deAnioAnterior(`${t.title} ${t.url}`, anio)) continue;
     vistas.add(t.url!);
     salida.push(t);
     if (salida.length === max) break;
@@ -102,7 +112,7 @@ async function hallazgos(db: Db, h: Pick<Hoy, "decisiones">): Promise<Map<string
 
 /** El encabezado del resumen. Puro: es lo que el dueño lee a las 9:00. */
 export function armarResumen(
-  h: Pick<Hoy, "incidentes" | "decisiones" | "esperando" | "plataParada" | "whatsapp">,
+  h: Pick<Hoy, "incidentes" | "decisiones" | "esperando" | "plataParada" | "whatsapp"> & Partial<Pick<Hoy, "oportunidades">>,
   url: string,
   ahora = new Date(),
   tendencias: Tendencia[] = [],
@@ -113,11 +123,22 @@ export function armarResumen(
 ): string {
   const lineas: string[] = [`*Hoy, ${fechaLarga(ahora)}*`, ""];
 
+  // Primero lo que hay para ganar (pedido 08/10: "que las principales sean
+  // oportunidades de contenido o de upsell, no todo saldo y frenar pauta").
+  const oportunidades = h.oportunidades ?? [];
+  if (oportunidades.length > 0) {
+    lineas.push(`💡 Oportunidades (${oportunidades.length}):`);
+    oportunidades.slice(0, 4).forEach((d, i) => lineas.push(`${i + 1}. *${d.cliente}* — ${d.que}`));
+    if (oportunidades.length > 4) lineas.push(`y ${oportunidades.length - 4} más en Hoy.`);
+    lineas.push("");
+  }
+
   if (h.incidentes.length > 0) {
     const n = h.incidentes.length;
     lineas.push(`🔴 ${n === 1 ? "1 incidente" : `${n} incidentes`}:`);
     for (const i of h.incidentes.slice(0, 4)) {
-      lineas.push(`• *${i.cliente}* — ${i.que}${i.arsPorDia ? ` (${pesos(i.arsPorDia)} por día)` : ""}`);
+      const hecha = i.estado === "ejecutada" ? " — marcada como hecha, todavía sin confirmar" : "";
+      lineas.push(`• *${i.cliente}* — ${i.que}${i.arsPorDia ? ` (${pesos(i.arsPorDia)} por día)` : ""}${hecha}`);
     }
     if (n > 4) lineas.push(`• y ${n - 4} más`);
     lineas.push("");
@@ -127,20 +148,30 @@ export function armarResumen(
     lineas.push(`${pesos(h.plataParada)} por día parados.`, "");
   }
 
-  if (h.decisiones.length === 0) {
+  // El saldo por cargar es un aviso al cliente, no una decisión: una línea.
+  const saldos = h.decisiones.filter((d) => d.tipo === "saldo:bajo");
+  const decisiones = h.decisiones.filter((d) => d.tipo !== "saldo:bajo");
+  if (decisiones.length === 0) {
     lineas.push("No hay decisiones pendientes.");
   } else {
-    lineas.push(h.decisiones.length === 1 ? "Para decidir:" : `Para decidir (${h.decisiones.length}), lo que más pesa:`);
-    h.decisiones.slice(0, 3).forEach((d, i) => {
+    lineas.push(decisiones.length === 1 ? "Para decidir:" : `Para decidir (${decisiones.length}), lo que más pesa:`);
+    decisiones.slice(0, 3).forEach((d, i) => {
       lineas.push(`${i + 1}. *${d.cliente}* — ${d.que}${d.arsPorDia ? ` · ${pesos(d.arsPorDia)} por día` : ""}`);
       // Lo que ya averiguó el agente: la decisión llega con la causa, no solo con la pregunta.
       const hallazgo = hallazgos.get(d.id);
       if (hallazgo) lineas.push(`   ↳ ${unaLinea(hallazgo)}`);
     });
-    const investigadas = h.decisiones.filter((d) => hallazgos.has(d.id)).length;
+    const investigadas = decisiones.filter((d) => hallazgos.has(d.id)).length;
     if (investigadas > 0) {
       lineas.push(`Los agentes ya investigaron ${investigadas === 1 ? "1 de estas decisiones" : `${investigadas} de estas decisiones`}: lo que encontraron está en cada una.`);
     }
+  }
+  if (saldos.length > 0) {
+    const cuenta = (d: (typeof saldos)[number]) => {
+      const dias = d.porque?.datos?.find((x) => x.etiqueta === "Días hasta frenarse")?.valor;
+      return `${d.cliente} (${d.que.includes("Google") ? "Google" : "Meta"}${dias != null ? `, ${dias} ${dias === 1 ? "día" : "días"}` : ""})`;
+    };
+    lineas.push("", `Saldo para avisarle al cliente: ${saldos.map(cuenta).join(", ")}.`);
   }
   if (h.esperando.length > 0) {
     lineas.push("", `${h.esperando.length} ${h.esperando.length === 1 ? "ya hecha espera" : "ya hechas esperan"} que el próximo dato lo confirme.`);

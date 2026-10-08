@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BalanceInfo } from "../../services/balance-monitor.js";
-import { mereceAvisoDeSaldo, motivoFrenada } from "../../services/balance-monitor.js";
+import { motivoFrenada } from "../../services/balance-monitor.js";
 import type { SaludFuente } from "../../ingest/salud.js";
 import {
   clientesConPautaCiega,
@@ -42,7 +42,7 @@ const balance = (o: Partial<BalanceInfo> = {}): BalanceInfo => ({
 });
 
 describe("saldo", () => {
-  const fns = { motivoFrenada, mereceAvisoDeSaldo };
+  const fns = { motivoFrenada };
 
   it("una cuenta frenada hace días gasta 0 hoy: la plata en juego es la parada, no el gasto reciente", () => {
     const costos = new Map([["c1", { clientId: "c1", arsPorDia: 30_000, gastoDiarioPrevio: 30_000, gastoDiarioActual: 0 }]]);

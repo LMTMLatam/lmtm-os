@@ -13,7 +13,7 @@ import type { Db } from "@paperclipai/db";
 import { activityLog, adsAdsets, adsCampaigns, clients, decisiones } from "@paperclipai/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { saludFuentes } from "../ingest/salud.js";
-import { costoPorCliente } from "../services/costo-de-no-hacer.js";
+import { costoPorCliente, DIAS_RECIENTES } from "../services/costo-de-no-hacer.js";
 import { filasColaHumana } from "../services/cola-humana.js";
 import { logActivity } from "../services/activity-log.js";
 import { empresaDelCliente } from "./empresa.js";
@@ -107,12 +107,12 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   // Saldo primero: las cuentas frenadas explican la plata parada de su cliente.
   const conCuentaFrenada = new Set<string>();
   const saldo = await correrRegla("saldo", ahora, async () => {
-    const { fetchAccountBalances, mereceAvisoDeSaldo, motivoFrenada } = await import("../services/balance-monitor.js");
+    const { fetchAccountBalances, motivoFrenada } = await import("../services/balance-monitor.js");
     const balances = await fetchAccountBalances(db);
     const props = propuestasDeSaldo(
       balances.filter((b) => b.clientId && activosIds.has(b.clientId)),
       costos ?? new Map(),
-      { motivoFrenada, mereceAvisoDeSaldo },
+      { motivoFrenada },
     );
     for (const p of props) if (p.tipo === "saldo:frenada") conCuentaFrenada.add(p.clientId);
     return props;
@@ -129,7 +129,10 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     if (!salud) return { propuestas: [], evaluada: false, nota: "Sin salud de fuentes no se puede separar caída real de sync roto." };
     const excluir = new Set([...conCuentaFrenada, ...clientesConPautaCiega(salud)]);
     const soloActivos = new Map([...costos].filter(([id]) => activosIds.has(id)));
-    return propuestasDeCosto(soloActivos, nombres, excluir, { desde: v.desde3, hasta: v.hasta });
+    // La ventana son los mismos días del "gasto diario ahora" (antes decía 3 y el número era de 4).
+    const desde = new Date(`${v.hasta}T12:00:00Z`);
+    desde.setUTCDate(desde.getUTCDate() - (DIAS_RECIENTES - 1));
+    return propuestasDeCosto(soloActivos, nombres, excluir, { desde: desde.toISOString().slice(0, 10), hasta: v.hasta });
   }));
 
   resultados.push(await correrRegla("cola_humana", ahora, async () => {
@@ -245,6 +248,16 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
       if (p) out.push(p);
     }
     return out;
+  }));
+
+  // Lo que hay para ganar: contenido que funcionó y a quién ofrecerle pauta.
+  resultados.push(await correrRegla("oportunidades", ahora, async () => {
+    const { analisisContenido } = await import("../services/contenido-analisis.js");
+    const { propuestasDeOportunidad } = await import("./reglas/oportunidades.js");
+    const a = await analisisContenido(db, 180);
+    const conGasto = await db.execute(sql`select distinct client_id from ads_insights where date >= current_date - 30 and spend > 0 and client_id is not null`);
+    const filas = (Array.isArray(conGasto) ? conGasto : (conGasto as { rows?: unknown[] }).rows ?? []) as Array<{ client_id: string }>;
+    return propuestasDeOportunidad(a, new Set(filas.map((f) => f.client_id)), ahora);
   }));
 
   return soloClientesReales(resultados, activosIds, plantillas);

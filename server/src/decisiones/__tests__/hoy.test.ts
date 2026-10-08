@@ -30,7 +30,9 @@ describe("franjas de Hoy", () => {
       d({ tipo: "cobertura:sin_meta" }),
     ]);
     expect(f.incidentes).toHaveLength(1);
-    expect(f.decisiones.map((x: { tipo: string }) => x.tipo)).toEqual(["pauta:escalar"]);
+    // Subir presupuesto es crecer: va con las oportunidades (08/10), no entre las decisiones.
+    expect(f.oportunidades.map((x: { tipo: string }) => x.tipo)).toEqual(["pauta:escalar"]);
+    expect(f.decisiones).toHaveLength(0);
     expect(f.esperando).toHaveLength(1);
     expect(f.sinMeta).toHaveLength(1);
   });
