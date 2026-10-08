@@ -24,7 +24,8 @@ export interface BenchmarkEvidence {
 
 export interface NicheIntel {
   niche: string;
-  clients: Array<{ id: string; slug: string; name: string; ads30d: ClientAds30d | null; syncStatus: { status: string; error: string | null } | null }>;
+  /** monedaCuenta: la cuenta factura en otra moneda (USD…): su pauta no se suma ni compara en pesos. */
+  clients: Array<{ id: string; slug: string; name: string; ads30d: ClientAds30d | null; syncStatus: { status: string; error: string | null } | null; monedaCuenta?: string | null }>;
   ads30d: { spend: number; leads: number; ctr: number | null; cpl: number | null };
   benchmark: { pattern: string; evidence: BenchmarkEvidence | null } | null;
   winningFormat: { pattern: string; evidence: { topFormat?: string; topAvg?: number; samples?: number } | null } | null;

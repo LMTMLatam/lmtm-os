@@ -50,6 +50,7 @@ import { aiNarrative, generateClientAlerts, runClientAlerts, sendWhatsAppToNumbe
 import { avisarAlEquipo } from "../services/wa-embudo.js";
 import { esPropuestaViva, resumirPropuesta } from "../services/propuestas-cliente.js";
 import { computeClientScore, runClientScores, getLatestScore, getScoreHistory, scoreVisible } from "../services/account-scoring.js";
+import { cuentaEnPesos } from "../metricas/index.js";
 import { getClientBrain, refreshClientBrain, upsertMemory } from "../services/customer-brain.js";
 import { generateClientOpportunities, listOpportunities } from "../services/opportunities-engine.js";
 import { autoDetectClientSheet, setClientSheet, clearClientSheet } from "../services/sheets-mapping.js";
@@ -1577,6 +1578,18 @@ export function adsRoutes(db: Db): Router {
       ),
     };
 
+    // Moneda de la plata de esta ficha: la de sus cuentas si es una sola
+    // conocida (GALA: USD). Mezcladas → null y el panel lo dice.
+    // Solo las cuentas que gastaron en la ventana: una vieja en otra moneda no
+    // vuelve "mezclada" la ficha (IMPERIA tiene una en rupias sin gasto).
+    const conGasto = await db.selectDistinct({ cuenta: sql<string>`regexp_replace(${adsInsights.adAccountId}, '^act_|-', '', 'g')` })
+      .from(adsInsights)
+      .where(and(eq(adsInsights.clientId, client.id), gte(adsInsights.date, sinceDate), sql`${adsInsights.spend} > 0`));
+    const gastaron = new Set(conGasto.map((r) => r.cuenta));
+    const monedas = [...new Set(mappings
+      .filter((m) => gastaron.has(m.adAccountId.replace(/^act_|-/g, "")))
+      .map((m) => m.currency).filter((c): c is string => !!c))];
+    const moneda = monedas.length === 1 ? monedas[0] : monedas.length > 1 ? null : undefined;
     insights.totals.ctr = insights.totals.impressions > 0 ? insights.totals.clicks / insights.totals.impressions : 0;
     insights.totals.cpc = insights.totals.clicks > 0 ? insights.totals.spend / insights.totals.clicks : 0;
 
@@ -1612,7 +1625,7 @@ export function adsRoutes(db: Db): Router {
       accountHealth,
       accounts,
       campaigns,
-      insights,
+      insights: { ...insights, moneda },
       oauthReady: {
         meta: metaReady,
       },
@@ -3590,7 +3603,7 @@ export function adsRoutes(db: Db): Router {
           date: adsInsights.date,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-        }).from(adsInsights).where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyDia}`)).groupBy(adsInsights.date).orderBy(adsInsights.date),
+        }).from(adsInsights).where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyDia}`, cuentaEnPesos(adsInsights.adAccountId))).groupBy(adsInsights.date).orderBy(adsInsights.date),
         db.select({
           week: sql<string>`to_char(date_trunc('week', ${issues.createdAt}), 'YYYY-MM-DD')`,
           n: sql<number>`count(*)::int`,
@@ -3747,7 +3760,7 @@ export function adsRoutes(db: Db): Router {
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
         }).from(adsInsights)
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
-          .where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyNichos}`, eq(clients.status, "active"), isNotNull(clients.industry)))
+          .where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyNichos}`, cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry)))
           .groupBy(adsInsights.clientId, adsInsights.platform),
         // Best real campaigns of the niche (30d, min volume) — "qué funcionó".
         db.select({
@@ -3761,7 +3774,7 @@ export function adsRoutes(db: Db): Router {
         }).from(adsInsights)
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
           // Solo Meta: una campaña de búsqueda de Google siempre gana por CTR.
-          .where(and(gte(adsInsights.date, since30), eq(adsInsights.platform, "meta"), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+          .where(and(gte(adsInsights.date, since30), eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
           .groupBy(clients.industry, clients.name, adsInsights.campaignName)
           .having(sql`sum(${adsInsights.impressions}) >= 500`),
         // Ideas del baúl y tendencias del nicho (recién sembrados — crecen solos).
@@ -3805,7 +3818,8 @@ export function adsRoutes(db: Db): Router {
       ]);
 
       const { desglosarPorCliente } = await import("../services/learning-engine.js");
-      const { conversionesDudosas } = await import("../metricas/index.js");
+      const { conversionesDudosas, clientesEnOtraMoneda } = await import("../metricas/index.js");
+      const otraMoneda = await clientesEnOtraMoneda(db);
       const industriaDe = new Map(clientRows.map((c) => [c.id, c.industry]));
       const filasCliente = perClientRows.filter((r) => r.clientId).map((r) => ({ ...r, clientId: r.clientId as string, industry: industriaDe.get(r.clientId as string) ?? null }));
       const desglose = new Map(desglosarPorCliente(filasCliente).map((d) => [d.clientId, d]));
@@ -3876,7 +3890,7 @@ export function adsRoutes(db: Db): Router {
           .slice(0, 3);
         return {
           niche,
-          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name, ads30d: perClient.get(m.id) ?? null, syncStatus: syncByClient.get(m.id) ?? null })),
+          clients: members.map((m) => ({ id: m.id, slug: m.slug, name: m.name, ads30d: perClient.get(m.id) ?? null, syncStatus: syncByClient.get(m.id) ?? null, monedaCuenta: otraMoneda.get(m.id) ?? null })),
           ads30d: {
             spend: agg.spend, leads: agg.leads,
             ctr: agg.metaImp > 0 ? agg.metaClicks / agg.metaImp : null,

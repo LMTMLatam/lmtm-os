@@ -9,7 +9,7 @@
 import type { Db } from "@paperclipai/db";
 import { adsCreatives, clients, learnings, companies, adsInsights } from "@paperclipai/db";
 import { and, eq, gte, isNotNull, notInArray, sql } from "drizzle-orm";
-import { conversionesDudosas } from "../metricas/index.js";
+import { clientesEnOtraMoneda, conversionesDudosas, cuentaEnPesos } from "../metricas/index.js";
 
 export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
@@ -163,6 +163,7 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
     .where(and(
       gte(adsInsights.date, since),
       sql`${adsInsights.date} < ${hoy}`,
+      cuentaEnPesos(adsInsights.adAccountId),
       eq(clients.status, "active"),
       isNotNull(clients.industry),
       notInArray(clients.industry, NON_BENCHMARK_NICHES),
@@ -343,7 +344,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
       leads: sql<number>`coalesce(sum(${adsInsights.leads}), 0)::int`,
     })
     .from(adsInsights)
-    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${new Date().toISOString().slice(0, 10)}`))
+    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${new Date().toISOString().slice(0, 10)}`, cuentaEnPesos(adsInsights.adAccountId)))
     .groupBy(adsInsights.clientId, adsInsights.platform);
   const campaignRows = await db
     .select({
@@ -356,7 +357,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     .from(adsInsights)
     .innerJoin(clients, eq(adsInsights.clientId, clients.id))
     // Solo Meta: una campaña de búsqueda de Google siempre "gana" por CTR.
-    .where(and(gte(adsInsights.date, since), eq(adsInsights.platform, "meta"), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+    .where(and(gte(adsInsights.date, since), eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
     .groupBy(clients.industry, clients.name, adsInsights.campaignName)
     .having(sql`sum(${adsInsights.impressions}) >= 500`);
 
@@ -366,6 +367,8 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     (mined.find((l) => l.scope === scope && l.scopeKey === niche)?.evidence ?? null) as Record<string, unknown> | null;
 
   const industriaDe = new Map(clientRows.map((c) => [c.id, c.industry]));
+  // Su pauta no se suma en pesos: no es "sin pauta" ni se compara con el rubro.
+  const otraMoneda = await clientesEnOtraMoneda(db);
   const perClient = new Map(desglosarPorCliente(insightRows
     .filter((r) => r.clientId && industriaDe.has(r.clientId))
     .map((r) => ({ ...r, clientId: r.clientId as string, industry: industriaDe.get(r.clientId as string) ?? null }))).map((d) => [d.clientId, d]));
@@ -394,6 +397,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     const sinPauta: string[] = [];
     for (const m of members) {
       const d = perClient.get(m.id);
+      if (otraMoneda.has(m.id)) continue;
       if ((impresiones.get(m.id) ?? 0) < 500) { sinPauta.push(m.name); continue; }
       const ctr = d?.ctrMeta ?? null;
       const cpl = d?.cpl ?? null;

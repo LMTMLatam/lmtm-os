@@ -68,7 +68,8 @@ function Rubro({ n }: { n: NicheIntel }) {
   const gen = useMutation({ mutationFn: () => nichesApi.salesKit(n.niche), onSuccess: (d) => setKit(d.onePager) });
   const ev = n.benchmark?.evidence ?? null;
   const conPauta = n.clients.filter((c) => c.ads30d && c.ads30d.impressions > 0);
-  const sinPauta = n.clients.filter((c) => !c.ads30d || c.ads30d.impressions === 0);
+  const enOtraMoneda = n.clients.filter((c) => c.monedaCuenta);
+  const sinPauta = n.clients.filter((c) => !c.monedaCuenta && (!c.ads30d || c.ads30d.impressions === 0));
   const r = n.report?.sections;
 
   return (
@@ -135,6 +136,11 @@ function Rubro({ n }: { n: NicheIntel }) {
         {sinPauta.length > 0 && (
           <p className="mt-2 text-[12px] text-l-tinta-3">
             Sin pauta en 30 días: {sinPauta.map((c) => (c.syncStatus?.status === "failed" ? `${c.name} (no podemos leer la cuenta)` : c.name)).join(", ")}.
+          </p>
+        )}
+        {enOtraMoneda.length > 0 && (
+          <p className="mt-1 text-[12px] text-l-tinta-3">
+            Con la cuenta en otra moneda (no se suman ni comparan en pesos): {enOtraMoneda.map((c) => `${c.name} (${c.monedaCuenta})`).join(", ")}.
           </p>
         )}
         {n.topCampaigns.length > 0 && (

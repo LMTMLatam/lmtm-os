@@ -62,6 +62,39 @@ export interface MetricasCliente {
  * usa para calcular objetivos.
  */
 export const LIMITE_CONVERSION_GOOGLE = 0.3;
+
+/**
+ * Filtro para sumar o comparar plata entre cuentas: deja afuera las filas de
+ * ads_insights de cuentas que Meta/Google informan en otra moneda (guardada por
+ * el vigilante financiero, migración 0154). ads_insights no tiene moneda: GALA
+ * gasta en dólares y su "costo por lead de $8" entraba al ideal de inmobiliaria.
+ * Sin moneda conocida todavía, la fila se cuenta (casi todas son ARS).
+ */
+/** Clientes con una cuenta en otra moneda QUE GASTÓ en 30 días → la moneda (para
+ *  decir "en USD" en vez de "sin pauta"). Una cuenta vieja en otra moneda sin
+ *  gasto no cuenta: IMPERIA tiene una en rupias y su pauta es en pesos. */
+export async function clientesEnOtraMoneda(db: Db): Promise<Map<string, string>> {
+  const filas = await db.execute(sql`
+    select m.client_id, min(m.currency) moneda
+    from ads_account_mappings m
+    where m.client_id is not null and m.currency is not null and m.currency <> 'ARS'
+      and exists (
+        select 1 from ads_insights ai
+        where regexp_replace(ai.ad_account_id, '^act_|-', '', 'g') = regexp_replace(m.ad_account_id, '^act_|-', '', 'g')
+          and ai.date >= current_date - 30 and ai.spend > 0
+      )
+    group by m.client_id`);
+  const rows = ((filas as unknown as { rows?: unknown[] }).rows ?? (filas as unknown as unknown[])) as Array<{ client_id: string; moneda: string }>;
+  return new Map(rows.map((r) => [r.client_id, r.moneda]));
+}
+
+export function cuentaEnPesos(columnaCuenta: unknown) {
+  return sql`not exists (
+    select 1 from ads_account_mappings m
+    where regexp_replace(m.ad_account_id, '^act_|-', '', 'g') = regexp_replace(${columnaCuenta}, '^act_|-', '', 'g')
+      and m.currency is not null and m.currency <> 'ARS'
+  )`;
+}
 export function conversionesDudosas(plataforma: string, leads: number, clics: number): boolean {
   return plataforma === "google" && clics > 0 && leads / clics > LIMITE_CONVERSION_GOOGLE;
 }

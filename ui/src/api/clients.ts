@@ -428,6 +428,8 @@ export interface ClientAdsSummary {
       ctr: number;
       cpc: number;
     }>;
+    /** Moneda de las cuentas (undefined = sin dato, null = mezcladas). */
+    moneda?: string | null;
     totals: {
       impressions: number;
       clicks: number;

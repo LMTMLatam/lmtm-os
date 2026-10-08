@@ -1486,8 +1486,12 @@ function OverviewTab({ client, ads }: { client: Client; ads?: ClientAdsSummary }
   const hasAccounts = (ads?.accounts?.length ?? 0) > 0;
   const totals = ads?.insights?.totals;
   const hasSpend = totals && totals.spend > 0;
+  // La moneda de las cuentas manda (GALA factura en USD); mezcladas no se le pone símbolo.
+  const moneda = ads?.insights?.moneda;
   const fmtSpend = (n: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: client.currency, maximumFractionDigits: 0 }).format(n);
+    moneda === null
+      ? `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 }).format(n)} (monedas mezcladas)`
+      : new Intl.NumberFormat("es-AR", { style: "currency", currency: moneda ?? client.currency, maximumFractionDigits: 0 }).format(n);
   const fmtPct = (n: number) => `${(n * 100).toFixed(2)}%`;
   const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
 
