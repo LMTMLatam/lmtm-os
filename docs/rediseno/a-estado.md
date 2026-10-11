@@ -73,6 +73,11 @@ corta al primer freno y reintenta cada 3 h; la validación de competidores deja
 pasar si está bloqueado. Para que mida: pedir PPCA a Meta (gratis, revisión)
 y/o correrlo desde una conexión residencial, o ScrapeCreators (pago, rama lista).
 
+**PPCA pedido a Meta (11/10)** en la app 1411059550398601, con screencast
+(Downloads/LMTM-OS-PPCA-screencast.mp4). Al aprobarse no hay que tocar código:
+la vuelta de cada 3 h lee las 92 páginas sola. Verificar entonces fb_estado y
+competencia_posts con usuario `fb:%`.
+
 ### 11/10: Contenido generado, gasto por herramienta y Claude genera
 
 **Pedido:** una sección con todos los links de lo generado por Higgsfield y
