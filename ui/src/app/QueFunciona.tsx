@@ -32,7 +32,10 @@ export interface AnalisisContenido {
     cuentas: number; publicaciones: number;
     nichos: Array<{ nicho: string; cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] }>;
     reutilizar: Ejemplo[];
-    estado: { conInstagram: number; medidas: number; noEncontradas: number; noEmpresa: number; otras: number; sinRevisar: number };
+    estado: {
+      conInstagram: number; medidas: number; noEncontradas: number; noEmpresa: number; otras: number; sinRevisar: number;
+      noExisten?: number; privadas?: number; conFacebook?: number; medidasFacebook?: number; motivoFacebook?: string | null;
+    };
   };
 }
 
@@ -197,7 +200,7 @@ export function QueFuncionaNicho({ nicho }: { nicho: string }) {
         ) : (
           <p className="text-[13px] text-l-tinta-3">
             Todavía no hay dos cuentas de la competencia medidas en este rubro.
-            {comp ? ` En toda la agencia: ${comp.estado.medidas} de ${comp.estado.conInstagram} cuentas con Instagram medidas${comp.estado.sinRevisar ? `, ${comp.estado.sinRevisar} por leer` : ""}${comp.estado.noEncontradas + comp.estado.noEmpresa ? `, ${comp.estado.noEncontradas + comp.estado.noEmpresa} que Instagram no devuelve (usuario mal cargado o cuenta personal)` : ""}.` : ""}
+            {comp ? ` ${resumenEstado(comp.estado)}` : ""}
           </p>
         )}
       </div>
@@ -313,4 +316,15 @@ export function QueFuncionaCliente({ clientId }: { clientId: string }) {
       )}
     </div>
   );
+}
+
+/** "En toda la agencia: 40 de 171 cuentas de Instagram medidas, 30 por leer, 12 usuarios que no existen…" */
+function resumenEstado(e: NonNullable<AnalisisContenido["competencia"]>["estado"]): string {
+  const porLeer = e.sinRevisar + e.noEncontradas + e.noEmpresa;
+  const partes = [`${e.medidas} de ${e.conInstagram} cuentas de Instagram medidas`];
+  if (porLeer) partes.push(`${porLeer} por leer`);
+  if (e.noExisten) partes.push(`${e.noExisten} con un usuario que no existe (mal cargado)`);
+  if (e.privadas) partes.push(`${e.privadas} privadas`);
+  if (e.conFacebook) partes.push(`${e.medidasFacebook ?? 0} de ${e.conFacebook} páginas de Facebook medidas${e.motivoFacebook ? ` (${e.motivoFacebook})` : ""}`);
+  return `En toda la agencia: ${partes.join(", ")}.`;
 }
