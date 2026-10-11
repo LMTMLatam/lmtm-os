@@ -94,6 +94,14 @@ desde el servidor (Instagram de empresa por Business Discovery o sitio que
 responda). La versión anterior dejaba pasar si Instagram frenaba, y desde
 Railway frena siempre.
 
+**Vuelta corregida (`9f787cb`):** un 429 del lector propio cortaba toda la
+vuelta (medía 3 de 37); ahora Business Discovery sigue con el resto. Primera
+vuelta después del arreglo: 25 cuentas y 730 publicaciones nuevas. Cuentas de
+Instagram de la competencia medidas: de 26 a 55. Dudosos: un agente con
+buscadores (DuckDuckGo pidió captcha, Brave cortó a las 5 consultas) corrigió
+2 y borró 3 (Happy Hop ×2, Bien Simple); Hotel San Remo no se borró (confianza
+media). Quedan 12 por leer (tope de 40 por vuelta) y 16 sin resolver.
+
 ### 11/10: Contenido generado, gasto por herramienta y Claude genera
 
 **Pedido:** una sección con todos los links de lo generado por Higgsfield y
