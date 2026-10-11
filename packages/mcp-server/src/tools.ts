@@ -1130,6 +1130,16 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async () => client.requestJson("GET", "/video/estado"),
     ),
     makeTool(
+      "lmtmRedesPublicas",
+      "Lee el perfil PÚBLICO de una cuenta de Instagram (usuario) o una página de Facebook (url) que no es nuestra —competidor o referente— con sus últimas publicaciones: me gusta, comentarios, formato, fecha, texto y cuántas veces lo normal de ESA cuenta rindió cada una. Lector propio de LMTM, sin costo. Dice si el usuario no existe o es privado. Si responde 'bloqueado', Instagram frenó al servidor: probá más tarde. Para lo ya medido de toda la competencia de un rubro, lmtmGetNicheIntel.",
+      z.object({
+        red: z.enum(["instagram", "facebook"]),
+        usuario: z.string().optional().describe("Instagram: usuario sin @ o URL del perfil."),
+        url: z.string().optional().describe("Facebook: URL de la página."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_redes_publicas", parameters: p } }),
+    ),
+    makeTool(
       "lmtmHerramientaAgente",
       "Corre CUALQUIER herramienta de los agentes de LMTM-OS por su nombre (las mismas que usan Milo, Caro y el resto): ClickUp (clickup_list_tasks, clickup_create_task…), planillas (sheets_read), validación de redes, cliente listo para producir, auditoría de keywords de Google, negativas, plugins, etc. Sin 'tool' devuelve la lista completa con la descripción y los parámetros de cada una. Las que mueven plata o escriben afuera siguen pidiendo aprobación humana, igual que para los agentes.",
       z.object({

@@ -30,8 +30,9 @@ describe("competencia medida (08/10)", () => {
     }
     const a = analizarPublicaciones(pubs, 180, new Date("2026-10-08T12:00:00Z"));
     const t = textoCompetencia(a, "turismo-hoteleria");
-    expect(t).toContain("2 cuentas de Instagram de competidores");
+    expect(t).toContain("2 cuentas de competidores (Instagram y Facebook)");
     expect(t).toContain("nunca el texto");
     expect(textoCompetencia(a, "inmobiliaria")).toBe("");
   });
 });
+

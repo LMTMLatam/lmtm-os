@@ -213,6 +213,23 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_redes_publicas",
+      description:
+        "Lee el perfil PÚBLICO de una cuenta de Instagram (usuario) o de una página de Facebook (url) que no es nuestra —un competidor, un referente del rubro— con sus últimas publicaciones: me gusta, comentarios, formato, fecha, texto y cuántas veces lo normal de ESA cuenta rindió cada una. Lector propio, sin costo. Dice si el usuario no existe o es privado: usalo para verificar un competidor ANTES de cargarlo. Si devuelve 'bloqueado', Instagram frenó al servidor: probá más tarde, no insistas.",
+      parameters: {
+        type: "object",
+        properties: {
+          red: { type: "string", enum: ["instagram", "facebook"] },
+          usuario: { type: "string", description: "Instagram: usuario sin @ (o la URL del perfil)" },
+          url: { type: "string", description: "Facebook: URL de la página" },
+        },
+        required: ["red"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_client_ads_performance",
       description:
         "Métricas REALES de Meta Ads del cliente para los últimos N días (spend, impresiones, clicks, leads, reach, CTR, CPL, CPC). Datos sincronizados, no inventes.",
@@ -1242,6 +1259,29 @@ export function agentToolsRoutes(
         return reply(true, `Radar de nicho guardado para "${niche}" (semana ${monday}): ${sections.referentes.length} referentes, ${sections.ideas.length} ideas, plan para ${sections.planPorCliente.length} clientes.`);
       }
 
+      if (tool === "get_redes_publicas") {
+        const { perfilInstagram, paginaFacebook, idDePaginaFacebook, tokenDeMeta, resumenParaAgente, Bloqueado, SinPermiso } = await import("../services/redes-publicas.js");
+        const { usuarioDeInstagram } = await import("../services/competencia-ig.js");
+        try {
+          if (params.red === "facebook") {
+            const id = idDePaginaFacebook(typeof params.url === "string" ? params.url : "");
+            if (!id) return reply(false, "Pasá la URL de la página de Facebook (facebook.com/<pagina> o profile.php?id=…).");
+            const meta = await tokenDeMeta(db);
+            if (!meta) return reply(false, "No hay ninguna conexión de Meta activa para leer Facebook.");
+            const p = await paginaFacebook(meta.token, id);
+            return reply(true, JSON.stringify(p ? resumenParaAgente(p) : { existe: false, pagina: id }));
+          }
+          const u = usuarioDeInstagram(typeof params.usuario === "string" ? params.usuario : "");
+          if (!u) return reply(false, "Pasá el usuario de Instagram (sin @) o la URL del perfil.");
+          const p = await perfilInstagram(u);
+          return reply(true, JSON.stringify(p ? resumenParaAgente(p) : { existe: false, usuario: u }));
+        } catch (e) {
+          if (e instanceof Bloqueado) return reply(false, `bloqueado: ${e.message}. Probá más tarde.`);
+          if (e instanceof SinPermiso) return reply(false, `La app de Meta no tiene permiso para leer páginas ajenas (Page Public Content Access): ${e.message}`);
+          return reply(false, (e instanceof Error ? e.message : String(e)).slice(0, 300));
+        }
+      }
+
       if (tool === "add_client_competitor") {
         const clientId = typeof params.clientId === "string" ? params.clientId : "";
         const name = typeof params.name === "string" ? params.name.trim().slice(0, 200) : "";
@@ -1262,6 +1302,20 @@ export function agentToolsRoutes(
         }
         const existing = await db.select({ id: competitors.id, name: competitors.name }).from(competitors).where(eq(competitors.clientId, clientId)).limit(50);
         if (existing.some((c) => norm(c.name) === norm(name))) return reply(true, `"${name}" ya estaba cargado como competidor de este cliente.`);
+        // El usuario de Instagram se verifica ANTES de guardarlo: de 171 cargados,
+        // muchos eran usuarios adivinados que no existen (11/10). Si Instagram
+        // frena la consulta no se bloquea la carga: la medición lo marca después.
+        if (igHandle) {
+          const { perfilInstagram, Bloqueado } = await import("../services/redes-publicas.js");
+          const { usuarioDeInstagram } = await import("../services/competencia-ig.js");
+          const u = usuarioDeInstagram(igHandle);
+          if (!u) return reply(false, `"${igHandle}" no es un usuario de Instagram válido (letras, números, punto y guion bajo).`);
+          try {
+            if (!(await perfilInstagram(u))) return reply(false, `El usuario de Instagram "@${u}" NO EXISTE. No adivines usuarios: buscalo (get_redes_publicas o el sitio del negocio) o cargá el competidor sin igHandle.`);
+          } catch (e) {
+            if (!(e instanceof Bloqueado)) console.warn("[add_client_competitor] no se pudo verificar el Instagram:", e instanceof Error ? e.message : e);
+          }
+        }
         await db.insert(competitors).values({
           companyId: compCompanyId, clientId, name,
           igHandle, fbPageUrl, website,

@@ -967,6 +967,13 @@
       "when": 1781800000156,
       "tag": "0156_contenido_gastos",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1781800000157,
+      "tag": "0157_competencia_fb",
+      "breakpoints": true
     }
   ]
 }

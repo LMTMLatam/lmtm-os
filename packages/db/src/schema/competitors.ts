@@ -23,6 +23,9 @@ export const competitors = pgTable(
     igEstado: text("ig_estado"),
     igSeguidores: integer("ig_seguidores"),
     igRevisadoAt: timestamp("ig_revisado_at", { withTimezone: true }),
+    /** Lectura de su Facebook con ScrapeCreators (migración 0157). */
+    fbEstado: text("fb_estado"),
+    fbRevisadoAt: timestamp("fb_revisado_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
