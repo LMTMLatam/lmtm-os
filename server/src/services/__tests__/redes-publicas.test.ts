@@ -39,6 +39,9 @@ describe("lector propio: Facebook", () => {
     expect(idDePaginaFacebook("https://m.facebook.com/pg/inmo.sur/posts")).toBe("inmo.sur");
     expect(idDePaginaFacebook("https://www.facebook.com/groups/123")).toBeNull();
     expect(idDePaginaFacebook("www.hotelcosta.com.ar")).toBeNull();
+    expect(idDePaginaFacebook("https://massa1950.com.ar/")).toBeNull();
+    expect(idDePaginaFacebook("https://www.facebook.com/ads/library/?active_status=active&country=AR&view_all_page_id=100861396733459")).toBe("100861396733459");
+    expect(idDePaginaFacebook("https://www.facebook.com/ads/library/?q=hotel")).toBeNull();
   });
 
   it("reacciones como me gusta, reel por el link, álbum es carrusel", () => {

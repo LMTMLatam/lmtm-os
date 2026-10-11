@@ -18,7 +18,7 @@
 // "no encontrada" sin decir si son personales o si el usuario no existe. Ahora
 // esas pasan por el lector propio (redes-publicas.ts), que lee el perfil
 // público y distingue medida / privada / no existe. Las páginas de Facebook
-// (320 competidores solo tienen eso) se leen por la Graph API si la app tiene
+// (92 con link a la página; otros 299 tienen un sitio web en ese campo) se leen por la Graph API si la app tiene
 // permiso. En Facebook tampoco se cuentan compartidos: reacciones +
 // comentarios×3, siempre contra la misma cuenta.
 

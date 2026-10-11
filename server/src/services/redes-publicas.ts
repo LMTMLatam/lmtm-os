@@ -5,7 +5,7 @@
 // cuentas de empresa con el usuario bien escrito. De 171 competidores con
 // Instagram leyó 26; los otros 145 volvieron "no encontrada" sin decir si la
 // cuenta es personal o si el usuario no existe (muchos los cargó un agente
-// adivinando). Y 320 competidores solo tienen Facebook.
+// adivinando). Y 92 competidores tienen página de Facebook cargada.
 //
 // Qué lee, sin costo:
 //  · Instagram: el perfil y sus últimas 12 publicaciones (me gusta,
@@ -119,16 +119,23 @@ export async function perfilInstagram(usuario: string): Promise<PerfilPublico | 
   return parsearPerfilInstagram(j);
 }
 
-/** "https://www.facebook.com/HotelCosta/" → "hotelcosta"; "profile.php?id=123" → "123". */
+/**
+ * "https://www.facebook.com/HotelCosta/" → "hotelcosta"; "profile.php?id=123" → "123";
+ * un link de la Biblioteca de Anuncios con view_all_page_id=123 → "123".
+ * null si no es una página (299 competidores tienen un sitio web en este campo).
+ */
 export function idDePaginaFacebook(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const s = raw.trim();
+  if (!/(?:facebook|fb)\.com\//i.test(s)) return null;
+  const deAnuncios = s.match(/view_all_page_id=(\d+)/i);
+  if (deAnuncios) return deAnuncios[1];
   const id = s.match(/facebook\.com\/profile\.php\?id=(\d+)/i);
   if (id) return id[1];
   const m = s.match(/(?:^|\/\/|\.)(?:facebook|fb)\.com\/(?:pg\/)?([^/?#\s]+)/i);
   if (!m) return null;
   const slug = m[1].toLowerCase();
-  if (["groups", "share", "sharer", "watch", "events", "people", "pages", "reel", "story.php", "permalink.php", "photo.php", "profile.php"].includes(slug)) return null;
+  if (["ads", "groups", "share", "sharer", "watch", "events", "people", "pages", "reel", "story.php", "permalink.php", "photo.php", "profile.php"].includes(slug)) return null;
   return /^[a-z0-9.\-_]{2,80}$/.test(slug) ? slug : null;
 }
 
