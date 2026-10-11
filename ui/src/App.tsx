@@ -66,6 +66,7 @@ import { ClienteApp } from "./app/ClienteApp";
 import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
 import { ContenidoApp } from "./app/ContenidoApp";
+import { ContenidoGeneradoApp } from "./app/ContenidoGeneradoApp";
 import { NichosApp } from "./app/NichosApp";
 import { LicitacionesApp } from "./app/LicitacionesApp";
 import { PautaApp } from "./app/PautaApp";
@@ -356,6 +357,7 @@ export function App() {
             <Route path="pauta" element={<PautaApp />} />
             <Route path="avisos" element={<AvisosApp />} />
             <Route path="contenido" element={<ContenidoApp />} />
+            <Route path="contenido/generado" element={<ContenidoGeneradoApp />} />
             <Route path="nichos" element={<NichosApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<LicitacionesApp />} />

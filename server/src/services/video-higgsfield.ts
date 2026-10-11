@@ -30,7 +30,7 @@ import { aiNarrative } from "./agency-ops.js";
 import { NON_LATIN_RE } from "./entrega-checks.js";
 import { entregarVideo, type EntregaResultado } from "./video-entrega.js";
 import { planDe } from "./contenido-tipos.js";
-import { estado as estadoHiggsfield, generarVideo, SinCreditos } from "./higgsfield.js";
+import { conGasto, estado as estadoHiggsfield, generarVideo, SinCreditos, type ContextoGasto } from "./higgsfield.js";
 import { hayPlan, prepararCredenciales, MODELO_VIDEO_PLAN } from "./higgsfield-cli.js";
 import { hayCredenciales as hayApi } from "./higgsfield-api.js";
 
@@ -707,7 +707,15 @@ export async function previsualizarPieza(
   return { ...base, prompt, tomas: tomas.length ? tomas : undefined, modelo: MODELO_VIDEO_PLAN };
 }
 
-export async function generarVideoDePieza(
+export function generarVideoDePieza(
+  db: Db,
+  input: { clientId: string; taskId: string; forzar?: boolean; origen?: ContextoGasto["origen"] },
+): Promise<ResultadoVideo> {
+  // Todo lo que se pague para esta pieza queda en contenido_gastos con su tarea.
+  return conGasto({ origen: input.origen ?? "panel", clientId: input.clientId, pieza: input.taskId }, () => generarPieza(db, input));
+}
+
+async function generarPieza(
   db: Db,
   input: { clientId: string; taskId: string; forzar?: boolean },
 ): Promise<ResultadoVideo> {
@@ -875,7 +883,7 @@ export async function barrerPendientes(db: Db): Promise<{ vistas: number; genera
 
   let generadas = 0;
   for (const p of pend.slice(0, TOPE_POR_BARRIDO)) {
-    const r = await generarVideoDePieza(db, { clientId: p.clientId, taskId: p.tarea.id });
+    const r = await generarVideoDePieza(db, { clientId: p.clientId, taskId: p.tarea.id, origen: "clickup" });
     if (r.ok && r.url) generadas++;
     else if (r.error) errores.push(`${p.clientName} — ${p.tarea.name}: ${r.error}`);
   }

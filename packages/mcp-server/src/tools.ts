@@ -1078,5 +1078,68 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
           },
         }),
     ),
+    // ── Contenido generado (Higgsfield / Magnific) y el resto de las ─────────
+    // herramientas de los agentes, para Claude por el conector (pedido 11/10).
+    makeTool(
+      "lmtmGenerarContenido",
+      "GENERA un video o una imagen para un cliente con Higgsfield (plan de la agencia; si no alcanza, su API) o Magnific, lo GUARDA en el Drive de Super Redes del cliente (carpeta VIDEOS o PLACAS) y lo registra en Contenido generado con lo que gastó. GASTA CRÉDITOS: confirmá con la persona antes de llamarla y no la repitas para 'probar'. El prompt va en INGLÉS, describiendo sujeto + lugar + luz + movimiento de cámara + estilo; sin marcas, logos ni texto en pantalla (los modelos escriben con faltas: el texto lo monta diseño). Video: vertical 9:16 de ~8 s. Imagen: 'placa' (3:4, feed) o 'vertical' (9:16, historia). Leé antes lmtmGetClientBrain para respetar la marca. Si la pieza ya existe como tarea de ClickUp, usá lmtmGenerarPieza.",
+      z.object({
+        clientId: z.string().min(1),
+        tipo: z.enum(["video", "imagen"]),
+        prompt: z.string().min(10).max(1500).describe("En inglés."),
+        titulo: z.string().optional().describe("Nombre del archivo en Drive (en castellano está bien)."),
+        imagenUrl: z.string().optional().describe("Solo video: imagen pública de partida (la pieza del diseñador) para que respete la identidad de la marca."),
+        formato: z.enum(["placa", "vertical"]).optional().describe("Solo imagen. Default placa."),
+        herramienta: z.enum(["auto", "magnific"]).optional().describe("Solo imagen. 'magnific' fuerza Magnific; default auto (Higgsfield plan → API → Magnific)."),
+      }),
+      async (p) => client.requestJson("POST", "/contenido/generar-libre", { body: { ...p, origen: "claude" } }),
+    ),
+    makeTool(
+      "lmtmGenerarPieza",
+      "Genera el contenido de una PIEZA que ya es tarea de ClickUp (Super Redes o Redes Sociales), igual que la etiqueta 'generar contenido': el campo Tipo de Contenido decide si sale reel (3 clips pegados), clip, placa o carrusel; usa el Copy y la imagen de la tarea; sube a Drive, carga el Enlace de publicación y comenta en la tarea. GASTA CRÉDITOS: primero llamala con soloPrompt=true para ver qué se va a pedir, mostráselo a la persona y recién con su OK generá. Si la pieza ya se generó no la repite, salvo forzar=true.",
+      z.object({
+        clientId: z.string().min(1),
+        taskId: z.string().min(1).describe("Id de la tarea de ClickUp."),
+        soloPrompt: z.boolean().optional().describe("true = no genera ni gasta: devuelve el prompt, las tomas o las placas que se pedirían."),
+        forzar: z.boolean().optional().describe("Regenerar aunque ya tenga contenido generado."),
+      }),
+      async ({ clientId, taskId, soloPrompt, forzar }) =>
+        soloPrompt
+          ? client.requestJson("POST", "/video/prompt", { body: { clientId, taskId } })
+          : client.requestJson("POST", "/video/generar", { body: { clientId, taskId, origen: "claude", ...(forzar ? { forzar } : {}) } }),
+    ),
+    makeTool(
+      "lmtmContenidoGenerado",
+      "CONTENIDO GENERADO con Higgsfield y Magnific: cada pieza con su link de Drive, su tarea de ClickUp, quién la pidió (clickup / panel / claude) y lo que gastó; y el gasto por herramienta y por cliente en el período. Las unidades no se mezclan: créditos del plan de Higgsfield, créditos y US$ de su API, y Magnific (que no informa el costo por pedido: se cuenta cuántas). 'noEntregadas' = generaciones pagadas que no terminaron en una pieza. Para saber cuánto le queda al plan, lmtmEstadoGeneracion.",
+      z.object({
+        dias: z.number().int().positive().max(730).optional().describe("Período hacia atrás (default 30)."),
+        clientId: z.string().optional(),
+      }),
+      async ({ dias, clientId }) => {
+        const q = new URLSearchParams();
+        if (dias) q.set("dias", String(dias));
+        if (clientId) q.set("clientId", clientId);
+        const qs = q.toString();
+        return client.requestJson("GET", `/contenido/generado${qs ? `?${qs}` : ""}`);
+      },
+    ),
+    makeTool(
+      "lmtmEstadoGeneracion",
+      "Si se puede generar ahora: créditos que le quedan al plan de Higgsfield, por qué vía saldría (plan o API), si Magnific está configurado, y la cola de tareas con la etiqueta 'generar contenido'. Consultalo antes de generar.",
+      z.object({}),
+      async () => client.requestJson("GET", "/video/estado"),
+    ),
+    makeTool(
+      "lmtmHerramientaAgente",
+      "Corre CUALQUIER herramienta de los agentes de LMTM-OS por su nombre (las mismas que usan Milo, Caro y el resto): ClickUp (clickup_list_tasks, clickup_create_task…), planillas (sheets_read), validación de redes, cliente listo para producir, auditoría de keywords de Google, negativas, plugins, etc. Sin 'tool' devuelve la lista completa con la descripción y los parámetros de cada una. Las que mueven plata o escriben afuera siguen pidiendo aprobación humana, igual que para los agentes.",
+      z.object({
+        tool: z.string().optional().describe("Nombre exacto (snake_case). Vacío = listar."),
+        parameters: z.record(z.unknown()).optional(),
+      }),
+      async ({ tool, parameters }) =>
+        tool
+          ? client.requestJson("POST", "/agent-tools/execute", { body: { tool, parameters: parameters ?? {} } })
+          : client.requestJson("GET", "/agent-tools"),
+    ),
   ];
 }

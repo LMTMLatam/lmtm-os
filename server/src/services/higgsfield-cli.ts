@@ -268,6 +268,27 @@ export async function costoPlan(db: Db, modelo: string, extra: string[] = []): P
   return hf(db, ["generate", "cost", modelo, "--prompt", "test scene, soft daylight, 35mm", ...extra, "--json"], 60_000);
 }
 
+/**
+ * Lo que cobra el plan por ESTE pedido (mismos flags que el create), sin
+ * generar. null si la CLI no lo pudo decir: nunca se frena una generación por
+ * no saber el precio, pero tampoco se inventa.
+ */
+async function cotizarPlan(db: Db, modelo: string, flags: string[]): Promise<number | null> {
+  try {
+    const out = await hf(db, ["generate", "cost", modelo, ...flags, "--json"], 60_000);
+    const n = Number((JSON.parse(out.slice(out.indexOf("{"))) as { credits?: unknown }).credits);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function crearEnPlan(db: Db, modelo: string, flags: string[], espera: string) {
+  const creditos = await cotizarPlan(db, modelo, flags);
+  const r = urlDeSalida(await hf(db, ["generate", "create", modelo, ...flags, "--wait", "--wait-timeout", espera, "--json"]));
+  return { ...r, modelo, creditos };
+}
+
 function urlDeSalida(stdout: string): { url: string; jobId?: string } {
   const jobs = JSON.parse(stdout.slice(stdout.indexOf("["))) as Array<{ id?: string; result_url?: string | null; status?: string }>;
   const job = jobs.find((j) => j.result_url) ?? jobs[0];
@@ -293,15 +314,14 @@ export async function generarVideoPlan(
   db: Db,
   prompt: string,
   opts: { imagenUrl?: string | null } = {},
-): Promise<{ url: string; jobId?: string }> {
-  const args = ["generate", "create", MODELO_VIDEO_PLAN, "--prompt", prompt,
-    "--aspect-ratio", "9:16", "--wait", "--wait-timeout", "12m", "--json"];
+) {
+  const flags = ["--prompt", prompt, "--aspect-ratio", "9:16"];
   if (/seedance_2/.test(MODELO_VIDEO_PLAN)) {
-    args.push("--duration", "8", "--resolution", "720p");
-    if (/seedance_2_5/.test(MODELO_VIDEO_PLAN)) args.push("--mode", opts.imagenUrl ? "omni_reference" : "t2v");
+    flags.push("--duration", "8", "--resolution", "720p");
+    if (/seedance_2_5/.test(MODELO_VIDEO_PLAN)) flags.push("--mode", opts.imagenUrl ? "omni_reference" : "t2v");
   }
-  if (opts.imagenUrl) args.push("--start-image", opts.imagenUrl);
-  return urlDeSalida(await hf(db, args));
+  if (opts.imagenUrl) flags.push("--start-image", opts.imagenUrl);
+  return crearEnPlan(db, MODELO_VIDEO_PLAN, flags, "12m");
 }
 
 /** ¿La escena tiene personas? Decide entre Soul 2.0 y Soul Location. */
@@ -318,13 +338,12 @@ export async function generarImagenPlan(
   db: Db,
   prompt: string,
   opts: { referencias?: string[]; aspect?: string } = {},
-): Promise<{ url: string; jobId?: string }> {
+) {
   const refs = opts.referencias ?? [];
   const modelo = modeloImagen({ conReferencias: refs.length > 0, conPersonas: HAY_PERSONAS.test(prompt) });
-  const args = ["generate", "create", modelo, "--prompt", prompt,
-    "--aspect-ratio", opts.aspect ?? "3:4", "--wait", "--wait-timeout", "10m", "--json"];
+  const flags = ["--prompt", prompt, "--aspect-ratio", opts.aspect ?? "3:4"];
   // Soul cobra igual 1.5k que 2k (0,12 en los dos): se pide siempre la mejor.
-  if (/soul/.test(modelo) && modelo !== "soul_location") args.push("--quality", "2k");
-  for (const r of refs) args.push("--image", r);
-  return urlDeSalida(await hf(db, args));
+  if (/soul/.test(modelo) && modelo !== "soul_location") flags.push("--quality", "2k");
+  for (const r of refs) flags.push("--image", r);
+  return crearEnPlan(db, modelo, flags, "10m");
 }
