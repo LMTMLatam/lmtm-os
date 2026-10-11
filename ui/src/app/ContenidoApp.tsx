@@ -199,7 +199,10 @@ export function ContenidoApp() {
         </section>
 
         <section>
-          <TituloFranja>Generado</TituloFranja>
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <TituloFranja>Generado</TituloFranja>
+            <Link to="/contenido/generado" className="text-[13px] text-l-tinta-2 hover:text-l-marca">Todo, con sus links y lo que gastó →</Link>
+          </div>
           <Galeria items={generados.data?.videos ?? []} cargando={generados.isLoading} />
         </section>
       </div>

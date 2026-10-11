@@ -10,6 +10,11 @@ import { agentDeliverables, clients } from "@paperclipai/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { barrerPendientes, estadoCuenta, generarVideoDePieza, piezasPendientes, previsualizarPieza, TAG_PEDIDO } from "../services/video-higgsfield.js";
 import { hayMagnific } from "../services/magnific.js";
+import { contenidoGenerado, generarContenidoLibre, type PedidoLibre } from "../services/contenido-generado.js";
+import { assertBoard } from "./authz.js";
+
+/** Lo que aguanta el proxy de Railway antes de cortar la conexión (~4 min). */
+const ESPERA_RESPUESTA_MS = 200_000;
 
 export function videoRoutes(db: Db): Router {
   const router = Router();
@@ -73,8 +78,8 @@ export function videoRoutes(db: Db): Router {
   // devuelve el link y no un "ya te aviso".
   router.post("/video/generar", async (req, res) => {
     try {
-      const { clientId, clientSlug, taskId, forzar } = (req.body ?? {}) as {
-        clientId?: string; clientSlug?: string; taskId?: string; forzar?: boolean;
+      const { clientId, clientSlug, taskId, forzar, origen } = (req.body ?? {}) as {
+        clientId?: string; clientSlug?: string; taskId?: string; forzar?: boolean; origen?: string;
       };
       if (!taskId) return res.status(400).json({ error: "falta taskId" });
       let id = clientId;
@@ -88,11 +93,11 @@ export function videoRoutes(db: Db): Router {
       // Railway y el request muere con "upstream error" AUNQUE el servidor lo
       // termine bien (14/8). Se responde 202 y el trabajo sigue: el resultado
       // llega igual al comentario de ClickUp, a Drive y al Cronopost.
-      const trabajo = generarVideoDePieza(db, { clientId: id, taskId, forzar: !!forzar });
+      const trabajo = generarVideoDePieza(db, { clientId: id, taskId, forzar: !!forzar, origen: origen === "claude" ? "claude" : "panel" });
       let terminado = false;
       const resultado = await Promise.race([
         trabajo.then((r) => { terminado = true; return r; }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 200_000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ESPERA_RESPUESTA_MS)),
       ]);
       if (!terminado || resultado == null) {
         trabajo.catch((e) => console.warn("[video] generación en curso falló:", e instanceof Error ? e.message : e));
@@ -105,6 +110,49 @@ export function videoRoutes(db: Db): Router {
     } catch (e) {
       res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
     }
+  });
+
+  // GET /api/contenido/generado?dias=30&clientId= — todo lo generado con su
+  // link de Drive y lo que gastó cada herramienta. Solo lectura.
+  router.get("/contenido/generado", async (req, res) => {
+    try {
+      const dias = Math.min(730, Math.max(1, Number(req.query.dias) || 30));
+      const clientId = typeof req.query.clientId === "string" && req.query.clientId ? req.query.clientId : null;
+      res.json(await contenidoGenerado(db, { dias, clientId }));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
+  // POST /api/contenido/generar-libre { clientId, tipo, prompt, titulo?, imagenUrl?, formato?, herramienta?, origen? }
+  // Genera sin tarea de ClickUp (Claude por el conector, o el panel), lo sube
+  // al Drive de Super Redes del cliente y lo registra con su gasto. GASTA
+  // CRÉDITOS: solo personas del tablero (el conector de Claude entra como
+  // tablero); los agentes no.
+  router.post("/contenido/generar-libre", async (req, res) => {
+    assertBoard(req);
+    const b = (req.body ?? {}) as Partial<PedidoLibre> & { origen?: string };
+    if (!b.clientId || (b.tipo !== "video" && b.tipo !== "imagen") || typeof b.prompt !== "string") {
+      return res.status(422).json({ error: "Faltan clientId, tipo (video | imagen) o prompt." });
+    }
+    const trabajo = generarContenidoLibre(db, {
+      clientId: b.clientId, tipo: b.tipo, prompt: b.prompt, titulo: b.titulo, imagenUrl: b.imagenUrl,
+      formato: b.formato === "vertical" ? "vertical" : "placa",
+      herramienta: b.herramienta === "magnific" ? "magnific" : "auto",
+      origen: b.origen === "claude" ? "claude" : "panel",
+    });
+    const resultado = await Promise.race([
+      trabajo,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), ESPERA_RESPUESTA_MS)),
+    ]);
+    if (resultado == null) {
+      trabajo.catch((e) => console.warn("[contenido] generación libre falló:", e instanceof Error ? e.message : e));
+      return res.status(202).json({
+        ok: true, enCurso: true,
+        mensaje: "Sigue generándose (tarda más de lo que aguanta la conexión). Va a aparecer en Contenido generado con su link de Drive.",
+      });
+    }
+    res.status(resultado.ok ? 200 : 502).json(resultado);
   });
 
   // POST /api/video/prompt { clientId | clientSlug, taskId }

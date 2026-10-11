@@ -91,7 +91,10 @@ export async function generar(
   modelo: string,
   params: Record<string, unknown>,
   opts: { timeoutMs?: number } = {},
-): Promise<{ url: string; requestId: string }> {
+): Promise<{ url: string; requestId: string; creditos: number | null; usd: number | null }> {
+  // Lo que cotiza el API para ESTE pedido, antes de mandarlo: queda en
+  // contenido_gastos. Si la cotización falla no se frena la generación.
+  const cotizado = await estimar(modelo, params).catch(() => null);
   const envio = await api<{ request_id?: string; id?: string }>(`/${modelo}`, { method: "POST", body: JSON.stringify(params) });
   if (!envio.ok) {
     if (envio.error === "not_enough_credits") throw new SinCreditos();
@@ -115,14 +118,14 @@ export async function generar(
       ?? st.body?.result?.url
       ?? st.body?.results?.[0]?.min?.url;
     if (!url) throw new Error("la generación terminó sin archivo");
-    return { url, requestId };
+    return { url, requestId, creditos: cotizado?.credits ?? null, usd: cotizado?.usd ?? null };
   }
   throw new Error(`la generación superó el tiempo de espera (request ${requestId})`);
 }
 
 /** Video vertical de 9:16. Si hay imagen de partida usa el modelo de
  *  imagen→video, que respeta la identidad de la pieza del diseñador. */
-export async function generarVideo(prompt: string, opts: { imagenUrl?: string | null } = {}): Promise<{ url: string; requestId: string }> {
+export async function generarVideo(prompt: string, opts: { imagenUrl?: string | null } = {}) {
   if (opts.imagenUrl) {
     return generar(MODELO_VIDEO_DESDE_IMAGEN, { prompt, image_url: opts.imagenUrl });
   }
@@ -131,7 +134,7 @@ export async function generarVideo(prompt: string, opts: { imagenUrl?: string | 
 
 /** Placa vertical. OJO: el API NO acepta 4:5 aunque el openapi publicado diga
  *  que sí — devuelve literal_error. La vertical más cercana es 3:4. */
-export async function generarImagen(prompt: string, opts: { aspect?: "3:4" | "9:16" | "1:1" } = {}): Promise<{ url: string; requestId: string }> {
+export async function generarImagen(prompt: string, opts: { aspect?: "3:4" | "9:16" | "1:1" } = {}) {
   return generar(MODELO_IMAGEN, { prompt, aspect_ratio: opts.aspect ?? "3:4", num_images: 1 });
 }
 

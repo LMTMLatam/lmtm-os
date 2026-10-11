@@ -960,6 +960,13 @@
       "when": 1781800000155,
       "tag": "0155_competencia_ig",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1781800000156,
+      "tag": "0156_contenido_gastos",
+      "breakpoints": true
     }
   ]
 }

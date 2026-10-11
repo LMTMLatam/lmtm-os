@@ -12,14 +12,22 @@
 // Se prueba el plan primero y se cae al API SOLO si el plan se quedó sin
 // créditos o su sesión murió. Así el gasto extra ocurre únicamente cuando la
 // alternativa es no generar nada, y el equipo no se queda esperando.
+//
+// Cada generación que sale bien deja una fila en contenido_gastos con la
+// herramienta, el modelo y lo que cotizó (pedido 11/10: "tener control sobre
+// cómo fueron utilizados los tokens de cada una"). Quién la pidió y para qué
+// pieza llega por conGasto(), sin pasar parámetros por toda la cadena.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Db } from "@paperclipai/db";
+import { contenidoGastos } from "@paperclipai/db";
 import {
-  creditosPlan, generarImagenPlan, generarVideoPlan, hayPlan, MODELO_VIDEO_PLAN,
+  creditosPlan, generarImagenPlan, generarVideoPlan, hayPlan,
 } from "./higgsfield-cli.js";
 import {
   generarImagen as generarImagenApi, generarVideo as generarVideoApi,
-  hayCredenciales as hayApi, MODELO_VIDEO as MODELO_VIDEO_API, SinCreditos,
+  hayCredenciales as hayApi, MODELO_IMAGEN as MODELO_IMAGEN_API,
+  MODELO_VIDEO as MODELO_VIDEO_API, MODELO_VIDEO_DESDE_IMAGEN, SinCreditos,
 } from "./higgsfield-api.js";
 
 import { generarImagenMagnific, hayMagnific } from "./magnific.js";
@@ -30,12 +38,49 @@ export { SinCreditos };
  *  clips y quedarse a mitad de camino es peor que no empezar. */
 const PISO_PLAN = 30;
 
+export type Herramienta = "higgsfield_plan" | "higgsfield_api" | "magnific";
+
 export interface Generado {
   url: string;
   jobId?: string;
   /** De dónde salieron los créditos — queda en el deliverable para auditar. */
-  via: "plan" | "api";
+  via: "plan" | "api" | "magnific";
+  herramienta: Herramienta;
   modelo: string;
+  /** Lo que cotizó la herramienta para este pedido. null = no lo informó. */
+  creditos: number | null;
+  usd: number | null;
+}
+
+/** Quién pidió la generación y para qué pieza. */
+export interface ContextoGasto {
+  origen: "clickup" | "panel" | "claude";
+  clientId?: string | null;
+  /** id de la tarea de ClickUp, o `libre:<uuid>` si no salió de una tarea. */
+  pieza?: string | null;
+}
+
+const contexto = new AsyncLocalStorage<ContextoGasto>();
+
+/** Corre `fn` con el contexto que va a quedar en cada fila de contenido_gastos. */
+export const conGasto = <T>(ctx: ContextoGasto, fn: () => Promise<T>): Promise<T> => contexto.run(ctx, fn);
+
+async function anotar(db: Db, g: Generado, tipo: "video" | "imagen"): Promise<Generado> {
+  const ctx = contexto.getStore();
+  // El registro es de más: si falla la escritura, el contenido igual se entrega.
+  await db.insert(contenidoGastos).values({
+    clientId: ctx?.clientId ?? null,
+    pieza: ctx?.pieza ?? null,
+    origen: ctx?.origen ?? "panel",
+    herramienta: g.herramienta,
+    modelo: g.modelo,
+    tipo,
+    creditos: g.creditos,
+    usd: g.usd,
+    url: g.url,
+    jobId: g.jobId ?? null,
+  }).catch((e) => console.warn("[higgsfield] no se pudo anotar el gasto:", e instanceof Error ? e.message : e));
+  return g;
 }
 
 export interface EstadoHiggsfield {
@@ -72,29 +117,34 @@ export async function generarVideo(
   if (hayPlan()) {
     try {
       const r = await generarVideoPlan(db, prompt, opts);
-      return { ...r, via: "plan", modelo: MODELO_VIDEO_PLAN };
+      return anotar(db, { ...r, via: "plan", herramienta: "higgsfield_plan", usd: null }, "video");
     } catch (e) {
       if (!hayApi() || !convieneReintentar(e)) throw e;
       console.warn(`[higgsfield] el plan no pudo generar (${e instanceof Error ? e.message : e}) — voy por la API.`);
     }
   }
   const r = await generarVideoApi(prompt, opts);
-  return { url: r.url, jobId: r.requestId, via: "api", modelo: MODELO_VIDEO_API };
+  return anotar(db, {
+    url: r.url, jobId: r.requestId, via: "api", herramienta: "higgsfield_api",
+    modelo: opts.imagenUrl ? MODELO_VIDEO_DESDE_IMAGEN : MODELO_VIDEO_API, creditos: r.creditos, usd: r.usd,
+  }, "video");
 }
 
 export async function generarImagen(
   db: Db,
   prompt: string,
-  opts: { referencias?: string[] } = {},
+  opts: { referencias?: string[]; aspect?: "3:4" | "9:16"; soloMagnific?: boolean } = {},
 ): Promise<Generado> {
+  // Pedido explícito de Magnific (desde Claude o el panel): sin pasar por Higgsfield.
+  if (opts.soloMagnific) return conMagnific(db, prompt, opts.aspect ?? "3:4");
   if (hayPlan()) {
     try {
       // Sin aspect explícito: lo decide generarImagenPlan según el modelo. Acá
       // decía "4:5" fijo y Soul lo rechaza ("allowed: 1:1,16:9,9:16,4:3,3:4…"),
       // así que con el router de modelos nuevo TODAS las placas del plan habrían
       // fallado antes de generar.
-      const r = await generarImagenPlan(db, prompt, { referencias: opts.referencias });
-      return { ...r, via: "plan", modelo: "plan" };
+      const r = await generarImagenPlan(db, prompt, { referencias: opts.referencias, aspect: opts.aspect });
+      return anotar(db, { ...r, via: "plan", herramienta: "higgsfield_plan", usd: null }, "imagen");
     } catch (e) {
       if (!hayApi() || !convieneReintentar(e)) throw e;
       console.warn(`[higgsfield] el plan no pudo generar la placa (${e instanceof Error ? e.message : e}) — voy por la API.`);
@@ -103,14 +153,25 @@ export async function generarImagen(
   // El API no acepta 4:5 (rechaza con literal_error aunque su openapi lo liste);
   // 3:4 es la vertical más cercana.
   try {
-    const r = await generarImagenApi(prompt, { aspect: "3:4" });
-    return { url: r.url, jobId: r.requestId, via: "api", modelo: "api" };
+    const r = await generarImagenApi(prompt, { aspect: opts.aspect ?? "3:4" });
+    return anotar(db, {
+      url: r.url, jobId: r.requestId, via: "api", herramienta: "higgsfield_api",
+      modelo: MODELO_IMAGEN_API, creditos: r.creditos, usd: r.usd,
+    }, "imagen");
   } catch (e) {
     // Tercera vía: Magnific. Solo si está configurada — si no, se propaga el
     // error de Higgsfield, que es el que de verdad explica qué pasó.
     if (!hayMagnific()) throw e;
     console.warn(`[higgsfield] la API tampoco pudo (${e instanceof Error ? e.message : e}) — voy por Magnific.`);
-    const r = await generarImagenMagnific(prompt, { aspect: "3:4" });
-    return { url: r.url, jobId: r.jobId, via: "api", modelo: "magnific" };
+    return conMagnific(db, prompt, opts.aspect ?? "3:4");
   }
+}
+
+async function conMagnific(db: Db, prompt: string, aspect: string): Promise<Generado> {
+  const r = await generarImagenMagnific(prompt, { aspect });
+  // Magnific no devuelve el costo del pedido: queda null, no se inventa.
+  return anotar(db, {
+    url: r.url, jobId: r.jobId, via: "magnific", herramienta: "magnific",
+    modelo: process.env.MAGNIFIC_MODELO ?? "mystic", creditos: null, usd: null,
+  }, "imagen");
 }
