@@ -140,10 +140,12 @@ export async function medirCompetencia(db: Db): Promise<{ medidas: number; publi
 
     let medidas = 0, publicaciones = 0, sinMedir = 0, propios = 0;
     let motivo: string | undefined;
+    let propioBloqueado = false;
     for (const [usuario, { ids, propio }] of tanda) {
       let estado = "ok";
       let seguidores: number | null = null;
-      let probarPropio = propio || !cuenta;
+      const viaBD = !propio && !!cuenta;
+      let probarPropio = !viaBD;
       if (!probarPropio && cuenta) {
         const campos = `business_discovery.username(${usuario}){followers_count,media.limit(${POR_CUENTA}){id,caption,like_count,comments_count,media_type,media_product_type,timestamp,permalink}}`;
         try {
@@ -178,22 +180,29 @@ export async function medirCompetencia(db: Db): Promise<{ medidas: number; publi
           estado = (e instanceof Error ? e.message : String(e)).slice(0, 200);
         }
       }
+      if (viaBD) await new Promise((res) => setTimeout(res, 8_000));
       if (probarPropio) {
-        // El lector propio va de a poco: lo que no entra queda para la próxima vuelta sin marcar.
-        if (propios >= PROPIO_POR_VUELTA) continue;
-        if (propios > 0) await new Promise((res) => setTimeout(res, PAUSA_PROPIO_MS));
-        propios += 1;
-        try {
-          const r = await leerInstagramPropio(db, usuario);
-          estado = r.estado;
-          seguidores = r.seguidores;
-          publicaciones += r.publicaciones;
-        } catch (e) {
-          if (e instanceof Bloqueado) { motivo = e.message; break; }
-          estado = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+        // El lector propio va de a poco y, si Instagram lo frena, se deja de usar
+        // en esta vuelta, pero Business Discovery SIGUE con las demás. Antes un
+        // freno cortaba la vuelta entera y se medían 3 cuentas cada 3 horas.
+        let leido = false;
+        if (!propioBloqueado && propios < PROPIO_POR_VUELTA) {
+          if (propios > 0) await new Promise((res) => setTimeout(res, PAUSA_PROPIO_MS));
+          propios += 1;
+          try {
+            const r = await leerInstagramPropio(db, usuario);
+            estado = r.estado;
+            seguidores = r.seguidores;
+            publicaciones += r.publicaciones;
+            leido = true;
+          } catch (e) {
+            if (e instanceof Bloqueado) { propioBloqueado = true; motivo = e.message; }
+            else { estado = (e instanceof Error ? e.message : String(e)).slice(0, 200); leido = true; }
+          }
         }
-      } else {
-        await new Promise((res) => setTimeout(res, 8_000));
+        // Sin lector propio: si Business Discovery contestó vale su respuesta; si
+        // no se le preguntó nada, queda para la próxima vuelta sin marcar.
+        if (!leido && !viaBD) continue;
       }
       if (estado === "ok") medidas += 1; else sinMedir += 1;
       await db.update(competitors).set({ igEstado: estado, igSeguidores: seguidores, igRevisadoAt: new Date() }).where(inArray(competitors.id, ids));

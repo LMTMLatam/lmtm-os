@@ -78,6 +78,22 @@ y/o correrlo desde una conexión residencial, o ScrapeCreators (pago, rama lista
 la vuelta de cada 3 h lee las 92 páginas sola. Verificar entonces fb_estado y
 competencia_posts con usuario `fb:%`.
 
+**Limpieza de competidores (aprobada por el usuario):** 4 agentes verificaron
+con buscador y sitios web (nunca Instagram directo) los 145 que Business
+Discovery no encontraba. Ninguno de los usuarios cargados era correcto:
+- 79 inventados → borrados.
+- 34 con su Instagram real → corregidos; los mide la próxima vuelta.
+- 11 sin Instagram → usuario sacado.
+- 21 dudosos → sin tocar; un agente los revisa con DuckDuckGo.
+- Los 299 sitios web cargados en el campo de Facebook pasaron al campo web.
+- Total: 502 → 423 competidores. Respaldo de las 423 filas tocadas, con la
+  prueba de cada veredicto, en `C:/Users/Administrator/lmtm-os-respaldos/`.
+
+**Guardia (`f9610d9`):** `add_client_competitor` exige una fuente comprobable
+desde el servidor (Instagram de empresa por Business Discovery o sitio que
+responda). La versión anterior dejaba pasar si Instagram frenaba, y desde
+Railway frena siempre.
+
 ### 11/10: Contenido generado, gasto por herramienta y Claude genera
 
 **Pedido:** una sección con todos los links de lo generado por Higgsfield y
