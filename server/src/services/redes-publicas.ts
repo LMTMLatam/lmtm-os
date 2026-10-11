@@ -204,6 +204,35 @@ export async function paginaFacebook(token: string, id: string): Promise<PerfilP
   return parsearPaginaFacebook(id, j);
 }
 
+/**
+ * ¿Existe esta cuenta de Instagram de empresa? Por Business Discovery (API
+ * oficial, anda desde el servidor). true/false; null = no se pudo preguntar.
+ */
+export async function existeEnInstagram(db: Db, usuario: string): Promise<boolean | null> {
+  const meta = await tokenDeMeta(db);
+  if (!meta?.igId) return null;
+  try {
+    const r = await fetch(`${GRAPH}/${meta.igId}?fields=${encodeURIComponent(`business_discovery.username(${usuario}){id}`)}&access_token=${encodeURIComponent(meta.token)}`, { signal: AbortSignal.timeout(15_000) });
+    const j = (await r.json().catch(() => ({}))) as { error?: { code?: number; message?: string }; business_discovery?: { id?: string } };
+    if (j.business_discovery?.id) return true;
+    if (j.error && /\(#110\)|cannot be found|does not exist|not found|invalid user/i.test(j.error.message ?? "")) return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** ¿El sitio responde? Un dominio inventado no resuelve o da error. */
+export async function webResponde(url: string): Promise<boolean> {
+  const u = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  try {
+    const r = await fetch(u, { redirect: "follow", signal: AbortSignal.timeout(12_000), headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-OS verificador)" } });
+    return r.status < 400 || r.status === 403; // 403: existe pero filtra robots
+  } catch {
+    return false;
+  }
+}
+
 /** Interacción como la nuestra: me gusta (o reacciones) + comentarios×3. */
 const interaccion = (p: PostPublico) => (p.meGusta == null ? null : p.meGusta + (p.comentarios ?? 0) * 3);
 

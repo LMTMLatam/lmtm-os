@@ -195,7 +195,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "add_client_competitor",
       description:
-        "Carga un COMPETIDOR del cliente: un negocio REAL y EXTERNO del mismo rubro/zona (NUNCA otro cliente de la agencia — el sistema lo rechaza). Pasá al menos una fuente verificable (igHandle, fbPageUrl o website). Dedupe automático por nombre.",
+        "Carga un COMPETIDOR del cliente: un negocio REAL y EXTERNO del mismo rubro/zona (NUNCA otro cliente de la agencia — el sistema lo rechaza). El servidor COMPRUEBA la fuente antes de guardar: tiene que haber un igHandle que sea una cuenta de empresa real (Business Discovery) o un website que responda; si no, lo rechaza. Nunca adivines usuarios ni sitios: verificá con get_redes_publicas o el sitio del negocio. Dedupe automático por nombre.",
       parameters: {
         type: "object",
         properties: {
@@ -1302,18 +1302,25 @@ export function agentToolsRoutes(
         }
         const existing = await db.select({ id: competitors.id, name: competitors.name }).from(competitors).where(eq(competitors.clientId, clientId)).limit(50);
         if (existing.some((c) => norm(c.name) === norm(name))) return reply(true, `"${name}" ya estaba cargado como competidor de este cliente.`);
-        // El usuario de Instagram se verifica ANTES de guardarlo: de 171 cargados,
-        // muchos eran usuarios adivinados que no existen (11/10). Si Instagram
-        // frena la consulta no se bloquea la carga: la medición lo marca después.
-        if (igHandle) {
-          const { perfilInstagram, Bloqueado } = await import("../services/redes-publicas.js");
+        // Fuente COMPROBABLE antes de guardar (11/10): de 145 competidores que
+        // Instagram no encontraba, 79 eran negocios inventados por un agente
+        // (nombre genérico, usuario adivinado, web que no existe). Vale un
+        // Instagram de empresa que Business Discovery encuentre o un sitio que
+        // responda. Facebook solo no alcanza: sin permiso no se puede comprobar.
+        {
+          const { existeEnInstagram, webResponde } = await import("../services/redes-publicas.js");
           const { usuarioDeInstagram } = await import("../services/competencia-ig.js");
-          const u = usuarioDeInstagram(igHandle);
-          if (!u) return reply(false, `"${igHandle}" no es un usuario de Instagram válido (letras, números, punto y guion bajo).`);
-          try {
-            if (!(await perfilInstagram(u))) return reply(false, `El usuario de Instagram "@${u}" NO EXISTE. No adivines usuarios: buscalo (get_redes_publicas o el sitio del negocio) o cargá el competidor sin igHandle.`);
-          } catch (e) {
-            if (!(e instanceof Bloqueado)) console.warn("[add_client_competitor] no se pudo verificar el Instagram:", e instanceof Error ? e.message : e);
+          const u = igHandle ? usuarioDeInstagram(igHandle) : null;
+          if (igHandle && !u) return reply(false, `"${igHandle}" no es un usuario de Instagram válido (letras, números, punto y guion bajo).`);
+          const enIg = u ? await existeEnInstagram(db, u) : null;
+          const web = website ? await webResponde(website) : null;
+          if (enIg !== true && web !== true) {
+            const porQue = [
+              u && enIg === false && `Instagram no tiene ninguna cuenta de empresa "@${u}"`,
+              website && web === false && `el sitio ${website} no responde`,
+              !u && !website && "no pasaste Instagram ni sitio web",
+            ].filter(Boolean).join("; ");
+            return reply(false, `No se cargó "${name}": ninguna fuente se pudo comprobar (${porQue || "no se pudo consultar Instagram"}). No inventes competidores ni usuarios: buscá el negocio real y pasá su Instagram de empresa o su sitio web.`);
           }
         }
         await db.insert(competitors).values({
