@@ -41,6 +41,38 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 11/10 tarde: lector propio de redes públicas para la competencia
+
+**Pedido:** integrar ScrapeCreators; después, "reemplazá por ScrapingBee que es
+gratis"; al final: "construí nuestra propia herramienta". ScrapeCreators quedó
+hecho en la rama `competencia-scrapecreators` (sin deployar, es pago).
+ScrapingBee tampoco es gratis (1.000 créditos una vez, después US$49/mes) y no
+lee Instagram. La API gratis de la Biblioteca de Anuncios de Meta solo da avisos
+comerciales de la UE: no sirve para competidores argentinos.
+
+**Lo medido:** Business Discovery leyó 26 de 171 competidores con Instagram;
+145 "no encontrada" (muchos usuarios adivinados por agentes: "Terreno Pilar
+Premium", "AutoCaucho Industrial Argentina"). De los fb_page_url, 299 son
+sitios web, 84 páginas y 8 links de la Biblioteca con view_all_page_id.
+
+**Hecho (`b04e5fd`, `8471231`, migración 0157):** `redes-publicas.ts`.
+- Instagram: el pedido público de la web (perfil + 12 publicaciones), que
+  distingue medida / privada / no existe.
+- Facebook: Graph API, si la app tiene Page Public Content Access.
+- Reglas: sin cuentas, 15 lecturas por vuelta a 20 s, sin proxies ni captchas;
+  si frena, corta y reintenta.
+- Lo que Business Discovery no devuelve pasa por ahí.
+- `get_redes_publicas` / `lmtmRedesPublicas` para agentes y Claude.
+- `add_client_competitor` rechaza usuarios de Instagram que no existen.
+
+**Probado en producción (18:25 UTC), por el conector:** Instagram respondió 429
+a la PRIMERA consulta: frena la IP de Railway (servidor en la nube). Facebook
+respondió (#10): la app no tiene Page Public Content Access. Hoy el lector no
+mide nada nuevo. Queda prendido porque es inofensivo: una consulta por vuelta,
+corta al primer freno y reintenta cada 3 h; la validación de competidores deja
+pasar si está bloqueado. Para que mida: pedir PPCA a Meta (gratis, revisión)
+y/o correrlo desde una conexión residencial, o ScrapeCreators (pago, rama lista).
+
 ### 11/10: Contenido generado, gasto por herramienta y Claude genera
 
 **Pedido:** una sección con todos los links de lo generado por Higgsfield y
