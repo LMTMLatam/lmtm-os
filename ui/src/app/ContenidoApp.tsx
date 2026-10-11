@@ -126,7 +126,7 @@ export function ContenidoApp() {
         titulo="Contenido"
         bajada={
           <>
-            Super Redes de todos los clientes, de ClickUp en vivo
+            Redes de todos los clientes, de ClickUp en vivo
             {tablero.data ? ` · leído a las ${horaCorta(tablero.data.generadoAt)}` : ""}
           </>
         }
