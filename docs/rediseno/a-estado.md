@@ -41,6 +41,33 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 11/10: Contenido generado, gasto por herramienta y Claude genera
+
+**Pedido:** una sección con todos los links de lo generado por Higgsfield y
+Magnific, el guardado en Drive como siempre, los créditos gastados por
+herramienta, y que Claude use todas las herramientas de los agentes (crear
+videos incluido) por el conector LMTM.
+
+**Lo que había:** en la base, 2 piezas generadas en total (las dos del 14/8);
+el barrido de la etiqueta "generar contenido" corre pero nadie etiquetó. El
+guardado en Drive (`super redes/<cliente>/VIDEOS|PLACAS`) seguía intacto.
+Ningún costo quedaba registrado. El conector no tenía cómo generar y le
+faltaban 12 herramientas de los agentes (ClickUp, planillas, keywords…).
+
+**Hecho (`1142922`, migración 0156):** `contenido_gastos`, una fila por
+generación pagada (herramienta, modelo, créditos/US$ cotizados, origen,
+pieza; null si no lo informa, como Magnific). Pantalla /contenido/generado
+(menú y desde Contenido): gasto por herramienta, por cliente, lo pagado sin
+pieza entregada, y cada pieza con sus links de Drive y su tarea. Conector:
+lmtmGenerarContenido (libre, al Drive del cliente), lmtmGenerarPieza (tarea
+de ClickUp, con soloPrompt), lmtmContenidoGenerado, lmtmEstadoGeneracion y
+lmtmHerramientaAgente (cualquier herramienta de agente por nombre). La
+generación libre exige tablero: los agentes no gastan créditos por ahí.
+Skill para claude.ai: `Downloads/lmtm-contenido.zip`.
+
+**Ojo:** al plan le quedan 44,5 créditos y un video seedance_2_5 cuesta 56:
+el próximo video sale por la API (si tiene saldo) o falla.
+
 ### 08/10: la mañana revisada, oportunidades primero, competencia medida y plan personalizado
 
 **Lo que corrió solo (verificado en la base):** motor a las 8:33, incidente de
