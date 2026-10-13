@@ -114,6 +114,28 @@ export async function ejecutarAccion(
       return r.ok ? fin(true, `Pausado: "${r.entity?.name ?? accion.entityId}".`) : fin(false, r.error ?? "No se pudo pausar.");
     }
 
+    if (accion.tipo === "negativas") {
+      // Google con validateOnly en el ensayo; la marca se protege adentro.
+      const { agregarNegativas } = await import("../services/ads-actions.js");
+      const r = await agregarNegativas(db, { clientId, campaignId: accion.campaignId, terminos: accion.terminos, approved: !ensayo, ensayo });
+      const marca = r.rechazadosPorMarca?.length ? ` No se incluyeron por ser de la marca: ${r.rechazadosPorMarca.join(", ")}.` : "";
+      if (!r.ok) return fin(false, `${r.error ?? "No se pudieron agregar las negativas."}${marca}`);
+      const n = r.aplicados?.length ?? 0;
+      return fin(true, `${ensayo ? "Ensayo OK: Google aceptaría" : "Agregadas"} ${n} ${n === 1 ? "negativa" : "negativas"} en «${accion.campana ?? accion.campaignId}».${marca}`, { aplicados: r.aplicados ?? [] });
+    }
+
+    if (accion.tipo === "pausar_keywords") {
+      const { pausarKeywords } = await import("../services/ads-actions.js");
+      const r = await pausarKeywords(db, { clientId, textos: accion.textos, approved: !ensayo, ensayo });
+      const extra = [
+        r.protegidasPorMarca?.length ? `De la marca, no se tocan: ${r.protegidasPorMarca.join(", ")}.` : "",
+        r.noEncontradas?.length ? `Ya no están activas: ${r.noEncontradas.join(", ")}.` : "",
+      ].filter(Boolean).join(" ");
+      if (!r.ok) return fin(false, `${r.error ?? "No se pudieron pausar."}${extra ? ` ${extra}` : ""}`);
+      const n = r.pausadas?.length ?? 0;
+      return fin(true, `${ensayo ? "Ensayo OK: Google pausaría" : "Pausadas"} ${n} ${n === 1 ? "palabra clave" : "palabras clave"}.${extra ? ` ${extra}` : ""}`, { pausadas: r.pausadas ?? [] });
+    }
+
     // tarea
     const { crearTareaEnListaDelCliente } = await import("../services/clickup-sync.js");
     const porque = d.porque?.resumen ? `\n\n**Por qué:** ${d.porque.resumen}` : "";

@@ -250,6 +250,29 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     return out;
   }));
 
+  // Google: términos de búsqueda que gastan sin convertir → negativas; palabras
+  // clave que gastan sin convertir → pausar. Se aprueban en Hoy y se ejecutan
+  // por la misma ruta que usan los agentes (ensayo con validateOnly primero).
+  resultados.push(await correrRegla("keywords_google", hoy, async () => {
+    const { auditarKeywords } = await import("../services/ads-keywords.js");
+    const { propuestasDeKeywords } = await import("./reglas/keywords.js");
+    const out: Propuesta[] = [];
+    let fallas = 0;
+    const conGoogle = activos.filter((c) => (metricas.get(c.id)?.frescura ?? []).some((f) => f.fuente === "google_ads" && f.estado === "ok"));
+    for (const c of conGoogle) {
+      try {
+        const a = await auditarKeywords(db, c.id, 30);
+        if (a) out.push(...propuestasDeKeywords({ clientId: c.id, cliente: c.name.trim() }, a));
+      } catch (e) {
+        fallas += 1;
+        console.warn(`[decisiones] auditoría de keywords de ${c.name.trim()} falló:`, e instanceof Error ? e.message : e);
+      }
+    }
+    // Si no se pudo auditar alguna cuenta, no se cierra nada de lo suyo.
+    if (fallas > 0) return { propuestas: out, evaluada: false, nota: `No se pudieron auditar ${fallas} de ${conGoogle.length} cuentas de Google.` };
+    return out;
+  }));
+
   // Lo que hay para ganar: contenido que funcionó y a quién ofrecerle pauta.
   resultados.push(await correrRegla("oportunidades", ahora, async () => {
     const { analisisContenido } = await import("../services/contenido-analisis.js");

@@ -42,6 +42,10 @@ export function etiquetaAccion(d: Pick<Decision, "accion" | "responsable">): str
       return "Duplicar (nace pausado)";
     case "pausar":
       return "Pausar";
+    case "negativas":
+      return `Agregar ${a.terminos.length} ${a.terminos.length === 1 ? "negativa" : "negativas"}`;
+    case "pausar_keywords":
+      return `Pausar ${a.textos.length} ${a.textos.length === 1 ? "palabra clave" : "palabras clave"}`;
     case "tarea":
       return d.responsable === "cliente" ? "Avisarle al cliente" : "Asignar al equipo";
   }

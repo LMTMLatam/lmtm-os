@@ -26,6 +26,8 @@ export type Accion =
   | { tipo: "mover_presupuesto"; desde: { entityType: string; entityId: string }; hacia: { entityType: string; entityId: string }; monto: number }
   | { tipo: "duplicar"; adsetId: string; nombre?: string }
   | { tipo: "pausar"; entityType: "campaign" | "adset"; entityId: string; nombre?: string }
+  | { tipo: "negativas"; campaignId: string; campana?: string; terminos: string[] }
+  | { tipo: "pausar_keywords"; textos: string[] }
   | { tipo: "tarea"; titulo: string; descripcion?: string };
 
 export interface ResultadoEjecucion {

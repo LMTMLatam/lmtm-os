@@ -43,6 +43,8 @@ export interface TerminoBusqueda {
   termino: string;
   keyword: string | null;
   campana: string;
+  /** Para agregar la negativa en ESA campaña. */
+  campaignId: string;
   clics: number;
   impresiones: number;
   costo: number;
@@ -152,7 +154,7 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
   // searchStream ya resuelve developer-token, login-customer-id y el refresh
   // ante un 401 a mitad de job — no hay que repetir nada de eso acá.
   const filasTerminos = await searchStream(conn, customerId, `
-    SELECT search_term_view.search_term, segments.keyword.info.text, campaign.name,
+    SELECT search_term_view.search_term, segments.keyword.info.text, campaign.id, campaign.name,
            metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.conversions
     FROM search_term_view
     WHERE ${rango} AND metrics.impressions > 0
@@ -172,6 +174,7 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     termino: texto(anidado(r, "search_term_view.search_term")),
     keyword: texto(anidado(r, "segments.keyword.info.text")) || null,
     campana: texto(anidado(r, "campaign.name")),
+    campaignId: String(anidado(r, "campaign.id") ?? ""),
     clics: num(anidado(r, "metrics.clicks")),
     impresiones: num(anidado(r, "metrics.impressions")),
     costo: num(anidado(r, "metrics.cost_micros")) / MICROS,

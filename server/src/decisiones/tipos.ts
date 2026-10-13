@@ -54,6 +54,8 @@ export interface Porque {
  *   mover_presupuesto  → ads-budget.shiftBudget (baja primero, sube después)
  *   duplicar           → ads-duplicar           (exige ganador, nace pausada y se verifica)
  *   pausar             → ads-actions.pauseAdEntity
+ *   negativas          → ads-actions.agregarNegativas (Google, protege la marca)
+ *   pausar_keywords    → ads-actions.pausarKeywords (Google, protege la marca)
  *   tarea              → ClickUp, en la carpeta del cliente (nunca en la lista de Redes)
  */
 export type Accion =
@@ -66,6 +68,8 @@ export type Accion =
     }
   | { tipo: "duplicar"; adsetId: string; nombre?: string }
   | { tipo: "pausar"; entityType: "campaign" | "adset"; entityId: string; nombre?: string }
+  | { tipo: "negativas"; campaignId: string; campana?: string; terminos: string[] }
+  | { tipo: "pausar_keywords"; textos: string[] }
   | { tipo: "tarea"; titulo: string; descripcion?: string };
 
 /** Qué pasó cuando se ejecutó. Se guarda dentro de `accion.resultado`. */
