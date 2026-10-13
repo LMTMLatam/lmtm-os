@@ -10,6 +10,7 @@ import { Link } from "@/lib/router";
 import { api } from "../api/client";
 import { Encabezado } from "./Shell";
 import { TituloFranja } from "./HoyApp";
+import { PautaGoogle } from "./PautaGoogle";
 
 interface ClienteSemaforo {
   id: string;
@@ -89,6 +90,7 @@ export function PautaApp() {
             )}
           </>
         )}
+        <PautaGoogle buscar={buscar} />
       </div>
     </>
   );
