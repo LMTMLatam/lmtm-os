@@ -41,6 +41,31 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 13/10: Google Ads visible, cuentas sueltas y keywords aprobables
+
+**Pedido:** "Tema Google Ads, en qué estamos, no veo nada de eso". Estado:
+7 cuentas al día, 4 sin permiso (403 desde el 23/09: HANSHI, PRONE, SERRAT,
+SKYGARDEN), 9 conectadas sin gasto. No había vista de Google, Hoy decía
+"Reconectar" para un problema de permisos y la auditoría de keywords no la
+corría nadie desde septiembre.
+
+**Incidente del día:** a las 10:07 alguien reconectó Google. El callback creó
+una conexión NUEVA (el nombre por defecto no coincidía con el de la vieja),
+se borró la vieja y las 21 cuentas de Google quedaron sin conexión: esa noche
+no entraba un dato. Arreglado (`8f97cd9`): reconectar refresca la conexión
+existente y re-vincula las sueltas; borrar pasa las cuentas a la otra
+conexión activa; al arrancar se re-vinculan (21/21 verificado en producción).
+
+**Hecho:**
+- Hoy: sin permiso pide el acceso a ESA cuenta, con su número (`40b3a6b`).
+- Pauta → sección Google Ads, cuenta por cuenta (`ad5a6c9`, `178b371`).
+- Regla `keywords_google` (`077567c`, `2f6453b`): negativas por campaña y
+  palabras clave a pausar, aprobables en Hoy con ensayo validateOnly.
+- Antes de la primera corrida, probada en lectura contra Distrillantas y COSA:
+  proponía negativizar "distri llantas" (la marca separada) e "inmobiliarias
+  rosario" por 8 clics. Ahora la marca se compara sin espacios, y solo se
+  propone con evidencia (a la tasa de la cuenta, ≥2 conversiones esperadas).
+
 ### 11/10 tarde: lector propio de redes públicas para la competencia
 
 **Pedido:** integrar ScrapeCreators; después, "reemplazá por ScrapingBee que es
