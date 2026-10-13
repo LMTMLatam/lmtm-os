@@ -68,6 +68,8 @@ export interface AuditoriaKeywords {
   /** Ventana analizada, en días. */
   dias: number;
   terminos: number;
+  /** Clics de todos los términos: con las conversiones da la tasa de la cuenta. */
+  clicsTotal: number;
   gastoTotal: number;
   conversionesTotal: number;
   negativas: TerminoBusqueda[];
@@ -95,7 +97,10 @@ export function esTerminoDeMarca(nombreCliente: string, termino: string): boolea
   const tokens = normalizar(nombreCliente).split(/\s+/).filter((p) => p.length >= 4);
   if (tokens.length === 0) return false;
   const t = normalizar(termino);
-  return tokens.some((tok) => t.includes(tok));
+  // También sin espacios: "distri llantas" es la marca Distrillantas escrita
+  // separada, y la auditoría la proponía como negativa (13/10).
+  const junto = t.replace(/[^a-z0-9]/g, "");
+  return tokens.some((tok) => t.includes(tok) || junto.includes(tok));
 }
 
 const num = (v: unknown): number => {
@@ -245,6 +250,7 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     desde,
     dias,
     terminos: terminos.length,
+    clicsTotal: terminos.reduce((a, t) => a + t.clics, 0),
     gastoTotal: Math.round(gastoTotal),
     conversionesTotal: Math.round(conversionesTotal * 10) / 10,
     negativas, nuevas, pausar, ampliaCara,

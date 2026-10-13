@@ -3,7 +3,7 @@ import { propuestasDeKeywords } from "../reglas/keywords.js";
 import type { AuditoriaKeywords } from "../../services/ads-keywords.js";
 
 const base: AuditoriaKeywords = {
-  cliente: "BOERO", cuenta: "1234567890", desde: "2026-09-13", dias: 30, terminos: 200,
+  cliente: "BOERO", cuenta: "1234567890", desde: "2026-09-13", dias: 30, terminos: 200, clicsTotal: 200,
   gastoTotal: 300000, conversionesTotal: 40, negativas: [], nuevas: [], pausar: [], ampliaCara: [],
   ahorroMensual: 0, gastoMarcaSinConversion: 0,
 };
@@ -29,6 +29,16 @@ describe("keywords de Google → decisiones de Hoy", () => {
     });
     expect(p.que).toBe("Pausar 1 palabra clave en Google: $12.000 en 30 días sin una conversión");
     expect(p.accion).toEqual({ tipo: "pausar_keywords", textos: ["pintura"] });
+  });
+
+  it("sin evidencia no se propone: 8 clics a una tasa del 2% esperaban 0,16 conversiones (caso COSA, 13/10)", () => {
+    const cosa = { ...base, clicsTotal: 5000, conversionesTotal: 100, negativas: [{ ...t("inmobiliarias rosario", "11", 3464), clics: 8 }] };
+    expect(propuestasDeKeywords({ clientId: "c1", cliente: "COSA PROPIEDADES" }, cosa)).toEqual([]);
+    // Con 150 clics a esa tasa ya debería haber traído 3: ahí sí.
+    const [p] = propuestasDeKeywords({ clientId: "c1", cliente: "COSA PROPIEDADES" }, { ...cosa, negativas: [{ ...t("alquiler temporario", "11", 40000), clics: 150 }] });
+    expect(p.tipo).toBe("pauta:negativas");
+    // Una cuenta sin conversiones no tiene tasa: no se juzga nada.
+    expect(propuestasDeKeywords({ clientId: "c1", cliente: "X" }, { ...base, conversionesTotal: 0, negativas: [t("x", "11", 9000)] })).toEqual([]);
   });
 
   it("sin nada que proponer, nada; un término sin campaña no se propone", () => {

@@ -29,7 +29,7 @@ const ESTADO: Record<ClienteGoogle["estado"], { palabra: string; color: string }
   fallando: { palabra: "sin acceso", color: "var(--l-critico)" },
   atrasada: { palabra: "atrasada", color: "var(--l-atencion)" },
   ok: { palabra: "al día", color: "var(--l-bien)" },
-  sin_entrega: { palabra: "sin gasto", color: "var(--l-neutro)" },
+  sin_entrega: { palabra: "sin entrega", color: "var(--l-atencion)" },
   sin_conexion: { palabra: "sin conexión", color: "var(--l-neutro)" },
 };
 
@@ -48,8 +48,11 @@ export function PautaGoogle({ buscar }: { buscar: string }) {
   });
   const texto = buscar.trim().toLowerCase();
   const clientes = (q.data?.clientes ?? []).filter((c) => !texto || c.cliente.toLowerCase().includes(texto));
-  const conGasto = clientes.filter((c) => c.estado === "ok" || c.estado === "atrasada" || c.estado === "fallando");
-  const apagadas = clientes.filter((c) => c.estado === "sin_entrega");
+  // Las que frenaron hace poco (gastaron en 30 días) van en la lista: SEBASTIAN
+  // y LoMasFundas no son "sin gasto en 30 días".
+  const gasto30 = (c: ClienteGoogle) => (c.gasto30 ?? 0) > 0;
+  const conGasto = clientes.filter((c) => c.estado !== "sin_entrega" || gasto30(c));
+  const apagadas = clientes.filter((c) => c.estado === "sin_entrega" && !gasto30(c));
 
   return (
     <section>
@@ -92,8 +95,8 @@ function FilaGoogle({ c }: { c: ClienteGoogle }) {
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-medium">{c.cliente}</span>
           <span className="block text-[12px] text-l-tinta-3">
-            {sinAcceso
-              ? c.detalle
+            {sinAcceso || c.estado === "sin_entrega"
+              ? `${c.detalle}${c.estado === "sin_entrega" ? ` · ${plata(c.gasto30, c.moneda)} en 30 días` : ""}`
               : [
                   `${plata(c.gasto30, c.moneda)} en 30 días · ${plata(c.gasto7, c.moneda)} en 7`,
                   c.leads30 != null ? `${c.leads30} ${c.leadsDudosos ? "conversiones (dudosas)" : "leads"}` : null,

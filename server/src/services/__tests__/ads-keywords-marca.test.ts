@@ -13,6 +13,9 @@ describe("esTerminoDeMarca", () => {
       "distrillantas liniers",
       "distrillantas avellaneda",
       "distrillantas cerca de mi",
+      // La marca escrita separada (13/10: se proponía como negativa).
+      "distri llantas",
+      "distri-llantas pilar",
     ]) {
       expect(esTerminoDeMarca("Distrillantas", t)).toBe(true);
     }
