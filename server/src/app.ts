@@ -21,6 +21,7 @@ import { avisosRoutes } from "./avisos/rutas.js";
 import { informesRoutes } from "./decisiones/informes-rutas.js";
 import { agentesRoutes } from "./agentes/rutas.js";
 import { videoRoutes } from "./routes/video.js";
+import { pautaGoogleRoutes } from "./routes/pauta-google.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
@@ -263,6 +264,7 @@ export async function createApp(
   api.use(informesRoutes(db));
   api.use(agentesRoutes(db));
   api.use(videoRoutes(db));
+  api.use(pautaGoogleRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
@@ -292,6 +294,12 @@ export async function createApp(
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
   try { initAdsAutoSync(db); } catch (e) { console.warn("[ads-autosync] init failed:", e); }
+  // Cuentas de pauta sueltas (conexión borrada) con una sola conexión activa de
+  // su plataforma: se vuelven a vincular antes del próximo sync (13/10).
+  void import("./services/ads/mappings-sueltos.js")
+    .then(({ vincularCuentasSueltas }) => vincularCuentasSueltas(db))
+    .then((r) => { if (Object.keys(r).length) console.log(`[ads] cuentas sueltas vueltas a vincular: ${JSON.stringify(r)}`); })
+    .catch((e) => console.warn("[ads] no se pudieron re-vincular las cuentas sueltas:", e instanceof Error ? e.message : e));
   // Generación de video: barre las piezas que el equipo etiquetó "generar
   // video" en ClickUp. Se apaga solo si no hay credenciales de Higgsfield.
   try {

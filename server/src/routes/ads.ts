@@ -63,6 +63,7 @@ import { fetchAccountBalances, runBalanceCheck } from "../services/balance-monit
 import { competitors, contentIdeas, nicheReports, interventions } from "@paperclipai/db";
 import { generateContentPlan } from "../services/competitor-content.js";
 import { resolveCompanyId } from "../services/intel-common.js";
+import { pasarCuentasAntesDeBorrar, vincularCuentasSueltas } from "../services/ads/mappings-sueltos.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
 // to the platform's auth URL with a base64url-encoded `state` payload
@@ -315,6 +316,10 @@ export function adsRoutes(db: Db): Router {
     const [existing] = await db.select({ companyId: adsConnections.companyId }).from(adsConnections).where(eq(adsConnections.id, req.params.id));
     if (!existing) return res.status(204).end();
     assertCompanyAccess(req, existing.companyId);
+    // Las cuentas no quedan sueltas si hay otra conexión de la misma plataforma
+    // (13/10: borrar la vieja después de reconectar dejó sin datos a 20 clientes).
+    const pasadas = await pasarCuentasAntesDeBorrar(db, req.params.id);
+    if (pasadas > 0) console.log(`[ads] conexión ${req.params.id} borrada: ${pasadas} cuentas pasaron a la otra conexión activa.`);
     await db.delete(adsConnections).where(eq(adsConnections.id, req.params.id));
     res.status(204).end();
   });
@@ -803,7 +808,15 @@ export function adsRoutes(db: Db): Router {
       // Google): el segundo insert chocaba el unique (company_id, label) y el
       // usuario veía un error aunque la conexión ya estaba guardada. Upsert:
       // si el label ya existe, se refrescan los tokens de esa fila.
-      const label = state.label ?? `${platform} Ads`;
+      // Reconectar sin nombre propio refresca la conexión que ya existe de esa
+      // plataforma: con el nombre por defecto ("google Ads") no coincidía con
+      // "Google Ads (MCC LMTM Global)" y se creaba una SEGUNDA conexión (13/10).
+      const [yaExiste] = state.label
+        ? []
+        : await db.select({ label: adsConnections.label }).from(adsConnections)
+            .where(and(eq(adsConnections.companyId, state.companyId), eq(adsConnections.platform, platform)))
+            .orderBy(desc(adsConnections.updatedAt)).limit(1);
+      const label = state.label ?? yaExiste?.label ?? `${platform} Ads`;
       const [row] = await db
         .insert(adsConnections)
         .values({
@@ -852,6 +865,12 @@ export function adsRoutes(db: Db): Router {
         entityId: row?.id ?? "",
         details: { platform, source: "oauth_callback" },
       });
+      // Reconectar recupera las cuentas que hayan quedado sueltas de esta plataforma.
+      const vinculadas = await vincularCuentasSueltas(db, { platform }).catch((e) => {
+        console.warn("[ads] no se pudieron re-vincular las cuentas sueltas:", e instanceof Error ? e.message : e);
+        return {} as Record<string, number>;
+      });
+      if (vinculadas[platform]) console.log(`[ads] reconexión de ${platform}: ${vinculadas[platform]} cuentas sueltas vueltas a vincular.`);
 
       const base = panelUrl();
       const params = new URLSearchParams({ connectionId: row?.id ?? "" });
