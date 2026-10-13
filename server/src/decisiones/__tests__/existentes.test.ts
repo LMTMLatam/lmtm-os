@@ -6,6 +6,7 @@ import {
   clientesConPautaCiega,
   errorEnCastellano,
   propuestaDeCadena,
+  numeroDeCuenta,
   propuestasDeCobertura,
   propuestasDeCola,
   propuestasDeCosto,
@@ -176,9 +177,21 @@ describe("cobertura", () => {
   });
 
   it("fallando pide reconectar, con el nombre limpio y desde cuándo", () => {
-    const [p] = propuestasDeCobertura([s({ estado: "fallando", fallasSeguidas: 30, fallandoDesde: "2026-09-14T03:00:00Z", ultimoError: "403" })]);
+    const [p] = propuestasDeCobertura([s({ estado: "fallando", fallasSeguidas: 30, fallandoDesde: "2026-09-14T03:00:00Z", ultimoError: "401: token expired" })]);
     expect(p.tipo).toBe("cobertura:fallando");
     expect(p.que).toBe("Reconectar Google Ads: no se pueden traer los datos desde el 14/09");
+  });
+
+  it("sin permiso NO pide reconectar: pide el acceso a ESA cuenta, con su número", () => {
+    const [p] = propuestasDeCobertura([s({
+      estado: "fallando", fallasSeguidas: 30, fallandoDesde: "2026-09-23T03:00:00Z",
+      ultimoError: "403: The caller does not have permission", cuentaFallando: "act_8418979554",
+    })]);
+    expect(p.que).toBe("Pedir de nuevo el acceso a la cuenta de Google Ads 841-897-9554: no nos da permiso desde el 23/09");
+    expect(p.que).not.toContain("Reconectar");
+    expect(p.accion && p.accion.tipo === "tarea" && p.accion.descripcion).toContain("MCC");
+    expect(numeroDeCuenta("google_ads", "1234567890")).toBe("123-456-7890");
+    expect(numeroDeCuenta("meta_ads", "act_55")).toBe("act_55");
   });
 
   it("el error crudo de la plataforma no llega a Hoy: se dice en castellano o no se dice", () => {

@@ -31,6 +31,8 @@ export interface SaludFuente {
   /** ISO: primera de esas fallas consecutivas. */
   fallandoDesde: string | null;
   ultimoError: string | null;
+  /** La cuenta que falla (la peor), para decir CUÁL hay que arreglar. */
+  cuentaFallando?: string | null;
   /** Una frase para una persona. */
   detalle: string;
 }
@@ -118,12 +120,12 @@ export function estadoFuente(
 
   // Fallando: la corrida más reciente de alguna cuenta falló. Se reporta la
   // peor cuenta (la que más corridas seguidas lleva fallando).
-  let peor: { n: number; desde: string; error: string | null } | null = null;
+  let peor: { n: number; desde: string; error: string | null; cuenta: string } | null = null;
   for (const c of h.cuentas) {
     let n = 0;
     while (n < c.corridas.length && !c.corridas[n].ok) n++;
     if (n > 0 && (!peor || n > peor.n)) {
-      peor = { n, desde: c.corridas[n - 1].at, error: c.corridas[0].error };
+      peor = { n, desde: c.corridas[n - 1].at, error: c.corridas[0].error, cuenta: c.cuenta };
     }
   }
   if (peor) {
@@ -135,6 +137,7 @@ export function estadoFuente(
       fallasSeguidas: peor.n,
       fallandoDesde: peor.desde,
       ultimoError: err,
+      cuentaFallando: peor.cuenta,
       detalle: `El sync de ${NOMBRE[h.fuente]} falla hace ${peor.n} ${peor.n === 1 ? "corrida" : "corridas seguidas"} (desde el ${fechaCorta(peor.desde)})${err ? `: ${err.replace(/\.$/, "")}.` : "."}${ult}`,
     };
   }

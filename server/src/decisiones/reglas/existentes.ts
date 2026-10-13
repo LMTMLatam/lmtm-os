@@ -358,6 +358,14 @@ export function esIncidenteDeFuente(s: Pick<SaludFuente, "fuente" | "ultimoDato"
   return dias <= DIAS_PAUTA_RECIENTE;
 }
 
+/** El número de cuenta como lo muestra la plataforma: Google "841-897-9554", Meta tal cual. */
+export function numeroDeCuenta(fuente: Fuente, cuenta: string | null): string | null {
+  if (!cuenta) return null;
+  const d = cuenta.replace(/\D/g, "");
+  if (fuente === "google_ads" && d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  return fuente === "google_ads" ? d || null : cuenta;
+}
+
 export function propuestasDeCobertura(salud: SaludFuente[], ahora = new Date()): Propuesta[] {
   const out: Propuesta[] = [];
   for (const s of salud) {
@@ -373,8 +381,20 @@ export function propuestasDeCobertura(salud: SaludFuente[], ahora = new Date()):
     };
     if (s.estado === "fallando") {
       const desde = fechaCorta(s.fallandoDesde);
-      const que = `Reconectar ${fuente}: no se pueden traer los datos${desde ? ` desde el ${desde}` : ""}`;
       const causa = errorEnCastellano(s.ultimoError);
+      // Sin permiso, reconectar NO lo arregla: el acceso anda (las demás cuentas
+      // se leen) y lo que se perdió es el permiso sobre ESTA cuenta. Pasó con 4
+      // cuentas de Google desde el 23/09 y Hoy decía "Reconectar" (13/10).
+      const sinPermiso = causa === "la cuenta no nos da permiso";
+      const cuenta = numeroDeCuenta(s.fuente, s.cuentaFallando ?? null);
+      const que = sinPermiso
+        ? `Pedir de nuevo el acceso a la cuenta de ${fuente}${cuenta ? ` ${cuenta}` : ""}: no nos da permiso${desde ? ` desde el ${desde}` : ""}`
+        : `Reconectar ${fuente}: no se pueden traer los datos${desde ? ` desde el ${desde}` : ""}`;
+      const comoSeArregla = !sinPermiso
+        ? ""
+        : s.fuente === "google_ads"
+          ? "\n\nReconectar no lo arregla: el acceso a Google anda y los demás clientes se leen bien. Esta cuenta dejó de estar vinculada al MCC (administrador) de LMTM. Que alguien con acceso de administrador a la cuenta acepte la vinculación (Google Ads → Administrador → Acceso y seguridad → Administradores) o que desde el MCC se mande de nuevo la solicitud de vinculación."
+          : "\n\nReconectar no lo arregla: la conexión anda y los demás clientes se leen bien. Esta cuenta dejó de estar compartida con nosotros: hay que volver a darle acceso al portfolio de LMTM en la configuración del negocio.";
       out.push({
         ...base,
         tipo: "cobertura:fallando",
@@ -387,7 +407,7 @@ export function propuestasDeCobertura(salud: SaludFuente[], ahora = new Date()):
           ],
           ...nivel,
         },
-        accion: { tipo: "tarea", titulo: que, descripcion: `${s.detalle}${s.ultimoError ? `\nError: ${s.ultimoError}` : ""}` },
+        accion: { tipo: "tarea", titulo: que, descripcion: `${s.detalle}${s.ultimoError ? `\nError: ${s.ultimoError}` : ""}${comoSeArregla}` },
       });
     } else if (s.estado === "atrasada") {
       const que = `Revisar por qué no llegan datos de ${fuente}${s.ultimoDato ? ` desde el ${fechaCorta(s.ultimoDato)}` : ""}`;
