@@ -1166,6 +1166,20 @@ export function agentToolsRoutes(
             `No armé la propuesta «${p.resumen}»: con los números de los últimos 14 días no se sostiene (${v.fallas.join("; ")}). Si hay otro motivo que los números no muestran (pedido del cliente, fin de una promo), escribilo en el issue para que lo decida una persona.`,
           );
         }
+        // Piloto automático (14/10): lo que pasa las reglas con evidencia y
+        // topes se hace solo y se avisa; lo demás queda como propuesta.
+        const piloto = await import("../services/piloto-automatico.js");
+        const solo = await piloto.propuestaSeEjecutaSola(db, ctx.companyId, p.clientId, p.accion, campanas, vara);
+        if (solo.si) {
+          const { ejecutarAccionAprobada } = await import("../services/ads-propuestas.js");
+          const payload = { clientId: p.clientId, justificacion: p.justificacion, resumen: p.resumen, accion: p.accion };
+          const r = await ejecutarAccionAprobada(db, payload, ctx.agentId);
+          await piloto.registrarEjecutadaSola(db, { companyId: ctx.companyId, agentId: ctx.agentId, payload, motivo: solo.motivo, resultado: r });
+          await piloto.avisarHechoSolo(db, p.clientId, p.resumen, p.justificacion, solo.motivo, r);
+          return r.ok
+            ? reply(true, `${r.detalle} Lo hizo el piloto automático (${solo.motivo}); el equipo queda avisado en el resumen.`)
+            : reply(false, `El piloto automático intentó hacerlo y falló: ${r.detalle}. Quedó como propuesta para una persona.`);
+        }
       }
 
       const { autonomiaDe } = await import("../services/ads-autonomia.js");
