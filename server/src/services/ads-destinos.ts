@@ -90,15 +90,60 @@ export function resumirDestinos(anuncios: Array<{ campaignId: string; destino: {
 
 const filas = <T>(r: unknown) => (Array.isArray(r) ? r : (r as { rows?: unknown[] }).rows ?? []) as T[];
 
+/** Lo que Meta dice del conjunto (destination_type) es la fuente principal. */
+const POR_DESTINATION_TYPE: Record<string, TipoDestino> = {
+  WHATSAPP: "whatsapp",
+  MESSENGER: "mensajes", INSTAGRAM_DIRECT: "mensajes",
+  MESSAGING_MESSENGER_WHATSAPP: "mensajes", MESSAGING_INSTAGRAM_DIRECT_MESSENGER: "mensajes",
+  MESSAGING_INSTAGRAM_DIRECT_WHATSAPP: "mensajes", MESSAGING_INSTAGRAM_DIRECT_MESSENGER_WHATSAPP: "mensajes",
+  ON_AD: "formulario", WEBSITE: "web", PHONE_CALL: "llamada",
+  ON_POST: "publicacion", ON_PAGE: "publicacion", ON_VIDEO: "publicacion", ON_EVENT: "publicacion",
+  INSTAGRAM_PROFILE: "perfil", FACEBOOK_PAGE: "perfil", INSTAGRAM_PROFILE_AND_FACEBOOK_PAGE: "perfil",
+};
+/** Objetivos que buscan consultas: un anuncio sin link ahí no es un posteo promocionado. */
+const OBJETIVOS_DE_CONSULTAS = new Set(["OUTCOME_LEADS", "LEAD_GENERATION", "MESSAGES", "CONVERSIONS", "OUTCOME_SALES"]);
+
+/**
+ * El destino final de una campaña. Primero lo que dice Meta del conjunto; si
+ * no está (sync viejo), lo de los anuncios, pero un anuncio sin link en una
+ * campaña de leads o mensajes queda sin dato: decir "posteo promocionado" ahí
+ * haría que no se la juzgue por leads (14/10: 15 propuestas así). Pura.
+ */
+export function ajustarDestino(porAnuncios: TipoDestino | undefined, destinationTypes: string[], objetivo: string | null): TipoDestino | null {
+  const cuenta = new Map<TipoDestino, number>();
+  for (const dt of destinationTypes) {
+    const t = POR_DESTINATION_TYPE[dt];
+    if (t) cuenta.set(t, (cuenta.get(t) ?? 0) + 1);
+  }
+  if (cuenta.size) return [...cuenta].sort((a, b) => b[1] - a[1])[0][0];
+  if (porAnuncios === "publicacion" && objetivo && OBJETIVOS_DE_CONSULTAS.has(objetivo)) return null;
+  return porAnuncios ?? null;
+}
+
 /** El destino de cada campaña del cliente (id de campaña como en ads_insights). */
 export async function destinosDeCampanas(db: Db, clientId: string): Promise<Map<string, DestinoCampana>> {
-  const r = await db.execute(sql`
-    select coalesce(c.campaign_id, regexp_replace(s.campaign_id, '^.*/campaigns/', '')) as campaign_id, c.platform, c.raw
-    from ads_creatives c left join ads_adsets s on s.id = c.adset_id
-    where c.client_id = ${clientId}`);
-  return resumirDestinos(filas<{ campaign_id: string | null; platform: string; raw: unknown }>(r)
+  const [anuncios, conjuntos, campanas] = await Promise.all([
+    db.execute(sql`
+      select coalesce(c.campaign_id, regexp_replace(s.campaign_id, '^.*/campaigns/', '')) as campaign_id, c.platform, c.raw
+      from ads_creatives c left join ads_adsets s on s.id = c.adset_id
+      where c.client_id = ${clientId}`),
+    db.execute(sql`
+      select regexp_replace(campaign_id, '^.*/campaigns/', '') as campaign_id, raw->>'destination_type' as dt
+      from ads_adsets where client_id = ${clientId} and raw ? 'destination_type'`),
+    db.execute(sql`select id, objective from ads_campaigns where client_id = ${clientId}`),
+  ]);
+  const base = resumirDestinos(filas<{ campaign_id: string | null; platform: string; raw: unknown }>(anuncios)
     .filter((f) => f.campaign_id)
     .map((f) => ({ campaignId: f.campaign_id!, destino: destinoDeAnuncio(f.platform, f.raw) })));
+  const dts = new Map<string, string[]>();
+  for (const f of filas<{ campaign_id: string; dt: string }>(conjuntos)) dts.set(f.campaign_id, [...(dts.get(f.campaign_id) ?? []), f.dt]);
+  const objetivos = new Map(filas<{ id: string; objective: string | null }>(campanas).map((c) => [c.id, c.objective]));
+  const out = new Map<string, DestinoCampana>();
+  for (const id of new Set([...base.keys(), ...dts.keys()])) {
+    const tipo = ajustarDestino(base.get(id)?.tipo, dts.get(id) ?? [], objetivos.get(id) ?? null);
+    if (tipo) out.set(id, { tipo, paginas: tipo === "web" ? base.get(id)?.paginas ?? [] : [] });
+  }
+  return out;
 }
 
 export interface LandingPaga {

@@ -1,0 +1,280 @@
+// LMTM-OS: el piloto automático de la pauta y de las decisiones (14/10).
+//
+// Pedido: "quiero que todo sea más automático, no tantas decisiones humanas".
+//
+// EL PROBLEMA
+// La autonomía graduada (ads-autonomia.ts) pedía historial medido para que una
+// acción se ejecutara sola. Como nunca se ejecutó ninguna (313 propuestas sin
+// decidir en 8 días), nunca iba a haber historial: el círculo no se abría.
+//
+// CÓMO QUEDA
+// Con el interruptor general prendido (LMTM_AUTONOMIA_PAUTA=1), se ejecuta solo
+// lo que pasa reglas con evidencia y topes, aunque no haya historial todavía:
+//   · pausar: el evaluador del playbook lo aprueba Y la evidencia es fuerte
+//     (menos de 1 en 50 de que una campaña en el objetivo traiga tan pocos
+//     leads); hasta 3 por cliente por día, nunca más del 40% del gasto de esa
+//     plataforma, nunca la última campaña que gasta;
+//   · bajar presupuesto y mover plata entre campañas (el gasto total no sube),
+//     si el evaluador lo aprueba;
+//   · negativas y pausar keywords de Google (ya traen evidencia mínima y
+//     protegen la marca);
+//   · crear en ClickUp la tarea de una decisión nueva del equipo.
+// Nunca solo: subir presupuesto (gasta más plata del cliente) y duplicar (crea
+// algo en su cuenta). Eso sigue pidiendo OK.
+//
+// Si el historial medido de un tipo de acción sale malo (empeoró más del 10%
+// de los casos), ese tipo vuelve a pedir OK solo: el freno es el mismo dato que
+// antes era la llave. Todo lo que se hace solo se avisa en el resumen.
+
+import type { Db } from "@paperclipai/db";
+import { approvals, decisiones } from "@paperclipai/db";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import type { MetricasCampana } from "../metricas/campanas.js";
+import type { ContextoEval } from "../metricas/eval-propuestas.js";
+import type { AccionPauta, PayloadAccionPauta } from "./ads-propuestas.js";
+
+export const POLITICA = {
+  /** Más estricta que la del evaluador (0,1): para hacerlo sin que nadie mire. */
+  evidenciaPausa: 0.02,
+  pausasPorClientePorDia: 3,
+  /** Lo pausado solo en el día no puede pasar esta parte del gasto de la plataforma. */
+  fraccionMaxPausada: 0.4,
+  tareasPorClientePorCorrida: 2,
+  tareasPorCorrida: 30,
+} as const;
+
+export interface Veredicto { si: boolean; motivo: string }
+
+/** Destinos donde un lead es lo que se busca: ahí el costo por lead dice algo. */
+export const DESTINOS_CON_CONSULTAS = new Set(["whatsapp", "formulario", "mensajes", "llamada", "web"]);
+
+/** ¿Esta pausa se puede hacer sola? Pura: es la que decide apagar algo sin que nadie mire. */
+export function pausaSola(
+  e: { inversion: number; leads: number },
+  tcpl: number,
+  cuenta: { gastoPlataforma: number; pausadoHoy: number; pausasHoy: number; campanasConGasto: number },
+  probPocosLeads: (k: number, esperados: number) => number,
+): Veredicto {
+  const p = probPocosLeads(e.leads, e.inversion / tcpl);
+  if (p >= POLITICA.evidenciaPausa) return { si: false, motivo: `la evidencia alcanza para proponer pero no para hacerlo solo (1 en ${Math.round(1 / p)})` };
+  if (cuenta.pausasHoy >= POLITICA.pausasPorClientePorDia) return { si: false, motivo: `ya se pausaron ${cuenta.pausasHoy} solas hoy en este cliente` };
+  if (cuenta.campanasConGasto <= 1) return { si: false, motivo: "es la única campaña que gasta en esa plataforma: apagarla es decisión de una persona" };
+  if (cuenta.gastoPlataforma > 0 && (cuenta.pausadoHoy + e.inversion) / cuenta.gastoPlataforma > POLITICA.fraccionMaxPausada) {
+    return { si: false, motivo: `pausaría más del ${POLITICA.fraccionMaxPausada * 100}% del gasto de la plataforma en un día` };
+  }
+  return { si: true, motivo: `evidencia fuerte: con ese gasto, una campaña en el objetivo traería ${(e.inversion / tcpl).toFixed(1).replace(".", ",")} leads y tener ${e.leads} pasa menos de 1 de cada ${Math.round(1 / Math.max(p, 1e-6))} veces` };
+}
+
+/** Cuánto se pausó solo hoy en un cliente (propuestas de agentes ejecutadas por el piloto). */
+async function pausadoHoy(db: Db, clientId: string): Promise<{ pausasHoy: number; ids: Set<string> }> {
+  const filas = await db
+    .select({ payload: approvals.payload })
+    .from(approvals)
+    .where(and(
+      eq(approvals.type, "accion_pauta"),
+      eq(approvals.status, "approved"),
+      sql`${approvals.decisionNote} like 'Ejecutada sola%'`,
+      gte(approvals.decidedAt, sql`date_trunc('day', now() at time zone 'America/Argentina/Buenos_Aires') at time zone 'America/Argentina/Buenos_Aires'`),
+      sql`${approvals.payload}->>'clientId' = ${clientId}`,
+    ));
+  const ids = new Set<string>();
+  for (const f of filas) {
+    const a = (f.payload as unknown as PayloadAccionPauta).accion;
+    if (a?.accion === "pause") ids.add(a.entityId);
+  }
+  return { pausasHoy: ids.size, ids };
+}
+
+/**
+ * ¿Una propuesta de pauta de un agente se ejecuta sola? Con el interruptor
+ * apagado, nunca. `campanas` y `ctx` son los de la ventana que la evaluó.
+ */
+export async function propuestaSeEjecutaSola(
+  db: Db,
+  companyId: string,
+  clientId: string,
+  accion: AccionPauta,
+  campanas: MetricasCampana[],
+  ctx: ContextoEval,
+): Promise<Veredicto> {
+  const { autonomiaHabilitada, historialDe, TECHO_EMPEORA, MINIMO_CASOS } = await import("./ads-autonomia.js");
+  if (!autonomiaHabilitada()) return { si: false, motivo: "el piloto automático está apagado" };
+  if (accion.accion === "duplicate") return { si: false, motivo: "duplicar crea algo en la cuenta del cliente: siempre lo decide una persona" };
+
+  const kind = accion.accion === "pause" ? "pause_ad_entity" : "set_budget";
+  const h = await historialDe(db, companyId, kind).catch(() => null);
+  if (h && h.total >= MINIMO_CASOS && h.peor / h.total > TECHO_EMPEORA) {
+    return { si: false, motivo: `lo medido de "${kind}" empeoró el CPL en ${h.peor} de ${h.total} casos: vuelve a pedir OK` };
+  }
+
+  const buscar = (tipo: "campaign" | "adset", id: string) => {
+    for (const c of campanas) {
+      if (tipo === "campaign" && c.campaignId === id) return { c, n: c as { inversion: number; leads: number; presupuestoDiario: number | null } };
+      const a = c.conjuntos.find((x) => x.adsetId === id);
+      if (tipo === "adset" && a) return { c, n: a };
+    }
+    return null;
+  };
+
+  if (accion.accion === "pause") {
+    const e = buscar(accion.entityType, accion.entityId);
+    const tcpl = e ? ctx.tcpl[e.c.plataforma] : null;
+    if (!e || !tcpl) return { si: false, motivo: "no se encontró la entidad o su objetivo" };
+    // Solo lo que busca consultas: un posteo promocionado o una campaña de perfil
+    // no se juzga por leads, y si no se sabe adónde manda, no se toca solo.
+    const { destinosDeCampanas } = await import("./ads-destinos.js");
+    const destino = (await destinosDeCampanas(db, clientId).catch(() => new Map())).get(e.c.campaignId)?.tipo ?? null;
+    if (!destino || !DESTINOS_CON_CONSULTAS.has(destino)) {
+      return { si: false, motivo: destino ? `manda a "${destino}", que no se juzga por leads: lo decide una persona` : "no se sabe adónde manda la campaña: lo decide una persona" };
+    }
+    const plat = campanas.filter((c) => c.plataforma === e.c.plataforma);
+    const hace3 = new Date(Date.now() - 4 * 86_400_000).toISOString().slice(0, 10);
+    const { pausasHoy, ids } = await pausadoHoy(db, clientId);
+    if (ids.has(accion.entityId)) return { si: false, motivo: "ya la pausó el piloto hoy" };
+    const pausadoHoyGasto = plat.filter((c) => ids.has(c.campaignId)).reduce((s, c) => s + c.inversion, 0)
+      + plat.flatMap((c) => c.conjuntos).filter((a) => ids.has(a.adsetId)).reduce((s, a) => s + a.inversion, 0);
+    const { probPocosLeads } = await import("../metricas/eval-propuestas.js");
+    return pausaSola(e.n, tcpl, {
+      gastoPlataforma: plat.reduce((s, c) => s + c.inversion, 0),
+      pausadoHoy: pausadoHoyGasto,
+      pausasHoy,
+      campanasConGasto: plat.filter((c) => (c.ultimoDiaConGasto ?? "") >= hace3 && !ids.has(c.campaignId)).length,
+    }, probPocosLeads);
+  }
+
+  if (accion.accion === "set_budget") {
+    const e = buscar(accion.entityType, accion.entityId);
+    const actual = e?.n.presupuestoDiario ?? null;
+    if (actual == null) return { si: false, motivo: "no se sabe el presupuesto actual" };
+    if (accion.nuevoDiario > actual) return { si: false, motivo: "subir presupuesto gasta más plata del cliente: lo decide una persona" };
+    return { si: true, motivo: `baja el presupuesto (de $${Math.round(actual)} a $${Math.round(accion.nuevoDiario)}): el gasto no sube` };
+  }
+
+  // shift_budget: el total no cambia; el evaluador ya exigió ir hacia lo más barato.
+  return { si: true, motivo: "mueve plata hacia lo que rinde mejor sin subir el gasto total" };
+}
+
+/** Deja escrito en la aprobación que la ejecutó el piloto, con su resultado. */
+export async function registrarEjecutadaSola(
+  db: Db,
+  input: { companyId: string; agentId: string | null; approvalId?: string; payload: PayloadAccionPauta; motivo: string; resultado: { ok: boolean; detalle: string } },
+): Promise<void> {
+  const payload = { ...input.payload, resultado: { ...input.resultado, ejecutadoAt: new Date().toISOString() } } as unknown as Record<string, unknown>;
+  const valores = {
+    status: input.resultado.ok ? "approved" : "pending",
+    decisionNote: input.resultado.ok ? `Ejecutada sola: ${input.motivo}` : `Intentó sola y falló: ${input.resultado.detalle}`,
+    decidedAt: input.resultado.ok ? new Date() : null,
+    payload,
+    updatedAt: new Date(),
+  };
+  let id = input.approvalId ?? null;
+  if (id) {
+    await db.update(approvals).set(valores).where(eq(approvals.id, id));
+  } else {
+    [{ id }] = await db.insert(approvals).values({ companyId: input.companyId, type: "accion_pauta", requestedByAgentId: input.agentId, ...valores }).returning({ id: approvals.id });
+  }
+  if (!input.resultado.ok) return;
+  // La misma acción propuesta por el otro agente (Milo y el media buyer
+  // proponen en paralelo) ya está hecha: se cierra con referencia.
+  const { esAccionPauta, firmaAccion } = await import("./ads-propuestas.js");
+  const firma = firmaAccion(input.payload.accion);
+  const gemelas = await db.select({ id: approvals.id, payload: approvals.payload }).from(approvals)
+    .where(and(eq(approvals.type, "accion_pauta"), eq(approvals.status, "pending"), sql`${approvals.payload}->>'clientId' = ${input.payload.clientId}`));
+  for (const g of gemelas) {
+    if (g.id === id || !esAccionPauta(g.payload) || firmaAccion(g.payload.accion) !== firma) continue;
+    await db.update(approvals)
+      .set({ status: "cancelled", decisionNote: `Ya la hizo el piloto automático (${id}).`, decidedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(approvals.id, g.id), eq(approvals.status, "pending")));
+  }
+}
+
+/** Avisa al equipo lo que hizo el piloto (resumen de las 9:00, no interrumpe). */
+export async function avisarHechoSolo(db: Db, clientId: string, resumen: string, justificacion: string, motivo: string, resultado: { ok: boolean; detalle: string }): Promise<void> {
+  const { avisarAlEquipo } = await import("./wa-embudo.js");
+  await avisarAlEquipo(db, {
+    origen: "pauta-automatica",
+    nivel: 3,
+    clave: `auto:${resumen}`,
+    clientId,
+    texto: `*${resultado.ok ? "Hecho solo" : "Intentó solo y FALLÓ"}* — ${resumen}\n\n${justificacion}\n\n_${resultado.detalle}_\n_Automático porque ${motivo}._`,
+  }).catch(() => {});
+}
+
+export interface ResultadoPiloto { propuestas: number; decisiones: number; tareas: number; fallas: number }
+
+/**
+ * Pasa por el piloto lo que ya está esperando: propuestas de agentes pendientes
+ * y decisiones abiertas del motor con acción que se puede hacer sola.
+ */
+export async function correrPiloto(db: Db): Promise<ResultadoPiloto> {
+  const r: ResultadoPiloto = { propuestas: 0, decisiones: 0, tareas: 0, fallas: 0 };
+  const { autonomiaHabilitada } = await import("./ads-autonomia.js");
+  if (!autonomiaHabilitada()) return r;
+
+  // 1) Propuestas de agentes pendientes.
+  const { esAccionPauta, ejecutarAccionAprobada } = await import("./ads-propuestas.js");
+  const { contextoEval } = await import("../metricas/eval-recientes.js");
+  const { evaluarPropuesta } = await import("../metricas/eval-propuestas.js");
+  const pendientes = await db
+    .select({ id: approvals.id, companyId: approvals.companyId, agentId: approvals.requestedByAgentId, payload: approvals.payload })
+    .from(approvals)
+    .where(and(eq(approvals.type, "accion_pauta"), eq(approvals.status, "pending")));
+  const ayer = new Date(Date.now() - 86_400_000);
+  const contextos = new Map<string, Awaited<ReturnType<typeof contextoEval>>>();
+  for (const f of pendientes) {
+    if (!esAccionPauta(f.payload)) continue;
+    const p = f.payload;
+    if (!contextos.has(p.clientId)) contextos.set(p.clientId, await contextoEval(db, p.clientId, ayer));
+    const { ctx, campanas } = contextos.get(p.clientId)!;
+    if (!evaluarPropuesta(p.accion, campanas, ctx).ok) continue;
+    const v = await propuestaSeEjecutaSola(db, f.companyId, p.clientId, p.accion, campanas, ctx);
+    if (!v.si) continue;
+    const res = await ejecutarAccionAprobada(db, p, f.agentId);
+    await registrarEjecutadaSola(db, { companyId: f.companyId, agentId: f.agentId, approvalId: f.id, payload: p, motivo: v.motivo, resultado: res });
+    await avisarHechoSolo(db, p.clientId, p.resumen, p.justificacion, v.motivo, res);
+    if (res.ok) r.propuestas += 1; else r.fallas += 1;
+  }
+
+  // 2) Decisiones del motor que se pueden hacer solas.
+  const { ejecutar } = await import("../decisiones/store.js");
+  const sistema = { actorType: "system" as const, actorId: "piloto-automatico", agentId: null, runId: null };
+  const abiertas = await db
+    .select({ id: decisiones.id, clientId: decisiones.clientId, accion: decisiones.accion, responsable: decisiones.responsable, createdAt: decisiones.createdAt })
+    .from(decisiones)
+    .where(inArray(decisiones.estado, ["abierta", "aprobada"]))
+    .orderBy(decisiones.createdAt);
+  // Las tareas, solo de las decisiones que nacieron con el piloto prendido: la
+  // pila vieja (algunas de hace semanas) no se vuelca de golpe en ClickUp.
+  const desde = await prendidoDesde(db);
+  const tareasPorCliente = new Map<string, number>();
+  for (const d of abiertas) {
+    const tipo = (d.accion as { tipo?: string; resultado?: unknown } | null)?.tipo;
+    if (!tipo || (d.accion as { resultado?: unknown }).resultado) continue;
+    const esPlataforma = tipo === "negativas" || tipo === "pausar_keywords";
+    const esTarea = tipo === "tarea" && d.responsable === "equipo" && desde != null && new Date(d.createdAt) >= desde;
+    if (!esPlataforma && !esTarea) continue;
+    if (esTarea) {
+      const n = tareasPorCliente.get(d.clientId) ?? 0;
+      if (n >= POLITICA.tareasPorClientePorCorrida || r.tareas >= POLITICA.tareasPorCorrida) continue;
+      tareasPorCliente.set(d.clientId, n + 1);
+    }
+    try {
+      const { resultado } = await ejecutar(db, d.id, sistema, { ensayo: false });
+      if (!resultado.ok) r.fallas += 1;
+      else if (esTarea) r.tareas += 1;
+      else r.decisiones += 1;
+    } catch {
+      r.fallas += 1;
+    }
+  }
+  return r;
+}
+
+/** Desde cuándo está prendido el piloto (primera corrida registrada). */
+async function prendidoDesde(db: Db): Promise<Date | null> {
+  const { syncLogs } = await import("@paperclipai/db");
+  const [f] = await db.select({ at: sql<string | null>`min(${syncLogs.createdAt})` }).from(syncLogs).where(eq(syncLogs.jobName, "piloto:prendido"));
+  if (f?.at) return new Date(f.at);
+  await db.insert(syncLogs).values({ jobName: "piloto:prendido", platform: "lmtm", status: "completed", completedAt: new Date() });
+  return new Date();
+}

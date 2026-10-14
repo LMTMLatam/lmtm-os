@@ -481,7 +481,8 @@ export const metaProvider: AdsProvider = {
       campaign_id?: string; daily_budget?: string; lifetime_budget?: string;
     }>(
       `/${mapping.adAccountId}/adsets`,
-      { fields: "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget" },
+      // destination_type: adónde manda el conjunto (WhatsApp, formulario, web…). Lo usa ads-destinos.ts.
+      { fields: "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,destination_type,optimization_goal" },
       connection.accessToken,
     )) {
       for (const a of batch) {

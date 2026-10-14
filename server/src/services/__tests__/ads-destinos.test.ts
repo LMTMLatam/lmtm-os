@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { destinoDeAnuncio, destinoParaAgente, resumirDestinos, rutaDe } from "../ads-destinos.js";
+import { ajustarDestino, destinoDeAnuncio, destinoParaAgente, resumirDestinos, rutaDe } from "../ads-destinos.js";
 
 describe("adónde manda cada anuncio", () => {
   it("Meta: formulario, WhatsApp, mensajes, perfil y web", () => {
@@ -16,6 +16,13 @@ describe("adónde manda cada anuncio", () => {
   it("Google: el final_url del anuncio", () => {
     expect(destinoDeAnuncio("google", { final_urls: ["https://www.mapropiedades.com.ar/index.php?x=1"] })?.tipo).toBe("web");
     expect(destinoDeAnuncio("google", {})).toBeNull();
+  });
+  it("lo que dice Meta del conjunto manda; un anuncio sin link en una campaña de leads no es un posteo", () => {
+    expect(ajustarDestino("publicacion", ["ON_AD", "ON_AD"], "OUTCOME_LEADS")).toBe("formulario");
+    expect(ajustarDestino(undefined, ["WHATSAPP"], "OUTCOME_ENGAGEMENT")).toBe("whatsapp");
+    expect(ajustarDestino("publicacion", [], "OUTCOME_LEADS")).toBeNull();
+    expect(ajustarDestino("publicacion", [], "OUTCOME_ENGAGEMENT")).toBe("publicacion");
+    expect(ajustarDestino("whatsapp", [], null)).toBe("whatsapp");
   });
   it("la ruta como la guarda Analytics", () => {
     expect(rutaDe("https://www.amoblamientosreno.com/cotizar/?utm_source=fb")).toBe("/cotizar");

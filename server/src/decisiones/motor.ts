@@ -564,6 +564,15 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
     return null;
   });
 
+  // Piloto automático: lo que se puede hacer solo, se hace (si está prendido).
+  const piloto = await import("../services/piloto-automatico.js")
+    .then((m) => m.correrPiloto(db))
+    .catch((e) => {
+      console.warn("[decisiones] piloto automático falló:", e instanceof Error ? e.message : e);
+      return null;
+    });
+  if (piloto) console.log(`[piloto] ${piloto.propuestas} propuestas de pauta y ${piloto.decisiones} acciones del motor hechas solas, ${piloto.tareas} tareas creadas en ClickUp, ${piloto.fallas} fallas`);
+
   const efecto = await verificarAccionesDePlataforma(db, await leerVivas(db), ahora).catch((e) => {
     console.warn("[decisiones] verificación por efecto falló:", e instanceof Error ? e.message : e);
     return { verificadas: 0, noConfirmadas: 0 };
