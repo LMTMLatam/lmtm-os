@@ -41,6 +41,50 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 14/10 noche: la optimización de pauta no cerraba, y campañas ↔ web
+
+**Pedido:** "que funcione bien la optimización de campañas, que se compagine con la
+página web, que todo se nutra entre sí".
+
+**Qué pasaba:** los agentes proponían, pero nada se ejecutaba.
+- Había 313 propuestas de pauta pendientes desde el 06/10 (170 de Milo y 143 del media
+  buyer) y nunca se había decidido ninguna.
+- Eran unas 80 acciones: la misma campaña se volvía a proponer cada mañana. MA
+  PROPIEDADES sumaba 190 sobre 40 campañas.
+- Muchas eran pausas de campañas que ya no gastaban: Meta deja en ACTIVE una campaña con
+  la fecha de fin vencida.
+- Varias pausas se apoyaban en 1 a 4 leads, donde el CPL es ruido.
+
+**Hecho:**
+- `a223f8d`:
+  - una propuesta por acción y por agente; si se repite, se actualizan los números;
+  - no se arma una pausa de lo que no gastó en los 3 días completos anteriores;
+  - limpieza diaria: pasan a `cancelled`, con el motivo escrito, las repetidas, las
+    pausas de lo que no gasta y las que nadie tocó en 7 días.
+- **Primera corrida:** de 313 pendientes quedaron 76 (195 repetidas, 37 pausas de lo que
+  no gasta, 5 vencidas).
+- `573fa93`:
+  - pausar exige evidencia: tiene que ser improbable, menos de 1 en 10, que una campaña
+    que rinde en el objetivo traiga tan pocos leads (Poisson con media gasto / objetivo);
+  - la herramienta pasa cada propuesta por el evaluador del playbook antes de armarla;
+  - la limpieza re-evalúa las pendientes.
+- **Ensayo sobre las 76:** quedan 43 defendibles.
+- `031dbaa`, `ads-destinos.ts`: cada campaña trae su destino (WhatsApp, formulario,
+  mensajes, perfil, posteo promocionado o web). Si va a la web, trae lo que dice GA4 de
+  esa página con tráfico pago.
+  - Ensayo: 21 campañas van a la web ($2,7 M en 30 días), 69 a WhatsApp ($5,3 M) y 14 a
+    formularios.
+  - Llega a `get_client_campaigns` (Milo y el media buyer) y a la regla de landings
+    flojas, que ahora nombra las campañas que mandan ahí.
+  - El media buyer suma la causa "landing" y usa `lmtmRendimientoWeb`.
+- `lmtm-ads-playbook` decía que no hay escritura en Meta/Google: corregido.
+
+**Falta (persona):**
+- **Decidir las 43 propuestas en Hoy.** Si se quiere que las de riesgo cero (por ejemplo,
+  pausar con evidencia fuerte) se ejecuten solas, es `LMTM_AUTONOMIA_PAUTA`: lo decide
+  Nazareno.
+- **Habilitar la Google Analytics Data API**, sin la cual `landing` queda vacía.
+
 ### 14/10 tarde: dashboards de clientes como antes, y Google conectado
 
 **Pedido:** "los dashboards de los clientes están fallando, que sean como los de antes".
