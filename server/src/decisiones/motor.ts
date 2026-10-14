@@ -282,8 +282,9 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     if (!conexion) return { propuestas: [], evaluada: false, nota: "Sin cuenta de Google conectada para Search Console y Analytics." };
     const props = (await db.select().from(webPropiedades)).filter((p) => activosIds.has(p.clientId) && (p.gscSitio || p.ga4Propiedad));
     if (props.length === 0) return [];
-    // Sincronizado hace más de 2 días o con error: no se sabe cómo está, no se cierra nada.
-    const viejos = props.filter((p) => p.ultimoError || !p.sincronizadoAt || ahora.getTime() - new Date(p.sincronizadoAt).getTime() > 2 * 86_400_000);
+    // Sin una sincronización buena en 2 días no se sabe cómo está: no se cierra nada.
+    // (ultimoError también trae avisos, como "elegí una propiedad", que no son fallas.)
+    const viejos = props.filter((p) => !p.sincronizadoAt || ahora.getTime() - new Date(p.sincronizadoAt).getTime() > 2 * 86_400_000);
     const ids = props.map((p) => p.clientId);
     const [dias, ranking, conGasto] = await Promise.all([
       db.select().from(webDiario).where(and(inArray(webDiario.clientId, ids), sql`${webDiario.fecha} >= current_date - 70`)),

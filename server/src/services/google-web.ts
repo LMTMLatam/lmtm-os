@@ -363,6 +363,30 @@ async function sincronizarGa(db: Db, clientId: string, propiedad: string, token:
   return filas.length;
 }
 
+/** Entre propiedades con la misma web, la única con más visitas en 28 días (y alguna). null si no se sabe. */
+async function laQueRecibeVisitas(candidatas: PropiedadGa[], conexiones: Map<string, { id: string; refreshToken: string }>, ahora: Date): Promise<PropiedadGa | null> {
+  const hasta = ultimoDiaCompleto("ga", ahora);
+  const medidas: Array<{ p: PropiedadGa; sesiones: number }> = [];
+  for (const p of candidatas) {
+    const con = conexiones.get(p.conexionId);
+    if (!con) return null;
+    try {
+      const filas = await ga(await tokenDe(con), p.propiedad, { dateRanges: [{ startDate: sumarDias(hasta, -27), endDate: hasta }], metrics: [{ name: "sessions" }] });
+      medidas.push({ p, sesiones: Number(filas[0]?.metricValues[0]?.value ?? 0) });
+    } catch {
+      return null;
+    }
+  }
+  return elegirPorVisitas(medidas);
+}
+
+/** La que tiene más visitas, si tiene alguna y no empata con otra. Puro. */
+export function elegirPorVisitas<T>(medidas: Array<{ p: T; sesiones: number }>): T | null {
+  const orden = [...medidas].sort((a, b) => b.sesiones - a.sesiones);
+  if (!orden[0] || orden[0].sesiones <= 0 || orden[1]?.sesiones === orden[0].sesiones) return null;
+  return orden[0].p;
+}
+
 export interface ResultadoWeb {
   conexiones: number;
   clientes: number;
@@ -403,16 +427,21 @@ async function sincronizarAhora(db: Db, opts: { clientId?: string; ahora?: Date 
 
   for (const c of lista) {
     let p = props.get(c.id) ?? null;
+    let aviso: string | null = null;
     // Emparejar: solo lo que no eligió una persona, y sin borrar lo que ya estaba.
     if (!p?.fijadaPor) {
       const sitio = elegirSitio(c.web, inv.sitios);
-      const { elegida, candidatas } = elegirPropiedad(c.web, inv.propiedades);
+      let { elegida, candidatas } = elegirPropiedad(c.web, inv.propiedades);
+      // Dos propiedades con la misma web (MAERS tiene una en su cuenta y otra en
+      // "eKommerce-1"): la que recibe visitas es la que se usa. Si no se puede
+      // saber (la API no contesta, ninguna o las dos reciben), se avisa.
+      if (!elegida && candidatas.length > 1) elegida = await laQueRecibeVisitas(candidatas, porId, ahora);
       const gscSitio = sitio?.sitio ?? p?.gscSitio ?? null;
       const ga4Propiedad = elegida?.propiedad ?? p?.ga4Propiedad ?? null;
       const ga4Nombre = elegida?.nombre ?? p?.ga4Nombre ?? null;
       if (sitio && sitio.sitio !== p?.gscSitio) res.nuevosGsc += 1;
       if (elegida && elegida.propiedad !== p?.ga4Propiedad) res.nuevosGa += 1;
-      const aviso = !ga4Propiedad && candidatas.length > 1
+      aviso = !ga4Propiedad && candidatas.length > 1
         ? `Hay ${candidatas.length} propiedades de Analytics con esta web (${candidatas.map((x) => x.nombre).join(", ")}): elegí una en la ficha.`
         : null;
       if (gscSitio || ga4Propiedad || aviso) {
@@ -441,8 +470,10 @@ async function sincronizarAhora(db: Db, opts: { clientId?: string; ahora?: Date 
     const error = errores.join(" · ").slice(0, 1000) || null;
     if (error) res.errores.push({ cliente: c.name.trim(), error });
     else res.sincronizados += 1;
+    // El aviso de "elegí una propiedad" no es una falla de la sincronización, pero
+    // tiene que seguir a la vista: antes lo borraba el Search Console que sí andaba.
     await db.update(webPropiedades)
-      .set({ ultimoError: error, ...(error ? {} : { sincronizadoAt: new Date() }), updatedAt: new Date() })
+      .set({ ultimoError: [aviso, error].filter(Boolean).join(" · ").slice(0, 1000) || null, ...(error ? {} : { sincronizadoAt: new Date() }), updatedAt: new Date() })
       .where(eq(webPropiedades.clientId, c.id));
   }
   return res;
