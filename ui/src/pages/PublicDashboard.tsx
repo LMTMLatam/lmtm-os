@@ -1,4 +1,5 @@
-// LMTM: el informe que ve el cliente en su link (/public/dashboards/:slug).
+// LMTM: el informe semanal del cliente (/public/dashboards/:slug/informe). El link
+// del cliente abre el dashboard; esto se abre desde ahí (14/10).
 //
 // El link es el mismo de siempre (los slugs no cambian). Lo que cambia es qué
 // muestra: antes un tablero de 9 pestañas con CTR, CPM y números que no se
@@ -133,8 +134,8 @@ function Informe({ d, slug, onSemana }: { d: InformePublico; slug: string; onSem
           {d.publicadoAt && ` Resumen de la semana escrito por tu equipo de LMTM.`}
         </p>
         <p>
-          <a className="font-semibold text-l-marca underline-offset-2 hover:underline" href={`/public/dashboards/${encodeURIComponent(slug)}/detalle`}>
-            Ver el detalle de anuncios, audiencia y redes
+          <a className="font-semibold text-l-marca underline-offset-2 hover:underline" href={`/public/dashboards/${encodeURIComponent(slug)}`}>
+            Ver el dashboard completo: anuncios, audiencia y redes
           </a>
         </p>
       </footer>

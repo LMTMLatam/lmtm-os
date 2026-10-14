@@ -315,9 +315,12 @@ export function App() {
             producción sin login, antes de la compuerta de acceso. */}
         {import.meta.env.DEV ? <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} /> : null}
         <Route path="connect-ads" element={<ConnectAds />} />
-        <Route path="public/dashboards/:slug" element={<PublicDashboard />} />
-        {/* El panel viejo, como "ver el detalle" del informe (B3), hasta B4. */}
+        {/* El link del cliente abre el dashboard de siempre (pedido 14/10: "que sean
+            como los de antes"); el informe semanal de B3 queda en /informe. /detalle
+            sigue andando para los links que ya se mandaron. */}
+        <Route path="public/dashboards/:slug" element={<PublicDashboardDetalle />} />
         <Route path="public/dashboards/:slug/detalle" element={<PublicDashboardDetalle />} />
+        <Route path="public/dashboards/:slug/informe" element={<PublicDashboard />} />
         {/* Links públicos pegados/abiertos con el prefijo de empresa adelante
             (/LMTM/public/dashboards/x) daban Page-not-found — redirigir. */}
         <Route path=":prefix/public/dashboards/:slug" element={<PublicDashboardPrefixRedirect />} />

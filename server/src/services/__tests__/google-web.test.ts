@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diasGsc, elegirPropiedad, elegirSitio, errorDeGoogle, hostDe, oportunidadesSeo, sumarDias, sumarVentana, ultimoDiaCompleto } from "../google-web.js";
+import { diasGsc, elegirPorVisitas, elegirPropiedad, elegirSitio, errorDeGoogle, hostDe, oportunidadesSeo, sumarDias, sumarVentana, ultimoDiaCompleto } from "../google-web.js";
 import { propuestasWeb, type DatosWeb } from "../../decisiones/reglas/web.js";
 
 const AHORA = new Date("2026-10-13T15:00:00Z"); // 13/10 12:00 en Buenos Aires
@@ -29,6 +29,14 @@ describe("de qué cliente es cada sitio", () => {
     const doble = elegirPropiedad("https://maers.com.ar", [p("properties/1", ["maers.com.ar"]), p("properties/3", ["maers.com.ar"])]);
     expect(doble.elegida).toBeNull();
     expect(doble.candidatas).toHaveLength(2);
+  });
+});
+
+describe("dos propiedades con la misma web", () => {
+  it("se usa la que recibe visitas; si empatan o ninguna recibe, no se elige", () => {
+    expect(elegirPorVisitas([{ p: "vieja", sesiones: 0 }, { p: "nueva", sesiones: 420 }])).toBe("nueva");
+    expect(elegirPorVisitas([{ p: "a", sesiones: 0 }, { p: "b", sesiones: 0 }])).toBeNull();
+    expect(elegirPorVisitas([{ p: "a", sesiones: 30 }, { p: "b", sesiones: 30 }])).toBeNull();
   });
 });
 
