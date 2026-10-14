@@ -23,6 +23,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { approvals } from "@paperclipai/db";
+import { and, eq, sql } from "drizzle-orm";
 
 export const TIPO_ACCION_PAUTA = "accion_pauta";
 
@@ -48,8 +49,22 @@ export interface PayloadAccionPauta {
   resultado?: { ok: boolean; detalle: string; ejecutadoAt: string };
 }
 
+/** Qué acción es, sin los números: dos propuestas con la misma firma piden lo mismo. Pura. */
+export function firmaAccion(a: AccionPauta): string {
+  if (a.accion === "shift_budget") return `shift:${a.desde.entityId}>${a.hacia.entityId}`;
+  if (a.accion === "duplicate") return `duplicate:${a.entityId}`;
+  return `${a.accion}:${a.entityType}:${a.entityId}`;
+}
+
 /**
  * Deja la propuesta armada y lista para ejecutarse con un click.
+ *
+ * Una por acción y por agente (14/10): si el mismo agente ya tiene pendiente la
+ * misma acción, se actualizan sus números en vez de sumar otra fila. Había 313
+ * pendientes que eran 80 acciones: las mismas campañas, propuestas de nuevo
+ * cada mañana, y nadie podía con la cola. Por agente y no en general para no
+ * mezclar el piloto (Milo y el media buyer se comparan por lo que propone cada
+ * uno); Hoy ya junta en una fila lo que piden los dos.
  *
  * Devuelve el id para que el agente lo nombre en el issue — así la persona
  * llega del comentario a la aprobación sin buscarla.
@@ -64,13 +79,30 @@ export async function proponerAccionPauta(
     resumen: string;
     accion: AccionPauta;
   },
-): Promise<{ id: string }> {
+): Promise<{ id: string; repetida: boolean }> {
   const payload: PayloadAccionPauta = {
     clientId: input.clientId,
     justificacion: input.justificacion,
     resumen: input.resumen,
     accion: input.accion,
   };
+  const firma = firmaAccion(input.accion);
+  const pendientes = await db
+    .select({ id: approvals.id, payload: approvals.payload })
+    .from(approvals)
+    .where(and(
+      eq(approvals.type, TIPO_ACCION_PAUTA),
+      eq(approvals.status, "pending"),
+      input.agentId ? eq(approvals.requestedByAgentId, input.agentId) : sql`${approvals.requestedByAgentId} is null`,
+      sql`${approvals.payload}->>'clientId' = ${input.clientId}`,
+    ));
+  const igual = pendientes.find((p) => esAccionPauta(p.payload) && firmaAccion(p.payload.accion) === firma);
+  if (igual) {
+    await db.update(approvals)
+      .set({ payload: payload as unknown as Record<string, unknown>, updatedAt: new Date() })
+      .where(eq(approvals.id, igual.id));
+    return { id: igual.id, repetida: true };
+  }
   const [fila] = await db
     .insert(approvals)
     .values({
@@ -81,7 +113,79 @@ export async function proponerAccionPauta(
       payload: payload as unknown as Record<string, unknown>,
     })
     .returning({ id: approvals.id });
-  return { id: fila.id };
+  return { id: fila.id, repetida: false };
+}
+
+/**
+ * Último día con gasto de una campaña o conjunto (30 días). null = no gastó.
+ * Para no proponer pausar lo que ya no gasta: una campaña con la fecha de fin
+ * vencida sigue figurando ACTIVE en Meta, y el 14/10 la mayor parte de la cola
+ * eran pausas de campañas que no gastaban desde hacía días.
+ */
+export async function ultimoDiaConGasto(db: Db, clientId: string, entityType: "campaign" | "adset", entityId: string): Promise<string | null> {
+  const col = entityType === "campaign" ? sql`campaign_id` : sql`adset_id`;
+  const r = await db.execute(sql`
+    select max(date)::text as ultimo from ads_insights
+    where client_id = ${clientId} and ${col} = ${entityId} and spend > 0 and date >= current_date - 30`);
+  const filas = (Array.isArray(r) ? r : (r as { rows?: unknown[] }).rows ?? []) as Array<{ ultimo: string | null }>;
+  return filas[0]?.ultimo ?? null;
+}
+
+/** ¿Dejó de gastar? Sin gasto en los últimos 3 días completos (hoy está a medio sincronizar). Pura. */
+export function dejoDeGastar(ultimo: string | null, hoy: string): boolean {
+  if (!ultimo) return true;
+  const limite = new Date(Date.parse(`${hoy}T12:00:00Z`) - 3 * 86_400_000).toISOString().slice(0, 10);
+  return ultimo < limite;
+}
+
+/** Lo que se canceló al ordenar la cola, por motivo. */
+export interface ResultadoLimpieza { repetidas: number; sinGasto: number; vencidas: number }
+
+/**
+ * Ordena la cola de propuestas pendientes (una vez por día). No borra nada: las
+ * deja en "cancelled" con el motivo escrito.
+ *   · repetidas: la misma acción del mismo agente; queda la más nueva;
+ *   · pausas de lo que ya no gasta (3 días completos sin gasto);
+ *   · las que nadie tocó en 7 días: los números ya no son los de hoy, y si
+ *     sigue haciendo falta el agente la vuelve a proponer con números frescos.
+ */
+export async function limpiarPropuestas(db: Db, hoy: string): Promise<ResultadoLimpieza> {
+  const filas = await db
+    .select({ id: approvals.id, payload: approvals.payload, agente: approvals.requestedByAgentId, updatedAt: approvals.updatedAt })
+    .from(approvals)
+    .where(and(eq(approvals.type, TIPO_ACCION_PAUTA), eq(approvals.status, "pending")));
+  const cancelar = async (id: string, nota: string) =>
+    db.update(approvals).set({ status: "cancelled", decisionNote: nota, decidedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(approvals.id, id), eq(approvals.status, "pending")));
+  const r: ResultadoLimpieza = { repetidas: 0, sinGasto: 0, vencidas: 0 };
+  const vistas = new Map<string, string>();
+  const ordenadas = [...filas].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const vivas: typeof filas = [];
+  for (const f of ordenadas) {
+    if (!esAccionPauta(f.payload)) continue;
+    const clave = `${f.agente ?? "-"}|${f.payload.clientId}|${firmaAccion(f.payload.accion)}`;
+    const yaEsta = vistas.get(clave);
+    if (yaEsta) { await cancelar(f.id, `Repetida: la misma acción sigue pendiente en ${yaEsta}.`); r.repetidas += 1; continue; }
+    vistas.set(clave, f.id);
+    vivas.push(f);
+  }
+  const hace7 = Date.parse(`${hoy}T12:00:00Z`) - 7 * 86_400_000;
+  for (const f of vivas) {
+    const p = f.payload as unknown as PayloadAccionPauta;
+    if (p.accion.accion === "pause") {
+      const ultimo = await ultimoDiaConGasto(db, p.clientId, p.accion.entityType, p.accion.entityId);
+      if (dejoDeGastar(ultimo, hoy)) {
+        await cancelar(f.id, `No gasta ${ultimo ? `desde el ${ultimo}` : "en los últimos 30 días"}: pausarla no ahorra nada.`);
+        r.sinGasto += 1;
+        continue;
+      }
+    }
+    if (new Date(f.updatedAt).getTime() < hace7) {
+      await cancelar(f.id, "Vencida: nadie la decidió en 7 días y los números ya no son los de hoy. Si sigue haciendo falta, el agente la vuelve a proponer.");
+      r.vencidas += 1;
+    }
+  }
+  return r;
 }
 
 /**
@@ -173,4 +277,21 @@ export function esAccionPauta(payload: unknown): payload is PayloadAccionPauta {
     );
   }
   return false;
+}
+
+let timer: ReturnType<typeof setInterval> | null = null;
+
+/** Ordena la cola una vez por día (y la primera vez, a los 10 minutos del arranque). */
+export function initLimpiezaPropuestas(db: Db): void {
+  if (timer) return;
+  const vuelta = async () => {
+    const { tocaHoy } = await import("./una-vez-por-dia.js");
+    if (!(await tocaHoy(db, "pauta:limpiar-propuestas"))) return;
+    const { diaLocal } = await import("../avisos/politica.js");
+    const r = await limpiarPropuestas(db, diaLocal(new Date()));
+    console.log(`[propuestas-pauta] cola ordenada: ${r.repetidas} repetidas, ${r.sinGasto} pausas de lo que no gasta, ${r.vencidas} vencidas`);
+  };
+  const correr = () => void vuelta().catch((e) => console.warn("[propuestas-pauta] falló:", e instanceof Error ? e.message : e));
+  setTimeout(correr, 10 * 60_000);
+  timer = setInterval(correr, 6 * 3600_000);
 }

@@ -1138,6 +1138,20 @@ export function agentToolsRoutes(
       // poniéndolo como estaba; ésta CREA una entidad en la cuenta del cliente,
       // y lo creado no se "deshace" — se borra, que es otra cosa. Una persona
       // decide que exista.
+      // Pausar lo que ya no gasta no ahorra nada y llenaba la cola (14/10: la
+      // mayor parte de las 313 pendientes). Se le contesta al agente sin armar nada.
+      if (p.accion.accion === "pause") {
+        const { ultimoDiaConGasto, dejoDeGastar } = await import("../services/ads-propuestas.js");
+        const ultimo = await ultimoDiaConGasto(db, p.clientId, p.accion.entityType, p.accion.entityId);
+        const { diaLocal } = await import("../avisos/politica.js");
+        if (dejoDeGastar(ultimo, diaLocal(new Date()))) {
+          return reply(
+            true,
+            `No armé la propuesta: «${p.resumen}» no gasta ${ultimo ? `desde el ${ultimo}` : "en los últimos 30 días"} (fecha de fin vencida, frenada o sin entrega), así que pausarla no ahorra nada. Si hay que ordenar la cuenta, anotalo en el issue; no hace falta aprobación.`,
+          );
+        }
+      }
+
       const { autonomiaDe } = await import("../services/ads-autonomia.js");
       const kindDeAccion =
         p.accion.accion === "pause" ? "pause_ad_entity" : p.accion.accion === "duplicate" ? null : "set_budget";
@@ -1173,11 +1187,13 @@ export function agentToolsRoutes(
       }
 
       const { proponerAccionPauta } = await import("../services/ads-propuestas.js");
-      const { id } = await proponerAccionPauta(db, { ...p, companyId: ctx.companyId, agentId: ctx.agentId });
+      const { id, repetida } = await proponerAccionPauta(db, { ...p, companyId: ctx.companyId, agentId: ctx.agentId });
       return reply(
         true,
         `${motivo ?? "Requiere OK humano."}\n\n` +
-          `Ya dejé la propuesta armada y lista para ejecutarse: aprobación ${id} — "${p.resumen}". ` +
+          (repetida
+            ? `Ya tenías esta misma propuesta pendiente (aprobación ${id}): le actualicé los números, no se suma otra. `
+            : `Ya dejé la propuesta armada y lista para ejecutarse: aprobación ${id} — "${p.resumen}". `) +
           `Nombrala en el issue para que quien decida llegue directo. Cuando alguien la apruebe, el sistema la ejecuta solo; NO hace falta que vuelvas a llamar la tool.`,
       );
     };
