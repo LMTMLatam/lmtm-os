@@ -518,6 +518,7 @@ export async function rendimientoWeb(db: Db, clientId: string, dias = 28, ahora 
   }
   const conGsc = !!p?.gscSitio;
   const conGa = !!p?.ga4Propiedad;
+  const [cuenta] = conGsc && conGa ? [true] : await db.select({ id: googleWebConexiones.id }).from(googleWebConexiones).where(eq(googleWebConexiones.estado, "activa")).limit(1);
   return {
     cliente: c.name.trim(),
     web: c.web,
@@ -554,8 +555,9 @@ export async function rendimientoWeb(db: Db, clientId: string, dias = 28, ahora 
     // Lo que el equipo tiene que hacer para que esto tenga datos.
     falta: [
       ...(!c.web ? ["Cargar la web del cliente en Marca."] : []),
-      ...(!conGsc ? ["Search Console: ninguna cuenta conectada tiene un sitio con este dominio (o se lo elige a mano en la ficha → Web)."] : []),
-      ...(!conGa ? ["Analytics: ninguna cuenta conectada tiene una propiedad GA4 con este dominio (o se la elige a mano en la ficha → Web)."] : []),
+      ...(!cuenta ? ["No hay ninguna cuenta de Google conectada: conectarla en Integraciones → Web (Google Analytics + Search Console)."] : []),
+      ...(cuenta && !conGsc ? ["Search Console: ninguna cuenta conectada tiene un sitio con este dominio (o se lo elige a mano en la ficha → Web)."] : []),
+      ...(cuenta && !conGa ? ["Analytics: ninguna cuenta conectada tiene una propiedad GA4 con este dominio (o se la elige a mano en la ficha → Web)."] : []),
     ],
   };
 }
