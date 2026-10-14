@@ -41,6 +41,52 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 14/10: Search Console y Analytics por cliente, rutas abiertas y skills de la flota
+
+**Pedido:** integrar Google Search Console y Google Analytics y "potenciar todo" para que
+el sistema empiece a hacer cosas que aporten valor. A mitad del trabajo llegó otro: revisar
+las skills locales y subir las mejores (SEO, diseño web y lo que necesite el equipo).
+
+**Hecho (`082eacb`, `dbf10b3`, migración 0158):**
+- Servicio `google-web.ts`. Una cuenta de Google de solo lectura se conecta desde
+  Integraciones → Web, por el mismo OAuth de Google Ads.
+- Cada cliente se vincula solo, por el dominio exacto de su web. Lo que se elige a mano
+  no se pisa.
+- La sincronización es diaria y llena `web_diario` y `web_ranking`.
+- Herramientas nuevas: `lmtmRendimientoWeb` y `lmtmVincularWebGoogle`. `lmtmAnalisisSeo`
+  ahora suma las búsquedas reales.
+- El motor (regla `web_google`) propone cuatro cosas:
+  - caída de clics desde Google;
+  - búsquedas para subir (las que están en posición 4-20);
+  - pauta sin conversiones medidas en GA4;
+  - landings de pauta flojas.
+- En el panel: tarjeta en Integraciones, pestaña Web en la ficha y filtro "Web y Google"
+  en Hoy.
+
+**Seguridad:** cinco rutas respondían sin sesión: `/api/video/*`, `/api/contenido/*`,
+`/api/pauta/google`, `/api/productos/cobertura` y `/api/_debug/workers`. Entre ellas
+estaba `POST /video/generar`, que gasta créditos. Ahora dan 401/403. Verificado sin sesión
+y con el conector.
+
+**Skills (`0d3fd73`, `5969a79`):** de las 141 locales más las de plugins, entraron al
+bundle:
+- seo-local, seo-technical, seo-page, seo-content, seo-content-brief y seo-plan, de
+  claude-seo (MIT). Adaptadas a nuestras herramientas y sin DataForSEO.
+- frontend-design (Anthropic).
+- make-scenario-building y make-module-configuring (Make, MIT).
+
+Además, lmtm-seo-playbook quedó reescrito con datos reales (sin Ahrefs ni Semrush), y
+lmtm-tool-reference y lmtm-web-audit documentan las herramientas nuevas.
+
+**Flota:** ningún agente tenía en su allowlist `lmtmAnalisisSeo`, `lmtmRedesPublicas` ni
+`lmtmCompletarMarca`. Lo de "los agentes pueden hacer SEO" del 13/10 valía solo para Claude
+y los runners. Se sumaron las herramientas de web por rol y las skills nuevas en
+desiredSkills (backup en el scratchpad).
+
+**Falta (persona):** conectar la cuenta de Google que tiene acceso a las propiedades de los
+clientes. Si Google avisa que una API está apagada, el link para habilitarla aparece en la
+tarjeta (proyecto 909174443343).
+
 ### 13/10 noche: Marca completa sola, web de cada cliente y SEO
 
 **Pedido:** cargar la web de cada cliente en Marca, sus colores principales y
