@@ -41,6 +41,44 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 14/10 noche: piloto automático prendido
+
+**Pedido:** "quiero que todo sea más automático, no tantas decisiones humanas".
+
+**Por qué no andaba:** la autonomía graduada (`ads-autonomia.ts`) pedía dos llaves: el
+interruptor y el historial medido por tipo de acción. Como nunca se ejecutó nada, nunca
+iba a haber historial.
+
+**Hecho (`f1eb464`):** `piloto-automatico.ts`, con `LMTM_AUTONOMIA_PAUTA=1` prendido en
+Railway a pedido del usuario. Se apaga sacando esa variable.
+- **Se ejecuta solo, se registra y se avisa en el resumen:**
+  - pausar, si se cumplen todas estas condiciones:
+    - pasa el evaluador;
+    - hay evidencia fuerte (P < 0,02);
+    - el destino busca consultas;
+    - topes: 3 por cliente por día, 40% del gasto de la plataforma, nunca la única
+      campaña que gasta;
+  - bajar o mover presupuesto;
+  - negativas y pausar keywords de Google;
+  - tareas de decisiones nuevas, en la lista "✅ Decisiones" de ClickUp.
+- **Nunca solo:** subir presupuesto ni duplicar. Si lo medido de un tipo de acción
+  empeora el CPL, ese tipo vuelve a pedir OK.
+- **Destino de las campañas:** el sync de Meta ahora trae `destination_type` del conjunto.
+  Sin ese dato, un anuncio sin link en una campaña de leads queda "sin dato".
+
+**Primera corrida (20:24):** 7 pausas reales en Meta.
+- Distrillantas: AMORTIGUADORES, LLANTAS y REPARACION LLANTAS.
+- MA PROPIEDADES: 3.
+- SEBASTIAN RAMASCO PADILLA: 1.
+
+Las gemelas quedaron canceladas con referencia, 31 propuestas quedan para una persona y la
+cola total bajó de 313 a 31.
+
+**Sigue siendo de una persona:**
+- subir presupuesto;
+- las 34 consultas de agentes que esperan respuesta;
+- aprobar calendarios de contenido, porque publican.
+
 ### 14/10 noche: la optimización de pauta no cerraba, y campañas ↔ web
 
 **Pedido:** "que funcione bien la optimización de campañas, que se compagine con la
