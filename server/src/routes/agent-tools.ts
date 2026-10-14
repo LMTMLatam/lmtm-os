@@ -16,7 +16,7 @@
 
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, agentDeliverables, hooks, issues, agents, trends, nicheReports } from "@paperclipai/db";
+import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, agentDeliverables, hooks, issues, agents, trends, nicheReports, webPropiedades } from "@paperclipai/db";
 import { isNotNull, isNull, ne } from "drizzle-orm";
 import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
@@ -222,6 +222,36 @@ const CORE_TOOLS: ToolDef[] = [
           clientId: { type: "string" },
           url: { type: "string", description: "Otra URL a analizar (si no, la web del cliente)." },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_rendimiento_web",
+      description:
+        "RENDIMIENTO DE LA WEB de un cliente, de Google Search Console y Google Analytics 4: clics e impresiones en Google, posición media, sesiones, usuarios, eventos clave (conversiones), interacción, los últimos N días contra los N anteriores, lo más buscado, las páginas que más traen, canales, landings con su canal, fuentes y qué eventos clave tiene configurados. Incluye OPORTUNIDADES: búsquedas donde la web aparece en posición 4 a 20 con muchas impresiones (un contenido o una mejora de esa página las sube). null = esa fuente no está vinculada (nunca 0); 'falta' dice qué hay que hacer. Las ventanas terminan donde el dato ya es final (Search Console hoy-3, Analytics hoy-2). Solo lectura.",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string" }, dias: { type: "number", description: "Ventana en días (7 a 90, por defecto 28)." } },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "vincular_web_google",
+      description:
+        "VINCULA a un cliente su sitio de Search Console y/o su propiedad de Google Analytics 4 cuando no se emparejaron solos por la web (subdominios, varias propiedades con la misma web). Sin gscSitio ni ga4Propiedad devuelve la lista de sitios y propiedades que ven las cuentas de Google conectadas, para elegir. Lo que se vincula acá queda fijo (la búsqueda automática no lo cambia) y se sincroniza en el momento.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          gscSitio: { type: "string", description: "Tal cual lo lista: 'sc-domain:ejemplo.com' o 'https://www.ejemplo.com/'." },
+          ga4Propiedad: { type: "string", description: "'properties/123456789'." },
+        },
+        required: ["clientId"],
       },
     },
   },
@@ -1298,10 +1328,56 @@ export function agentToolsRoutes(
         if (!url) return reply(false, "Pasá clientId o url.");
         try {
           const { analizarSeo } = await import("../services/seo.js");
-          return reply(true, JSON.stringify(await analizarSeo(url)));
+          const a = await analizarSeo(url);
+          // Con el cliente vinculado a Search Console, suma lo que la gente busca de verdad.
+          if (typeof params.clientId === "string" && !params.url) {
+            const { rendimientoWeb } = await import("../services/google-web.js");
+            const w = await rendimientoWeb(db, params.clientId).catch(() => null);
+            if (w?.searchConsole) return reply(true, JSON.stringify({ ...a, searchConsole: { ventana: w.searchConsole.ventana, clics: w.searchConsole.clics, impresiones: w.searchConsole.impresiones, posicionMedia: w.searchConsole.posicionMedia, oportunidades: w.searchConsole.oportunidades } }));
+          }
+          return reply(true, JSON.stringify(a));
         } catch (e) {
           return reply(false, `No se pudo leer ${url}: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
         }
+      }
+
+      if (tool === "get_rendimiento_web") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const { rendimientoWeb } = await import("../services/google-web.js");
+        const dias = Math.min(90, Math.max(7, Number(params.dias) || 28));
+        const w = await rendimientoWeb(db, clientId, dias);
+        return w ? reply(true, JSON.stringify(w)) : reply(false, "Cliente no encontrado.");
+      }
+
+      if (tool === "vincular_web_google") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const { inventario, sincronizarWeb, rendimientoWeb } = await import("../services/google-web.js");
+        const inv = await inventario(db);
+        const gscSitio = typeof params.gscSitio === "string" ? params.gscSitio.trim() : "";
+        const ga4Propiedad = typeof params.ga4Propiedad === "string" ? params.ga4Propiedad.trim() : "";
+        if (!gscSitio && !ga4Propiedad) {
+          return reply(true, JSON.stringify({
+            sitios: inv.sitios.filter((s) => s.permiso !== "siteUnverifiedUser").map((s) => s.sitio),
+            propiedades: inv.propiedades.map((p) => ({ id: p.propiedad, nombre: p.nombre, cuenta: p.cuenta, webs: p.hosts })),
+            errores: inv.errores,
+          }));
+        }
+        if (gscSitio && !inv.sitios.some((s) => s.sitio === gscSitio)) return reply(false, `Ninguna cuenta conectada ve el sitio ${gscSitio}. Llamá sin gscSitio para ver la lista.`);
+        const prop = ga4Propiedad ? inv.propiedades.find((p) => p.propiedad === ga4Propiedad) : null;
+        if (ga4Propiedad && !prop) return reply(false, `Ninguna cuenta conectada ve ${ga4Propiedad}. Llamá sin ga4Propiedad para ver la lista.`);
+        const [actual] = await db.select().from(webPropiedades).where(eq(webPropiedades.clientId, clientId));
+        const valores = {
+          gscSitio: gscSitio || actual?.gscSitio || null,
+          ga4Propiedad: ga4Propiedad || actual?.ga4Propiedad || null,
+          ga4Nombre: prop?.nombre ?? actual?.ga4Nombre ?? null,
+          fijadaPor: `agente:${ctx.agentId ?? "?"}`, ultimoError: null, updatedAt: new Date(),
+        };
+        await db.insert(webPropiedades).values({ clientId, ...valores }).onConflictDoUpdate({ target: webPropiedades.clientId, set: valores });
+        const r = await sincronizarWeb(db, { clientId });
+        const w = await rendimientoWeb(db, clientId);
+        return reply(r.errores.length === 0, JSON.stringify({ vinculado: valores, error: r.errores[0]?.error ?? null, searchConsole: w?.searchConsole ? { clics: w.searchConsole.clics, impresiones: w.searchConsole.impresiones } : null, analytics: w?.analytics ? { sesiones: w.analytics.sesiones, eventosClave: w.analytics.eventosClave } : null }));
       }
 
       if (tool === "completar_marca") {

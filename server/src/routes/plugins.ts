@@ -1578,7 +1578,8 @@ export function pluginRoutes(
   });
 
   // LMTM-OS: debug endpoint to inspect worker state (status, pid, uptime, crash count)
-  router.get("/_debug/workers", async (_req, res) => {
+  router.get("/_debug/workers", async (req, res) => {
+    assertBoard(req);
     const wm = bridgeDeps?.workerManager ?? webhookDeps?.workerManager;
     if (!wm) {
       res.status(503).json({ error: "worker manager unavailable" });

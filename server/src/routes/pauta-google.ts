@@ -8,6 +8,7 @@
 // lectura. Los números salen de los mismos módulos que el resto del panel.
 
 import { Router } from "express";
+import { assertAuthenticated } from "./authz.js";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, clients, decisiones } from "@paperclipai/db";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
@@ -36,6 +37,8 @@ let cache: { at: number; data: unknown } | null = null;
 
 export function pautaGoogleRoutes(db: Db): Router {
   const router = Router();
+  // Sin sesión, nada (14/10): respondía a cualquiera con el gasto y los leads de cada cliente.
+  router.use(["/pauta/google"], (req, _res, next) => { assertAuthenticated(req); next(); });
 
   // GET /api/pauta/google — ?fresco=1 vuelve a calcular (si no, 10 min de cache).
   router.get("/pauta/google", async (req, res) => {

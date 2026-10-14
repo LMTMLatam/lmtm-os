@@ -61,14 +61,16 @@ import {
   Trash2,
   Plus,
   Sparkles,
+  Globe,
 } from "lucide-react";
 import { ProductosTab } from "@/components/ProductosTab";
+import { WebTab } from "@/components/WebTab";
 import { DecisorCard } from "@/components/DecisorCard";
 import { ResumenCliente } from "../lmtm/ResumenCliente";
 import { waBotApi } from "../api/waBot";
 import { api } from "../api/client";
 
-export type Tab = "resumen" | "plan-accion" | "tasks" | "calendario" | "dashboard" | "productos" | "ideas" | "ganchos" | "tendencias" | "memoria" | "competidores";
+export type Tab = "resumen" | "plan-accion" | "tasks" | "calendario" | "dashboard" | "productos" | "ideas" | "ganchos" | "tendencias" | "memoria" | "competidores" | "web";
 
 // "Resumen" (rediseño B3) abre por defecto: objetivo vs real, decisiones con su
 // botón e informe de la semana. "Plan de acción" (semáforo, reporte del
@@ -80,6 +82,7 @@ export const TABS: Array<{ value: Tab; label: string; icon: typeof TrendingUp }>
   { value: "calendario", label: "Calendario", icon: Calendar },
   { value: "dashboard", label: "Dashboard", icon: BarChart3 },
   { value: "productos", label: "Marca", icon: Package },
+  { value: "web", label: "Web", icon: Globe },
   { value: "ideas", label: "Ideas de posteos", icon: Lightbulb },
   { value: "ganchos", label: "Ganchos", icon: Anchor },
   { value: "tendencias", label: "Tendencias", icon: TrendingUp },
@@ -174,6 +177,8 @@ export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads
       return <MemoriaTab client={client} />;
     case "competidores":
       return <CompetidoresTab client={client} />;
+    case "web":
+      return <WebTab clientSlug={client.slug} />;
   }
 }
 

@@ -22,6 +22,7 @@ import { informesRoutes } from "./decisiones/informes-rutas.js";
 import { agentesRoutes } from "./agentes/rutas.js";
 import { videoRoutes } from "./routes/video.js";
 import { pautaGoogleRoutes } from "./routes/pauta-google.js";
+import { webGoogleRoutes } from "./routes/web-google.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
@@ -265,6 +266,7 @@ export async function createApp(
   api.use(agentesRoutes(db));
   api.use(videoRoutes(db));
   api.use(pautaGoogleRoutes(db));
+  api.use(webGoogleRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
@@ -297,6 +299,9 @@ export async function createApp(
   // Marca de cada cliente: web, colores y Enfoque Técnico, una vez por día.
   void import("./services/marca-completa.js").then(({ initMarcaCompleta }) => initMarcaCompleta(db))
     .catch((e) => console.warn("[marca-completa] init failed:", e instanceof Error ? e.message : e));
+  // Search Console y Analytics de cada cliente, una vez por día (si hay una cuenta conectada).
+  void import("./services/google-web.js").then(({ initWebGoogle }) => initWebGoogle(db))
+    .catch((e) => console.warn("[web-google] init failed:", e instanceof Error ? e.message : e));
   // Cuentas de pauta sueltas (conexión borrada) con una sola conexión activa de
   // su plataforma: se vuelven a vincular antes del próximo sync (13/10).
   void import("./services/ads/mappings-sueltos.js")

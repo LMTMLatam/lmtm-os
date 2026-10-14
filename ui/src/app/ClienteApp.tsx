@@ -20,7 +20,7 @@ import { QueFuncionaCliente } from "./QueFunciona";
 type Seccion = Tab | "agentes" | "que-funciona";
 
 /** Orden de la ficha nueva: lo de decidir primero, lo de contenido después. */
-const ORDEN: Seccion[] = ["resumen", "plan-accion", "dashboard", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"];
+const ORDEN: Seccion[] = ["resumen", "plan-accion", "dashboard", "web", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"];
 const NOMBRE: Partial<Record<Seccion, string>> = { dashboard: "Pauta", agentes: "Agentes", "que-funciona": "Qué funciona", tasks: "Tareas", productos: "Marca", competidores: "Competencia" };
 
 export function ClienteApp() {

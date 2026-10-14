@@ -273,6 +273,42 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     return out;
   }));
 
+  // Search Console y Analytics: caída de visitas desde Google, búsquedas para
+  // subir, pauta sin conversiones medidas y landings de pauta flojas.
+  resultados.push(await correrRegla("web_google", hoy, async () => {
+    const { googleWebConexiones, webPropiedades, webDiario, webRanking } = await import("@paperclipai/db");
+    const { propuestasWeb } = await import("./reglas/web.js");
+    const [conexion] = await db.select({ id: googleWebConexiones.id }).from(googleWebConexiones).where(eq(googleWebConexiones.estado, "activa")).limit(1);
+    if (!conexion) return { propuestas: [], evaluada: false, nota: "Sin cuenta de Google conectada para Search Console y Analytics." };
+    const props = (await db.select().from(webPropiedades)).filter((p) => activosIds.has(p.clientId) && (p.gscSitio || p.ga4Propiedad));
+    if (props.length === 0) return [];
+    // Sincronizado hace más de 2 días o con error: no se sabe cómo está, no se cierra nada.
+    const viejos = props.filter((p) => p.ultimoError || !p.sincronizadoAt || ahora.getTime() - new Date(p.sincronizadoAt).getTime() > 2 * 86_400_000);
+    const ids = props.map((p) => p.clientId);
+    const [dias, ranking, conGasto] = await Promise.all([
+      db.select().from(webDiario).where(and(inArray(webDiario.clientId, ids), sql`${webDiario.fecha} >= current_date - 70`)),
+      db.select().from(webRanking).where(and(inArray(webRanking.clientId, ids), inArray(webRanking.tipo, ["consulta", "landing", "evento"]))),
+      db.execute(sql`select distinct client_id from ads_insights where date >= current_date - 30 and spend > 0 and client_id is not null`),
+    ]);
+    const filas = (Array.isArray(conGasto) ? conGasto : (conGasto as { rows?: unknown[] }).rows ?? []) as Array<{ client_id: string }>;
+    const conPauta = new Set(filas.map((f) => f.client_id));
+    const out: Propuesta[] = [];
+    for (const p of props) {
+      if (viejos.includes(p)) continue;
+      const r = ranking.filter((x) => x.clientId === p.clientId);
+      out.push(...propuestasWeb({
+        clientId: p.clientId, cliente: nombres.get(p.clientId) ?? "",
+        conGsc: !!p.gscSitio, conGa: !!p.ga4Propiedad, conPauta: conPauta.has(p.clientId),
+        dias: dias.filter((d) => d.clientId === p.clientId),
+        consultas: r.filter((x) => x.tipo === "consulta"),
+        landings: r.filter((x) => x.tipo === "landing"),
+        eventos: r.filter((x) => x.tipo === "evento"),
+      }, ahora));
+    }
+    if (viejos.length) return { propuestas: out, evaluada: false, nota: `${viejos.length} clientes con la web sin sincronizar o con error.` };
+    return out;
+  }));
+
   // Lo que hay para ganar: contenido que funcionó y a quién ofrecerle pauta.
   resultados.push(await correrRegla("oportunidades", ahora, async () => {
     const { analisisContenido } = await import("../services/contenido-analisis.js");

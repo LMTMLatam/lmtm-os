@@ -24,10 +24,11 @@ import { TarjetaQueFunciona } from "./QueFunciona";
 // Por tema y no por "quién": el 07/10 Nazareno pidió que sea más fácil de
 // atacar. Se entra por lo que hay que hacer (plata, contenido, conexiones,
 // lo que espera una respuesta), no por "Equipo/Cliente".
-type Filtro = "todo" | "plata" | "contenido" | "conexiones" | "esperan";
+type Filtro = "todo" | "plata" | "contenido" | "web" | "conexiones" | "esperan";
 export function temaDe(d: Pick<Decision, "tipo">): Exclude<Filtro, "todo"> | null {
   if (d.tipo.startsWith("pauta:") || d.tipo.startsWith("saldo:")) return "plata";
   if (d.tipo.startsWith("cadena:")) return "contenido";
+  if (d.tipo.startsWith("web:") || d.tipo === "contenido:busquedas") return "web";
   if (d.tipo.startsWith("cobertura:")) return "conexiones";
   if (d.tipo === "cola:esperando_persona") return "esperan";
   return null;
@@ -36,6 +37,7 @@ const FILTROS: Array<{ k: Filtro; label: string; pasa: (d: Decision) => boolean 
   { k: "todo", label: "Todo", pasa: () => true },
   { k: "plata", label: "Pauta y saldo", pasa: (d) => temaDe(d) === "plata" },
   { k: "contenido", label: "Contenido", pasa: (d) => temaDe(d) === "contenido" },
+  { k: "web", label: "Web y Google", pasa: (d) => temaDe(d) === "web" },
   { k: "conexiones", label: "Conexiones", pasa: (d) => temaDe(d) === "conexiones" },
   { k: "esperan", label: "Te esperan", pasa: (d) => temaDe(d) === "esperan" },
 ];
