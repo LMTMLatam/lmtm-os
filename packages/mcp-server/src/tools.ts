@@ -1130,6 +1130,18 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async () => client.requestJson("GET", "/video/estado"),
     ),
     makeTool(
+      "lmtmAnalisisSeo",
+      "ANÁLISIS SEO de la web de un cliente (con clientId usa la web cargada en su Marca) o de cualquier URL: título, descripción, encabezados, indexación, datos estructurados, imágenes sin texto alternativo, robots.txt, sitemap, velocidad en celular y Core Web Vitals reales si Google contesta. Devuelve los problemas ordenados por gravedad. Solo lectura.",
+      z.object({ clientId: z.string().optional(), url: z.string().optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_analisis_seo", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmCompletarMarca",
+      "COMPLETA la Marca de un cliente: su web (del Enfoque Técnico o de su página de Facebook, verificada), sus colores principales (paleta del Enfoque Técnico o de la web) y, del Enfoque Técnico, tono, tipografías, palabras que usa y evita, mensaje, público y diferencial. Nunca pisa lo que cargó una persona. Corre sola todos los días; usala para un cliente nuevo o con forzar=true si cambió su Enfoque Técnico.",
+      z.object({ clientId: z.string().min(1), forzar: z.boolean().optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "completar_marca", parameters: p } }),
+    ),
+    makeTool(
       "lmtmRedesPublicas",
       "Lee el perfil PÚBLICO de una cuenta de Instagram (usuario) o una página de Facebook (url) que no es nuestra —competidor o referente— con sus últimas publicaciones: me gusta, comentarios, formato, fecha, texto y cuántas veces lo normal de ESA cuenta rindió cada una. Lector propio de LMTM, sin costo. Dice si el usuario no existe o es privado. Si responde 'bloqueado', Instagram frenó al servidor: probá más tarde. Para lo ya medido de toda la competencia de un rubro, lmtmGetNicheIntel.",
       z.object({

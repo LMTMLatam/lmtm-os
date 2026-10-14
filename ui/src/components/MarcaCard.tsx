@@ -28,7 +28,14 @@ export interface Marca {
   publico: string | null;
   diferencial: string | null;
   notas: string | null;
+  /** Quién la llenó: "enfoque-tecnico", "aprendizaje-automatico" o una persona. */
+  updatedBy?: string | null;
 }
+
+const ORIGEN: Record<string, string> = {
+  "enfoque-tecnico": "Completada sola desde el Enfoque Técnico y la web del cliente.",
+  "aprendizaje-automatico": "Completada sola a partir de lo que el cliente ya publicó.",
+};
 
 const VACIA: Marca = {
   logoUrl: null, colores: [], tipografias: [], tono: null,
@@ -41,9 +48,11 @@ const VACIA: Marca = {
 const aTexto = (v: string[]) => v.join(", ");
 const aLista = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function MarcaCard({ clientSlug, marca }: { clientSlug: string; marca: Marca | null }) {
+export function MarcaCard({ clientSlug, marca, web }: { clientSlug: string; marca: Marca | null; web?: string | null }) {
   const qc = useQueryClient();
   const [m, setM] = useState<Marca>(marca ?? VACIA);
+  const [sitio, setSitio] = useState(web ?? "");
+  useEffect(() => { setSitio(web ?? ""); }, [web, clientSlug]);
   const [guardado, setGuardado] = useState(false);
 
   // Si llega del server después del primer render (o cambia de cliente), se
@@ -51,7 +60,11 @@ export function MarcaCard({ clientSlug, marca }: { clientSlug: string; marca: Ma
   useEffect(() => { setM(marca ?? VACIA); }, [marca, clientSlug]);
 
   const guardar = useMutation({
-    mutationFn: () => api.put(`/clients/${clientSlug}/marca`, m),
+    // updatedBy no viaja: quién guarda lo decide el servidor por la sesión.
+    mutationFn: () => {
+      const { updatedBy: _autor, ...resto } = m;
+      return api.put(`/clients/${clientSlug}/marca`, { ...resto, web: sitio });
+    },
     onSuccess: () => {
       setGuardado(true);
       setTimeout(() => setGuardado(false), 2000);
@@ -72,7 +85,19 @@ export function MarcaCard({ clientSlug, marca }: { clientSlug: string; marca: Ma
           Lo que los agentes usan para que el contenido salga con la identidad del cliente.
           La paleta va directo al prompt de las placas y el tono al de los copys.
         </p>
+        {marca?.updatedBy && ORIGEN[marca.updatedBy] && (
+          <p className="text-xs text-muted-foreground mt-1">{ORIGEN[marca.updatedBy]} Lo que edites y guardes a mano queda fijo: lo automático ya no lo pisa.</p>
+        )}
       </div>
+
+      <Etiqueta titulo="Sitio web" ayuda="La web del cliente. De acá salen el análisis SEO y, si el Enfoque Técnico no trae paleta, los colores.">
+        <div className="flex gap-2">
+          <Input value={sitio} placeholder="https://…" onChange={(e) => setSitio(e.target.value)} />
+          {sitio && /^https?:\/\//i.test(sitio) && (
+            <a href={sitio} target="_blank" rel="noreferrer noopener" className="shrink-0 self-center text-xs text-muted-foreground hover:text-foreground">Abrir</a>
+          )}
+        </div>
+      </Etiqueta>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Etiqueta titulo="Colores" ayuda="En hex, separados por coma. El primero es el principal.">

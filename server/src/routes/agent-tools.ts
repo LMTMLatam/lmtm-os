@@ -213,6 +213,34 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_analisis_seo",
+      description:
+        "ANÁLISIS SEO de la web de un cliente (o de cualquier URL, por ejemplo un competidor): título, descripción, encabezados, indexación, datos estructurados, imágenes sin texto alternativo, robots.txt, sitemap y, si Google contesta, la velocidad en celular y los Core Web Vitals reales. Devuelve los problemas ordenados por gravedad. Con clientId usa la web cargada en su Marca. Solo lectura.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          url: { type: "string", description: "Otra URL a analizar (si no, la web del cliente)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "completar_marca",
+      description:
+        "COMPLETA la Marca de un cliente: busca su web (Enfoque Técnico o su página de Facebook, solo si responde), toma los colores principales (la paleta del Enfoque Técnico o, si no hay, los de la web) y vuelca del Enfoque Técnico el tono, las tipografías, las palabras que usa y evita, el mensaje, el público y el diferencial. Nunca pisa lo que cargó una persona. Corre solo todos los días; usala para un cliente nuevo o cuando cambió su Enfoque Técnico (forzar=true lo vuelve a leer).",
+      parameters: {
+        type: "object",
+        properties: { clientId: { type: "string" }, forzar: { type: "boolean" } },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_redes_publicas",
       description:
         "Lee el perfil PÚBLICO de una cuenta de Instagram (usuario) o de una página de Facebook (url) que no es nuestra —un competidor, un referente del rubro— con sus últimas publicaciones: me gusta, comentarios, formato, fecha, texto y cuántas veces lo normal de ESA cuenta rindió cada una. Lector propio, sin costo. Dice si el usuario no existe o es privado: usalo para verificar un competidor ANTES de cargarlo. Si devuelve 'bloqueado', Instagram frenó al servidor: probá más tarde, no insistas.",
@@ -1257,6 +1285,30 @@ export function agentToolsRoutes(
           await db.insert(nicheReports).values({ niche, week: monday, sections, createdByAgentId: ctx.agentId });
         }
         return reply(true, `Radar de nicho guardado para "${niche}" (semana ${monday}): ${sections.referentes.length} referentes, ${sections.ideas.length} ideas, plan para ${sections.planPorCliente.length} clientes.`);
+      }
+
+      if (tool === "get_analisis_seo") {
+        let url = typeof params.url === "string" ? params.url.trim() : "";
+        if (!url && typeof params.clientId === "string") {
+          const [c] = await db.select({ web: clients.websiteUrl, name: clients.name }).from(clients).where(eq(clients.id, params.clientId));
+          if (!c) return reply(false, "Cliente no encontrado.");
+          if (!c.web) return reply(false, `${c.name.trim()} no tiene web cargada en su Marca. Corré completar_marca o cargala a mano.`);
+          url = c.web;
+        }
+        if (!url) return reply(false, "Pasá clientId o url.");
+        try {
+          const { analizarSeo } = await import("../services/seo.js");
+          return reply(true, JSON.stringify(await analizarSeo(url)));
+        } catch (e) {
+          return reply(false, `No se pudo leer ${url}: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+        }
+      }
+
+      if (tool === "completar_marca") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const { completarMarca } = await import("../services/marca-completa.js");
+        return reply(true, JSON.stringify(await completarMarca(db, clientId, { forzar: params.forzar === true })));
       }
 
       if (tool === "get_redes_publicas") {
