@@ -1136,6 +1136,18 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_analisis_seo", parameters: p } }),
     ),
     makeTool(
+      "lmtmRendimientoWeb",
+      "RENDIMIENTO DE LA WEB de un cliente (Google Search Console + Google Analytics 4): clics e impresiones en Google, posición media, sesiones, usuarios, eventos clave, interacción, contra el período anterior; lo más buscado, páginas, canales, landings, fuentes y eventos clave configurados. Incluye oportunidades: búsquedas en posición 4 a 20 con muchas impresiones. null = fuente no vinculada (nunca 0); 'falta' dice qué hacer. Solo lectura.",
+      z.object({ clientId: z.string().min(1), dias: z.number().int().min(7).max(90).optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_rendimiento_web", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVincularWebGoogle",
+      "VINCULA a un cliente su sitio de Search Console y/o su propiedad de GA4 cuando no se emparejaron solos por la web. Sin gscSitio ni ga4Propiedad lista lo que ven las cuentas de Google conectadas. Queda fijo y se sincroniza en el momento.",
+      z.object({ clientId: z.string().min(1), gscSitio: z.string().optional(), ga4Propiedad: z.string().optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "vincular_web_google", parameters: p } }),
+    ),
+    makeTool(
       "lmtmCompletarMarca",
       "COMPLETA la Marca de un cliente: su web (del Enfoque Técnico o de su página de Facebook, verificada), sus colores principales (paleta del Enfoque Técnico o de la web) y, del Enfoque Técnico, tono, tipografías, palabras que usa y evita, mensaje, público y diferencial. Nunca pisa lo que cargó una persona. Corre sola todos los días; usala para un cliente nuevo o con forzar=true si cambió su Enfoque Técnico.",
       z.object({ clientId: z.string().min(1), forzar: z.boolean().optional() }),

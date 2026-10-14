@@ -9,6 +9,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { Button } from "@/components/ui/button";
 import { queryKeys } from "../lib/queryKeys";
+import { WebGoogleCard } from "../components/WebGoogleCard";
 
 interface PlatformDescriptor {
   id: AdsPlatform;
@@ -657,6 +658,9 @@ export function AdsIntegrations() {
           ))}
         </div>
       )}
+
+      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Web</h2>
+      <WebGoogleCard companyId={selectedCompanyId!} />
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         Pipeline &amp; Automatización

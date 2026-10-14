@@ -60,7 +60,7 @@ import { mineLearnings } from "../services/learning-engine.js";
 import { rebuildClientContent, topContent } from "../services/knowledge-graph.js";
 import { runAllAdsSync } from "../services/ads-autosync.js";
 import { fetchAccountBalances, runBalanceCheck } from "../services/balance-monitor.js";
-import { competitors, contentIdeas, nicheReports, interventions } from "@paperclipai/db";
+import { competitors, contentIdeas, nicheReports, interventions, googleWebConexiones } from "@paperclipai/db";
 import { generateContentPlan } from "../services/competitor-content.js";
 import { resolveCompanyId } from "../services/intel-common.js";
 import { pasarCuentasAntesDeBorrar, vincularCuentasSueltas } from "../services/ads/mappings-sueltos.js";
@@ -728,6 +728,26 @@ export function adsRoutes(db: Db): Router {
   // grants access, the platform sends them back to /api/ads/oauth/callback.
   router.get("/integrations/oauth/start", async (req, res) => {
     const platform = String(req.query.platform ?? "");
+    // Search Console + Analytics: mismo cliente OAuth y misma vuelta que Google
+    // Ads, pero solo lectura y sin heredar el permiso de Ads (sin include_granted_scopes).
+    if (platform === "google_web") {
+      const companyId = String(req.query.companyId ?? "");
+      if (!companyId) throw badRequest("companyId is required");
+      assertCompanyAccess(req, companyId);
+      const clientId = (process.env.GOOGLE_ADS_CLIENT_ID ?? "").trim();
+      const redirectUri = (process.env.GOOGLE_ADS_REDIRECT_URI ?? "").trim();
+      if (!clientId || !redirectUri) throw unprocessable("GOOGLE_ADS_CLIENT_ID / GOOGLE_ADS_REDIRECT_URI no configurados");
+      const { SCOPES_WEB } = await import("../services/google-web.js");
+      const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      url.searchParams.set("client_id", clientId);
+      url.searchParams.set("redirect_uri", redirectUri);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("scope", SCOPES_WEB.join(" "));
+      url.searchParams.set("access_type", "offline");
+      url.searchParams.set("prompt", "consent select_account");
+      url.searchParams.set("state", encodeState({ companyId, platform }));
+      return res.redirect(url.toString());
+    }
     if (!isKnownAdsPlatform(platform) || platform === "meta") {
       // Meta uses the legacy /api/meta/oauth/start route for now.
       throw badRequest(`unsupported platform for this route: ${platform}`);
@@ -780,6 +800,30 @@ export function adsRoutes(db: Db): Router {
     const state = decodeState<{ companyId?: string; label?: string; platform?: string }>(stateRaw);
     if (!state || !state.platform) {
       return oauthFailRedirect(res, "ads", "Estado de OAuth inválido.");
+    }
+    if (state.platform === "google_web") {
+      if (errorParam || !code || !state.companyId) return oauthFailRedirect(res, "google_web", errorDesc || errorParam || "Google no devolvió el código.");
+      try {
+        const { canjearCodigo, sincronizarWeb } = await import("../services/google-web.js");
+        const t = await canjearCodigo(code, (process.env.GOOGLE_ADS_REDIRECT_URI ?? "").trim());
+        if (!t.refreshToken) return oauthFailRedirect(res, "google_web", "Google no entregó un permiso duradero: volvé a conectar.");
+        const faltan = ["webmasters.readonly", "analytics.readonly"].filter((s) => !t.scopes.some((x) => x.endsWith(s)));
+        const email = t.email ?? "cuenta de Google";
+        await db.insert(googleWebConexiones)
+          .values({ companyId: state.companyId, email, refreshToken: t.refreshToken, scopes: t.scopes, estado: "activa" })
+          .onConflictDoUpdate({
+            target: [googleWebConexiones.companyId, googleWebConexiones.email],
+            set: { refreshToken: t.refreshToken, scopes: t.scopes, estado: "activa", ultimoError: null, updatedAt: new Date() },
+          });
+        // La primera sincronización arranca sola; la pantalla la muestra al volver.
+        void sincronizarWeb(db).then((r) => console.log(`[web-google] conexión de ${email}: ${r.conGsc} clientes con Search Console, ${r.conGa} con Analytics, ${r.sincronizados} sincronizados`))
+          .catch((e) => console.warn("[web-google] primera sincronización falló:", e instanceof Error ? e.message : e));
+        const base = panelUrl();
+        const qs = faltan.length ? `google_web_error=${encodeURIComponent(`Falta el permiso de ${faltan.join(" y ")}: tildalo al conectar.`)}` : "google_web=ok";
+        return res.redirect(`${base}/company/settings/integrations/ads?${qs}`);
+      } catch (e) {
+        return oauthFailRedirect(res, "google_web", (e instanceof Error ? e.message : String(e)).slice(0, 240));
+      }
     }
     const platform = state.platform as "google" | "tiktok" | "linkedin";
     if (!isKnownAdsPlatform(platform)) {

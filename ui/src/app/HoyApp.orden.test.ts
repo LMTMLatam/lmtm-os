@@ -52,5 +52,7 @@ describe("orden de la pantalla Hoy", () => {
     expect(temaDe({ tipo: "cadena:sin_calendario" })).toBe("contenido");
     expect(temaDe({ tipo: "cobertura:sin_meta" })).toBe("conexiones");
     expect(temaDe({ tipo: "cola:esperando_persona" })).toBe("esperan");
+    expect(temaDe({ tipo: "web:caida_google" })).toBe("web");
+    expect(temaDe({ tipo: "contenido:busquedas" })).toBe("web");
   });
 });
