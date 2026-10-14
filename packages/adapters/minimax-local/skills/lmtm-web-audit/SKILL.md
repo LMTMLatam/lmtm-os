@@ -22,7 +22,14 @@ la landing": revisala vos y reportá hallazgos concretos.
 ## Auditoría de WEB (con WebFetch o curl)
 
 Conseguí la URL desde `lmtmGetClientBrain` (identity/Enfoque Técnico) o
-`lmtmListClients`. Si no está, buscala con WebSearch. Chequeá:
+`lmtmListClients`. Si no está, buscala con WebSearch.
+
+**Primero, lo medido** (si tenés las herramientas): `lmtmAnalisisSeo` con el clientId
+(lee la home como Google y da los problemas por gravedad, con velocidad en celular) y
+`lmtmRendimientoWeb` (GA4: qué landings reciben pauta y cuánta gente se va sin
+interactuar, qué eventos clave están configurados). Una landing de pauta con
+interacción muy por debajo del resto del sitio es el hallazgo más caro: arrancá por ahí.
+Después chequeá a mano:
 
 1. **Disponibilidad**: ¿responde 200? ¿SSL válido? ¿redirects raros o www/no-www roto?
 2. **Pixel de Meta**: buscá `fbq(` o `connect.facebook.net` en el HTML. Sin pixel
@@ -33,7 +40,12 @@ Conseguí la URL desde `lmtmGetClientBrain` (identity/Enfoque Técnico) o
 5. **Coherencia pauta↔landing**: compará la oferta de las campañas activas
    (`lmtmGetClientAdsPerformance`) con lo que dice la landing. Oferta distinta = leads caros.
 6. **Básicos SEO/velocidad**: title/meta description presentes, peso del HTML,
-   cantidad de scripts de terceros (señal de lentitud).
+   cantidad de scripts de terceros (señal de lentitud). Lo cubre `lmtmAnalisisSeo`.
+7. **Medición**: si `lmtmRendimientoWeb` dice 0 eventos clave con visitas, la web no
+   mide conversiones (formulario, clic a WhatsApp): hallazgo CRÍTICO con pauta activa.
+8. **Diseño de la landing**: jerarquía (una promesa, un CTA arriba), prueba social,
+   velocidad y lectura en celular. Para proponer cómo debería verse, skill
+   `frontend-design` / `ui-ux-pro-max`.
 
 ## Auditoría de REDES (perfiles públicos)
 

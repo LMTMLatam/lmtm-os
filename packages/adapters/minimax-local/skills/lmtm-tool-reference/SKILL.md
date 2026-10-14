@@ -44,6 +44,18 @@ Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 - `lmtmSendWhatsappReport` — **envía un reporte/mensaje genérico por WhatsApp al equipo** (message + title opcional). Usala cuando el equipo te pide reportar/avisar algo por WhatsApp. Sí podés mandar WhatsApp.
 - `lmtmCreateClientTask` — crear una tarea para un cliente (internas se crean activas; externas quedan para aprobar). **NO la uses para alertas de saldo** — esas van por WhatsApp con `lmtmSendBalanceAlert`.
 
+## Web, SEO y marca
+
+Cada una aparece solo si está en tu lista de herramientas; si no la ves, no la tenés.
+
+- `lmtmRendimientoWeb` — la web del cliente en **Google Search Console + Google Analytics 4**: clics e impresiones en Google, posición media, sesiones, personas, **eventos clave (conversiones)**, interacción, contra el período anterior; lo más buscado, páginas, canales, landings con su canal, fuentes y eventos clave configurados. Trae `oportunidades`: búsquedas donde ya aparece en posición 4-20 con muchas impresiones (material directo para contenido y para la web). `null` = esa fuente no está vinculada (nunca 0) y `falta` dice qué hacer. Las ventanas terminan en hoy-3 (Search Console) y hoy-2 (Analytics) porque antes el dato no es final.
+- `lmtmAnalisisSeo` — lee la home del cliente (o cualquier URL, p. ej. un competidor) como Google: título, descripción, H1, canónica, indexación, datos estructurados, imágenes sin alt, robots.txt, sitemap y velocidad en celular si Google contesta. Devuelve los problemas por gravedad. Con clientId vinculado a Search Console suma las búsquedas reales.
+- `lmtmVincularWebGoogle` — si un cliente no se vinculó solo a su sitio de Search Console o a su propiedad GA4 (subdominio, dos propiedades con la misma web), sin parámetros lista lo que ven las cuentas de Google conectadas; con `gscSitio`/`ga4Propiedad` lo vincula y sincroniza.
+- `lmtmCompletarMarca` — completa la Marca del cliente: web, colores, tono, público, diferencial y palabras desde el Enfoque Técnico. Nunca pisa lo que cargó una persona.
+- `lmtmRedesPublicas` — perfil público de Instagram o página de Facebook de un competidor o referente, con sus últimas publicaciones y cuánto rindió cada una contra lo normal de esa cuenta.
+
+Para el método (qué mirar y en qué orden) usá las skills `lmtm-seo-playbook` y `lmtm-web-audit`.
+
 ## Inteligencia de equipo y nichos
 
 - `lmtmGetNicheIntel` — **inteligencia del rubro del cliente**: benchmark (CTR/CPL promedio vs meta alcanzable del mejor cuartil), formato ganador en orgánico y en ads, mejores campañas reales, experimento sugerido y el **plan de acción minado a diario** (subir CTR / bajar CPL / escalar / activar pauta, por cliente). Usalo como base de TODO diagnóstico de pauta en vez de improvisar.
