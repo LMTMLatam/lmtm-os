@@ -20,6 +20,26 @@ import type { AccionPauta } from "../services/ads-propuestas.js";
 export const GASTO_MINIMO_EN_TCPL = 3;
 /** Reemplazar cuando el costo por lead pasa 1,5 × TCPL. */
 export const CPL_REEMPLAZO_EN_TCPL = 1.5;
+/**
+ * Para pausar por costo, que sea improbable que una campaña EN el objetivo
+ * traiga tan pocos leads con ese gasto (menos de 1 en 10). Con 1 a 4 leads el
+ * CPL es ruido: el 14/10 había 40 pausas pendientes de MA PROPIEDADES, varias
+ * con 1 lead ("MIX RIO ROSARIO": $14.279 y 1 lead; en el objetivo traería 3,8 y
+ * 1 de cada 9 veces trae 1 o menos).
+ */
+export const EVIDENCIA_PAUSA = 0.1;
+
+/** P(leads ≤ k) si la campaña rindiera en el objetivo: Poisson con media gasto / objetivo. Pura. */
+export function probPocosLeads(leads: number, esperados: number): number {
+  let termino = Math.exp(-esperados);
+  let suma = termino;
+  for (let i = 1; i <= leads; i++) {
+    termino *= esperados / i;
+    suma += termino;
+  }
+  return suma;
+}
+
 /** Escalar de a 20% como máximo. */
 export const ESCALON_MAXIMO = 0.2;
 /** Objetivos de Meta que no buscan leads: su CPL no dice nada. */
@@ -78,6 +98,12 @@ export function evaluarPropuesta(accion: AccionPauta, campanas: MetricasCampana[
         fallas.push(`gastó ${Math.round(n.inversion)}, menos de ${GASTO_MINIMO_EN_TCPL} × objetivo (${Math.round(GASTO_MINIMO_EN_TCPL * tcpl)}): todavía no hay datos`);
       } else if (n.leads > 0 && n.cpl != null && n.cpl <= CPL_REEMPLAZO_EN_TCPL * tcpl) {
         fallas.push(`CPL ${Math.round(n.cpl)} dentro de ${CPL_REEMPLAZO_EN_TCPL} × objetivo (${Math.round(CPL_REEMPLAZO_EN_TCPL * tcpl)}): no hay motivo de pausa`);
+      } else {
+        const esperados = n.inversion / tcpl;
+        const p = probPocosLeads(n.leads, esperados);
+        if (p >= EVIDENCIA_PAUSA) {
+          fallas.push(`con ${n.leads} ${n.leads === 1 ? "lead" : "leads"} no alcanza para decir que está peor que el objetivo: con ese gasto, una campaña en el objetivo traería ${esperados.toFixed(1).replace(".", ",")} y 1 de cada ${Math.max(2, Math.round(1 / p))} veces trae ${n.leads} o menos; esperar más gasto`);
+        }
       }
     }
   }

@@ -132,8 +132,11 @@ perder volumen de consultas.
    plataforma.
 2. Aplicá el playbook solo a campañas cuyo objetivo es leads o mensajes:
    - gastó menos de 3 × objetivo: esperar, no hay datos;
-   - 0 leads con 3 × objetivo gastado, o CPL arriba de 1,5 × objetivo: proponé
-     pausar (la campaña, o el conjunto si el problema es uno solo);
+   - 0 leads con 3 × objetivo gastado, o CPL arriba de 1,5 × objetivo **con
+     evidencia**: con 1 a 4 leads el CPL es ruido. Pausá solo si con ese gasto
+     una campaña en el objetivo casi nunca traería tan pocos leads (por ejemplo
+     1 lead con 8 × objetivo gastado sí; 1 lead con 4 × no: esperá). Si no se
+     sostiene, la herramienta no arma la propuesta y te dice por qué;
    - CPL debajo del objetivo y con presupuesto propio: proponé subir 20% como
      máximo;
    - si pausás un conjunto de una campaña que tiene otro que rinde, proponé
