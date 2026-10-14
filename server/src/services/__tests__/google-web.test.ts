@@ -154,5 +154,7 @@ describe("reglas de la web", () => {
     const p = propuestasWeb({ ...base, conGsc: false, dias, landings }, AHORA);
     expect(p.map((x) => x.tipo)).toEqual(["pauta:landing"]);
     expect(p[0].que).toContain("/promo (80% se va)");
+    const conCampanas = propuestasWeb({ ...base, conGsc: false, dias, landings, campanasPorPagina: { "/promo": ["PROMO OCTUBRE"] } }, AHORA);
+    expect(conCampanas[0].porque.resumen).toContain("«PROMO OCTUBRE»");
   });
 });

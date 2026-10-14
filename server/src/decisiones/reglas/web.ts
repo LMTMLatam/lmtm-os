@@ -31,6 +31,8 @@ export interface DatosWeb {
   consultas: Array<{ clave: string; detalle: string | null; posicion: number | null; impresiones: number | null; clics: number | null }>;
   landings: Array<{ clave: string; detalle: string | null; sesiones: number | null; compromiso: number | null }>;
   eventos: Array<{ clave: string; sesiones: number | null; eventosClave: number | null }>;
+  /** Por ruta de la web, las campañas que gastaron en 28 días y mandan ahí. */
+  campanasPorPagina?: Record<string, string[]>;
 }
 
 const num = (n: number) => Math.round(n).toLocaleString("es-AR");
@@ -152,13 +154,15 @@ export function propuestasWeb(d: DatosWeb, ahora = new Date()): Propuesta[] {
       ).sort((a, b) => (b.sesiones ?? 0) - (a.sesiones ?? 0)).slice(0, 3);
       if (flojas.length) {
         const pct = (x: number) => Math.round(x * 100);
+        const ruta = (p: string) => p.replace(/\/+$/, "") || "/";
+        const campanas = [...new Set(flojas.flatMap((l) => d.campanasPorPagina?.[ruta(l.clave)] ?? []))];
         out.push({
           ...base,
           tipo: "pauta:landing",
           clave: `pauta:landing:${d.clientId}`,
           que: `La pauta de ${d.cliente} lleva gente a ${flojas.length === 1 ? "una página" : `${flojas.length} páginas`} de la que se va sin hacer nada: ${flojas.map((l) => `${l.clave} (${pct(1 - l.compromiso!)}% se va)`).join(", ")}`,
           porque: {
-            resumen: `En el resto de la web interactúa el ${pct(interSitio)}% de las visitas; en ${flojas.length === 1 ? "esta página" : "estas páginas"}, con tráfico pago, mucho menos. Se paga el clic y se pierde ahí: revisar que la página cargue rápido en celular, que diga lo mismo que el anuncio y que el botón de contacto se vea sin bajar.`,
+            resumen: `En el resto de la web interactúa el ${pct(interSitio)}% de las visitas; en ${flojas.length === 1 ? "esta página" : "estas páginas"}, con tráfico pago, mucho menos. Se paga el clic y se pierde ahí: revisar que la página cargue rápido en celular, que diga lo mismo que el anuncio y que el botón de contacto se vea sin bajar.${campanas.length ? ` Mandan ahí: ${campanas.slice(0, 4).map((c) => `«${c}»`).join(", ")}${campanas.length > 4 ? ` y ${campanas.length - 4} más` : ""}; antes de pausarlas por su costo, arreglar la página.` : ""}`,
             datos: [
               { etiqueta: "Interacción del sitio (28 días)", valor: pct(interSitio), unidad: "pct" },
               ...flojas.map((l): Dato => ({ etiqueta: `${l.clave} · ${l.detalle} · ${num(l.sesiones ?? 0)} visitas`, valor: pct(l.compromiso!), unidad: "pct" })),
@@ -169,6 +173,7 @@ export function propuestasWeb(d: DatosWeb, ahora = new Date()): Propuesta[] {
             tipo: "tarea",
             titulo: `Revisar landing de pauta — ${d.cliente}`,
             descripcion: flojas.map((l) => `- ${l.clave} (${l.detalle}): ${l.sesiones} visitas en 28 días, interactúa el ${pct(l.compromiso!)}% (sitio: ${pct(interSitio)}%).`).join("\n") +
+              (campanas.length ? `\n\nCampañas que mandan a estas páginas: ${campanas.join(", ")}.` : "") +
               "\n\nRevisar velocidad en celular (análisis SEO), que el título repita la promesa del anuncio y que el botón de WhatsApp/formulario esté arriba.",
           },
           venceEnDias: 14,

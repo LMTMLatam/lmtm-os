@@ -306,7 +306,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_client_campaigns",
       description:
-        "Pauta del cliente CAMPAÑA POR CAMPAÑA (y conjunto por conjunto en Meta): id, estado, fecha de fin, presupuesto diario, gasto, leads, CPL, días con gasto. Da los ids para pause_ad_entity / set_budget / shift_budget. Trae el objetivo de CPL.",
+        "Pauta del cliente CAMPAÑA POR CAMPAÑA (y conjunto por conjunto en Meta): id, estado, fecha de fin, presupuesto diario, gasto, leads, CPL, días con gasto, y ADÓNDE MANDA (WhatsApp, formulario, mensajes, perfil o una página de la web; si es la web, cómo rinde esa página en Google Analytics con tráfico pago). Da los ids para pause_ad_entity / set_budget / shift_budget. Trae el objetivo de CPL.",
       parameters: {
         type: "object",
         properties: {
@@ -1555,12 +1555,15 @@ export function agentToolsRoutes(
         // y el informe del cliente. Con el total (que mezcla Google), el 06/10 Milo
         // propuso escalar dos campañas de Distrillantas que estaban arriba del
         // objetivo de Meta y no vio una que había que pausar.
-        const [total, meta, google, campanas, [cl]] = await Promise.all([
+        const { destinosDeCampanas, landingsPagas, destinoParaAgente } = await import("../services/ads-destinos.js");
+        const [total, meta, google, campanas, [cl], destinos, landings] = await Promise.all([
           metricasCliente(db, clientId, { desde, hasta }),
           metricasCliente(db, clientId, { desde, hasta, plataforma: "meta" }),
           metricasCliente(db, clientId, { desde, hasta, plataforma: "google" }),
           metricasCampanas(db, clientId, { desde, hasta }),
           db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)),
+          destinosDeCampanas(db, clientId).catch(() => new Map()),
+          landingsPagas(db, clientId).catch(() => new Map()),
         ]);
         if (campanas == null) {
           return reply(true, "(Este cliente no tiene cuenta de pauta conectada: no se puede saber qué campañas tiene. No es que no tenga.)");
@@ -1585,6 +1588,7 @@ export function agentToolsRoutes(
               "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivoCpl (cuántos leads 'deberías' tener).",
               "noSeMidePorCpl con texto = esa campaña NO se juzga por CPL (objetivo que no es leads, marca, Google dudoso o sin objetivo): no la pauses ni la escales por su CPL.",
               "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
+              "destino = adónde manda la campaña (whatsapp, formulario de Meta, mensajes, perfil, llamada, web, o publicacion = posteo promocionado que no lleva a ningún lado: se juzga por interacción, no por CPL). Si es web, landing trae lo que dice Google Analytics de ESA página con tráfico pago en 28 días: visitas, % que interactúa y eventos clave. Con CPL alto y destino web: si la landing tiene interacción baja (compará con el resto del sitio en lmtmRendimientoWeb) o 0 eventos clave, el problema está después del clic: decilo y proponé arreglar la página antes de (o además de) pausar. landing null con destino web = Analytics no vinculado o esa página no recibió tráfico pago medido: no es cero.",
               "categoriasEspeciales (Meta): con HOUSING no se puede segmentar ni excluir por edad, género ni código postal — no propongas cortes por edad en esas campañas. En Argentina declararla no es obligatorio (sí en EE. UU., Canadá y parte de Europa). Si el campo no está, no se sabe todavía.",
               ...(total.leadsDudosos.length
                 ? ["leadsDudosos=true: Google cuenta como lead acciones que no lo son (convierte más de un tercio de los clics). NO uses ese CPL para comparar, escalar ni mover plata: avisá que la cuenta tiene mal configuradas las conversiones."]
@@ -1603,6 +1607,7 @@ export function agentToolsRoutes(
               diasConGasto: c.diasConGasto, ultimoDiaConGasto: c.ultimoDiaConGasto,
               ...(c.leadsDudosos ? { leadsDudosos: true } : {}),
               ...(c.categoriasEspeciales ? { categoriasEspeciales: c.categoriasEspeciales } : {}),
+              destino: destinoParaAgente(destinos.get(c.campaignId), landings),
               conjuntos: c.conjuntos.map((a) => ({
                 adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
               })),
