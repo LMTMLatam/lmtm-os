@@ -363,6 +363,26 @@ async function sincronizarGa(db: Db, clientId: string, propiedad: string, token:
   return filas.length;
 }
 
+/** Adónde termina la web después de las redirecciones (origen). null si no responde. */
+async function origenFinal(web: string): Promise<string | null> {
+  try {
+    const r = await fetch(/^https?:\/\//i.test(web) ? web : `https://${web}`, { redirect: "follow", signal: AbortSignal.timeout(10_000), headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-OS)" } });
+    return new URL(r.url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Si el sitio de Search Console (de prefijo) no es el origen donde vive la web, ese origen. Puro. */
+export function midiendoOtraUrl(sitio: string, origen: string | null): string | null {
+  if (!origen || sitio.startsWith("sc-domain:")) return null;
+  try {
+    return new URL(sitio).origin === origen ? null : origen;
+  } catch {
+    return null;
+  }
+}
+
 /** Entre propiedades con la misma web, la única con más visitas en 28 días (y alguna). null si no se sabe. */
 async function laQueRecibeVisitas(candidatas: PropiedadGa[], conexiones: Map<string, { id: string; refreshToken: string }>, ahora: Date): Promise<PropiedadGa | null> {
   const hasta = ultimoDiaCompleto("ga", ahora);
@@ -452,6 +472,12 @@ async function sincronizarAhora(db: Db, opts: { clientId?: string; ahora?: Date 
       }
     }
     if (!p || (!p.gscSitio && !p.ga4Propiedad)) continue;
+    // Una propiedad de prefijo mide SOLO esa URL: MAERS tenía https://www.maers.com.ar/
+    // y la web redirige a https://maers.com.ar/, así que daba 0 clics (14/10).
+    if (p.gscSitio && c.web) {
+      const otra = midiendoOtraUrl(p.gscSitio, await origenFinal(c.web));
+      if (otra) aviso = [aviso, `Search Console mide ${p.gscSitio} pero la web está en ${otra}: Google guarda casi todo en otra propiedad y los números salen en cero. Agregar en Search Console la propiedad de dominio sc-domain:${hostDe(c.web)} y darle acceso a la cuenta conectada.`].filter(Boolean).join(" · ");
+    }
     if (p.gscSitio) res.conGsc += 1;
     if (p.ga4Propiedad) res.conGa += 1;
 
