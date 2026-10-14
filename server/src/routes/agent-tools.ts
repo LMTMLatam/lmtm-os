@@ -1152,6 +1152,22 @@ export function agentToolsRoutes(
         }
       }
 
+      // El playbook en código (14/10): lo que el evaluador marca como indefendible
+      // con los números de los últimos 14 días no se arma. Antes se armaba igual y
+      // la cola se llenaba de pausas por ruido que nadie decidía.
+      if (p.accion.accion !== "duplicate") {
+        const { contextoEval } = await import("../metricas/eval-recientes.js");
+        const { evaluarPropuesta } = await import("../metricas/eval-propuestas.js");
+        const { ctx: vara, campanas } = await contextoEval(db, p.clientId, new Date(Date.now() - 86_400_000));
+        const v = evaluarPropuesta(p.accion, campanas, vara);
+        if (!v.ok) {
+          return reply(
+            true,
+            `No armé la propuesta «${p.resumen}»: con los números de los últimos 14 días no se sostiene (${v.fallas.join("; ")}). Si hay otro motivo que los números no muestran (pedido del cliente, fin de una promo), escribilo en el issue para que lo decida una persona.`,
+          );
+        }
+      }
+
       const { autonomiaDe } = await import("../services/ads-autonomia.js");
       const kindDeAccion =
         p.accion.accion === "pause" ? "pause_ad_entity" : p.accion.accion === "duplicate" ? null : "set_budget";

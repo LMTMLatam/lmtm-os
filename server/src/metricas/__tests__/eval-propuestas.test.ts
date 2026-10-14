@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluarPropuesta } from "../eval-propuestas.js";
+import { evaluarPropuesta, probPocosLeads } from "../eval-propuestas.js";
 import type { MetricasCampana } from "../campanas.js";
 
 const camp = (p: Partial<MetricasCampana>): MetricasCampana => ({
@@ -22,6 +22,20 @@ describe("evaluarPropuesta: pausar", () => {
   it("pausar algo que rinde dentro de 1,5 × objetivo no tiene motivo", () => {
     const r = evaluarPropuesta({ accion: "pause", entityType: "campaign", entityId: "c" }, [camp({ inversion: 6000, leads: 5, cpl: 1200 })], TCPL);
     expect(r.fallas[0]).toMatch(/no hay motivo de pausa/);
+  });
+  it("con 1 a 4 leads el CPL alto es ruido: pausar exige evidencia (MA PROPIEDADES, 14/10)", () => {
+    // 1 lead con 3,8 × objetivo: en el objetivo traería 3,8 y 1 de cada 9 veces trae 1 o menos.
+    const ruido = evaluarPropuesta({ accion: "pause", entityType: "campaign", entityId: "c" }, [camp({ inversion: 3800, leads: 1, cpl: 3800 })], TCPL);
+    expect(ruido.ok).toBe(false);
+    expect(ruido.fallas[0]).toMatch(/no alcanza para decir que está peor/);
+    // 1 lead con 8 × objetivo sí es evidencia.
+    expect(evaluarPropuesta({ accion: "pause", entityType: "campaign", entityId: "c" }, [camp({ inversion: 8000, leads: 1, cpl: 8000 })], TCPL).ok).toBe(true);
+    // 0 leads con 3 × objetivo sigue alcanzando (1 de cada 20).
+    expect(evaluarPropuesta({ accion: "pause", entityType: "campaign", entityId: "c" }, [camp({ inversion: 3000 })], TCPL).ok).toBe(true);
+  });
+  it("probabilidad de tan pocos leads (Poisson)", () => {
+    expect(probPocosLeads(0, 3)).toBeCloseTo(0.0498, 3);
+    expect(probPocosLeads(1, 3.8)).toBeCloseTo(0.107, 3);
   });
   it("una entidad que no es del cliente se rechaza", () => {
     const r = evaluarPropuesta({ accion: "pause", entityType: "adset", entityId: "ajeno" }, [camp({})], TCPL);

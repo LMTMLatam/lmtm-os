@@ -139,7 +139,7 @@ export function dejoDeGastar(ultimo: string | null, hoy: string): boolean {
 }
 
 /** Lo que se canceló al ordenar la cola, por motivo. */
-export interface ResultadoLimpieza { repetidas: number; sinGasto: number; vencidas: number }
+export interface ResultadoLimpieza { repetidas: number; sinGasto: number; vencidas: number; noSeSostienen: number }
 
 /**
  * Ordena la cola de propuestas pendientes (una vez por día). No borra nada: las
@@ -157,7 +157,11 @@ export async function limpiarPropuestas(db: Db, hoy: string): Promise<ResultadoL
   const cancelar = async (id: string, nota: string) =>
     db.update(approvals).set({ status: "cancelled", decisionNote: nota, decidedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(approvals.id, id), eq(approvals.status, "pending")));
-  const r: ResultadoLimpieza = { repetidas: 0, sinGasto: 0, vencidas: 0 };
+  const r: ResultadoLimpieza = { repetidas: 0, sinGasto: 0, vencidas: 0, noSeSostienen: 0 };
+  const { contextoEval } = await import("../metricas/eval-recientes.js");
+  const { evaluarPropuesta } = await import("../metricas/eval-propuestas.js");
+  const ayer = new Date(Date.parse(`${hoy}T12:00:00Z`) - 86_400_000);
+  const contextos = new Map<string, ReturnType<typeof contextoEval>>();
   const vistas = new Map<string, string>();
   const ordenadas = [...filas].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const vivas: typeof filas = [];
@@ -177,6 +181,16 @@ export async function limpiarPropuestas(db: Db, hoy: string): Promise<ResultadoL
       if (dejoDeGastar(ultimo, hoy)) {
         await cancelar(f.id, `No gasta ${ultimo ? `desde el ${ultimo}` : "en los últimos 30 días"}: pausarla no ahorra nada.`);
         r.sinGasto += 1;
+        continue;
+      }
+    }
+    if (p.accion.accion !== "duplicate") {
+      if (!contextos.has(p.clientId)) contextos.set(p.clientId, contextoEval(db, p.clientId, ayer));
+      const { ctx, campanas } = await contextos.get(p.clientId)!;
+      const v = evaluarPropuesta(p.accion, campanas, ctx);
+      if (!v.ok) {
+        await cancelar(f.id, `No se sostiene con los números de hoy: ${v.fallas.join("; ")}.`.slice(0, 1000));
+        r.noSeSostienen += 1;
         continue;
       }
     }
@@ -286,10 +300,10 @@ export function initLimpiezaPropuestas(db: Db): void {
   if (timer) return;
   const vuelta = async () => {
     const { tocaHoy } = await import("./una-vez-por-dia.js");
-    if (!(await tocaHoy(db, "pauta:limpiar-propuestas"))) return;
+    if (!(await tocaHoy(db, "pauta:ordenar-cola"))) return;
     const { diaLocal } = await import("../avisos/politica.js");
     const r = await limpiarPropuestas(db, diaLocal(new Date()));
-    console.log(`[propuestas-pauta] cola ordenada: ${r.repetidas} repetidas, ${r.sinGasto} pausas de lo que no gasta, ${r.vencidas} vencidas`);
+    console.log(`[propuestas-pauta] cola ordenada: ${r.repetidas} repetidas, ${r.sinGasto} pausas de lo que no gasta, ${r.noSeSostienen} que no se sostienen, ${r.vencidas} vencidas`);
   };
   const correr = () => void vuelta().catch((e) => console.warn("[propuestas-pauta] falló:", e instanceof Error ? e.message : e));
   setTimeout(correr, 10 * 60_000);
