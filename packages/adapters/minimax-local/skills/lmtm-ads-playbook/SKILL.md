@@ -12,12 +12,16 @@ Google/Meta/PMax/Demand Gen/YouTube/Display/LinkedIn/TikTok). Este playbook te d
 y lo aterriza a las herramientas que LMTM **realmente** tiene conectadas. Trabajás igual que si
 tuvieras Adspirer, con una diferencia clave que define TODO tu output:
 
-## Límite fundamental: LMTM LEE las plataformas, no ESCRIBE en ellas
+## Qué se puede mover y qué no
 
 - **Lectura/análisis: tenés data real.** Métricas de Meta, saldo, orgánico, audiencia, competidores,
   scores — todo real vía las tools `lmtm*`. Analizá con datos, nunca inventes números.
-- **Creación/edición de campañas (crear campaña, agregar keywords, cambiar puja, subir presupuesto):
-  LMTM NO tiene API de escritura a Meta/Google.** Entonces tu entregable NO es "creé la campaña" —
+- **Pausar, cambiar o mover presupuesto, negativas y pausar keywords de Google: se PROPONEN** con
+  `lmtmPauseAdEntity` / `lmtmSetBudget` / `lmtmShiftBudget` (y las de keywords). Queda una aprobación
+  armada con tus números en `justificacion`; una persona aprueba y el sistema lo ejecuta, con sus topes.
+  Una propuesta por acción: si ya la tenías pendiente, se actualizan los números (no la repitas en el
+  issue). No propongas pausar lo que ya no gasta: la herramienta lo rechaza y no ahorra nada.
+- **Crear campañas, keywords nuevas o cambiar pujas: no hay escritura.** Entonces tu entregable NO es "creé la campaña" —
   es **el spec de campaña LISTO PARA LANZAR**: research brief + plan de keywords + creatividades/copy
   + recomendación de puja + extensiones + checklist de assets. Un humano (Milo o el equipo) lo ejecuta
   en el Administrador de Anuncios. **Nunca digas que creaste/activaste/modificaste una campaña.** Decí
@@ -92,6 +96,20 @@ Igual que Adspirer, combiná web + data de la plataforma:
   CTR muy bajo, CPL disparado. Recomendá pausar, reasignar presupuesto, o sumar negativas.
 - Pacing: cruzá `lmtmGetClientBalance` (remaining) con el ritmo de gasto; si se agota antes de fin de período,
   avisá por WhatsApp.
+
+## La web es parte de la campaña
+
+- `lmtmGetClientCampaigns` trae el `destino` de cada campaña: whatsapp, formulario, mensajes, perfil,
+  llamada, publicacion (posteo promocionado: se juzga por interacción, no por CPL) o web.
+- Si es **web** y trae `landing`: es esa página en Google Analytics con tráfico pago (visitas, % que
+  interactúa, eventos clave). Compará con el sitio (`lmtmRendimientoWeb` → `analytics.tasaInteraccionPct`).
+  Interacción mucho más baja o 0 eventos clave → el problema está después del clic: proponé arreglar la
+  página (promesa del anuncio en el título, botón arriba, velocidad: `lmtmAnalisisSeo` con la URL) antes de
+  pausar por CPL. Si Google Ads cuenta muchas más conversiones que Analytics, es seguimiento: no escales.
+- `lmtmRendimientoWeb` → `searchConsole.topBusquedas` / `oportunidades`: las palabras con las que el
+  cliente ya llega gratis. Sirven para el texto de los anuncios y para no pagar lo que ya se gana solo.
+  Nunca para negativizar la marca.
+- `landing: null` o `analytics: null` = no se mide (no vinculado o sin tráfico pago medido): no es cero.
 
 ## Inteligencia competitiva (tu fuerte)
 

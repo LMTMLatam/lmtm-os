@@ -294,10 +294,13 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     const filas = (Array.isArray(conGasto) ? conGasto : (conGasto as { rows?: unknown[] }).rows ?? []) as Array<{ client_id: string }>;
     const conPauta = new Set(filas.map((f) => f.client_id));
     const out: Propuesta[] = [];
+    const { campanasPorPagina } = await import("../services/ads-destinos.js");
     for (const p of props) {
       if (viejos.includes(p)) continue;
       const r = ranking.filter((x) => x.clientId === p.clientId);
+      const porPagina = p.ga4Propiedad && conPauta.has(p.clientId) ? await campanasPorPagina(db, p.clientId).catch(() => undefined) : undefined;
       out.push(...propuestasWeb({
+        campanasPorPagina: porPagina,
         clientId: p.clientId, cliente: nombres.get(p.clientId) ?? "",
         conGsc: !!p.gscSitio, conGa: !!p.ga4Propiedad, conPauta: conPauta.has(p.clientId),
         dias: dias.filter((d) => d.clientId === p.clientId),

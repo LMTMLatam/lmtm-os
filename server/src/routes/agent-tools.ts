@@ -306,7 +306,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_client_campaigns",
       description:
-        "Pauta del cliente CAMPAÑA POR CAMPAÑA (y conjunto por conjunto en Meta): id, estado, fecha de fin, presupuesto diario, gasto, leads, CPL, días con gasto. Da los ids para pause_ad_entity / set_budget / shift_budget. Trae el objetivo de CPL.",
+        "Pauta del cliente CAMPAÑA POR CAMPAÑA (y conjunto por conjunto en Meta): id, estado, fecha de fin, presupuesto diario, gasto, leads, CPL, días con gasto, y ADÓNDE MANDA (WhatsApp, formulario, mensajes, perfil o una página de la web; si es la web, cómo rinde esa página en Google Analytics con tráfico pago). Da los ids para pause_ad_entity / set_budget / shift_budget. Trae el objetivo de CPL.",
       parameters: {
         type: "object",
         properties: {
@@ -1138,6 +1138,20 @@ export function agentToolsRoutes(
       // poniéndolo como estaba; ésta CREA una entidad en la cuenta del cliente,
       // y lo creado no se "deshace" — se borra, que es otra cosa. Una persona
       // decide que exista.
+      // Pausar lo que ya no gasta no ahorra nada y llenaba la cola (14/10: la
+      // mayor parte de las 313 pendientes). Se le contesta al agente sin armar nada.
+      if (p.accion.accion === "pause") {
+        const { ultimoDiaConGasto, dejoDeGastar } = await import("../services/ads-propuestas.js");
+        const ultimo = await ultimoDiaConGasto(db, p.clientId, p.accion.entityType, p.accion.entityId);
+        const { diaLocal } = await import("../avisos/politica.js");
+        if (dejoDeGastar(ultimo, diaLocal(new Date()))) {
+          return reply(
+            true,
+            `No armé la propuesta: «${p.resumen}» no gasta ${ultimo ? `desde el ${ultimo}` : "en los últimos 30 días"} (fecha de fin vencida, frenada o sin entrega), así que pausarla no ahorra nada. Si hay que ordenar la cuenta, anotalo en el issue; no hace falta aprobación.`,
+          );
+        }
+      }
+
       const { autonomiaDe } = await import("../services/ads-autonomia.js");
       const kindDeAccion =
         p.accion.accion === "pause" ? "pause_ad_entity" : p.accion.accion === "duplicate" ? null : "set_budget";
@@ -1173,11 +1187,13 @@ export function agentToolsRoutes(
       }
 
       const { proponerAccionPauta } = await import("../services/ads-propuestas.js");
-      const { id } = await proponerAccionPauta(db, { ...p, companyId: ctx.companyId, agentId: ctx.agentId });
+      const { id, repetida } = await proponerAccionPauta(db, { ...p, companyId: ctx.companyId, agentId: ctx.agentId });
       return reply(
         true,
         `${motivo ?? "Requiere OK humano."}\n\n` +
-          `Ya dejé la propuesta armada y lista para ejecutarse: aprobación ${id} — "${p.resumen}". ` +
+          (repetida
+            ? `Ya tenías esta misma propuesta pendiente (aprobación ${id}): le actualicé los números, no se suma otra. `
+            : `Ya dejé la propuesta armada y lista para ejecutarse: aprobación ${id} — "${p.resumen}". `) +
           `Nombrala en el issue para que quien decida llegue directo. Cuando alguien la apruebe, el sistema la ejecuta solo; NO hace falta que vuelvas a llamar la tool.`,
       );
     };
@@ -1539,12 +1555,15 @@ export function agentToolsRoutes(
         // y el informe del cliente. Con el total (que mezcla Google), el 06/10 Milo
         // propuso escalar dos campañas de Distrillantas que estaban arriba del
         // objetivo de Meta y no vio una que había que pausar.
-        const [total, meta, google, campanas, [cl]] = await Promise.all([
+        const { destinosDeCampanas, landingsPagas, destinoParaAgente } = await import("../services/ads-destinos.js");
+        const [total, meta, google, campanas, [cl], destinos, landings] = await Promise.all([
           metricasCliente(db, clientId, { desde, hasta }),
           metricasCliente(db, clientId, { desde, hasta, plataforma: "meta" }),
           metricasCliente(db, clientId, { desde, hasta, plataforma: "google" }),
           metricasCampanas(db, clientId, { desde, hasta }),
           db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)),
+          destinosDeCampanas(db, clientId).catch(() => new Map()),
+          landingsPagas(db, clientId).catch(() => new Map()),
         ]);
         if (campanas == null) {
           return reply(true, "(Este cliente no tiene cuenta de pauta conectada: no se puede saber qué campañas tiene. No es que no tenga.)");
@@ -1569,6 +1588,7 @@ export function agentToolsRoutes(
               "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivoCpl (cuántos leads 'deberías' tener).",
               "noSeMidePorCpl con texto = esa campaña NO se juzga por CPL (objetivo que no es leads, marca, Google dudoso o sin objetivo): no la pauses ni la escales por su CPL.",
               "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
+              "destino = adónde manda la campaña (whatsapp, formulario de Meta, mensajes, perfil, llamada, web, o publicacion = posteo promocionado que no lleva a ningún lado: se juzga por interacción, no por CPL). Si es web, landing trae lo que dice Google Analytics de ESA página con tráfico pago en 28 días: visitas, % que interactúa y eventos clave. Con CPL alto y destino web: si la landing tiene interacción baja (compará con el resto del sitio en lmtmRendimientoWeb) o 0 eventos clave, el problema está después del clic: decilo y proponé arreglar la página antes de (o además de) pausar. landing null con destino web = Analytics no vinculado o esa página no recibió tráfico pago medido: no es cero.",
               "categoriasEspeciales (Meta): con HOUSING no se puede segmentar ni excluir por edad, género ni código postal — no propongas cortes por edad en esas campañas. En Argentina declararla no es obligatorio (sí en EE. UU., Canadá y parte de Europa). Si el campo no está, no se sabe todavía.",
               ...(total.leadsDudosos.length
                 ? ["leadsDudosos=true: Google cuenta como lead acciones que no lo son (convierte más de un tercio de los clics). NO uses ese CPL para comparar, escalar ni mover plata: avisá que la cuenta tiene mal configuradas las conversiones."]
@@ -1587,6 +1607,7 @@ export function agentToolsRoutes(
               diasConGasto: c.diasConGasto, ultimoDiaConGasto: c.ultimoDiaConGasto,
               ...(c.leadsDudosos ? { leadsDudosos: true } : {}),
               ...(c.categoriasEspeciales ? { categoriasEspeciales: c.categoriasEspeciales } : {}),
+              destino: destinoParaAgente(destinos.get(c.campaignId), landings),
               conjuntos: c.conjuntos.map((a) => ({
                 adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
               })),
