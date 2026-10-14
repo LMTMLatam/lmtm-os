@@ -99,6 +99,6 @@ export async function resumenDeCliente(db: Db, clientId: string, ahora = new Dat
           publicadoAt: i.publicadoAt ? new Date(i.publicadoAt).toISOString() : null,
         }
       : null,
-    linkPublico: link ? `/public/dashboards/${link.slug}` : null,
+    linkPublico: link ? `/public/dashboards/${link.slug}/informe` : null,
   };
 }

@@ -143,6 +143,18 @@ function useFormatters(currency: string) {
   }, [currency]);
 }
 
+/** El período anterior de igual largo, que termina el día antes de `since`. */
+function prevRange(since: string, until: string): { since: string; until: string } {
+  const s = new Date(since + "T12:00:00");
+  const u = new Date(until + "T12:00:00");
+  const days = Math.max(1, Math.round((u.getTime() - s.getTime()) / 86400000) + 1);
+  const pu = new Date(s);
+  pu.setDate(pu.getDate() - 1);
+  const ps = new Date(pu);
+  ps.setDate(ps.getDate() - (days - 1));
+  return { since: ps.toISOString().slice(0, 10), until: pu.toISOString().slice(0, 10) };
+}
+
 // ============================================================
 //   Date range sub-component (shared by all sections)
 // ============================================================
@@ -241,7 +253,15 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
     d.setDate(d.getDate() - 30); // default = last month (cached); custom dates trigger a sync
     return d.toISOString().slice(0, 10);
   }, [today]);
-  const defaultUntil = useMemo(() => today.toISOString().slice(0, 10), [today]);
+  // Termina AYER, como el dashboard público y el "Últimos 30 días" de Meta: el día
+  // en curso está a medio sincronizar y hundía el último punto y las comparaciones.
+  const defaultUntil = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }, [today]);
+  /** Hasta dónde se puede elegir a mano: hoy. */
+  const maxFecha = useMemo(() => today.toISOString().slice(0, 10), [today]);
 
   const [range, setRange] = useState({ since: defaultSince, until: defaultUntil });
   // "all" combina Meta + Google; el toggle filtra serie y tablas.
@@ -298,6 +318,14 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
     queryKey: ["dashboard", "funnel", client.slug, range.since, range.until],
     staleTime: 180_000,
     queryFn: () => clientsApi.funnel(client.slug, range),
+    retry: false,
+  });
+  // El período anterior de igual largo: contra eso se comparan las tarjetas.
+  const prev = useMemo(() => prevRange(range.since, range.until), [range.since, range.until]);
+  const prevFunnelQuery = useQuery({
+    queryKey: ["dashboard", "funnel", client.slug, prev.since, prev.until],
+    staleTime: 180_000,
+    queryFn: () => clientsApi.funnel(client.slug, prev),
     retry: false,
   });
   const campaignsQuery = useQuery({
@@ -389,40 +417,26 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const totalClicks = funnel?.clicks ?? 0;
   const totalLeads = funnel?.leads ?? 0;
   const totalConversions = funnel?.conversions ?? 0;
-  const totalReach = funnel?.reach ?? 0;
   const ctr = funnel?.rates.ctr ?? 0;
   const cpl = funnel?.cpls.cpl ?? 0;
   const cpc = funnel?.cpls.cpc ?? 0;
   const cpm = totalImpr > 0 ? (totalSpend / totalImpr) * 1000 : 0;
-  const roas = funnel?.cpls.roas ?? 0;
-  const frequency = totalImpr > 0 && totalReach > 0 ? totalImpr / totalReach : 0;
-  const activeCampaigns = campaigns.filter((c) => c.status === "active").length;
+  // Las que gastaron en el período: Meta deja en ACTIVE campañas que hace meses no
+  // entregan (SKYGARDEN: 198 "activas", 10 con gasto en 30 días).
+  const activeCampaigns = campaigns.filter((c) => c.spend > 0).length;
 
-  // ---- Spend today / 7d / 30d ----
-  const todayStr = today.toISOString().slice(0, 10);
-  const last7Start = new Date(today); last7Start.setDate(last7Start.getDate() - 6);
-  const last7StartStr = last7Start.toISOString().slice(0, 10);
-  const last30StartStr = defaultSince;
-  const spendToday = series.filter((p) => p.date === todayStr).reduce((a, p) => a + p.spend, 0);
-  const spend7 = series.filter((p) => p.date >= last7StartStr).reduce((a, p) => a + p.spend, 0);
-  const spend30 = series.filter((p) => p.date >= last30StartStr).reduce((a, p) => a + p.spend, 0);
-
-  // ---- Trend (current window vs previous window of same length) ----
-  const days = series.length;
-  const currentHalf = series.slice(Math.floor(days / 2));
-  const prevHalf = series.slice(0, Math.floor(days / 2));
-  const sumOf = (arr: TimeseriesPoint[], k: keyof TimeseriesPoint) => arr.reduce((a, p) => a + Number(p[k] ?? 0), 0);
-  const trend = (k: keyof TimeseriesPoint) => {
-    const cur = sumOf(currentHalf, k);
-    const prev = sumOf(prevHalf, k);
-    if (prev === 0) return 0;
-    return ((cur - prev) / prev) * 100;
+  // ---- Contra el período anterior de igual largo (null = no hay con qué comparar) ----
+  const prevFunnel = prevFunnelQuery.data?.funnel;
+  const trend = (cur: number, k: "spend" | "leads" | "clicks"): number | null => {
+    const antes = prevFunnel?.[k] ?? 0;
+    return antes > 0 ? ((cur - antes) / antes) * 100 : null;
   };
+  const diasRango = Math.round((Date.parse(range.until) - Date.parse(range.since)) / 86_400_000) + 1;
 
   // ---- Per-section renderers ----
   const renderSection = () => {
     switch (activeSection) {
-      case "resumen": return <ResumenSection series={series} campaigns={campaigns} totalSpend={totalSpend} totalImpr={totalImpr} totalClicks={totalClicks} totalLeads={totalLeads} totalConversions={totalConversions} ctr={ctr} cpl={cpl} cpc={cpc} cpm={cpm} roas={roas} frequency={frequency} activeCampaigns={activeCampaigns} spendToday={spendToday} spend7={spend7} spend30={spend30} totalReach={totalReach} creatives={creatives} fmt={fmt} trend={trend} adsets={adsets} />;
+      case "resumen": return <ResumenSection series={series} campaigns={campaigns} totalSpend={totalSpend} totalImpr={totalImpr} totalClicks={totalClicks} totalLeads={totalLeads} totalConversions={totalConversions} ctr={ctr} cpl={cpl} cpc={cpc} cpm={cpm} activeCampaigns={activeCampaigns} diasRango={diasRango} creatives={creatives} fmt={fmt} trend={trend} adsets={adsets} />;
       case "presupuesto": return <PresupuestoSection totalSpend={totalSpend} series={series} campaigns={campaigns} fmt={fmt} />;
       case "campanas": return <CampanasSection campaigns={campaigns} fmt={fmt} client={client} />;
       case "conjuntos": return <ConjuntosSection adsets={adsets} fmt={fmt} />;
@@ -484,7 +498,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
                 </button>
               ))}
             </div>
-            <DateRangePicker since={range.since} until={range.until} defaultUntil={defaultUntil} onChange={setRange} />
+            <DateRangePicker since={range.since} until={range.until} defaultUntil={maxFecha} onChange={setRange} />
             <SyncStatusIndicator
               isPending={syncMutation.isPending}
               isError={syncMutation.isError}
@@ -547,7 +561,8 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
 // ============================================================
 //   1) RESUMEN EJECUTIVO
 // ============================================================
-function ResumenSection({ series, campaigns, totalSpend, totalImpr, totalClicks, totalLeads, totalConversions, ctr, cpl, cpc, cpm, roas, frequency, activeCampaigns, spendToday, spend7, spend30, totalReach, creatives, fmt, trend, adsets }: any) {
+function ResumenSection({ series, campaigns, totalSpend, totalImpr, totalClicks, totalLeads, totalConversions, ctr, cpl, cpc, cpm, activeCampaigns, diasRango, creatives, fmt, trend, adsets }: any) {
+  const conTrend = (v: number | null) => (v == null ? undefined : { value: v });
   const topCampaigns = useMemo(() => [...campaigns].sort((a, b) => b.spend - a.spend).slice(0, 5), [campaigns]);
   const topCreatives = useMemo(() => [...creatives].sort((a, b) => b.ctr - a.ctr).slice(0, 3), [creatives]);
   const worstCampaigns = useMemo(() => [...campaigns].filter((c: any) => c.spend > 100).sort((a: any, b: any) => b.cpl - a.cpl).slice(0, 3), [campaigns]);
@@ -556,15 +571,14 @@ function ResumenSection({ series, campaigns, totalSpend, totalImpr, totalClicks,
     <div className="space-y-4">
       {/* KPI grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        <Kpi title="Inversión hoy" value={fmt.fmtMoney(spendToday)} icon={DollarSign} accent="blue" trend={{ value: trend("spend") }} />
-        <Kpi title="Inversión 7d" value={fmt.fmtMoney(spend7)} icon={DollarSign} accent="blue" trend={{ value: trend("spend") }} />
-        <Kpi title="Inversión 30d" value={fmt.fmtMoney(spend30)} icon={DollarSign} accent="blue" />
-        <Kpi title="Leads" value={fmt.fmtInt(totalLeads)} icon={Target} accent="green" trend={{ value: trend("leads") }} sub={cpl > 0 ? `CPL ${fmt.fmtMoney(cpl)}` : "—"} />
-        <Kpi title="Conversiones" value={fmt.fmtInt(totalConversions)} icon={CheckCircle2} accent="green" sub={roas > 0 ? `ROAS ${roas.toFixed(2)}x` : "—"} />
+        <Kpi title="Inversión del período" value={fmt.fmtMoney(totalSpend)} icon={DollarSign} accent="blue" trend={conTrend(trend(totalSpend, "spend"))} sub={`${fmt.fmtMoney(totalSpend / Math.max(diasRango, 1), 0)} por día`} />
+        <Kpi title="Leads" value={fmt.fmtInt(totalLeads)} icon={Target} accent="green" trend={conTrend(trend(totalLeads, "leads"))} sub={cpl > 0 ? `CPL ${fmt.fmtMoney(cpl)}` : "—"} />
+        <Kpi title="Conversiones" value={fmt.fmtInt(totalConversions)} icon={CheckCircle2} accent="green" />
         <Kpi title="CTR" value={fmt.fmtPct(ctr, 2)} icon={MousePointerClick} accent="violet" sub={`CPC ${fmt.fmtMoney(cpc, 2)}`} />
-        <Kpi title="CPM" value={fmt.fmtMoney(cpm, 0)} icon={Activity} accent="amber" sub={`Frecuencia ${frequency.toFixed(2)}`} />
-        <Kpi title="Alcance" value={fmt.fmtCompact(totalReach)} icon={Eye} accent="rose" sub={`${fmt.fmtCompact(totalImpr)} impr`} />
-        <Kpi title="Campañas activas" value={fmt.fmtInt(activeCampaigns)} icon={Megaphone} accent="blue" sub={`${campaigns.length} totales`} />
+        <Kpi title="Impresiones" value={fmt.fmtCompact(totalImpr)} icon={Eye} accent="rose" />
+        <Kpi title="Clics" value={fmt.fmtInt(totalClicks)} icon={MousePointerClick} accent="violet" trend={conTrend(trend(totalClicks, "clicks"))} />
+        <Kpi title="CPM" value={fmt.fmtMoney(cpm, 0)} icon={Activity} accent="amber" />
+        <Kpi title="Campañas con inversión" value={fmt.fmtInt(activeCampaigns)} icon={Megaphone} accent="blue" sub={`de ${campaigns.length} en la cuenta`} />
       </div>
 
       {/* Charts — misma anatomía que el dashboard público (estilo Weekly Project Health) */}

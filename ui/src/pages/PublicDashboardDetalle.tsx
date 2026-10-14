@@ -1,8 +1,8 @@
-// LMTM-OS: el detalle del link público (/public/dashboards/:slug/detalle).
+// LMTM-OS: el dashboard del link público (/public/dashboards/:slug).
 //
-// Rediseño B3: el link ahora abre el INFORME (PublicDashboard.tsx), armado con
-// `metricas`. Esto queda como "ver el detalle" (anuncios, audiencia, redes)
-// hasta que B4 decida qué se porta. Se le sacaron los números que no se
+// B3 (05/10) había puesto el informe semanal como puerta de entrada y esto como
+// "detalle"; el 14/10 se volvió a abrir el dashboard (pedido: "que sean como los
+// de antes") y el informe quedó en /informe. Se le sacaron los números que no se
 // sostienen: visitas a la página (clics × 0,6, inventado), "personas
 // alcanzadas" y frecuencia (alcances diarios sumados) y ROAS (contaba
 // conversiones de Google que no son ventas).
@@ -426,7 +426,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
   const cpl = funnel?.cpls.cpl ?? 0;
   const cpc = funnel?.cpls.cpc ?? 0;
   const cpm = totalImpr > 0 ? (totalSpend / totalImpr) * 1000 : 0;
-  const activeCampaigns = campaigns.filter((c) => c.status?.toLowerCase() === "active").length;
+  const activeCampaigns = campaigns.filter((c) => c.spend > 0).length;
 
   const lastSync = useMemo(() => {
     const elapsed = Math.floor((now - (tsQuery.dataUpdatedAt ?? now)) / 1000);
@@ -470,9 +470,8 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold truncate mt-1">{client.name}</h1>
               <p className="text-xs text-white/70 mt-1">{rangeLabel} · {dashboard.label ?? "Dashboard en vivo"}</p>
-              {/* El informe de la semana es la puerta de entrada (B3); esto es el detalle. */}
-              <a href={`/public/dashboards/${encodeURIComponent(slug ?? "")}`} className="mt-2 inline-block text-xs font-semibold text-white underline-offset-2 hover:underline">
-                ← Volver al informe de la semana
+              <a href={`/public/dashboards/${encodeURIComponent(slug ?? "")}/informe`} className="mt-2 inline-block text-xs font-semibold text-white underline-offset-2 hover:underline">
+                Ver el informe de la semana →
               </a>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-white/70 bg-white/10 rounded-full px-3 py-1.5 backdrop-blur">
@@ -602,7 +601,7 @@ function ResumenPublic({ series, campaigns, totalSpend, totalImpr, totalClicks, 
         <Kpi title="CPM" value={fmt.fmtMoney(cpm, 0)} icon={Activity} accent="amber"
           delta={<Delta curr={cpm} prev={prevCpm} goodWhen="down" />}
           spark={series.map((p: TimeseriesPoint) => p.cpm)} sparkId="s-cpm" />
-        <Kpi title="Campañas activas" value={fmt.fmtInt(activeCampaigns)} icon={Megaphone} accent="blue" sub={`${campaigns.length} totales`} />
+        <Kpi title="Campañas con inversión" value={fmt.fmtInt(activeCampaigns)} icon={Megaphone} accent="blue" sub={`de ${campaigns.length} en la cuenta`} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="p-4">
