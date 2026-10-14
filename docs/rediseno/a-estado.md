@@ -41,6 +41,51 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 14/10 tarde: dashboards de clientes como antes, y Google conectado
+
+**Pedido:** "los dashboards de los clientes están fallando, que sean como los de antes".
+Venía con una captura del equipo: arriba decía $180.000 y la tarjeta "30d", $126.193.
+
+**Qué pasaba:**
+- El link del cliente abría el informe semanal desde B3 (05/10); el dashboard había
+  quedado en `/detalle`.
+- No había caídas: los 33 links públicos dan 200 en todos sus endpoints. Lo que fallaba
+  eran los números.
+- **Tarjetas del dashboard interno:**
+  - "Inversión hoy/7d/30d" sumaban los días del rango elegido, pero contados desde
+    hoy hacia atrás. Con septiembre elegido, "30d" solo tomaba del 14 al 30/9 y
+    aparecía "ARS 0 ↑50%".
+  - La tendencia comparaba una mitad del rango contra la otra.
+- **"Campañas activas"** contaba el estado de Meta: SKYGARDEN tenía 198 "activas" y solo
+  10 con gasto.
+
+**Hecho (`d5b1082`):**
+- El link vuelve a abrir el dashboard. El informe pasó a `/informe`, con botón desde el
+  dashboard, y `/detalle` sigue andando.
+- Las tarjetas del interno son del período elegido y se comparan contra el período
+  anterior de igual largo. El rango termina ayer.
+- "Campañas con inversión" reemplaza a "Campañas activas" en los dos dashboards.
+- El interno deja de mostrar alcance, frecuencia y ROAS, igual que el público.
+- Verificado en producción con SKYGARDEN.
+
+**Google conectado (`lmtm.ml@gmail.com`, 18:17):**
+- **Search Console:** ve 7 sitios, de los cuales 4 son clientes. Ya trajo 90 días de MA
+  PROPIEDADES (16.077 clics), INBELT, ALTECNO y MAERS.
+- **Analytics:** vinculó 22 clientes, pero la **Google Analytics Data API está apagada**
+  en el proyecto 909174443343 y no trae números.
+- **Arreglado (`bdc4ee7`, `9a53851`):**
+  - Con dos propiedades GA4 para la misma web se elige la que recibe visitas. Pasa en
+    MAERS, SKYGARDEN, Ferrol y el Hiper de la Pelu.
+  - El aviso de "elegí una" ya no lo borra la sincronización buena, y el motor ya no
+    toma un aviso como falla.
+  - Se avisa cuando la propiedad de Search Console mide otra URL que la de la web.
+    MAERS (www vs sin www) y ALTECNO (http) daban casi 0 clics por eso.
+
+**Falta (persona):**
+- Habilitar la Google Analytics Data API en el proyecto 909174443343.
+- Dar acceso de Search Console a `lmtm.ml@gmail.com` en los otros clientes.
+- Crear la propiedad de dominio para MAERS y ALTECNO.
+
 ### 14/10: Search Console y Analytics por cliente, rutas abiertas y skills de la flota
 
 **Pedido:** integrar Google Search Console y Google Analytics y "potenciar todo" para que
