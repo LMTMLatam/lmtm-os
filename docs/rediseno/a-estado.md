@@ -41,6 +41,28 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 13/10 noche: Marca completa sola, web de cada cliente y SEO
+
+**Pedido:** cargar la web de cada cliente en Marca, sus colores principales y
+todo el Enfoque Técnico (menos avatar y logo), que lo hagan solos los agentes,
+y que puedan hacer análisis SEO.
+
+**Hecho (`8623e09`):** `marca-completa.ts`, todos los días (web del Enfoque o
+de su página de Facebook, solo si responde; colores de la paleta del documento
+o de la web sin colores de plantilla; el resto del Enfoque con el modelo, solo
+si cambió). Prioridad persona > Enfoque > posteos. Bug: el formulario reenviaba
+`updatedBy` y la fila de una persona quedaba como automática. `seo.ts` →
+`get_analisis_seo` / `lmtmAnalisisSeo`; `completar_marca` / `lmtmCompletarMarca`.
+
+**Primera vuelta en producción:** 45 de 59 con web (5 por la página de
+Facebook), 43 con colores, 46 marcas desde el Enfoque Técnico (tono 35, público
+40, diferencial 40, palabras 39, tipografías 6). A mano, con búsqueda: CARVUK,
+Randstad, CANNES (web de su desarrolladora, según su Enfoque) y CHARLOTT (el
+CRM). Sin web: BRISANOVA (brisanova.ar no responde), CAMPO TIMBO, Clean Unity,
+Distrito Roldan, ECOCREDITO, GRUPO MA, LoMasFundas, Workera, y los 2 de prueba.
+SEO probado con MAERS: sin H1, sin schema, 10/12 imágenes sin alt. PageSpeed no
+contesta sin clave (`GOOGLE_PAGESPEED_KEY`).
+
 ### 13/10: Google Ads visible, cuentas sueltas y keywords aprobables
 
 **Pedido:** "Tema Google Ads, en qué estamos, no veo nada de eso". Estado:
