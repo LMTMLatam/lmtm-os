@@ -294,6 +294,9 @@ export async function createApp(
   initWaBot(db).catch(() => {});
   initAgencyOps(db);
   try { initAdsAutoSync(db); } catch (e) { console.warn("[ads-autosync] init failed:", e); }
+  // Marca de cada cliente: web, colores y Enfoque Técnico, una vez por día.
+  void import("./services/marca-completa.js").then(({ initMarcaCompleta }) => initMarcaCompleta(db))
+    .catch((e) => console.warn("[marca-completa] init failed:", e instanceof Error ? e.message : e));
   // Cuentas de pauta sueltas (conexión borrada) con una sola conexión activa de
   // su plataforma: se vuelven a vincular antes del próximo sync (13/10).
   void import("./services/ads/mappings-sueltos.js")

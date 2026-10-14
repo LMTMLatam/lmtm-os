@@ -12,6 +12,8 @@ import type { Db } from "@paperclipai/db";
 import { clientBrand, clientProducts, clients } from "@paperclipai/db";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { subirImagenDeReferencia } from "../services/contenido-drive.js";
+import { getActorInfo } from "./authz.js";
+import { esAutomatico } from "../services/marca-completa.js";
 
 async function resolverCliente(db: Db, idOrSlug: string) {
   const [porId] = /^[0-9a-f-]{36}$/i.test(idOrSlug)
@@ -20,6 +22,13 @@ async function resolverCliente(db: Db, idOrSlug: string) {
   if (porId) return porId;
   const [porSlug] = await db.select().from(clients).where(eq(clients.slug, idOrSlug));
   return porSlug ?? null;
+}
+
+/** "panel:<usuario>" o "agente:<id>". Nunca un autor automático: eso le sacaría su candado. */
+function autorDe(req: Parameters<typeof getActorInfo>[0]): string {
+  const a = getActorInfo(req);
+  const autor = `${a.actorType === "agent" ? "agente" : "panel"}:${a.actorId ?? "?"}`.slice(0, 120);
+  return esAutomatico(autor) ? "panel:?" : autor;
 }
 
 export function clientProductRoutes(db: Db): Router {
@@ -37,7 +46,7 @@ export function clientProductRoutes(db: Db): Router {
       // lo que define al cliente, en vez de saltar entre secciones (18/8).
       const [marca] = await db.select().from(clientBrand).where(eq(clientBrand.clientId, c.id));
       res.json({
-        client: { id: c.id, slug: c.slug, name: c.name, avatarUrl: c.avatarUrl ?? null, industry: c.industry ?? null },
+        client: { id: c.id, slug: c.slug, name: c.name, avatarUrl: c.avatarUrl ?? null, industry: c.industry ?? null, web: c.websiteUrl ?? null },
         productos,
         marca: marca ?? null,
       });
@@ -219,9 +228,16 @@ export function clientProductRoutes(db: Db): Router {
         publico: texto(b.publico),
         diferencial: texto(b.diferencial),
         notas: texto(b.notas),
-        updatedBy: typeof b.updatedBy === "string" ? b.updatedBy.slice(0, 120) : null,
+        // Quién guarda sale de la sesión, NUNCA del cuerpo: el formulario
+        // reenviaba el updatedBy que había traído ("aprendizaje-automatico") y la
+        // fila de una persona quedaba marcada como automática, así que la próxima
+        // corrida le pisaba lo que había cargado (13/10).
+        updatedBy: autorDe(req),
         updatedAt: new Date(),
       };
+      // La web vive en el cliente (la usan el SEO y los colores). Vacía = no se toca.
+      const web = typeof b.web === "string" ? b.web.trim().slice(0, 300) : "";
+      if (web) await db.update(clients).set({ websiteUrl: /^https?:\/\//i.test(web) ? web : `https://${web}`, updatedAt: new Date() }).where(eq(clients.id, c.id));
       await db.insert(clientBrand).values({ clientId: c.id, ...valores })
         .onConflictDoUpdate({ target: clientBrand.clientId, set: valores });
       const [marca] = await db.select().from(clientBrand).where(eq(clientBrand.clientId, c.id));

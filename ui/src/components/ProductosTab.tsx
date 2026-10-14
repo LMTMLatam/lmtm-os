@@ -20,7 +20,7 @@ interface Producto {
   imageUrl: string | null; driveFileId: string | null; active: boolean;
 }
 interface Respuesta {
-  client: { id: string; slug: string; name: string; avatarUrl: string | null };
+  client: { id: string; slug: string; name: string; avatarUrl: string | null; web?: string | null };
   marca: Marca | null;
   productos: Producto[];
 }
@@ -114,7 +114,7 @@ export function ProductosTab({ clientSlug }: { clientSlug: string }) {
         </div>
       </Card>
 
-      <MarcaCard clientSlug={clientSlug} marca={q.data?.marca ?? null} />
+      <MarcaCard clientSlug={clientSlug} marca={q.data?.marca ?? null} web={q.data?.client?.web ?? null} />
 
       <Card className="p-4">
         <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
