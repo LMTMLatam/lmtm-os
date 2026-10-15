@@ -324,6 +324,23 @@ export function publicDashboardRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/public/dashboards/:slug/optimizaciones?since&until — los cambios
+  // que se ejecutaron en la cuenta del cliente en el período y, si ya se midió,
+  // qué pasó con su costo por consulta (pedido 15/10: que el trabajo real quede
+  // reflejado en el dashboard). Ver services/trabajo.ts.
+  router.get("/dashboards/:slug/optimizaciones", microCache(3 * 60_000), async (req, res) => {
+    try {
+      const r = await resolve(req.params.slug);
+      if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
+      const { since, until } = windowOf(req);
+      const { optimizacionesPublicas } = await import("../services/trabajo.js");
+      res.json({ since, until, optimizaciones: await optimizacionesPublicas(db, r.client.id, since, until) });
+    } catch (e) {
+      console.warn("[optimizaciones-publicas]", e instanceof Error ? e.message : e);
+      res.status(500).json({ error: "No se pudieron leer las optimizaciones." });
+    }
+  });
+
   // GET /api/public/dashboards/:slug/creatives?since&until&platform
   // Los anuncios que mejor rindieron, CON la miniatura del creativo. La
   // miniatura vive anidada en raw.creative (el sync pide

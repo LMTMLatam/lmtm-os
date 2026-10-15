@@ -39,8 +39,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PubvizTheme, StatRow, ComboChart, CumulativeFlow, Donut, FunnelViz } from "@/components/pubviz";
+import { TrabajoDelCliente } from "../app/Trabajo";
 import {
   LayoutDashboard,
+  ClipboardCheck,
   Wallet,
   Megaphone,
   Layers,
@@ -92,6 +94,7 @@ import {
 // ============================================================
 type Section =
   | "resumen"
+  | "optimizaciones"
   | "presupuesto"
   | "campanas"
   | "conjuntos"
@@ -107,6 +110,8 @@ type Section =
 
 const SECTIONS: Array<{ value: Section; label: string; icon: typeof LayoutDashboard }> = [
   { value: "resumen", label: "Resumen", icon: LayoutDashboard },
+  // 15/10: lo que hicieron los agentes en esta cuenta y qué pasó después.
+  { value: "optimizaciones", label: "Optimizaciones", icon: ClipboardCheck },
   { value: "presupuesto", label: "Presupuesto y saldo", icon: Wallet },
   { value: "campanas", label: "Campañas", icon: Megaphone },
   { value: "conjuntos", label: "Conjuntos de anuncios", icon: Layers },
@@ -446,6 +451,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
       case "audiencia": return <AudienciaSection audience={audience} fmt={fmt} />;
       case "leads": return <LeadsSection funnel={funnel} fmt={fmt} />;
       case "alertas": return <AlertasSection alerts={alerts} />;
+      case "optimizaciones": return <TrabajoDelCliente clientId={client.id} areas={["pauta", "web"]} />;
       case "reportes": return <ReportesSection series={series} campaigns={campaigns} creatives={creatives} fmt={fmt} />;
       case "oportunidades": return <OportunidadesSection campaigns={campaigns} creatives={creatives} audience={audience} fmt={fmt} />;
       case "configuracion": return <ConfiguracionSection ads={ads} />;

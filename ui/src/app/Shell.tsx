@@ -6,7 +6,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Clapperboard, Inbox, Moon, Settings2, Sun, Users } from "lucide-react";
+import { Bot, ClipboardCheck, Clapperboard, Inbox, Moon, Settings2, Sun, Users } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
@@ -15,6 +15,7 @@ import { agentesApi } from "./api";
 const SECCIONES = [
   { to: "/hoy", label: "Hoy", Icono: Inbox },
   { to: "/clientes", label: "Clientes", Icono: Users },
+  { to: "/trabajo", label: "Trabajo", Icono: ClipboardCheck },
   { to: "/contenido", label: "Contenido", Icono: Clapperboard },
   { to: "/agentes", label: "Agentes", Icono: Bot },
   { to: "/config", label: "Config", Icono: Settings2 },
@@ -112,7 +113,7 @@ export function Shell() {
 
       {/* Barra (celular) */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
         aria-label="Secciones"
       >
         {SECCIONES.map(({ to, label, Icono }) => (

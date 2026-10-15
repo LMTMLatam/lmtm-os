@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Loader2 } from "lucide-react";
+import { TrabajoDelCliente } from "../app/Trabajo";
 import { webApi, type WebRendimiento } from "../api/web";
 import { ConLinks } from "./WebGoogleCard";
 import { Card } from "@/components/ui/card";
@@ -106,7 +107,7 @@ function Vincular({ slug, w, onListo }: { slug: string; w: WebRendimiento; onLis
   );
 }
 
-export function WebTab({ clientSlug }: { clientSlug: string }) {
+export function WebTab({ clientSlug, clientId }: { clientSlug: string; clientId: string }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["web", clientSlug], queryFn: () => webApi.rendimiento(clientSlug) });
   if (q.isLoading) return <Skeleton className="h-40 w-full" />;
@@ -195,6 +196,13 @@ export function WebTab({ clientSlug }: { clientSlug: string }) {
             filas={a.eventosClaveConfigurados.map((e) => [e.evento, n(e.veces)])} />
         </div>
       )}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mejoras de web y SEO</h3>
+        <p className="text-xs text-muted-foreground">
+          Lo que detectaron Search Console y Analytics, en qué quedó y, cuando se hizo, qué pasó con las visitas desde Google 28 días después.
+        </p>
+        <TrabajoDelCliente clientId={clientId} areas={["web"]} resumen={false} />
+      </section>
     </div>
   );
 }

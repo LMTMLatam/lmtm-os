@@ -27,8 +27,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PubvizTheme, AreaChart, Donut, FunnelViz, RankedBars, Delta, PV_SLOTS, StatRow, ComboChart, CumulativeFlow, Spark, BarsVsRef } from "@/components/pubviz";
+import type { OptimizacionPublica, Resultado } from "../api/trabajo";
 import {
   LayoutDashboard,
+  ClipboardCheck,
   Wallet,
   Megaphone,
   Globe2,
@@ -159,10 +161,12 @@ interface Creative {
   cpl: number;
 }
 
-type Section = "resumen" | "presupuesto" | "campanas" | "anuncios" | "audiencia" | "organica" | "posts" | "leads";
+type Section = "resumen" | "optimizaciones" | "presupuesto" | "campanas" | "anuncios" | "audiencia" | "organica" | "posts" | "leads";
 
 const SECTIONS: Array<{ value: Section; label: string; icon: typeof LayoutDashboard }> = [
   { value: "resumen", label: "Resumen", icon: LayoutDashboard },
+  // 15/10: que el trabajo real quede reflejado donde lo mira el cliente.
+  { value: "optimizaciones", label: "Lo que hicimos", icon: ClipboardCheck },
   { value: "presupuesto", label: "Presupuesto y saldo", icon: Wallet },
   { value: "campanas", label: "Campañas", icon: Megaphone },
   { value: "anuncios", label: "Anuncios", icon: ImageIcon },
@@ -405,6 +409,12 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
     refetchInterval: REFRESH_MS,
     retry: false,
   });
+  const optimizacionesQuery = useQuery({
+    queryKey: ["public", "optimizaciones", slug, range.since, range.until],
+    queryFn: () => apiPublic<{ optimizaciones: OptimizacionPublica[] }>(slug, "/optimizaciones", range),
+    refetchInterval: REFRESH_MS,
+    retry: false,
+  });
   const organicQuery = useQuery({
     queryKey: ["public", "organic", slug],
     queryFn: () => apiPublic<{ posts: OrganicPost[] }>(slug, "/organic"),
@@ -439,6 +449,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
   const renderSection = () => {
     switch (activeSection) {
       case "resumen": return <ResumenPublic series={series} campaigns={campaigns} totalSpend={totalSpend} totalImpr={totalImpr} totalClicks={totalClicks} totalLeads={totalLeads} ctr={ctr} cpl={cpl} cpc={cpc} cpm={cpm} activeCampaigns={activeCampaigns} fmt={fmt} funnel={funnel} prevFunnel={prevFunnel} cplObjetivo={client.cplObjetivo ?? null} />;
+      case "optimizaciones": return <OptimizacionesPublic items={optimizacionesQuery.data?.optimizaciones ?? []} loading={optimizacionesQuery.isLoading} fmt={fmt} />;
       case "presupuesto": return <PresupuestoPublic totalSpend={totalSpend} series={series} campaigns={campaigns} fmt={fmt} />;
       case "campanas": return <CampanasPublic campaigns={campaigns} fmt={fmt} />;
       case "anuncios": return <AnunciosPublic creatives={creativesQuery.data?.creatives ?? []} loading={creativesQuery.isLoading} fmt={fmt} />;
@@ -727,6 +738,57 @@ function BarCell({ value, max, color, label }: { value: number; max: number; col
         <div className="h-full rounded-full" style={{ width: `${Math.max(max > 0 ? (value / max) * 100 : 0, 1)}%`, background: color }} />
       </div>
     </div>
+  );
+}
+
+/** "15/10" en Buenos Aires. */
+const ddmm = (iso: string) => new Intl.DateTimeFormat("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "2-digit" }).format(new Date(iso));
+
+/**
+ * El resultado de un cambio para el cliente: los números de la cuenta antes y
+ * después, sin "mejoró/empeoró". El costo por consulta de la semana siguiente
+ * se mueve también por otras cosas, y un rótulo se leería como causa.
+ */
+function resultadoPublico(r: Resultado | null, fmt: any): string | null {
+  if (!r) return null;
+  if (r.estado === "midiendo") return r.seMideEl ? `Medimos el resultado desde el ${ddmm(`${r.seMideEl}T15:00:00Z`)}` : "Midiendo el resultado";
+  if (r.estado === "sin_datos") return "No hubo datos suficientes para medir el resultado";
+  if (r.antes == null || r.despues == null) return null;
+  if (r.metrica === "cpl") return `Costo por consulta de la cuenta: ${fmt.fmtMoney(r.antes)} la semana antes → ${fmt.fmtMoney(r.despues)} la semana después`;
+  if (r.metrica === "ctr") return `CTR de la cuenta: ${r.antes.toLocaleString("es-AR")}% la semana antes → ${r.despues.toLocaleString("es-AR")}% la semana después`;
+  return null;
+}
+
+function OptimizacionesPublic({ items, loading, fmt }: { items: OptimizacionPublica[]; loading: boolean; fmt: any }) {
+  if (loading) return <Skeleton className="h-40 w-full" />;
+  return (
+    <Card className="p-4">
+      <h3 className="text-sm font-semibold">Lo que hicimos en tus campañas</h3>
+      <p className="mb-3 mt-1 text-xs text-muted-foreground">
+        Cada cambio que hicimos en el período. A la semana medimos qué pasó con el costo por consulta de toda la cuenta.
+      </p>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Todavía no hay cambios registrados en este período.</p>
+      ) : (
+        <ul className="divide-y">
+          {items.map((o, i) => {
+            const r = resultadoPublico(o.resultado, fmt);
+            return (
+              <li key={i} className="flex flex-col gap-0.5 py-2.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 text-sm">{o.que}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {ddmm(o.fecha)}
+                    {o.plataforma === "meta" ? " · Meta" : o.plataforma === "google" ? " · Google" : ""}
+                  </span>
+                </div>
+                {r && <span className="text-xs tabular-nums text-muted-foreground">{r}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }
 
