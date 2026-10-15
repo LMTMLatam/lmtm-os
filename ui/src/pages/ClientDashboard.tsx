@@ -178,7 +178,7 @@ export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads
     case "competidores":
       return <CompetidoresTab client={client} />;
     case "web":
-      return <WebTab clientSlug={client.slug} />;
+      return <WebTab clientSlug={client.slug} clientId={client.id} />;
   }
 }
 

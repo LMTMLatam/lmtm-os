@@ -23,6 +23,7 @@ import { agentesRoutes } from "./agentes/rutas.js";
 import { videoRoutes } from "./routes/video.js";
 import { pautaGoogleRoutes } from "./routes/pauta-google.js";
 import { webGoogleRoutes } from "./routes/web-google.js";
+import { trabajoRoutes } from "./routes/trabajo.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
@@ -267,6 +268,7 @@ export async function createApp(
   api.use(videoRoutes(db));
   api.use(pautaGoogleRoutes(db));
   api.use(webGoogleRoutes(db));
+  api.use(trabajoRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).

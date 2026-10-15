@@ -1,7 +1,8 @@
 // LMTM: la ficha del cliente en la app propia (fase C1). Encabezado y
 // navegación nuevos; las secciones son las mismas de siempre (no se pierde
-// ninguna, pedido del 06/10) más "Agentes": lo que investigaron de este
-// cliente y pedirles algo.
+// ninguna, pedido del 06/10) más "Trabajo" (antes "Agentes"): todo lo que los
+// agentes hicieron y propusieron con este cliente, con su resultado medido, y
+// pedirles algo.
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,15 +14,16 @@ import { queryKeys } from "../lib/queryKeys";
 import { haceCuanto } from "../lmtm/formato";
 import { ClientResourcesPanel, TABS, TabContent, type Tab } from "../pages/ClientDashboard";
 import { agentesApi, nombreRol, ROLES } from "./api";
-import { EstadoPunto, HallazgoAgente, Tarjeta, TituloFranja } from "./HoyApp";
+import { EstadoPunto, Tarjeta, TituloFranja } from "./HoyApp";
 import { Encabezado } from "./Shell";
 import { QueFuncionaCliente } from "./QueFunciona";
+import { TrabajoDelCliente } from "./Trabajo";
 
 type Seccion = Tab | "agentes" | "que-funciona";
 
 /** Orden de la ficha nueva: lo de decidir primero, lo de contenido después. */
 const ORDEN: Seccion[] = ["resumen", "plan-accion", "dashboard", "web", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"];
-const NOMBRE: Partial<Record<Seccion, string>> = { dashboard: "Pauta", agentes: "Agentes", "que-funciona": "Qué funciona", tasks: "Tareas", productos: "Marca", competidores: "Competencia" };
+const NOMBRE: Partial<Record<Seccion, string>> = { dashboard: "Pauta", agentes: "Trabajo", "que-funciona": "Qué funciona", tasks: "Tareas", productos: "Marca", competidores: "Competencia" };
 
 export function ClienteApp() {
   const { slug = "", seccion } = useParams<{ slug: string; seccion?: string }>();
@@ -106,25 +108,22 @@ function AgentesDelCliente({ clientId }: { clientId: string }) {
       void qc.invalidateQueries({ queryKey: ["lmtm", "agentes"] });
     },
   });
-  const ts = q.data?.trabajos ?? [];
+  // Lo terminado está en el registro de abajo; acá arriba, lo que todavía corre.
+  const enCurso = (q.data?.trabajos ?? []).filter((t) => t.estado !== "hecho").slice(0, 5);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 space-y-3">
-        <TituloFranja>Lo que hicieron los agentes con este cliente</TituloFranja>
-        {q.isLoading && <p className="text-[14px] text-l-tinta-3">Cargando…</p>}
-        {q.data && ts.length === 0 && <p className="text-[14px] text-l-tinta-2">Todavía ningún agente trabajó este cliente en el runner nuevo.</p>}
-        {ts.map((t) => (
+        {enCurso.length > 0 && <TituloFranja>En curso</TituloFranja>}
+        {enCurso.map((t) => (
           <Tarjeta key={t.id}>
             <div className="flex items-center gap-1.5 text-[12px] text-l-tinta-3">
               <EstadoPunto estado={t.estado} /> {nombreRol(t.rol)} · {haceCuanto(t.finishedAt ?? t.startedAt ?? t.createdAt)}
             </div>
-            {t.estado === "hecho" ? (
-              <HallazgoAgente t={t} />
-            ) : (
-              <p className="mt-1 text-[14px] text-l-tinta-2">{t.estado === "fallo" ? `No pudo terminar: ${t.error ?? ""}` : t.estado === "corriendo" ? "Trabajando…" : "En la cola"}</p>
-            )}
+            <p className="mt-1 text-[14px] text-l-tinta-2">{t.estado === "fallo" ? `No pudo terminar: ${t.error ?? ""}` : t.estado === "corriendo" ? "Trabajando…" : "En la cola"}</p>
           </Tarjeta>
         ))}
+        <TituloFranja>Lo que hicieron y propusieron los agentes con este cliente</TituloFranja>
+        <TrabajoDelCliente clientId={clientId} />
       </div>
       <Tarjeta className="self-start">
         <TituloFranja>Pedirle algo</TituloFranja>

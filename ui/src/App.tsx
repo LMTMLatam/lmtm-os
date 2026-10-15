@@ -72,6 +72,7 @@ import { LicitacionesApp } from "./app/LicitacionesApp";
 import { PautaApp } from "./app/PautaApp";
 import { AvisosApp } from "./app/AvisosApp";
 import { FinanzasApp } from "./app/FinanzasApp";
+import { TrabajoApp } from "./app/Trabajo";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -353,6 +354,7 @@ export function App() {
             <Route path="clientes" element={<ClientesApp />} />
             <Route path="clientes/:slug" element={<ClienteApp />} />
             <Route path="clientes/:slug/:seccion" element={<ClienteApp />} />
+            <Route path="trabajo" element={<TrabajoApp />} />
             <Route path="agentes" element={<AgentesApp />} />
             <Route path="agentes/:id" element={<AgentesApp />} />
             <Route path="config" element={<ConfigApp />} />

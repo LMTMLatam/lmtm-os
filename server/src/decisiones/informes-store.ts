@@ -5,7 +5,7 @@
 // de cada lunes y quién puede publicar.
 
 import type { Db } from "@paperclipai/db";
-import { clients, decisiones, informesSemanales } from "@paperclipai/db";
+import { adsAdsets, adsCampaigns, agentActions, clients, decisiones, informesSemanales } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import { logActivity } from "../services/activity-log.js";
 import { metricasCliente } from "../metricas/index.js";
@@ -25,6 +25,7 @@ import {
 import { ErrorDecision, type Actor } from "./store.js";
 import { olvidarInformePublico } from "./informe-cache.js";
 import { invalidateMicroCache } from "../services/micro-cache.js";
+import { fraseAccion } from "../services/trabajo.js";
 
 export type EstadoInforme = "borrador" | "observado" | "aprobado" | "publicado";
 
@@ -174,6 +175,7 @@ const PASADO: Record<string, string> = {
   Revisar: "Revisamos",
   Averiguar: "Averiguamos",
   Probar: "Probamos",
+  Sumar: "Sumamos",
 };
 
 /**
@@ -251,7 +253,12 @@ export function armarBorrador(
   };
 }
 
-/** Las decisiones del cliente que cuentan para el borrador de una semana. */
+/**
+ * Lo que cuenta para el borrador de una semana: los cambios ejecutados en sus
+ * cuentas (agent_actions: lo que hizo el piloto automático o un agente con OK)
+ * y las decisiones del cliente. Hasta el 15/10 solo entraban las decisiones, y
+ * las pausas reales de la semana no aparecían en "lo que hicimos".
+ */
 async function decisionesDeSemana(db: Db, clientId: string, semana: { desde: string; hasta: string }) {
   const desde = new Date(`${semana.desde}T03:00:00Z`); // 0:00 de Buenos Aires
   const hasta = new Date(`${sumarDias(semana.hasta, 1)}T03:00:00Z`);
@@ -277,8 +284,14 @@ async function decisionesDeSemana(db: Db, clientId: string, semana: { desde: str
       sql`(${decisiones.tipo} like 'pauta:%' or ${decisiones.tipo} like 'saldo:%')`,
     ))
     .orderBy(sql`${decisiones.arsPorDia} desc nulls last`);
+  const acciones = await db
+    .select({ kind: agentActions.kind, entityType: agentActions.entityType, detail: agentActions.detail, campana: adsCampaigns.name })
+    .from(agentActions)
+    .leftJoin(adsAdsets, and(eq(agentActions.entityType, "adset"), eq(adsAdsets.id, agentActions.entityId)))
+    .leftJoin(adsCampaigns, eq(adsCampaigns.id, adsAdsets.campaignId))
+    .where(and(eq(agentActions.clientId, clientId), gte(agentActions.createdAt, desde), lt(agentActions.createdAt, hasta)));
   return {
-    hechas: hechas.map((h) => h.que),
+    hechas: [...acciones.map((a) => fraseAccion(a, "hacer")), ...hechas.map((h) => h.que)],
     abiertasEquipo: abiertas.filter((a) => a.responsable !== "cliente").map((a) => a.que),
     // Lo mismo que el link: aunque el borrador lo publica una persona, lo que se
     // le pide al cliente sale solo de las reglas que dicen un hecho medido.
