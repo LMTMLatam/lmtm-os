@@ -41,6 +41,41 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 15/10: lo que no se publicaba y nadie avisó
+
+**Pedido:** "la revisión de scripts y de que realmente se posteen las cosas no funcionó:
+tuvimos errores estos días que no fueron notificados ni solucionados". Se arreglaron a
+mano en la sesión "Posteos Agencia".
+
+**Qué pasó en octubre:**
+- LinkedIn vencido: Make apagó 7 escenarios.
+- Clean Unity: apagado 8 días.
+- Reno: videos rechazados desde el 18/09.
+- Carruseles con video o con `Thumbs.db`.
+- Mundo Inflable: un post llegó vencido a ClickUp.
+
+**Por qué no se avisó:** los monitores lo detectaban, pero iba como una línea de 140
+caracteres al pie del resumen de las 9:00. Además, un escenario apagado solo se acusaba
+si el cliente nunca había despachado.
+
+**Hecho (`39edf99`):** `salud-posteos.ts`. Lo grave sale como aviso propio y todo entra a
+Hoy y a la herramienta de cadena de la flota. Mira:
+- conexiones de Make con verificación en vivo (el `expire` de Make no alcanza) y las que
+  vencen en 10 días o menos;
+- escenarios apagados con posts en la cola o programados;
+- ejecuciones incompletas, con el motivo en castellano;
+- comentarios de falla en ClickUp;
+- posts que pasaron su hora sin dispararse (y si están a las 04:00, la planilla sin
+  encabezado "Horario").
+
+**Ensayo:** 12 hallazgos, 9 graves.
+
+**Falta (persona):**
+- **Reautorizar la conexión de Facebook "LMTM" en Make antes del 25/10.** La usan 44
+  escenarios.
+- Reautorizar LinkedIn "Tester" y el Drive de Cannes.
+- Decidir CARVUK y GRUPO ROIBAS (apagados con un post en cola).
+
 ### 14/10 noche: piloto automático prendido
 
 **Pedido:** "quiero que todo sea más automático, no tantas decisiones humanas".
