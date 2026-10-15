@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import { conexionesEnRiesgo, explicarFalla, fallasRecientes, FALLA_EN_COMENTARIO } from "../salud-posteos.js";
+
+const AHORA = new Date("2026-10-15T01:00:00Z");
+
+describe("conexiones de Make", () => {
+  const usos = [{ id: 1, name: "Reno" }, { id: 2, name: "SERRAT" }, { id: 9, name: "Plantilla apagada" }];
+  it("por vencer con escenarios activos: avisa; grave en los últimos 3 días o vencida", () => {
+    const [h] = conexionesEnRiesgo([{ id: 2558417, name: "LMTM", accountName: "facebook", expire: "2026-10-25T20:08:33Z", scenarioUsages: usos }], new Set([1, 2]), AHORA);
+    expect(h.tipo).toBe("conexion_por_vencer");
+    expect(h.grave).toBe(false);
+    expect(h.que).toContain("la usan 2 escenarios activos");
+    expect(conexionesEnRiesgo([{ id: 2558417, name: "LMTM", accountName: "facebook", expire: "2026-10-17T00:00:00Z", scenarioUsages: usos }], new Set([1]), AHORA)[0].grave).toBe(true);
+  });
+  it("no verifica: se avisa (no grave hasta que tumbe un escenario)", () => {
+    expect(conexionesEnRiesgo([{ id: 2564327, name: "Tester - LinkedIn connection", accountName: "linkedin2", expire: "2026-04-05T15:25:33Z", scenarioUsages: usos, verificada: false }], new Set([1]), AHORA)[0])
+      .toMatchObject({ tipo: "conexion_caida", grave: false });
+  });
+  it("vencida según Make pero verifica (Pinterest Tester, 15/10): no se acusa; ni la que usan solo escenarios apagados", () => {
+    expect(conexionesEnRiesgo([{ id: 2647824, name: "Tester - pinterest connection", accountName: "pinterest2", expire: "2026-04-10T10:43:51Z", scenarioUsages: usos, verificada: true }], new Set([1]), AHORA)).toEqual([]);
+    expect(conexionesEnRiesgo([{ id: 2577923, name: "Test - Fluence", accountName: "facebook", expire: "2026-06-05T17:32:05Z", scenarioUsages: [{ id: 9, name: "x" }], verificada: false }], new Set([1]), AHORA)).toEqual([]);
+  });
+  it("lejos del vencimiento: nada", () => {
+    expect(conexionesEnRiesgo([{ id: 1, name: "LMTM", accountName: "linkedin2", expire: "2027-10-09T01:47:53Z", scenarioUsages: usos }], new Set([1]), AHORA)).toEqual([]);
+  });
+});
+
+describe("posts fallidos", () => {
+  it("el motivo de Make en castellano", () => {
+    expect(explicarFalla("The image format is not supported. (36001, OAuthException)")).toMatch(/JPG/);
+    expect(explicarFalla("[500] Internal error encountered.")).toMatch(/error interno/);
+  });
+  it("solo las recientes sin resolver son alarma; las viejas se cuentan", () => {
+    const f = fallasRecientes([
+      { created: "2026-10-13T13:01:52Z", resolved: false, reason: "[500] Internal error encountered." },
+      { created: "2026-10-05T11:02:15Z", resolved: false, reason: "[500] Internal error encountered." },
+      { created: "2026-09-22T14:00:48Z", resolved: true, reason: "Media ID is not available (9007, OAuthException)" },
+    ], AHORA);
+    expect(f.recientes).toBe(1);
+    expect(f.viejas).toBe(1);
+    expect(f.motivos[0].veces).toBe(1);
+  });
+  it("el comentario que deja Make en ClickUp", () => {
+    expect(FALLA_EN_COMENTARIO.test("LinkedIn Post was not successfull")).toBe(true);
+    expect(FALLA_EN_COMENTARIO.test("Publicado en Instagram")).toBe(false);
+  });
+});

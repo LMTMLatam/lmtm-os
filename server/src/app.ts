@@ -302,6 +302,9 @@ export async function createApp(
   // Search Console y Analytics de cada cliente, una vez por día (si hay una cuenta conectada).
   void import("./services/google-web.js").then(({ initWebGoogle }) => initWebGoogle(db))
     .catch((e) => console.warn("[web-google] init failed:", e instanceof Error ? e.message : e));
+  // ¿Se publica de verdad? Conexiones de Make, escenarios apagados, posts fallidos y vencidos.
+  void import("./services/salud-posteos.js").then(({ initSaludPosteos }) => initSaludPosteos(db))
+    .catch((e) => console.warn("[salud-posteos] init failed:", e instanceof Error ? e.message : e));
   // Cola de propuestas de pauta de los agentes: repetidas, pausas de lo que no gasta y vencidas.
   void import("./services/ads-propuestas.js").then(({ initLimpiezaPropuestas }) => initLimpiezaPropuestas(db))
     .catch((e) => console.warn("[propuestas-pauta] init failed:", e instanceof Error ? e.message : e));

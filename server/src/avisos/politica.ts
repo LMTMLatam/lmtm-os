@@ -43,6 +43,11 @@ export const HORAS_DEDUPE = 24;
  */
 export const ORIGENES_QUE_INTERRUMPEN: ReadonlySet<string> = new Set([
   "incidentes",
+  // Un post que no sale es entrega caída al cliente. Del 01 al 15/10 se
+  // detectaron (Clean Unity, CARVUK, posts vencidos) y llegaron como UNA línea
+  // al pie del resumen: nadie los vio y se arreglaron a mano días después.
+  // Sale una vez por hecho y cuenta para el tope de 3.
+  "salud-posteos",
   "alertas-cliente (manual)",
   "prueba-gateway",
 ]);

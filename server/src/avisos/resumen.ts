@@ -208,6 +208,7 @@ const NOMBRE_ORIGEN: Record<string, string> = {
   auditor: "Auditoría diaria",
   "make-disparos": "Make",
   "make-autoposter": "Make",
+  "salud-posteos": "Publicación",
   "consistencia-metricas": "Chequeo de números",
   "contaminacion-clientes": "Datos cruzados entre clientes",
   "derivacion-tareas": "Tareas derivadas",
@@ -224,6 +225,7 @@ export const nombreDeOrigen = (origen: string) => NOMBRE_ORIGEN[origen] ?? (orig
 /** Monitores cuyo aviso es el estado completo del momento: el más nuevo reemplaza a los anteriores. */
 export const ORIGENES_FOTO: ReadonlySet<string> = new Set([
   "cadena-publicacion",
+  "salud-posteos",
   "sin-publicar",
   "inactividad-redes",
   "make-autoposter",

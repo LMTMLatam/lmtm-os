@@ -40,11 +40,66 @@ export interface MakeScenario {
   name: string;
   /** Los apagados no publican: el detector de disparos repetidos los saltea. */
   isActive?: boolean;
+  /** Ejecuciones incompletas sin resolver: posts que fallaron (Instagram las deja acá). */
+  dlqCount?: number;
+  /** El webhook que recibe los posts del despachador. */
+  hookId?: number | null;
 }
 
 export async function makeListScenarios(): Promise<MakeScenario[]> {
-  const r = await makeGet<{ scenarios?: MakeScenario[] }>("/scenarios", { teamId: MAKE_TEAM_ID });
+  const r = await makeGet<{ scenarios?: MakeScenario[] }>("/scenarios", { teamId: MAKE_TEAM_ID, "pg[limit]": 300 });
   return r.scenarios ?? [];
+}
+
+export interface MakeConexion {
+  id: number;
+  name: string;
+  /** facebook, linkedin2, youtube… */
+  accountName: string;
+  /** Cuándo vence el permiso. null = no vence (o Make no lo informa). */
+  expire: string | null;
+  scenarioUsages?: Array<{ id: number; name: string }>;
+}
+
+/** Las conexiones del equipo, con su vencimiento y qué escenarios las usan. */
+export async function makeConexiones(): Promise<MakeConexion[]> {
+  const r = await makeGet<{ connections?: MakeConexion[] }>("/connections", { teamId: MAKE_TEAM_ID });
+  return r.connections ?? [];
+}
+
+/**
+ * ¿La conexión anda? La verificación en vivo de Make (no cambia nada). Es la
+ * señal honesta: el `expire` que informa Make no alcanza — una de Pinterest
+ * "vencida en abril" verifica bien porque Make la renueva sola (15/10).
+ * null = no se pudo preguntar.
+ */
+export async function makeConexionVerifica(id: number): Promise<boolean | null> {
+  const token = process.env.MAKE_API_TOKEN?.trim();
+  if (!token) return null;
+  const r = await fetch(`${MAKE_BASE}/connections/${id}/test`, {
+    method: "POST",
+    headers: { Authorization: `Token ${token}`, "Content-Type": "application/json" },
+    body: "{}",
+  }).catch(() => null);
+  if (!r) return null;
+  if (r.status === 424) return false; // la verificación falló: la conexión no anda
+  if (!r.ok) return null;
+  const j = (await r.json().catch(() => null)) as { verified?: boolean } | null;
+  return typeof j?.verified === "boolean" ? j.verified : null;
+}
+
+/** Posts esperando en la cola del webhook (se juntan cuando el escenario está apagado). */
+export async function makeColaDelWebhook(hookId: number): Promise<number | null> {
+  const r = await makeGet<{ hook?: { queueCount?: number } }>(`/hooks/${hookId}`);
+  return typeof r.hook?.queueCount === "number" ? r.hook.queueCount : null;
+}
+
+export interface MakeIncompleta { id: string; created: string; resolved: boolean; reason: string | null; attempts?: number }
+
+/** Ejecuciones incompletas de un escenario: cada una es un post que no salió. */
+export async function makeIncompletas(scenarioId: number): Promise<MakeIncompleta[]> {
+  const r = await makeGet<{ dlqs?: MakeIncompleta[] }>("/dlqs", { scenarioId });
+  return r.dlqs ?? [];
 }
 
 /** Datastore donde el despachador (escenario 1427144) busca a dónde mandar el

@@ -718,7 +718,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_cadena_publicacion",
       description:
-        "Estado de la cadena de publicación de toda la agencia, medido por EFECTO real (destino en Make, último despacho que escribió Make, posts que devolvió la red) y no por etiquetas ni estados de corrida. Devuelve por cliente el PRIMER eslabón roto: sin_destino (lo que se le programe no va a ningún lado), destino_sin_escenario (tiene la fila cargada en el datastore pero no hay escenario activo detrás y nunca despachó: la fila sola no publica, hay que crear o encender el escenario), sin_calendario, contenido_incompleto (tiene fechas pero ningún post pasa las compuertas), despachador_mudo (venía despachando y dejó de hacerlo hace días), despacho_sin_registro (NUNCA hubo un despacho: puede ser un alta nueva que todavía no llegó a su fecha o un escenario que nunca se conectó — no afirmes que está caído), sync_ciego (no estamos viendo su red, hay que arreglar el sync antes de concluir nada) o red_muda (Make dice que publicó y no está). Usala para saber dónde está roto el flujo antes de prometerle nada a un cliente.",
+        "Estado de la cadena de publicación de toda la agencia, medido por EFECTO real (destino en Make, último despacho que escribió Make, posts que devolvió la red) y no por etiquetas ni estados de corrida. Devuelve por cliente el PRIMER eslabón roto: sin_destino (lo que se le programe no va a ningún lado), destino_sin_escenario (tiene la fila cargada en el datastore pero no hay escenario activo detrás y nunca despachó: la fila sola no publica, hay que crear o encender el escenario), sin_calendario, contenido_incompleto (tiene fechas pero ningún post pasa las compuertas), despachador_mudo (venía despachando y dejó de hacerlo hace días), despacho_sin_registro (NUNCA hubo un despacho: puede ser un alta nueva que todavía no llegó a su fecha o un escenario que nunca se conectó — no afirmes que está caído), sync_ciego (no estamos viendo su red, hay que arreglar el sync antes de concluir nada) o red_muda (Make dice que publicó y no está). Además, en noEstaSaliendo, lo que no está saliendo HOY: conexiones de Make que no verifican o vencen pronto, escenarios apagados con posts en la cola, posts fallidos (con el motivo en castellano) y posts que pasaron su hora sin dispararse. Usala para saber dónde está roto el flujo antes de prometerle nada a un cliente.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -2418,9 +2418,13 @@ export function agentToolsRoutes(
       if (tool === "get_cadena_publicacion") {
         try {
           const { revisarCadena } = await import("../services/cadena-publicacion.js");
-          const r = await revisarCadena(db);
+          const { revisarPosteos } = await import("../services/salud-posteos.js");
+          const [r, salud] = await Promise.all([revisarCadena(db), revisarPosteos(db).catch(() => null)]);
           if (r.ciego) return reply(false, "No se pudo leer Make, así que no se puede afirmar nada del estado de la cadena. No asumas que está sana.");
           return reply(true, JSON.stringify({
+            // Lo que no está saliendo HOY (15/10): conexiones de Make, escenarios apagados con posts
+            // en cola, posts fallidos (incompletas y comentarios de falla) y posts que pasaron su hora.
+            noEstaSaliendo: salud && !salud.ciego ? salud.hallazgos.map((h) => ({ cliente: h.cliente, clientId: h.clientId, tipo: h.tipo, grave: h.grave, que: h.que, detalle: h.detalle })) : null,
             revisados: r.revisados,
             rotos: r.rotas.length,
             porEslabon: r.rotas.reduce<Record<string, number>>((a, x) => { a[x.eslabon] = (a[x.eslabon] ?? 0) + 1; return a; }, {}),
