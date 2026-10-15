@@ -60,6 +60,16 @@ export const ORIGENES_QUE_INTERRUMPEN: ReadonlySet<string> = new Set([
  */
 export const ORIGENES_MANUALES: ReadonlySet<string> = new Set(["alertas-cliente (manual)", "prueba-gateway"]);
 
+/**
+ * Los que salen siempre, sin tope, y no cuentan para el tope de los demás.
+ *
+ * Además de los manuales, la publicación (pedido 15/10: "todas esas alertas
+ * deberían ir a WhatsApp para evitar este tipo de cosas"). Un post que no sale
+ * es entrega caída al cliente, y en octubre se perdió por quedar en el resumen.
+ * El volumen lo acota salud-posteos: un mensaje por hecho NUEVO, no por corrida.
+ */
+export const ORIGENES_SIN_TOPE: ReadonlySet<string> = new Set([...ORIGENES_MANUALES, "salud-posteos"]);
+
 export type DecisionAviso =
   | { accion: "enviar" }
   | { accion: "digest"; motivo?: string }
@@ -90,7 +100,7 @@ export function decidirAviso(input: { origen: string; nivel: Nivel; yaDicho: boo
       ? { accion: "digest", motivo: "solo interrumpen los incidentes: va al resumen de las 9:00" }
       : { accion: "digest" };
   }
-  if (ORIGENES_MANUALES.has(origen)) return { accion: "enviar" };
+  if (ORIGENES_SIN_TOPE.has(origen)) return { accion: "enviar" };
   // El tope degrada, no descarta: que el cuarto incidente del día no
   // interrumpa es la regla; que desaparezca sería volver a perder un Distrillantas.
   if (interrupcionesHoy >= TOPE_INTERRUPCIONES_DIA) {

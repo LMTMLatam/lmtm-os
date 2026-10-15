@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { conexionesEnRiesgo, explicarFalla, fallasRecientes, FALLA_EN_COMENTARIO } from "../salud-posteos.js";
+import { armarMensajes, conexionesEnRiesgo, explicarFalla, fallasRecientes, FALLA_EN_COMENTARIO, type Hallazgo } from "../salud-posteos.js";
+import { decidirAviso } from "../../avisos/politica.js";
 
 const AHORA = new Date("2026-10-15T01:00:00Z");
 
@@ -43,5 +44,21 @@ describe("posts fallidos", () => {
   it("el comentario que deja Make en ClickUp", () => {
     expect(FALLA_EN_COMENTARIO.test("LinkedIn Post was not successfull")).toBe(true);
     expect(FALLA_EN_COMENTARIO.test("Publicado en Instagram")).toBe(false);
+  });
+});
+
+describe("todo lo de publicación va a WhatsApp", () => {
+  it("sale aunque ya se haya llegado al tope de interrupciones del día; lo ya dicho no se repite", () => {
+    expect(decidirAviso({ origen: "salud-posteos", nivel: 5, yaDicho: false, interrupcionesHoy: 9 })).toEqual({ accion: "enviar" });
+    expect(decidirAviso({ origen: "salud-posteos", nivel: 5, yaDicho: true, interrupcionesHoy: 0 }).accion).toBe("descartar");
+    // Los demás siguen con el tope.
+    expect(decidirAviso({ origen: "incidentes", nivel: 5, yaDicho: false, interrupcionesHoy: 3 }).accion).toBe("digest");
+  });
+  it("un mensaje para lo que no sale y otro para lo preventivo, de a 8", () => {
+    const h = (n: number, grave: boolean): Hallazgo => ({ tipo: "posts_fallidos", clientId: "c", cliente: `C${n}`, grave, que: "x", detalle: "y", clave: `k${n}` });
+    const m = armarMensajes([...Array.from({ length: 10 }, (_, i) => h(i, true)), h(99, false)]);
+    expect(m.map((x) => x.items.length)).toEqual([8, 2, 1]);
+    expect(m[0].texto).toMatch(/esto no está saliendo/);
+    expect(m[2].texto).toMatch(/para que no se caiga/);
   });
 });

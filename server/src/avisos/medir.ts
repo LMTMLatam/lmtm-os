@@ -6,7 +6,7 @@
 // contar. Esta función reproduce el historial aviso por aviso, en orden, con
 // el mismo `decidirAviso` que usa producción (dedupe y tope incluidos).
 
-import { decidirAviso, diaLocal, HORAS_DEDUPE, ORIGENES_MANUALES, type Nivel } from "./politica.js";
+import { decidirAviso, diaLocal, HORAS_DEDUPE, ORIGENES_MANUALES, ORIGENES_SIN_TOPE, type Nivel } from "./politica.js";
 
 export interface FilaOutbox {
   createdAt: Date;
@@ -60,7 +60,7 @@ export function medirInterrupciones(filas: FilaOutbox[]): DiaMedido[] {
     if (d.accion === "enviar") {
       m.interrupcionesAhora += 1;
       m.quienInterrumpe.push(f.origen);
-      interrumpidosPorDia.set(dia, (interrumpidosPorDia.get(dia) ?? 0) + 1);
+      if (!ORIGENES_SIN_TOPE.has(f.origen)) interrumpidosPorDia.set(dia, (interrumpidosPorDia.get(dia) ?? 0) + 1);
       // Solo lo que interrumpió cuenta para el dedupe de una interrupción:
       // lo que va al resumen no llegó todavía (en producción queda pendiente
       // hasta las 9:00), así que no puede tapar un aviso posterior.
