@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diasGsc, elegirPorVisitas, elegirPropiedad, midiendoOtraUrl, elegirSitio, errorDeGoogle, hostDe, oportunidadesSeo, sumarDias, sumarVentana, ultimoDiaCompleto } from "../google-web.js";
-import { propuestasWeb, type DatosWeb } from "../../decisiones/reglas/web.js";
+import { fuenteRota, propuestasWeb, type DatosWeb } from "../../decisiones/reglas/web.js";
 
 const AHORA = new Date("2026-10-13T15:00:00Z"); // 13/10 12:00 en Buenos Aires
 
@@ -156,5 +156,16 @@ describe("reglas de la web", () => {
     expect(p[0].que).toContain("/promo (80% se va)");
     const conCampanas = propuestasWeb({ ...base, conGsc: false, dias, landings, campanasPorPagina: { "/promo": ["PROMO OCTUBRE"] } }, AHORA);
     expect(conCampanas[0].porque.resumen).toContain("«PROMO OCTUBRE»");
+  });
+});
+
+describe("fuenteRota", () => {
+  it("separa la falla de una fuente de los avisos y de la otra fuente", () => {
+    // Lo que tenía ALTECNO el 15/10: un aviso de Search Console y Analytics caído.
+    const altecno = "Search Console mide http://www.calidadaltecno.com.ar/ pero la web está en https://calidadaltecno.com.ar/ · Analytics: Google Analytics Data API no está habilitada";
+    expect(fuenteRota(altecno, "Search Console")).toBe(false);
+    expect(fuenteRota(altecno, "Analytics")).toBe(true);
+    expect(fuenteRota("Search Console: ninguna cuenta conectada ve x", "Search Console")).toBe(true);
+    expect(fuenteRota(null, "Analytics")).toBe(false);
   });
 });
