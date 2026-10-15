@@ -304,7 +304,7 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   // subir, pauta sin conversiones medidas y landings de pauta flojas.
   resultados.push(await correrRegla("web_google", hoy, async () => {
     const { googleWebConexiones, webPropiedades, webDiario, webRanking } = await import("@paperclipai/db");
-    const { propuestasWeb } = await import("./reglas/web.js");
+    const { fuenteRota, propuestasWeb } = await import("./reglas/web.js");
     const [conexion] = await db.select({ id: googleWebConexiones.id }).from(googleWebConexiones).where(eq(googleWebConexiones.estado, "activa")).limit(1);
     if (!conexion) return { propuestas: [], evaluada: false, nota: "Sin cuenta de Google conectada para Search Console y Analytics." };
     const props = (await db.select().from(webPropiedades)).filter((p) => activosIds.has(p.clientId) && (p.gscSitio || p.ga4Propiedad));
@@ -312,6 +312,9 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     // Sin una sincronización buena en 2 días no se sabe cómo está: no se cierra nada.
     // (ultimoError también trae avisos, como "elegí una propiedad", que no son fallas.)
     const viejos = props.filter((p) => !p.sincronizadoAt || ahora.getTime() - new Date(p.sincronizadoAt).getTime() > 2 * 86_400_000);
+    // Una fuente rota no tapa a la otra: se usa la que anda y no se cierra nada
+    // (lo de la rota no se sabe cómo está).
+    const parciales = props.filter((p) => fuenteRota(p.ultimoError, "Search Console") || fuenteRota(p.ultimoError, "Analytics"));
     const ids = props.map((p) => p.clientId);
     const [dias, ranking, conGasto] = await Promise.all([
       db.select().from(webDiario).where(and(inArray(webDiario.clientId, ids), sql`${webDiario.fecha} >= current_date - 70`)),
@@ -329,14 +332,18 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
       out.push(...propuestasWeb({
         campanasPorPagina: porPagina,
         clientId: p.clientId, cliente: nombres.get(p.clientId) ?? "",
-        conGsc: !!p.gscSitio, conGa: !!p.ga4Propiedad, conPauta: conPauta.has(p.clientId),
+        conGsc: !!p.gscSitio && !fuenteRota(p.ultimoError, "Search Console"),
+        conGa: !!p.ga4Propiedad && !fuenteRota(p.ultimoError, "Analytics"),
+        conPauta: conPauta.has(p.clientId),
         dias: dias.filter((d) => d.clientId === p.clientId),
         consultas: r.filter((x) => x.tipo === "consulta"),
         landings: r.filter((x) => x.tipo === "landing"),
         eventos: r.filter((x) => x.tipo === "evento"),
       }, ahora));
     }
-    if (viejos.length) return { propuestas: out, evaluada: false, nota: `${viejos.length} clientes con la web sin sincronizar o con error.` };
+    if (viejos.length || parciales.length) {
+      return { propuestas: out, evaluada: false, nota: `${viejos.length} clientes con la web sin sincronizar y ${parciales.length} con una fuente con error.` };
+    }
     return out;
   }));
 

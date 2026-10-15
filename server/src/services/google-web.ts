@@ -482,24 +482,29 @@ async function sincronizarAhora(db: Db, opts: { clientId?: string; ahora?: Date 
     if (p.ga4Propiedad) res.conGa += 1;
 
     const errores: string[] = [];
+    let bien = 0;
     const conexionDe = (id: string | undefined) => (id ? porId.get(id) : undefined);
     if (p.gscSitio) {
       const con = conexionDe(inv.sitios.find((s) => s.sitio === p!.gscSitio && s.permiso !== "siteUnverifiedUser")?.conexionId);
       if (!con) errores.push(`Search Console: ninguna cuenta conectada ve ${p.gscSitio}.`);
-      else try { await sincronizarGsc(db, c.id, p.gscSitio, await tokenDe(con), ahora); } catch (e) { errores.push(`Search Console: ${e instanceof Error ? e.message : e}`); }
+      else try { await sincronizarGsc(db, c.id, p.gscSitio, await tokenDe(con), ahora); bien += 1; } catch (e) { errores.push(`Search Console: ${e instanceof Error ? e.message : e}`); }
     }
     if (p.ga4Propiedad) {
       const con = conexionDe(inv.propiedades.find((x) => x.propiedad === p!.ga4Propiedad)?.conexionId);
       if (!con) errores.push(`Analytics: ninguna cuenta conectada ve ${p.ga4Nombre ?? p.ga4Propiedad}.`);
-      else try { await sincronizarGa(db, c.id, p.ga4Propiedad, await tokenDe(con), ahora); } catch (e) { errores.push(`Analytics: ${e instanceof Error ? e.message : e}`); }
+      else try { await sincronizarGa(db, c.id, p.ga4Propiedad, await tokenDe(con), ahora); bien += 1; } catch (e) { errores.push(`Analytics: ${e instanceof Error ? e.message : e}`); }
     }
     const error = errores.join(" · ").slice(0, 1000) || null;
     if (error) res.errores.push({ cliente: c.name.trim(), error });
     else res.sincronizados += 1;
     // El aviso de "elegí una propiedad" no es una falla de la sincronización, pero
     // tiene que seguir a la vista: antes lo borraba el Search Console que sí andaba.
+    // Con una fuente bien ya se marca como sincronizada; la que falló queda en
+    // ultimoError y el motor no la usa (ver fuenteRota). Antes un Analytics caído
+    // dejaba sin marca a la web entera y el motor no miraba ni Search Console:
+    // MA PROPIEDADES tenía 30 búsquedas para subir y nunca salió ninguna (15/10).
     await db.update(webPropiedades)
-      .set({ ultimoError: [aviso, error].filter(Boolean).join(" · ").slice(0, 1000) || null, ...(error ? {} : { sincronizadoAt: new Date() }), updatedAt: new Date() })
+      .set({ ultimoError: [aviso, error].filter(Boolean).join(" · ").slice(0, 1000) || null, ...(bien > 0 ? { sincronizadoAt: new Date() } : {}), updatedAt: new Date() })
       .where(eq(webPropiedades.clientId, c.id));
   }
   return res;

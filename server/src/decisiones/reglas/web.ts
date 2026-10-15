@@ -39,6 +39,15 @@ const num = (n: number) => Math.round(n).toLocaleString("es-AR");
 const lista = (xs: string[], max = 4) => xs.slice(0, max).map((x) => `«${x}»`).join(", ") + (xs.length > max ? ` y ${xs.length - max} más` : "");
 const ruta = (u: string) => { try { return new URL(u).pathname || "/"; } catch { return u; } };
 
+/**
+ * ¿La última sincronización de esta fuente falló? Sale de ultimoError, que junta
+ * con " · " un error por fuente ("Analytics: …") y avisos que no son fallas
+ * ("Search Console mide … pero la web está en …").
+ */
+export function fuenteRota(ultimoError: string | null | undefined, fuente: "Search Console" | "Analytics"): boolean {
+  return (ultimoError ?? "").split(" · ").some((x) => x.startsWith(`${fuente}:`));
+}
+
 /** Mínimos para afirmar algo. */
 export const CAIDA = { dias: 14, clicsAntesMin: 70, caidaMin: 0.4 };
 export const BUSQUEDAS = { minimas: 3, impresionesMin: 100 };
