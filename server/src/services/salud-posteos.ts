@@ -238,20 +238,81 @@ export async function revisarPosteos(db: Db, ahora = new Date()): Promise<{ hall
   return { hallazgos, ciego: false };
 }
 
-/** Avisa lo grave como aviso propio (nivel 5, una vez por hecho) y lo demás al resumen. */
-export async function avisarPosteos(db: Db, hallazgos: Hallazgo[]): Promise<void> {
-  const graves = hallazgos.filter((h) => h.grave);
-  if (graves.length === 0) return;
+/** Caídas de la cadena que ya están en Hoy (las arma el motor a las 8:30) y también tienen que llegar. */
+const CADENA_QUE_ES_FALLA = ["cadena:despachador_mudo", "cadena:destino_sin_escenario", "cadena:red_muda", "cadena:sin_destino"];
+
+async function caidasDeLaCadena(db: Db): Promise<Hallazgo[]> {
+  const { decisiones } = await import("@paperclipai/db");
+  const { and, inArray } = await import("drizzle-orm");
+  const filas = await db
+    .select({ id: decisiones.id, clientId: decisiones.clientId, tipo: decisiones.tipo, que: decisiones.que, porque: decisiones.porque, clave: decisiones.clave })
+    .from(decisiones)
+    .where(and(inArray(decisiones.tipo, CADENA_QUE_ES_FALLA), inArray(decisiones.estado, ["abierta", "aprobada"])));
+  const nombres = new Map((await db.select({ id: clients.id, name: clients.name }).from(clients)).map((c) => [c.id, c.name.trim()]));
+  return filas.map((d) => ({
+    tipo: "posts_fallidos" as const,
+    clientId: d.clientId,
+    cliente: nombres.get(d.clientId) ?? "Cliente",
+    grave: d.tipo !== "cadena:sin_destino",
+    que: d.que,
+    detalle: (d.porque as { resumen?: string } | null)?.resumen ?? "",
+    clave: `hoy:${d.clave}`,
+  }));
+}
+
+/** ¿Este hecho ya se avisó por WhatsApp en los últimos 7 días? (marca en sync_logs) */
+async function yaAvisados(db: Db, claves: string[]): Promise<Set<string>> {
+  if (claves.length === 0) return new Set();
+  const { syncLogs } = await import("@paperclipai/db");
+  const { and, gte, inArray } = await import("drizzle-orm");
+  const filas = await db.select({ job: syncLogs.jobName }).from(syncLogs)
+    .where(and(inArray(syncLogs.jobName, claves.map(marca)), gte(syncLogs.createdAt, new Date(Date.now() - 7 * DIA))));
+  return new Set(filas.map((f) => f.job));
+}
+const marca = (clave: string) => `aviso-publicacion:${clave}`.slice(0, 250);
+
+/** Un mensaje por hecho NUEVO: el texto de lo que no sale y de lo que se va a caer. Puro. */
+export function armarMensajes(nuevos: Hallazgo[], porMensaje = 8): Array<{ texto: string; items: Hallazgo[] }> {
+  const graves = nuevos.filter((h) => h.grave);
+  const avisos = nuevos.filter((h) => !h.grave);
+  const linea = (h: Hallazgo) => `• *${h.cliente}* — ${h.que}.${h.detalle ? `\n  _${h.detalle.slice(0, 260)}${h.detalle.length > 260 ? "…" : ""}_` : ""}`;
+  const bloques: Array<{ titulo: string; items: Hallazgo[] }> = [];
+  for (let i = 0; i < graves.length; i += porMensaje) bloques.push({ titulo: "*🚨 Publicación: esto no está saliendo*", items: graves.slice(i, i + porMensaje) });
+  for (let i = 0; i < avisos.length; i += porMensaje) bloques.push({ titulo: "*⚠️ Publicación: para que no se caiga*", items: avisos.slice(i, i + porMensaje) });
+  return bloques.map((b) => ({ items: b.items, texto: [b.titulo, "", ...b.items.map(linea), "", "_También está en Hoy y como tarea en ClickUp._"].join("\n") }));
+}
+
+/**
+ * Todo lo de publicación va a WhatsApp (pedido 15/10), graves y preventivos,
+ * una sola vez por hecho: lo ya avisado en 7 días no se repite. Si un hecho
+ * se agrava (la conexión pasa a vencer en ≤ 3 días), su clave cambia y vuelve.
+ */
+export async function avisarPosteos(db: Db, hallazgos: Hallazgo[]): Promise<number> {
+  const todos = [...hallazgos, ...(await caidasDeLaCadena(db).catch(() => []))];
+  const conClave = todos.map((h) => ({ ...h, clave: `${h.clave}${h.grave ? ":grave" : ""}` }));
+  const ya = await yaAvisados(db, conClave.map((h) => h.clave));
+  const nuevos = conClave.filter((h) => !ya.has(marca(h.clave)));
+  if (nuevos.length === 0) return 0;
   const { avisarAlEquipo } = await import("./wa-embudo.js");
-  const lineas = ["*🚨 Publicación: esto no está saliendo*", ""];
-  for (const h of graves.slice(0, 10)) lineas.push(`• *${h.cliente}* — ${h.que}.\n  _${h.detalle.slice(0, 280)}_`);
-  if (graves.length > 10) lineas.push(`_y ${graves.length - 10} más en Hoy._`);
-  await avisarAlEquipo(db, {
-    origen: "salud-posteos",
-    nivel: 5,
-    clave: `salud-posteos:${graves.map((h) => h.clave).sort().join("|").slice(0, 400)}`,
-    texto: lineas.join("\n"),
-  }).catch((e) => console.warn("[salud-posteos] no se pudo avisar:", e instanceof Error ? e.message : e));
+  const { syncLogs } = await import("@paperclipai/db");
+  let avisados = 0;
+  for (const { texto, items: tanda } of armarMensajes(nuevos)) {
+    const r = await avisarAlEquipo(db, {
+      origen: "salud-posteos",
+      nivel: 5,
+      clave: `salud-posteos:${tanda.map((h) => h.clave).sort().join("|").slice(0, 400)}`,
+      texto,
+    }).catch((e) => {
+      console.warn("[salud-posteos] no se pudo avisar:", e instanceof Error ? e.message : e);
+      return null;
+    });
+    // Solo se marca lo que de verdad salió: si el gateway falla, se reintenta en la próxima vuelta.
+    if (r?.estado === "enviado") {
+      await db.insert(syncLogs).values(tanda.map((h) => ({ jobName: marca(h.clave), platform: "lmtm", status: "completed", completedAt: new Date() })));
+      avisados += tanda.length;
+    }
+  }
+  return avisados;
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -264,8 +325,8 @@ export function initSaludPosteos(db: Db): void {
     if (hora < 8 || hora > 22) return;
     const r = await revisarPosteos(db);
     if (r.ciego) return;
-    console.log(`[salud-posteos] ${r.hallazgos.length} hallazgos (${r.hallazgos.filter((h) => h.grave).length} graves)`);
-    await avisarPosteos(db, r.hallazgos);
+    const avisados = await avisarPosteos(db, r.hallazgos);
+    console.log(`[salud-posteos] ${r.hallazgos.length} hallazgos (${r.hallazgos.filter((h) => h.grave).length} graves), ${avisados} avisados por WhatsApp`);
   };
   const correr = () => void vuelta().catch((e) => console.warn("[salud-posteos] falló:", e instanceof Error ? e.message : e));
   setTimeout(correr, 12 * 60_000);

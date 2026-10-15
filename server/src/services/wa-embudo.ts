@@ -32,7 +32,7 @@ import type { Db } from "@paperclipai/db";
 import { waOutbox } from "@paperclipai/db";
 import { and, asc, desc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import { alertsNumber, sendWhatsAppToNumber } from "./agency-ops.js";
-import { decidirAviso, diaLocal, HORAS_DEDUPE, NIVEL_INTERRUMPE, ORIGENES_MANUALES, TOPE_INTERRUPCIONES_DIA, type Nivel } from "../avisos/politica.js";
+import { decidirAviso, diaLocal, HORAS_DEDUPE, NIVEL_INTERRUMPE, ORIGENES_SIN_TOPE, TOPE_INTERRUPCIONES_DIA, type Nivel } from "../avisos/politica.js";
 
 // ── Política ──────────────────────────────────────────────────────────────
 //
@@ -164,7 +164,7 @@ export async function avisarAlEquipo(db: Db, aviso: AvisoEquipo): Promise<Result
       and(
         eq(waOutbox.estado, "enviado"),
         sql`${waOutbox.origen} <> ${ORIGEN_RESUMEN}`,
-        notInArray(waOutbox.origen, [...ORIGENES_MANUALES]),
+        notInArray(waOutbox.origen, [...ORIGENES_SIN_TOPE]),
         gte(waOutbox.createdAt, sql`(${diaLocal(new Date())}::date)::timestamp at time zone 'America/Argentina/Buenos_Aires'`),
       ),
     );
