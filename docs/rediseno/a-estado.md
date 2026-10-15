@@ -41,6 +41,67 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 15/10: el trabajo de los agentes, en un solo lugar
+
+**Pedido:** "que los agentes, en base a lo que hacen en Google, campañas, Analytics y
+mejoras de SEO, vayan dejando todo en un sector, y los resultados de las optimizaciones
+en los dashboards, para ver el trabajo real".
+
+**Qué había:** todo quedaba escrito, pero en cinco lugares que ninguna pantalla juntaba:
+- `agent_actions`: los cambios reales en Meta y Google, medidos a los 7 días. Solo los
+  veía una ruta vieja (`/growth/actions`) que ninguna pantalla usaba.
+- `approvals` de pauta: lo propuesto y el porqué de lo ejecutado.
+- Decisiones de pauta, web, Search Console y Analytics.
+- `agente_trabajos`: los análisis del runner.
+- Entregables e informes semanales.
+
+El borrador del informe del cliente solo contaba decisiones: las 13 pausas reales del
+14 y 15/10 no aparecían en "lo que hicimos".
+
+**Hecho (`dbe415a`):**
+- `services/trabajo.ts` lee las cinco fuentes y las devuelve con una sola forma. Cada
+  cambio trae su resultado: costo por consulta de la cuenta una semana antes y una
+  después. Las mejoras de la web se miden con los clics desde Google (o los eventos
+  clave de Analytics), 28 días antes contra 28 después, y solo con todos los días
+  medidos.
+- Rutas: `GET /api/trabajo` (con sesión) y `GET /api/public/dashboards/:slug/optimizaciones`.
+  La pública devuelve solo los cambios ejecutados, sin el porqué interno ni veredicto:
+  la semana siguiente se mueve también por otras cosas.
+- Pantallas:
+  - "Trabajo" en la navegación;
+  - la pestaña "Agentes" del cliente pasa a "Trabajo" (mantiene "Pedirle algo" y lo que
+    está corriendo);
+  - "Optimizaciones" en el dashboard de pauta;
+  - "Mejoras de web y SEO" en la pestaña Web;
+  - "Lo que hicimos" en el dashboard del link del cliente.
+- El borrador del informe semanal suma los cambios ejecutados: "Pausamos el conjunto
+  «LLANTAS» de la campaña «WP AVELLANEDA - SEPTIEMBRE 2026»".
+
+**Verificado contra producción (solo lectura), 30 días:** 230 registros.
+- 13 cambios en cuentas, todos del piloto automático; se miden desde el 22 y 23/10.
+- 110 análisis.
+- 27 propuestas de pauta esperando.
+- 33 informes semanales en borrador que nadie publicó.
+- Por cliente, 0 registros de otro cliente.
+- Tests: 10 nuevos; server 702 y UI 960 en verde; tsc limpio.
+
+**De paso: las mejoras de SEO no salían nunca (`e76d01d`).** La regla de web existía
+desde el 13/10 pero no había creado ninguna decisión. MA PROPIEDADES tenía 29 búsquedas
+en posición 4 a 20 con más de 100 impresiones.
+- **Causa:** la sincronización solo marcaba `sincronizado_at` si andaban todas las
+  fuentes. Con la Data API de Analytics apagada, ninguna web con Analytics quedaba
+  marcada, y el motor salteaba al cliente entero, Search Console incluido.
+- **Arreglo:** con una fuente bien ya se marca. El motor usa solo la fuente sana
+  (`fuenteRota`) y no cierra nada mientras haya una rota.
+- **Simulación contra producción:** MA PROPIEDADES sale con «alquiler rosario»,
+  «inmobiliaria rosario», «alquileres rosario» y 26 más.
+
+**Qué verificar mañana:**
+- después de la sincronización de las 00:20, `sincronizado_at` cargado en MA
+  PROPIEDADES, INBELT y ALTECNO;
+- a las 8:30, la decisión `contenido:busquedas` de MA PROPIEDADES en Hoy y en Trabajo
+  (Web y SEO).
+
 ### 15/10: lo que no se publicaba y nadie avisó
 
 **Pedido:** "la revisión de scripts y de que realmente se posteen las cosas no funcionó:
