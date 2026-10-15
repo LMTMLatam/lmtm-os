@@ -147,6 +147,33 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     return r.rotas.map(propuestaDeCadena);
   }));
 
+  // Lo que no se está publicando (salud-posteos.ts): conexiones de Make por
+  // vencer, escenarios apagados con posts esperando, posts fallidos y posts que
+  // pasaron su hora sin dispararse. A Hoy como decisión; el aviso que interrumpe
+  // lo manda el monitor de cada 3 horas, no el motor (no se avisa dos veces).
+  resultados.push(await correrRegla("salud_posteos", ahora, async () => {
+    const { revisarPosteos } = await import("../services/salud-posteos.js");
+    const r = await revisarPosteos(db, ahora);
+    if (r.ciego) return { propuestas: [], evaluada: false, nota: "No se pudo leer Make." };
+    const agencia = activos.find((c) => /^(agencia\s+)?lmtm$/i.test(c.name.trim()));
+    return r.hallazgos.flatMap((h): Propuesta[] => {
+      const clientId = h.clientId ?? agencia?.id;
+      if (!clientId) return [];
+      return [{
+        clientId,
+        tipo: `cadena:${h.tipo}`,
+        clave: `posteos:${h.clave}`,
+        que: h.que,
+        porque: { resumen: h.detalle, datos: [] },
+        arsPorDia: null,
+        responsable: "equipo",
+        creadaPor: "regla:salud_posteos",
+        accion: { tipo: "tarea", titulo: h.que.slice(0, 180), descripcion: h.detalle },
+        venceEnDias: 3,
+      }];
+    });
+  }));
+
   // ── Pauta ──────────────────────────────────────────────────────────────
   // Todo número de pauta sale de `metricas` (A2): metricasCliente() para la
   // calidad y el objetivo, metricasCampanas() para lo que se juzga campaña por

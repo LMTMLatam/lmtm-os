@@ -425,6 +425,12 @@ export async function getRedesCalendar(
   return out;
 }
 
+/** Los comentarios de una tarea (texto y fecha). Ahí deja Make "X Post was not successfull". */
+export async function comentariosDeTarea(taskId: string): Promise<Array<{ texto: string; fecha: Date }>> {
+  const r = await cu<{ comments?: Array<{ comment_text?: string; date?: string }> }>(`/task/${encodeURIComponent(taskId)}/comment`);
+  return (r.comments ?? []).map((c) => ({ texto: c.comment_text ?? "", fecha: new Date(Number(c.date ?? 0)) }));
+}
+
 /**
  * Create a post task on the client's "Redes Sociales" list with the calendar
  * conventions filled in: start_date = publish date, "Plataformas" labels =
