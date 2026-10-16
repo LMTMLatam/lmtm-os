@@ -41,6 +41,51 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 16/10: pedidos del equipo (grupo del bot)
+
+**Pedidos:**
+- Darle el panel a los chicos sin Licitaciones, Finanzas, etc.: "deberían ver clientes".
+- "Lo de Magnific no funciona".
+- Recordatorios si hace mucho no salen stories.
+- Destacar el contenido que rindió mejor y las oportunidades de nicho.
+- "Me marea todo el sistema".
+
+**Seguridad (lo primero que apareció):**
+- `finance.ts` no tenía ninguna guarda: `/companies/:id/finance/*` respondía y escribía
+  sin login (probado con un GET sin sesión: 200; la tabla estaba vacía).
+- El registro de cuentas está abierto (`PAPERCLIP_AUTH_DISABLE_SIGN_UP` sin cargar).
+  Las rutas que solo pedían login (trabajo, novedades, web, video, productos,
+  meta-sync, `/ops/*` de agent-tools) quedaban a la vista de cualquier cuenta nueva.
+  Hay una cuenta de 07/07 sin pertenencia.
+- `POST /ask` (puente a MiniMax) estaba montado antes del login y nadie lo usaba:
+  cualquiera podía gastar la clave. Se sacó.
+- Arreglo: `assertMiembro` (agente o persona de la empresa) en esas rutas, y
+  `assertAdminEmpresa` (dueño/admin) en finanzas y licitaciones.
+
+**Equipo:** se invita desde Config → Equipo y accesos con rol "operator". El menú se
+arma por rol (`useEsAdmin`): operador y lector no ven Config, Licitaciones, Finanzas
+ni WhatsApp. El servidor bloquea igual finanzas y licitaciones.
+
+**Magnific:** nunca generó nada. El código pedía `model: "mystic"`, que es el nombre
+del endpoint y no un modelo, y la API respondía "Validation error: body.model".
+Además Freepik pasó a llamarse Magnific (abril 2026): host `api.magnific.com` y header
+`x-magnific-api-key`. Modelo por defecto `realism`.
+- Al verificar, un pedido de prueba con prompt vacío fue aceptado y generó una imagen
+  (una generación consumida).
+
+**Stories:** no estaban en el sistema (el feed de la API no las trae y solo muestra
+las de 24 h).
+- Captura cada 6 h en `organic_stories` (migración 0159, tabla propia: organic_posts
+  la leen 20 lugares, entre ellos cotizado vs realizado).
+- Regla `stories` del motor: un cliente con al menos 2 stories en 30 días y 3 días sin
+  ninguna genera `contenido:sin_stories` en Hoy y una tarea.
+- Solo para los clientes cuya página se pudo leer en la última captura.
+- El historial arranca hoy: los primeros avisos pueden salir en 3 días.
+
+**Ya existía:** el contenido que rindió mejor está en la ficha → "Qué funciona" y en
+las buenas noticias; las oportunidades de nicho, en "Nichos" y como decisiones
+`contenido:angulo/reutilizar` en Hoy (15 abiertas).
+
 ### 15/10: buenas noticias para mandarle al cliente
 
 **Pedido:** "que los agentes puedan dar buenas noticias / novedades para reenviar a los
