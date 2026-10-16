@@ -15,7 +15,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
 import { adsRoutes } from "./routes/ads.js";
 import { decisionesRoutes } from "./decisiones/rutas.js";
-import { conectorMcpRoutes, lecturaRoutes } from "./routes/conector-mcp.js";
+import { conectorEquipoRoutes, conectorMcpRoutes, lecturaRoutes } from "./routes/conector-mcp.js";
 import { avisosRoutes } from "./avisos/rutas.js";
 import { informesRoutes } from "./decisiones/informes-rutas.js";
 import { agentesRoutes } from "./agentes/rutas.js";
@@ -23,6 +23,7 @@ import { videoRoutes } from "./routes/video.js";
 import { pautaGoogleRoutes } from "./routes/pauta-google.js";
 import { webGoogleRoutes } from "./routes/web-google.js";
 import { trabajoRoutes } from "./routes/trabajo.js";
+import { equipoRoutes, guardaRegistro } from "./routes/equipo.js";
 import { clientProductRoutes } from "./routes/client-products.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
@@ -230,6 +231,8 @@ export async function createApp(
       resolveSession: opts.resolveSession,
     }),
   );
+  // Registro cerrado (16/10): solo con el código del equipo o una invitación vigente.
+  app.post("/api/auth/sign-up/email", guardaRegistro(db));
   app.use("/api/auth", authRoutes(db));
   if (opts.betterAuthHandler) {
     app.all("/api/auth/{*authPath}", opts.betterAuthHandler);
@@ -237,6 +240,8 @@ export async function createApp(
   app.use(llmRoutes(db));
   // Conector MCP para Claude (fase C): POST /mcp con clave de tablero de admin.
   app.use(conectorMcpRoutes({ serverPort: opts.serverPort }));
+  // Conector del equipo (16/10): herramientas acotadas, como el agente "Claude (equipo)".
+  app.use(conectorEquipoRoutes(db, { serverPort: opts.serverPort }));
   // ClickUp webhook (client auto-provisioning). Unauthenticated by design —
   // verified by HMAC over the raw body — so it sits before the authed router.
   app.use("/api/clickup", clickupWebhookRoutes(db));
@@ -268,6 +273,7 @@ export async function createApp(
   api.use(pautaGoogleRoutes(db));
   api.use(webGoogleRoutes(db));
   api.use(trabajoRoutes(db));
+  api.use(equipoRoutes(db));
   api.use(clientProductRoutes(db));
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
