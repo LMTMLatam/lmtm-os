@@ -14,7 +14,10 @@ export function AuthPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [mode, setMode] = useState<AuthMode>("sign_in");
+  // El registro está cerrado (16/10): solo se crea una cuenta con el link del
+  // equipo (/auth?equipo=<código>), que además la suma como operador.
+  const codigoEquipo = searchParams.get("equipo");
+  const [mode, setMode] = useState<AuthMode>(codigoEquipo ? "sign_up" : "sign_in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,10 +34,18 @@ export function AuthPage() {
   });
 
   useEffect(() => {
-    if (session) {
+    if (!session) return;
+    if (!codigoEquipo) {
       navigate(nextPath, { replace: true });
+      return;
     }
-  }, [session, navigate, nextPath]);
+    // Ya con sesión (alguien que tenía cuenta y abrió el link): lo suma y entra.
+    authApi
+      .unirseAlEquipo(codigoEquipo)
+      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }))
+      .then(() => navigate("/hoy", { replace: true }))
+      .catch((e) => setError(e instanceof Error ? e.message : "No se pudo sumar al equipo."));
+  }, [session, navigate, nextPath, codigoEquipo, queryClient]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -42,17 +53,21 @@ export function AuthPage() {
         await authApi.signInEmail({ email: email.trim(), password });
         return;
       }
-      await authApi.signUpEmail({
-        name: name.trim(),
-        email: email.trim(),
-        password,
-      });
+      await authApi.signUpEmail(
+        {
+          name: name.trim(),
+          email: email.trim(),
+          password,
+        },
+        codigoEquipo ?? "",
+      );
     },
     onSuccess: async () => {
       setError(null);
+      // Con el link del equipo, el efecto de la sesión lo suma y lo lleva a Hoy.
       await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
       await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
-      navigate(nextPath, { replace: true });
+      if (!codigoEquipo) navigate(nextPath, { replace: true });
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : "Authentication failed");
@@ -83,7 +98,7 @@ export function AuthPage() {
           </div>
 
           <h1 className="text-xl font-semibold">
-            {mode === "sign_in" ? "Entrar a LMTM" : "Crear tu cuenta de LMTM"}
+            {mode === "sign_in" ? "Entrar a LMTM" : "Sumate al equipo de LMTM"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {mode === "sign_in"
@@ -159,7 +174,10 @@ export function AuthPage() {
             </Button>
           </form>
 
-          <div className="mt-5 text-sm text-muted-foreground">
+          {!codigoEquipo && (
+            <p className="mt-5 text-sm text-muted-foreground">¿Sos del equipo y no tenés cuenta? Pedí el link de invitación.</p>
+          )}
+          <div className={`mt-5 text-sm text-muted-foreground ${codigoEquipo ? "" : "hidden"}`}>
             {mode === "sign_in" ? "¿No tenés cuenta?" : "¿Ya tenés cuenta?"}{" "}
             <button
               type="button"

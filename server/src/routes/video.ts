@@ -6,12 +6,14 @@
 
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { agentDeliverables, clients } from "@paperclipai/db";
+import { agentDeliverables, agents, clients } from "@paperclipai/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { barrerPendientes, estadoCuenta, generarVideoDePieza, piezasPendientes, previsualizarPieza, TAG_PEDIDO } from "../services/video-higgsfield.js";
 import { hayMagnific } from "../services/magnific.js";
 import { contenidoGenerado, generarContenidoLibre, type PedidoLibre } from "../services/contenido-generado.js";
 import { assertMiembro, assertBoard } from "./authz.js";
+import { AGENTE_EQUIPO } from "./conector-mcp.js";
+import { forbidden } from "../errors.js";
 
 /** Lo que aguanta el proxy de Railway antes de cortar la conexión (~4 min). */
 const ESPERA_RESPUESTA_MS = 200_000;
@@ -132,7 +134,12 @@ export function videoRoutes(db: Db): Router {
   // CRÉDITOS: solo personas del tablero (el conector de Claude entra como
   // tablero); los agentes no.
   router.post("/contenido/generar-libre", async (req, res) => {
-    assertBoard(req);
+    // Personas, o Claude por el conector del equipo (16/10: "que puedan generar
+    // videos con eso"). Los agentes de la flota no generan solos: gastan créditos.
+    if (req.actor.type === "agent") {
+      const [a] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, req.actor.agentId ?? "")).limit(1);
+      if (a?.name !== AGENTE_EQUIPO) throw forbidden("Los agentes no generan contenido por su cuenta.");
+    } else assertBoard(req);
     const b = (req.body ?? {}) as Partial<PedidoLibre> & { origen?: string };
     if (!b.clientId || (b.tipo !== "video" && b.tipo !== "imagen") || typeof b.prompt !== "string") {
       return res.status(422).json({ error: "Faltan clientId, tipo (video | imagen) o prompt." });

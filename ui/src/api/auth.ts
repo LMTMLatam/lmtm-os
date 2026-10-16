@@ -60,11 +60,11 @@ function extractAuthError(payload: AuthErrorBody, status: number) {
   return new AuthApiError(message, status, payload, code);
 }
 
-async function authPost(path: string, body: Record<string, unknown>) {
+async function authPost(path: string, body: Record<string, unknown>, extra?: Record<string, string>) {
   const res = await fetch(`/api/auth${path}`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...extra },
     body: JSON.stringify(body),
   });
   const payload = await res.json().catch(() => null);
@@ -109,8 +109,21 @@ export const authApi = {
     await authPost("/sign-in/email", input);
   },
 
-  signUpEmail: async (input: { name: string; email: string; password: string }) => {
-    await authPost("/sign-up/email", input);
+  /** El registro está cerrado (16/10): va con el código del equipo o el token de una invitación. */
+  signUpEmail: async (input: { name: string; email: string; password: string }, invitacion: string) => {
+    await authPost("/sign-up/email", input, { "x-lmtm-invitacion": invitacion });
+  },
+
+  /** Con sesión y el código del link del equipo: queda como operador de la agencia. */
+  unirseAlEquipo: async (codigo: string) => {
+    const res = await fetch("/api/equipo/unirse", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codigo }),
+    });
+    const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (!res.ok) throw new Error(payload?.error ?? `No se pudo sumar al equipo (${res.status})`);
   },
 
   getProfile: async (): Promise<CurrentUserProfile> => {
