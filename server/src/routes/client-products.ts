@@ -12,7 +12,7 @@ import type { Db } from "@paperclipai/db";
 import { clientBrand, clientProducts, clients } from "@paperclipai/db";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { subirImagenDeReferencia } from "../services/contenido-drive.js";
-import { assertAuthenticated, getActorInfo } from "./authz.js";
+import { assertMiembro, getActorInfo } from "./authz.js";
 import { esAutomatico } from "../services/marca-completa.js";
 
 async function resolverCliente(db: Db, idOrSlug: string) {
@@ -183,7 +183,7 @@ export function clientProductRoutes(db: Db): Router {
 
   // GET /api/productos/cobertura — qué clientes ya cargaron productos/avatar.
   router.get("/productos/cobertura", async (req, res) => {
-    assertAuthenticated(req); // respondía sin sesión con la lista de clientes (14/10)
+    assertMiembro(req); // respondía sin sesión con la lista de clientes (14/10)
     try {
       const filas = await db.select({
         id: clients.id, name: clients.name, slug: clients.slug, avatarUrl: clients.avatarUrl,

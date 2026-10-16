@@ -67,6 +67,7 @@ export { videoReferences } from "./video_references.js";
 export { agentDeliverables } from "./agent_deliverables.js";
 export { contenidoGastos } from "./contenido_gastos.js";
 export { googleWebConexiones, webPropiedades, webDiario, webRanking } from "./web_google.js";
+export { organicStories } from "./organic_stories.js";
 export { clientProducts } from "./client_products.js";
 export { clientBrand } from "./client_brand.js";
 export { agentActions } from "./agent_actions.js";

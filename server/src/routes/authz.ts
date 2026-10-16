@@ -31,6 +31,33 @@ export function assertBoardOrgAccess(req: Request) {
   throw forbidden("Company membership or instance admin access required");
 }
 
+/**
+ * Logueado Y del equipo: un agente, o una persona que es miembro de la empresa
+ * (o admin de la instancia). El registro de cuentas está abierto, así que
+ * "logueado" solo no alcanza: una cuenta recién creada por cualquiera pasaba
+ * assertAuthenticated y leía los datos de todos los clientes (16/10).
+ */
+export function assertMiembro(req: Request) {
+  assertAuthenticated(req);
+  if (req.actor.type === "board" && !hasBoardOrgAccess(req)) {
+    throw forbidden("Hace falta ser parte del equipo de la agencia");
+  }
+}
+
+/** Dueño o admin de la empresa (o de la instancia): lo de la agencia, no de los clientes. */
+export function esAdminEmpresa(req: Request): boolean {
+  if (req.actor.type !== "board") return false;
+  if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return true;
+  return (req.actor.memberships ?? []).some((m) => m.status === "active" && (m.membershipRole === "owner" || m.membershipRole === "admin"));
+}
+
+/** Finanzas, licitaciones y ajustes de la agencia: el equipo (operador, lector) no entra (16/10). */
+export function assertAdminEmpresa(req: Request) {
+  assertAuthenticated(req);
+  if (req.actor.type === "agent") return;
+  if (!esAdminEmpresa(req)) throw forbidden("Solo para dueños o admins de la agencia");
+}
+
 export function assertInstanceAdmin(req: Request) {
   assertBoard(req);
   if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) {

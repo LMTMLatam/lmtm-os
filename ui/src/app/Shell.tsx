@@ -11,6 +11,7 @@ import { NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
 import { agentesApi } from "./api";
+import { accessApi } from "../api/access";
 
 const SECCIONES = [
   { to: "/hoy", label: "Hoy", Icono: Inbox },
@@ -18,7 +19,7 @@ const SECCIONES = [
   { to: "/trabajo", label: "Trabajo", Icono: ClipboardCheck },
   { to: "/contenido", label: "Contenido", Icono: Clapperboard },
   { to: "/agentes", label: "Agentes", Icono: Bot },
-  { to: "/config", label: "Config", Icono: Settings2 },
+  { to: "/config", label: "Config", Icono: Settings2, soloAdmin: true },
 ] as const;
 
 /** Las demás pantallas propias: viven en el shell, con su diseño de antes hasta rehacerlas. */
@@ -28,9 +29,9 @@ export const MAS = [
   { to: "/nichos", label: "Nichos" },
   { to: "/pauta", label: "Pauta" },
   { to: "/inteligencia", label: "Inteligencia" },
-  { to: "/licitaciones", label: "Licitaciones" },
-  { to: "/finanzas", label: "Finanzas" },
-  { to: "/whatsapp", label: "WhatsApp" },
+  { to: "/licitaciones", label: "Licitaciones", soloAdmin: true },
+  { to: "/finanzas", label: "Finanzas", soloAdmin: true },
+  { to: "/whatsapp", label: "WhatsApp", soloAdmin: true },
 ] as const;
 
 /** Margen de una pantalla de antes montada en el shell (traen su propio encabezado). */
@@ -51,9 +52,25 @@ function useContadores() {
   } as Record<string, number | null>;
 }
 
+/**
+ * ¿Ve lo de la agencia (finanzas, licitaciones, WhatsApp, config)? Dueños y
+ * admins sí; el equipo invitado como operador o lector ve los clientes (16/10:
+ * "hay licitaciones, finanzas, etc. que no van; deberían ver clientes"). El
+ * servidor bloquea igual finanzas y licitaciones: esto solo ordena el menú.
+ */
+export function useEsAdmin(): boolean {
+  const q = useQuery({ queryKey: ["lmtm", "yo"], queryFn: () => accessApi.getCurrentBoardAccess(), staleTime: 10 * 60_000 });
+  const a = q.data;
+  if (!a) return false;
+  return a.source === "local_implicit" || a.isInstanceAdmin || (a.memberships ?? []).some((m) => m.status === "active" && (m.membershipRole === "owner" || m.membershipRole === "admin"));
+}
+
 export function Shell() {
   const { theme, toggleTheme } = useTheme();
   const contadores = useContadores();
+  const esAdmin = useEsAdmin();
+  const secciones = SECCIONES.filter((s) => esAdmin || !("soloAdmin" in s));
+  const mas = MAS.filter((m) => esAdmin || !("soloAdmin" in m));
   const { pathname } = useLocation();
   useEffect(() => {
     const s = [...SECCIONES, ...MAS].find((x) => pathname.startsWith(x.to));
@@ -70,7 +87,7 @@ export function Shell() {
             <span className="text-l-marca">LMTM</span>
           </div>
           <nav className="flex flex-col gap-0.5" aria-label="Secciones">
-            {SECCIONES.map(({ to, label, Icono }) => (
+            {secciones.map(({ to, label, Icono }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -88,7 +105,7 @@ export function Shell() {
           </nav>
           <div className="mt-7 px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-l-tinta-3">Más</div>
           <ul className="mt-1.5 flex flex-col">
-            {MAS.map((m) => (
+            {mas.map((m) => (
               <li key={m.to}>
                 <NavLink
                   to={m.to}
@@ -113,10 +130,11 @@ export function Shell() {
 
       {/* Barra (celular) */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
         aria-label="Secciones"
+        style={{ gridTemplateColumns: `repeat(${secciones.length}, minmax(0, 1fr))` }}
       >
-        {SECCIONES.map(({ to, label, Icono }) => (
+        {secciones.map(({ to, label, Icono }) => (
           <NavLink
             key={to}
             to={to}

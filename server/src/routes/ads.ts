@@ -40,7 +40,7 @@ import { microCache, invalidateMicroCache } from "../services/micro-cache.js";
 import { tiktokAdsProviderScopes } from "../services/ads/providers/tiktok.js";
 import { linkedinAdsProviderScopes } from "../services/ads/providers/linkedin.js";
 import { logActivity } from "../services/activity-log.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertAdminEmpresa, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { badRequest, unprocessable, unauthorized } from "../errors.js";
 import { adsAggregator } from "../services/ads/aggregator.js";
 import { withFreshAccessToken } from "../services/ads/token-refresh.js";
@@ -3325,6 +3325,7 @@ export function adsRoutes(db: Db): Router {
   // al cliente (copy-paste, sale del análisis estratégico determinista).
   // ── Licitaciones de Mercado Público (pedido 22/7) ─────────────────────────
   router.get("/licitaciones", async (req, res) => {
+    assertAdminEmpresa(req);
     try {
       const { listarLicitaciones } = await import("../services/licitaciones.js");
       const estados = typeof req.query.estado === "string" && req.query.estado
@@ -3337,6 +3338,7 @@ export function adsRoutes(db: Db): Router {
   });
 
   router.patch("/licitaciones/:codigo", async (req, res) => {
+    assertAdminEmpresa(req);
     try {
       const { marcarLicitacion } = await import("../services/licitaciones.js");
       const b = (req.body ?? {}) as { estado?: string; relevancia?: string };
@@ -3351,7 +3353,8 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  router.post("/licitaciones/sync", async (_req, res) => {
+  router.post("/licitaciones/sync", async (req, res) => {
+    assertAdminEmpresa(req);
     try {
       const { syncLicitaciones } = await import("../services/licitaciones.js");
       res.json(await syncLicitaciones(db));

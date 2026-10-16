@@ -6,12 +6,21 @@
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import { financeEntriesService, type FinanceType } from "../services/finance-entries.js";
+import { assertAdminEmpresa, assertCompanyAccess } from "./authz.js";
 
 const p = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? "") : String(v ?? ""));
 
 export function financeRoutes(db: Db): Router {
   const router = Router();
   const svc = financeEntriesService(db);
+
+  // Hasta el 16/10 estas rutas respondían (y escribían) sin login. Las finanzas
+  // son de la agencia: solo dueños y admins, y de su empresa.
+  router.use("/companies/:companyId/finance", (req, _res, next) => {
+    assertCompanyAccess(req, p(req.params.companyId));
+    assertAdminEmpresa(req);
+    next();
+  });
 
   router.get("/companies/:companyId/finance/entries", async (req: Request, res: Response) => {
     const rows = await svc.list(p(req.params.companyId), {

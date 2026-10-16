@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import { eq, desc } from "drizzle-orm";
 import { metaAdAccountMappings, syncLogs, metaAdsInsights } from "@paperclipai/db";
-import { assertAuthenticated } from "./authz.js";
+import { assertMiembro } from "./authz.js";
 import {
   syncCampaigns, syncAdsets, syncAds,
   syncPagePosts, getDashboardData, getCampaignsData, getAdsetsData,
@@ -14,7 +14,7 @@ export function metaSyncRoutes(db: Db) {
 
   // POST /api/meta/sync/:job?companyId=&since=&until=
   router.post("/meta/sync/:job", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const job = req.params.job as string;
     const companyId = typeof req.query.companyId === "string" ? req.query.companyId : undefined;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
@@ -73,7 +73,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/meta/mappings/:id  — resolve a mapping by ID (returns companyId + adAccountId)
   router.get("/meta/mappings/:id", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     try {
       const [mapping] = await db.select().from(metaAdAccountMappings).where(eq(metaAdAccountMappings.id, req.params.id)).limit(1);
       if (!mapping) return res.status(404).json({ error: "Mapping not found" });
@@ -85,7 +85,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/companies/:companyId/meta/dashboard
   router.get("/companies/:companyId/meta/dashboard", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
@@ -100,7 +100,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/companies/:companyId/meta/campaigns
   router.get("/companies/:companyId/meta/campaigns", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
@@ -115,7 +115,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/companies/:companyId/meta/adsets
   router.get("/companies/:companyId/meta/adsets", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
@@ -130,7 +130,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/companies/:companyId/meta/ads
   router.get("/companies/:companyId/meta/ads", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const since = typeof req.query.since === "string" ? req.query.since : undefined;
     const until = typeof req.query.until === "string" ? req.query.until : undefined;
@@ -145,7 +145,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/companies/:companyId/meta/posts
   router.get("/companies/:companyId/meta/posts", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const pageId = req.query.pageId as string | undefined;
     try {
@@ -158,7 +158,7 @@ export function metaSyncRoutes(db: Db) {
 
   // GET /api/companies/:companyId/meta/alerts
   router.get("/companies/:companyId/meta/alerts", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
@@ -171,7 +171,7 @@ export function metaSyncRoutes(db: Db) {
 
   // PATCH /api/meta/alerts/:id
   router.patch("/meta/alerts/:id", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const { id } = req.params;
     const { status } = req.body as { status: string };
     if (!["pending", "seen", "resolved"].includes(status)) {
@@ -187,7 +187,7 @@ export function metaSyncRoutes(db: Db) {
 
   // POST /api/companies/:companyId/meta/evaluate-alerts
   router.post("/companies/:companyId/meta/evaluate-alerts", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     const adAccountId = typeof req.query.adAccountId === "string" ? req.query.adAccountId : undefined;
     try {
@@ -201,7 +201,7 @@ export function metaSyncRoutes(db: Db) {
   // GET /api/companies/:companyId/meta/sync-status
   // Returns last 20 sync logs + current insights count for diagnostics.
   router.get("/companies/:companyId/meta/sync-status", async (req, res) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     const companyId = req.params.companyId as string;
     try {
       const [logs, insightCount] = await Promise.all([
