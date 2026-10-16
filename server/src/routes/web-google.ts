@@ -4,7 +4,7 @@ import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import { clients, googleWebConexiones, webPropiedades } from "@paperclipai/db";
 import { eq } from "drizzle-orm";
-import { assertAuthenticated, assertBoard, getActorInfo } from "./authz.js";
+import { assertBoard, assertMiembro, getActorInfo } from "./authz.js";
 import { inventario, rendimientoWeb, sincronizarWeb } from "../services/google-web.js";
 
 async function resolver(db: Db, idOrSlug: string) {
@@ -17,7 +17,7 @@ async function resolver(db: Db, idOrSlug: string) {
 export function webGoogleRoutes(db: Db): Router {
   const router = Router();
   // Sin sesión, nada.
-  router.use(["/web","/clients/:idOrSlug/web","/clients/:idOrSlug/web-propiedades"], (req, _res, next) => { assertAuthenticated(req); next(); });
+  router.use(["/web","/clients/:idOrSlug/web","/clients/:idOrSlug/web-propiedades"], (req, _res, next) => { assertMiembro(req); next(); });
 
   // GET /api/web/estado — las cuentas conectadas (sin tokens) y qué tiene cada cliente.
   router.get("/web/estado", async (_req, res) => {

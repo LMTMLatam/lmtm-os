@@ -2,13 +2,13 @@
 
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { assertAuthenticated } from "./authz.js";
+import { assertMiembro } from "./authz.js";
 import { resumirTrabajo, trabajoDeAgentes } from "../services/trabajo.js";
 
 export function trabajoRoutes(db: Db): Router {
   const router = Router();
   router.use(["/trabajo", "/novedades"], (req, _res, next) => {
-    assertAuthenticated(req);
+    assertMiembro(req);
     next();
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertBoardOrgAccess, assertCompanyAccess, hasBoardOrgAccess } from "../routes/authz.js";
+import { assertAdminEmpresa, assertBoardOrgAccess, assertCompanyAccess, assertMiembro, esAdminEmpresa, hasBoardOrgAccess } from "../routes/authz.js";
 
 function makeReq(input: {
   method?: string;
@@ -153,5 +153,27 @@ describe("assertBoardOrgAccess", () => {
 
     expect(hasBoardOrgAccess(req)).toBe(false);
     expect(() => assertBoardOrgAccess(req)).toThrow("Company membership or instance admin access required");
+  });
+});
+
+describe("assertMiembro y assertAdminEmpresa (16/10)", () => {
+  const persona = (memberships: Array<{ companyId: string; membershipRole: string; status: string }>) =>
+    makeReq({
+      actor: { type: "board", userId: "u", source: "session", companyIds: memberships.filter((m) => m.status === "active").map((m) => m.companyId), memberships } as never,
+    });
+
+  it("una cuenta recién registrada, sin empresa, no entra a los datos del panel", () => {
+    expect(() => assertMiembro(persona([]))).toThrow();
+    expect(() => assertMiembro(persona([{ companyId: "c", membershipRole: "operator", status: "active" }]))).not.toThrow();
+    expect(() => assertMiembro(makeReq({ actor: { type: "agent", agentId: "a", companyId: "c" } as never }))).not.toThrow();
+    expect(() => assertMiembro(makeReq({ actor: { type: "none" } as never }))).toThrow();
+  });
+
+  it("finanzas y licitaciones: solo dueños y admins", () => {
+    expect(() => assertAdminEmpresa(persona([{ companyId: "c", membershipRole: "operator", status: "active" }]))).toThrow();
+    expect(() => assertAdminEmpresa(persona([{ companyId: "c", membershipRole: "viewer", status: "active" }]))).toThrow();
+    expect(() => assertAdminEmpresa(persona([{ companyId: "c", membershipRole: "admin", status: "active" }]))).not.toThrow();
+    expect(() => assertAdminEmpresa(persona([{ companyId: "c", membershipRole: "owner", status: "suspended" }]))).toThrow();
+    expect(esAdminEmpresa(makeReq({ actor: { type: "board", userId: "u", source: "session", companyIds: [], memberships: [], isInstanceAdmin: true } as never }))).toBe(true);
   });
 });

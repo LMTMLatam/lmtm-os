@@ -11,7 +11,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { barrerPendientes, estadoCuenta, generarVideoDePieza, piezasPendientes, previsualizarPieza, TAG_PEDIDO } from "../services/video-higgsfield.js";
 import { hayMagnific } from "../services/magnific.js";
 import { contenidoGenerado, generarContenidoLibre, type PedidoLibre } from "../services/contenido-generado.js";
-import { assertAuthenticated, assertBoard } from "./authz.js";
+import { assertMiembro, assertBoard } from "./authz.js";
 
 /** Lo que aguanta el proxy de Railway antes de cortar la conexión (~4 min). */
 const ESPERA_RESPUESTA_MS = 200_000;
@@ -19,7 +19,7 @@ const ESPERA_RESPUESTA_MS = 200_000;
 export function videoRoutes(db: Db): Router {
   const router = Router();
   // Sin sesión, nada (14/10): estas rutas respondían a cualquiera, incluso POST /video/generar, que gasta créditos.
-  router.use(["/video","/contenido"], (req, _res, next) => { assertAuthenticated(req); next(); });
+  router.use(["/video","/contenido"], (req, _res, next) => { assertMiembro(req); next(); });
 
   // GET /api/video/estado — saldo + cola pendiente. Alimenta la card del panel.
   router.get("/video/estado", async (_req, res) => {

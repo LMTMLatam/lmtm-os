@@ -10,7 +10,6 @@ import { actorMiddleware } from "./middleware/auth.js";
 import { boardMutationGuard } from "./middleware/board-mutation-guard.js";
 import { privateHostnameGuard, resolvePrivateHostnameAllowSet } from "./middleware/private-hostname-guard.js";
 import { healthRoutes } from "./routes/health.js";
-import { askRoutes } from "./routes/ask.js";
 import { lmtmDashboardDeployRoutes } from "./routes/dashboards.js";
 import { metaRoutes } from "./routes/meta.js";
 import { metaSyncRoutes } from "./routes/meta-sync.js";
@@ -183,7 +182,8 @@ export async function createApp(
   }));
   app.use(httpLogger);
 
-  // CORS for public panel + simple /ask MiniMax bridge (mounted before auth gate).
+  // CORS for public panel. (El puente /ask a MiniMax se sacó el 16/10: estaba montado
+  // antes del login y nadie lo usaba; cualquiera podía gastar la clave.)
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -193,7 +193,6 @@ export async function createApp(
     }
     next();
   });
-  app.use(askRoutes());
 
   const privateHostnameGateEnabled = shouldEnablePrivateHostnameGuard({
     deploymentMode: opts.deploymentMode,
@@ -307,6 +306,9 @@ export async function createApp(
   // ¿Se publica de verdad? Conexiones de Make, escenarios apagados, posts fallidos y vencidos.
   void import("./services/salud-posteos.js").then(({ initSaludPosteos }) => initSaludPosteos(db))
     .catch((e) => console.warn("[salud-posteos] init failed:", e instanceof Error ? e.message : e));
+  // Stories de Instagram: Meta solo muestra las de las últimas 24 h, se leen cada 6 h.
+  void import("./services/stories.js").then(({ initStories }) => initStories(db))
+    .catch((e) => console.warn("[stories] init failed:", e instanceof Error ? e.message : e));
   // Cola de propuestas de pauta de los agentes: repetidas, pausas de lo que no gasta y vencidas.
   void import("./services/ads-propuestas.js").then(({ initLimpiezaPropuestas }) => initLimpiezaPropuestas(db))
     .catch((e) => console.warn("[propuestas-pauta] init failed:", e instanceof Error ? e.message : e));

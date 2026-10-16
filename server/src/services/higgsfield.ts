@@ -30,7 +30,7 @@ import {
   MODELO_VIDEO as MODELO_VIDEO_API, MODELO_VIDEO_DESDE_IMAGEN, SinCreditos,
 } from "./higgsfield-api.js";
 
-import { generarImagenMagnific, hayMagnific } from "./magnific.js";
+import { generarImagenMagnific, hayMagnific, MODELO_MAGNIFIC } from "./magnific.js";
 
 export { SinCreditos };
 
@@ -172,6 +172,6 @@ async function conMagnific(db: Db, prompt: string, aspect: string): Promise<Gene
   // Magnific no devuelve el costo del pedido: queda null, no se inventa.
   return anotar(db, {
     url: r.url, jobId: r.jobId, via: "magnific", herramienta: "magnific",
-    modelo: process.env.MAGNIFIC_MODELO ?? "mystic", creditos: null, usd: null,
+    modelo: MODELO_MAGNIFIC, creditos: null, usd: null,
   }, "imagen");
 }

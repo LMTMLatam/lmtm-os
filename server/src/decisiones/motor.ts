@@ -347,6 +347,17 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     return out;
   }));
 
+  // Stories: un cliente que las hace y lleva días sin subir una (pedido del equipo 16/10).
+  resultados.push(await correrRegla("stories", ahora, async () => {
+    const { datosStories, propuestasStories } = await import("../services/stories.js");
+    const d = await datosStories(db, ahora);
+    if (!d) return { propuestas: [], evaluada: false, nota: "La captura de stories no corrió bien en las últimas 12 horas." };
+    const datos = d.datos
+      .filter((x) => activosIds.has(x.clientId) && !plantillas.has(x.clientId))
+      .map((x) => ({ ...x, cliente: nombres.get(x.clientId) ?? "" }));
+    return propuestasStories(datos, d.leidos, ahora);
+  }));
+
   // Lo que hay para ganar: contenido que funcionó y a quién ofrecerle pauta.
   resultados.push(await correrRegla("oportunidades", ahora, async () => {
     const { analisisContenido } = await import("../services/contenido-analisis.js");

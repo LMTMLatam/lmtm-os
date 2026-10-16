@@ -39,6 +39,7 @@ import {
   type ModoAgente,
 } from "../services/agent-modo.js";
 import { unauthorized } from "../errors.js";
+import { assertMiembro } from "./authz.js";
 
 type ToolDef = {
   type: "function";
@@ -1084,7 +1085,7 @@ export function agentToolsRoutes(
   // Un agente en modo consulta no ve siquiera las herramientas que escriben: es
   // más barato que las ignore a que las llame y se coma un error.
   router.get("/agent-tools", async (req, res) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    assertMiembro(req);
     const todas = [...CORE_TOOLS, ...pluginToolDefs()];
     const modo = await modoDelActor(req);
     const tools = modo === "accion" ? todas : todas.filter((t) => !esDeAccion(t.function.name));
@@ -2730,7 +2731,7 @@ export function agentToolsRoutes(
 
   // POST /api/ops/agent-eval/run — manual trigger of the weekly agent evals.
   router.post("/ops/agent-eval/run", async (req, res) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    assertMiembro(req);
     const { runAgentEvals } = await import("../services/agent-eval.js");
     const result = await runAgentEvals(db);
     res.json(result);
@@ -2740,7 +2741,7 @@ export function agentToolsRoutes(
   // el orgánico". Sin clientId corre toda la cartera. Lo dispara solo el brain
   // cada 12h; esto es para verlo al toque.
   router.post("/ops/organico/destilar", async (req, res) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    assertMiembro(req);
     const { destilarOrganico, destilarTodos, rendimientoOrganico } = await import("../services/organico-aprendizaje.js");
     const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : null;
     if (clientId) {
@@ -2762,7 +2763,7 @@ export function agentToolsRoutes(
   // Audita las keywords de Google Ads de una cuenta. Sin `derivar` solo devuelve
   // el análisis; con `derivar:true` deja la guía como tarea del equipo.
   router.post("/ops/keywords/auditar", async (req, res) => {
-    if (req.actor.type === "none") throw unauthorized("Authentication required");
+    assertMiembro(req);
     const { auditarKeywords, auditoriaAPasos, auditarYDerivar } = await import("../services/ads-keywords.js");
     const { clientId, clientSlug, dias, derivar } = (req.body ?? {}) as {
       clientId?: string; clientSlug?: string; dias?: number; derivar?: boolean;

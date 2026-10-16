@@ -12,8 +12,15 @@
 // esa variable el módulo queda inerte y el sistema se comporta igual que antes:
 // nunca rompe por estar a medio configurar.
 
-const BASE = process.env.MAGNIFIC_API_BASE ?? "https://api.freepik.com/v1/ai";
-const MODELO = process.env.MAGNIFIC_MODELO ?? "mystic";
+// Freepik pasó a llamarse Magnific (abril 2026): el host y el header son los
+// nuevos. Y "mystic" es el nombre del endpoint, NO un modelo: la API lo
+// rechazaba ("body.model: Input should be 'fluid', 'realism', …"), así que
+// ningún pedido a Magnific había generado nada nunca (16/10).
+const BASE = process.env.MAGNIFIC_API_BASE ?? "https://api.magnific.com/v1/ai";
+export const MODELOS_MAGNIFIC = ["realism", "fluid", "zen", "flexible", "super_real", "editorial_portraits"] as const;
+export const MODELO_MAGNIFIC: string = (MODELOS_MAGNIFIC as readonly string[]).includes(process.env.MAGNIFIC_MODELO ?? "")
+  ? (process.env.MAGNIFIC_MODELO as string)
+  : "realism";
 
 export const hayMagnific = (): boolean => !!process.env.MAGNIFIC_API_KEY?.trim();
 
@@ -32,7 +39,7 @@ async function pedir<T>(path: string, init: { method?: string; body?: unknown } 
   const r = await fetch(`${BASE}${path}`, {
     method: init.method ?? "GET",
     headers: {
-      "x-freepik-api-key": key,
+      "x-magnific-api-key": key,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
     body: init.body ? JSON.stringify(init.body) : undefined,
@@ -62,7 +69,7 @@ export async function generarImagenMagnific(
       prompt,
       // Magnific nombra los formatos por su uso, no por la razón numérica.
       aspect_ratio: opts.aspect === "9:16" ? "social_story_9_16" : "traditional_3_4",
-      model: MODELO,
+      model: MODELO_MAGNIFIC,
     },
   });
   const taskId = creado.data?.task_id;

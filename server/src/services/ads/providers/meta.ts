@@ -121,6 +121,28 @@ async function getPageAccessToken(userToken: string, pageId: string): Promise<st
   return found;
 }
 
+/**
+ * Las stories activas (últimas 24 h) de la cuenta de Instagram ligada a la
+ * página. El feed de la API no las trae: para saber cuándo salió la última
+ * hay que leerlas mientras viven (ver services/stories.ts).
+ */
+export async function storiesActivas(
+  userToken: string,
+  pageId: string,
+): Promise<{ igUserId: string | null; stories: Array<{ id: string; media_type?: string; permalink?: string; timestamp?: string }> }> {
+  const pageToken = await getPageAccessToken(userToken, pageId);
+  const pagina = await gGet<{ instagram_business_account?: { id?: string } }>(`/${pageId}`, { fields: "instagram_business_account{id}" }, pageToken);
+  const igUserId = pagina.instagram_business_account?.id ?? null;
+  if (!igUserId) return { igUserId: null, stories: [] };
+  const stories: Array<{ id: string; media_type?: string; permalink?: string; timestamp?: string }> = [];
+  for await (const lote of paginate<{ id: string; media_type?: string; permalink?: string; timestamp?: string }>(
+    `/${igUserId}/stories`,
+    { fields: "id,media_type,permalink,timestamp" },
+    pageToken,
+  )) stories.push(...lote);
+  return { igUserId, stories };
+}
+
 function inferPostType(permalinkUrl: string | undefined, fullPicture: string | undefined): string {
   const u = (permalinkUrl ?? "").toLowerCase();
   if (u.includes("/videos/")) return "video";
