@@ -58,3 +58,23 @@ export const trabajoApi = {
     return api.get<{ dias: number; items: ItemTrabajo[]; resumen: ResumenTrabajo }>(`/trabajo?${qs}`);
   },
 };
+
+// Buenas noticias por cliente. Ver server/src/services/novedades.ts.
+export interface Novedad {
+  tipo: string;
+  area: "pauta" | "web" | "organico";
+  titular: string;
+  detalle: string;
+  fuerza: number;
+}
+export interface NovedadesCliente {
+  clientId: string;
+  cliente: string;
+  slug: string;
+  novedades: Novedad[];
+  mensaje: string | null;
+}
+
+export const novedadesApi = {
+  leer: (clientId?: string) => api.get<{ clientes: NovedadesCliente[] }>(`/novedades${clientId ? `?clientId=${clientId}` : ""}`),
+};

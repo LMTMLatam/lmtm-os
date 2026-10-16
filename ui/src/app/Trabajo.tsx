@@ -6,9 +6,9 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Zap } from "lucide-react";
+import { Copy, TrendingUp, Zap } from "lucide-react";
 import { Link } from "@/lib/router";
-import { trabajoApi, type AreaTrabajo, type ItemTrabajo, type Plataforma, type Resultado } from "../api/trabajo";
+import { novedadesApi, trabajoApi, type AreaTrabajo, type ItemTrabajo, type NovedadesCliente, type Plataforma, type Resultado } from "../api/trabajo";
 import { fechaLarga, horaCorta, pesos } from "../lmtm/formato";
 import { Tarjeta } from "./HoyApp";
 import { Encabezado } from "./Shell";
@@ -262,6 +262,84 @@ function PanelTrabajo({
   );
 }
 
+// ── Buenas noticias (15/10) ─────────────────────────────────────────────
+// Titulares con números medidos para reenviarle al cliente. Ver
+// server/src/services/novedades.ts: los arma el sistema, no un modelo.
+
+function BotonCopiar({ texto }: { texto: string }) {
+  const [estado, setEstado] = useState<"" | "ok" | "manual">("");
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => navigator.clipboard.writeText(texto).then(() => setEstado("ok"), () => setEstado("manual"))}
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] bg-l-tinta px-3 text-[13px] font-semibold text-l-papel"
+      >
+        <Copy className="h-4 w-4" aria-hidden /> {estado === "ok" ? "Copiado" : "Copiar para WhatsApp"}
+      </button>
+      {estado === "manual" && (
+        <textarea
+          readOnly
+          value={texto}
+          rows={6}
+          onFocus={(e) => e.currentTarget.select()}
+          className="mt-2 w-full rounded-[10px] border border-l-linea-2 bg-l-sup p-2 text-[13px]"
+        />
+      )}
+    </div>
+  );
+}
+
+function TarjetaNovedades({ c, conCliente }: { c: NovedadesCliente; conCliente: boolean }) {
+  return (
+    <Tarjeta className="min-w-0">
+      {conCliente && (
+        <Link to={`/clientes/${c.slug}/agentes`} className="text-[13px] font-semibold text-l-marca hover:underline">
+          {c.cliente}
+        </Link>
+      )}
+      <ul className="mt-1 space-y-2.5">
+        {c.novedades.map((n) => (
+          <li key={n.tipo}>
+            <div className="flex items-start gap-1.5 text-[14px] font-semibold leading-[1.35] text-l-tinta">
+              <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-l-bien" aria-hidden /> {n.titular}
+            </div>
+            <p className="mt-0.5 pl-[22px] text-[13px] leading-[1.45] text-l-tinta-2">{n.detalle}</p>
+          </li>
+        ))}
+      </ul>
+      {c.mensaje && <BotonCopiar texto={c.mensaje} />}
+    </Tarjeta>
+  );
+}
+
+/** Las buenas noticias de un cliente, o de todos los que tienen alguna. */
+export function BuenasNoticias({ clientId }: { clientId?: string }) {
+  const q = useQuery({ queryKey: ["lmtm", "novedades", clientId ?? "agencia"], queryFn: () => novedadesApi.leer(clientId), staleTime: 10 * 60_000 });
+  const clientes = (q.data?.clientes ?? []).filter((c) => c.novedades.length > 0);
+  if (clientId && clientes.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-l-tinta-2">
+          Buenas noticias para mandar{!clientId && clientes.length ? ` · ${clientes.length} clientes` : ""}
+        </h2>
+        <p className="mt-0.5 text-[13px] text-l-tinta-3">
+          Mejoras medidas con datos hasta ayer. Cada una exige un mínimo de volumen y no esconde un empeoramiento.
+        </p>
+      </div>
+      {q.isLoading && <p className="text-[14px] text-l-tinta-3">Buscando buenas noticias…</p>}
+      {q.error && <p className="text-[14px] text-l-critico-texto">No se pudieron leer: {q.error instanceof Error ? q.error.message : "error"}</p>}
+      {q.data && clientes.length === 0 && <p className="text-[14px] text-l-tinta-2">Hoy ningún cliente tiene una mejora que alcance los mínimos.</p>}
+      <div className={clientId ? "" : "grid gap-3 md:grid-cols-2 xl:grid-cols-3"}>
+        {clientes.map((c) => (
+          <TarjetaNovedades key={c.clientId} c={c} conCliente={!clientId} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function TrabajoApp() {
   const [dias, setDias] = useState(30);
   const q = useQuery({ queryKey: ["lmtm", "trabajo", "agencia", dias], queryFn: () => trabajoApi.leer({ dias }), refetchInterval: 60_000 });
@@ -272,7 +350,8 @@ export function TrabajoApp() {
         bajada="Lo que los agentes hicieron y propusieron en Meta, Google, Search Console y Analytics, y qué pasó después."
         derecha={<SelectorDias dias={dias} onChange={setDias} />}
       />
-      <div className="px-4 pb-10 md:px-8">
+      <div className="space-y-8 px-4 pb-10 md:px-8">
+        <BuenasNoticias />
         <PanelTrabajo items={q.data?.items ?? []} cargando={q.isLoading} error={q.error} conCliente />
       </div>
     </>
@@ -286,6 +365,7 @@ export function TrabajoDelCliente({ clientId, areas, resumen = true }: { clientI
   const items = (q.data?.items ?? []).filter((i) => !areas || areas.includes(i.area));
   return (
     <div className="space-y-3">
+      {(!areas || areas.includes("pauta")) && <BuenasNoticias clientId={clientId} />}
       <div className="flex justify-end">
         <SelectorDias dias={dias} onChange={setDias} />
       </div>
