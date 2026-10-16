@@ -41,6 +41,40 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 16/10 (tarde): registro cerrado, link del equipo y conector para todos
+
+**Pedido:** "cerrá el registro, pasame la invitación válida para todo el equipo y el
+conector de Claude actual que lo puedan usar todos, e incluso generar videos".
+
+**Hecho (`79f6745`):**
+- **Registro cerrado:** `guardaRegistro` va antes del alta de better-auth. Solo entra
+  quien trae el código del equipo (`LMTM_INVITACION_EQUIPO`) o el token de una
+  invitación de paperclip vigente (header `x-lmtm-invitacion`). No se usó
+  `PAPERCLIP_AUTH_DISABLE_SIGN_UP` porque rompía las invitaciones.
+- **Link del equipo:** `/auth?equipo=<código>`. La persona crea su cuenta (o entra
+  con la suya) y queda como operador. No hace falta aprobar a cada uno: las
+  invitaciones de paperclip son de un solo uso y piden aprobación.
+- **Conector del equipo:** `POST /mcp-equipo/<código>` (`LMTM_CONECTOR_EQUIPO`),
+  como el agente "Claude (equipo)".
+  - La credencial se firma en el servidor y nunca sale de ahí.
+  - Tiene 28 herramientas: leer clientes y contenido, generar videos e imágenes (libre
+    o desde una tarea de ClickUp), y crear tareas y aprendizajes.
+  - No tiene pauta, SQL, WhatsApp a clientes, CRM ni la API genérica.
+  - No se compartió el conector de admin: daba SQL de toda la base y escritura en la
+    pauta.
+- `/contenido/generar-libre` acepta a ese agente; el resto de la flota sigue sin
+  poder generar.
+- Los dos códigos están en Railway; los links, en `%USERPROFILE%\lmtm-equipo-links.txt`.
+  Para revocar uno, se cambia su variable.
+
+**Verificado en producción:**
+- alta sin código: 403;
+- código del equipo: válido (uno falso no);
+- conector con link falso: 401;
+- `tools/list` del conector: las 28 herramientas;
+- `lmtmListClients` por el conector: OK;
+- higgsfield activo por plan + API, con la etiqueta de ClickUp "generar contenido".
+
 ### 16/10: pedidos del equipo (grupo del bot)
 
 **Pedidos:**
