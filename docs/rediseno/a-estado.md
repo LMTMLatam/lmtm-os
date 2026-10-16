@@ -41,6 +41,48 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 15/10: buenas noticias para mandarle al cliente
+
+**Pedido:** "que los agentes puedan dar buenas noticias / novedades para reenviar a los
+clientes, titulares llamativos para que noten la evolución, personalizado por cliente,
+en un panel o en el dashboard".
+
+**Hecho (`f569e4d`):** `services/novedades.ts`. Los titulares los arma el sistema con
+plantillas y números medidos, no un modelo. Qué mira:
+- **Pauta:**
+  - semana y mes contra el período anterior;
+  - la mejor semana de consultas y el costo más bajo de 3 meses;
+  - el costo por consulta debajo del objetivo que fijó una persona.
+- **Web:** visitas e impresiones desde Google, 28 días contra 28, con todos los días
+  medidos.
+- **Orgánico:** la publicación de las últimas 2 semanas que más se destacó, contada en
+  interacciones reales.
+- **Optimizaciones:** las medidas que bajaron el costo por consulta.
+
+**Guardas:**
+- volumen mínimo;
+- "más consultas" no va si cada una costó más de 20% de más;
+- "más baratas" no va si llegaron 30% menos;
+- nada de pauta con fuentes atrasadas o fallando, ni con las conversiones dudosas de
+  Google (en ese caso el titular dice "en Meta");
+- en cuentas chicas se dice "más de 10 veces", no "338 veces".
+
+**Dónde se ve:**
+- "Buenas noticias para mandar" en Trabajo y en la ficha del cliente, con "Copiar para
+  WhatsApp";
+- "Novedades" arriba del resumen del dashboard del link del cliente.
+
+**De paso:** `cuentaEnPesos()` con la columna sin tabla (`ad_account_id`) se resolvía
+contra `ads_account_mappings` dentro de su propio subquery, y dejaba afuera todas las
+filas. Los otros usos pasan la columna de drizzle (calificada) y están bien.
+
+**Verificado contra producción (solo lectura):** 11 de 59 clientes con novedades.
+- RENO: consultas +280% en el mes y cada una 57% más barata.
+- COSA PROPIEDADES: la mejor semana de consultas de 3 meses (117) y su costo más bajo.
+- Distrillantas: consultas +29% en el mes.
+- Publicaciones destacadas en 9 clientes.
+- Tests: 12 nuevos; server y UI en verde.
+
 ### 15/10: el trabajo de los agentes, en un solo lugar
 
 **Pedido:** "que los agentes, en base a lo que hacen en Google, campañas, Analytics y
