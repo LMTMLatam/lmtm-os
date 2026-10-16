@@ -409,6 +409,12 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
     refetchInterval: REFRESH_MS,
     retry: false,
   });
+  const novedadesQuery = useQuery({
+    queryKey: ["public", "novedades", slug],
+    queryFn: () => apiPublic<{ novedades: Array<{ area: string; titular: string; detalle: string }> }>(slug, "/novedades"),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
   const optimizacionesQuery = useQuery({
     queryKey: ["public", "optimizaciones", slug, range.since, range.until],
     queryFn: () => apiPublic<{ optimizaciones: OptimizacionPublica[] }>(slug, "/optimizaciones", range),
@@ -531,6 +537,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {activeSection === "resumen" && <NovedadesPublic items={novedadesQuery.data?.novedades ?? []} />}
         {renderSection()}
       </main>
 
@@ -757,6 +764,32 @@ function resultadoPublico(r: Resultado | null, fmt: any): string | null {
   if (r.metrica === "cpl") return `Costo por consulta de la cuenta: ${fmt.fmtMoney(r.antes)} la semana antes → ${fmt.fmtMoney(r.despues)} la semana después`;
   if (r.metrica === "ctr") return `CTR de la cuenta: ${r.antes.toLocaleString("es-AR")}% la semana antes → ${r.despues.toLocaleString("es-AR")}% la semana después`;
   return null;
+}
+
+/**
+ * Las buenas noticias del cliente (15/10): mejoras medidas, con sus números.
+ * Si no hay ninguna que pase los mínimos, no se muestra nada.
+ */
+function NovedadesPublic({ items }: { items: Array<{ area: string; titular: string; detalle: string }> }) {
+  if (items.length === 0) return null;
+  return (
+    <Card className="mb-4 p-4">
+      <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
+        <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden /> Novedades
+      </h3>
+      <ul className="grid gap-3 md:grid-cols-2">
+        {items.map((n, i) => (
+          <li key={i} className="flex gap-2">
+            <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-snug">{n.titular}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{n.detalle}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
 }
 
 function OptimizacionesPublic({ items, loading, fmt }: { items: OptimizacionPublica[]; loading: boolean; fmt: any }) {

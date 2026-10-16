@@ -341,6 +341,22 @@ export function publicDashboardRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/public/dashboards/:slug/novedades — las buenas noticias del
+  // cliente (titulares con sus números; ver services/novedades.ts). Sin el
+  // mensaje armado para WhatsApp: ese es del equipo.
+  router.get("/dashboards/:slug/novedades", microCache(10 * 60_000), async (req, res) => {
+    try {
+      const r = await resolve(req.params.slug);
+      if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
+      const { novedades } = await import("../services/novedades.js");
+      const [c] = await novedades(db, { clientId: r.client.id });
+      res.json({ novedades: (c?.novedades ?? []).map((n) => ({ area: n.area, titular: n.titular, detalle: n.detalle })) });
+    } catch (e) {
+      console.warn("[novedades-publicas]", e instanceof Error ? e.message : e);
+      res.status(500).json({ error: "No se pudieron leer las novedades." });
+    }
+  });
+
   // GET /api/public/dashboards/:slug/creatives?since&until&platform
   // Los anuncios que mejor rindieron, CON la miniatura del creativo. La
   // miniatura vive anidada en raw.creative (el sync pide

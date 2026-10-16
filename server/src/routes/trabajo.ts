@@ -7,9 +7,17 @@ import { resumirTrabajo, trabajoDeAgentes } from "../services/trabajo.js";
 
 export function trabajoRoutes(db: Db): Router {
   const router = Router();
-  router.use("/trabajo", (req, _res, next) => {
+  router.use(["/trabajo", "/novedades"], (req, _res, next) => {
     assertAuthenticated(req);
     next();
+  });
+
+  // GET /api/novedades?clientId= — buenas noticias para mandarle al cliente
+  // (sin clientId: los clientes activos que tienen alguna). Ver services/novedades.ts.
+  router.get("/novedades", async (req, res) => {
+    const clientId = typeof req.query.clientId === "string" && /^[0-9a-f-]{36}$/i.test(req.query.clientId) ? req.query.clientId : undefined;
+    const { novedades, novedadesAgencia } = await import("../services/novedades.js");
+    res.json({ clientes: clientId ? await novedades(db, { clientId }) : await novedadesAgencia(db) });
   });
 
   // GET /api/trabajo?clientId=&dias=30 — lo hecho, lo propuesto y lo medido.
