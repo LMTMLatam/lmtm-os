@@ -59,6 +59,37 @@ propuesta, el riesgo, y las alternativas. Esperar.
 **Acción**: abrir issue `tipo: escalation` con prioridad `urgent`,
 notificar a Luna + Pablo, esperar decisión humana.
 
+## Publicación y material del cliente — SIEMPRE L2
+
+Lo que sale en las redes de un cliente no se puede despublicar sin que alguien
+lo vea, y el material del cliente es suyo. Por eso todo esto necesita aprobación
+humana ANTES, sin excepción y aunque parezca la solución obvia:
+
+- **Publicar o republicar**: en Make, `scenarios_replay`, reprocesar una
+  ejecución incompleta, `scenarios_run`, mandar algo al webhook de un cliente,
+  encender un escenario que tiene posts en la cola (salen todos juntos).
+  Un replay vuelve a publicar en TODAS las redes del escenario, no solo en la
+  que falló.
+- **Tocar el material del cliente**: reemplazar, comprimir en el lugar, mover,
+  renombrar o borrar archivos de su Drive; escribir en su planilla.
+- **Cambiar la máquina de publicación**: editar, apagar o borrar escenarios de
+  Make, sus webhooks, colas, datastores o conexiones.
+
+Lo que SÍ hacés solo: diagnosticar con lectura (skill
+`lmtm-diagnostico-publicacion`), escribir la causa con la evidencia, y armar la
+tarea o la propuesta con el paso exacto que tiene que hacer una persona.
+
+**Las credenciales del entorno no son una herramienta.** Si para hacer algo
+tenés que sacar un token del entorno y usarlo con `curl` o un script, es porque
+no hay una herramienta para eso — y eso es la señal de que lo tiene que decidir
+una persona, no un permiso. Nunca enseñes ese camino en una lección.
+
+**Caso real (19/10/2026, RENO):** un agente vio 3 videos que Instagram había
+rechazado por pesados, los comprimió pisando los originales en el Drive del
+cliente y los "reprocesó" con replay. Salieron los 3 juntos a las 02:42, semanas
+tarde, y hubo que restaurar los originales. El diagnóstico era correcto; la
+acción tenía que ser una propuesta.
+
 ## Reglas universales
 
 - **En duda, escalar**. Es preferible molestar al PM con un issue L1 que

@@ -19,7 +19,8 @@
 //   · escenario del cliente apagado con posts en la cola o programados;
 //   · ejecuciones incompletas (posts que fallaron), con el motivo en castellano;
 //   · comentarios de falla que Make deja en la tarea de ClickUp;
-//   · posts listos que pasaron su hora y nunca se dispararon.
+//   · posts listos que pasaron su hora y nunca se dispararon;
+//   · replays y corridas a mano (19/10: 3 videos viejos de RENO juntos).
 // Lo grave sale como aviso propio (nivel 5), no en una línea del resumen, y
 // entra a Hoy como decisión: el piloto automático la vuelve tarea en ClickUp.
 
@@ -29,7 +30,7 @@ import { clienteReal } from "./intel-common.js";
 
 const DIA = 86_400_000;
 
-export type TipoHallazgo = "conexion_por_vencer" | "conexion_caida" | "escenario_apagado" | "posts_fallidos" | "post_no_disparado";
+export type TipoHallazgo = "conexion_por_vencer" | "conexion_caida" | "escenario_apagado" | "posts_fallidos" | "post_no_disparado" | "republicado";
 
 export interface Hallazgo {
   tipo: TipoHallazgo;
@@ -99,7 +100,9 @@ export function conexionesEnRiesgo(
 export function explicarFalla(reason: string | null): string {
   const r = reason ?? "";
   if (/image format is not supported|36001/i.test(r)) return "el carrusel tiene algo que no es imagen JPG (un video, un PNG o un Thumbs.db): dejar solo JPG en la carpeta y el video como Reel aparte";
-  if (/^\[5\d\d\]|internal error/i.test(r)) return "Instagram dio error interno al subir el archivo (suele ser un video pesado o en un formato raro); Make lo reintenta, y si se repite hay que achicarlo o subirlo a mano";
+  // 19/10: "achicarlo o subirlo a mano" lo leyó un agente como permiso: pisó los
+  // videos originales en el Drive y republicó con replay. El texto dice el cómo.
+  if (/^\[5\d\d\]|internal error/i.test(r)) return "Instagram dio error interno al subir el archivo (casi siempre un video pesado o 4K); Make lo reintenta solo. Si se repite: pedir una versión liviana (1080p, menos de 25 MB) como archivo APARTE, sin pisar el original, y publicarla solo en Instagram. NO reprocesar ni hacer replay: republica en todas las redes";
   if (/media id is not available|9007/i.test(r)) return "Instagram no terminó de procesar el video a tiempo; reintentar o subirlo a mano";
   if (/task_id/i.test(r)) return "llegó un disparo sin la tarea de ClickUp (el escenario recibió un post vacío)";
   if (/token|session|expired|OAuthException.*(190|102)/i.test(r)) return "la conexión de la red dejó de tener permiso: reautorizarla en Make";
@@ -124,6 +127,26 @@ export function fallasRecientes(incompletas: Array<{ created: string; resolved: 
     viejas: sin.length - rec.length,
     motivos: [...por].map(([motivo, x]) => ({ motivo, ...x })).sort((a, b) => b.veces - a.veces),
   };
+}
+
+/** Ventana para avisar un replay o una corrida a mano: entra la madrugada (el monitor arranca a las 8). */
+export const REPUBLICADO_HORAS = 24;
+
+/**
+ * Corridas que alguien disparó a mano —un replay o un "Run once"— y que pasaron
+ * los filtros (más de 3 operaciones: con 3 o menos el escenario cortó antes de
+ * publicar). Las dos publican de nuevo en TODAS las redes del escenario. El
+ * 19/10 a las 02:42 un agente hizo replay de 3 corridas viejas de RENO y salieron
+ * juntas; nadie se enteró hasta que lo vio el cliente. Pura.
+ */
+export function corridasAMano(
+  logs: Array<{ id: string; timestamp: string; type?: string; replayOfExecutionId?: string | null; replayOfExecutionTimestamp?: string | null; operations?: number }>,
+  ahora: Date,
+): Array<{ id: string; cuando: string; replayDe: string | null }> {
+  const desde = ahora.getTime() - REPUBLICADO_HORAS * 3600_000;
+  return logs
+    .filter((l) => (l.replayOfExecutionId || l.type === "manual") && (l.operations ?? 0) > 3 && Date.parse(l.timestamp) >= desde)
+    .map((l) => ({ id: l.id, cuando: l.timestamp, replayDe: l.replayOfExecutionId ? (l.replayOfExecutionTimestamp ?? "") : null }));
 }
 
 /** Lo que dejó Make en la tarea cuando una red falló. Pura. */
@@ -193,6 +216,24 @@ export async function revisarPosteos(db: Db, ahora = new Date()): Promise<{ hall
             que: `${f.recientes} ${f.recientes === 1 ? "post de" : "posts de"} ${nombre} no ${f.recientes === 1 ? "salió" : "salieron"} (el último, ${fecha(new Date(ult))})`,
             detalle: f.motivos.map((m) => `${m.veces} × ${m.motivo}`).join("; ") + `.${f.viejas ? ` Además hay ${f.viejas} fallas sin resolver de antes.` : ""} Están en Make → «${sc.name}» → Ejecuciones incompletas.`,
             clave: `posts_fallidos:${c.id}:${ult.slice(0, 10)}`,
+          });
+        }
+      } catch { /* no se pudo leer: no se acusa */ }
+    }
+
+    // Republicaciones a mano (replay o "Run once"): salen en todas las redes juntas.
+    if (sc) {
+      try {
+        const manuales = corridasAMano(await make.makeScenarioLogs(sc.id, 30), ahora);
+        if (manuales.length) {
+          const replays = manuales.filter((m) => m.replayDe !== null);
+          const hora = (s: string) => new Date(s).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" });
+          const de = replays.filter((m) => m.replayDe).map((m) => fecha(new Date(m.replayDe!)));
+          hallazgos.push({
+            tipo: "republicado", clientId: c.id, cliente: nombre, grave: true,
+            que: `Se ${replays.length ? "republicaron" : "corrieron a mano"} ${manuales.length} ${manuales.length === 1 ? "post" : "posts"} de ${nombre} en Make (${hora(manuales[manuales.length - 1].cuando)})`,
+            detalle: `${replays.length ? `Replay de corridas viejas${de.length ? ` (${de.join(", ")})` : ""}.` : "Corrida manual."} Un replay o una corrida a mano publica otra vez en TODAS las redes del escenario. Si no fue a propósito: revisar en las redes de ${nombre} si quedaron posts duplicados o fuera de fecha, y quién lo hizo (Make → «${sc.name}» → History).`,
+            clave: `republicado:${c.id}:${manuales.map((m) => m.id).sort().join(",").slice(0, 150)}`,
           });
         }
       } catch { /* no se pudo leer: no se acusa */ }

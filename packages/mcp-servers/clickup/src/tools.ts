@@ -178,6 +178,26 @@ export async function getTask(input: z.infer<typeof getTaskSchema>) {
   return taskSummary(data as unknown as TaskLike);
 }
 
+// Make deja en la tarea "Facebook/LinkedIn Post was not successfull" cuando una
+// red falla y marca la corrida en verde: sin leer los comentarios no se sabe qué
+// red salió y cuál no (19/10, RENO: un agente creyó que había salido en Facebook).
+export const getTaskCommentsSchema = z.object({
+  taskId: z.string().min(1).describe("ClickUp task id"),
+});
+
+export async function getTaskComments(input: z.infer<typeof getTaskCommentsSchema>) {
+  const data = await clickupFetch<{ comments?: Array<{ id: string; comment_text: string; user?: { username?: string }; date: string }> }>(
+    readToken(),
+    `/task/${encodeURIComponent(input.taskId)}/comment`,
+  );
+  return (data.comments ?? []).map((c) => ({
+    id: c.id,
+    text: c.comment_text,
+    author: c.user?.username ?? null,
+    createdAt: new Date(Number(c.date)).toISOString(),
+  }));
+}
+
 // ---- Write: tasks, comments ----
 
 export const createTaskSchema = z.object({

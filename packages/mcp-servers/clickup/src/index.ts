@@ -19,6 +19,8 @@ import {
   createTaskSchema,
   getTask,
   getTaskSchema,
+  getTaskComments,
+  getTaskCommentsSchema,
   listFolderlessLists,
   listFolderlessListsSchema,
   listFolders,
@@ -47,6 +49,8 @@ export {
   createTaskSchema,
   getTask,
   getTaskSchema,
+  getTaskComments,
+  getTaskCommentsSchema,
   listFolderlessLists,
   listFolderlessListsSchema,
   listFolders,
@@ -147,6 +151,13 @@ export function createClickUpMcpServer() {
     "Free-text search across task names + descriptions in a workspace. Returns matching tasks with their list/folder/space path.",
     searchTasksSchema.shape,
     wrap(searchTasks),
+  );
+
+  server.tool(
+    "get_task_comments",
+    "Read the comments of a task, newest first. On a social post task this is where Make reports a network that failed (\"Facebook Post was not successfull\") while the run shows as successful: read it before saying a post went out.",
+    getTaskCommentsSchema.shape,
+    wrap(getTaskComments),
   );
 
   // Write
