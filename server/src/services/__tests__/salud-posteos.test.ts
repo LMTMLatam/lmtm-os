@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarMensajes, conexionesEnRiesgo, explicarFalla, fallasRecientes, FALLA_EN_COMENTARIO, type Hallazgo } from "../salud-posteos.js";
+import { armarMensajes, conexionesEnRiesgo, corridasAMano, explicarFalla, fallasRecientes, FALLA_EN_COMENTARIO, type Hallazgo } from "../salud-posteos.js";
 import { decidirAviso } from "../../avisos/politica.js";
 
 const AHORA = new Date("2026-10-15T01:00:00Z");
@@ -41,9 +41,39 @@ describe("posts fallidos", () => {
     expect(f.viejas).toBe(1);
     expect(f.motivos[0].veces).toBe(1);
   });
+  it("el error 500 de Instagram no manda a reprocesar ni a pisar el original", () => {
+    const t = explicarFalla("[500] Internal error encountered.");
+    expect(t).toMatch(/APARTE/);
+    expect(t).toMatch(/NO reprocesar ni hacer replay/);
+    expect(t).not.toMatch(/subirlo a mano/);
+  });
   it("el comentario que deja Make en ClickUp", () => {
     expect(FALLA_EN_COMENTARIO.test("LinkedIn Post was not successfull")).toBe(true);
     expect(FALLA_EN_COMENTARIO.test("Publicado en Instagram")).toBe(false);
+  });
+});
+
+describe("republicaciones a mano (RENO, 19/10 02:42)", () => {
+  const ahora = new Date("2026-10-19T14:00:00Z");
+  // Las corridas reales de esa noche, tal como las devuelve /scenarios/5863407/logs.
+  const logs = [
+    { id: "22ee9b18", timestamp: "2026-10-19T14:00:15Z", type: "auto", operations: 10 }, // post del día: normal
+    { id: "cf428492", timestamp: "2026-10-19T05:42:49Z", type: "auto", operations: 11, replayOfExecutionId: "46ac41e6", replayOfExecutionTimestamp: "2026-10-13T13:00:12Z" },
+    { id: "8a3c439c", timestamp: "2026-10-19T05:42:48Z", type: "auto", operations: 11, replayOfExecutionId: "d22f00c4", replayOfExecutionTimestamp: "2026-10-05T11:00:27Z" },
+    { id: "db7ae5ca", timestamp: "2026-10-19T05:42:48Z", type: "auto", operations: 11, replayOfExecutionId: "653a2209", replayOfExecutionTimestamp: "2026-09-25T18:00:24Z" },
+    { id: "2d7b520c", timestamp: "2026-10-19T05:39:08Z", type: "auto", operations: 3 }, // webhook a mano que cortó en el filtro
+  ];
+  it("los 3 replays que publicaron, y nada más", () => {
+    const m = corridasAMano(logs, ahora);
+    expect(m.map((x) => x.id).sort()).toEqual(["8a3c439c", "cf428492", "db7ae5ca"]);
+    expect(m.every((x) => x.replayDe)).toBe(true);
+  });
+  it("una corrida manual que cortó en el filtro no publicó: no se avisa", () => {
+    expect(corridasAMano([{ id: "x", timestamp: "2026-10-19T05:00:00Z", type: "manual", operations: 2 }], ahora)).toEqual([]);
+    expect(corridasAMano([{ id: "y", timestamp: "2026-10-19T05:00:00Z", type: "manual", operations: 9 }], ahora)).toHaveLength(1);
+  });
+  it("lo de hace más de un día ya se avisó (o ya no es noticia)", () => {
+    expect(corridasAMano([{ id: "z", timestamp: "2026-10-17T05:00:00Z", type: "auto", operations: 11, replayOfExecutionId: "a" }], ahora)).toEqual([]);
   });
 });
 

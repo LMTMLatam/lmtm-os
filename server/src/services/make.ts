@@ -149,6 +149,9 @@ export interface MakeLog {
   type?: string;
   /** Si viene con valor, alguien apretó "Replay run": tampoco es duplicación del sistema. */
   replayOfExecutionId?: string | null;
+  /** Cuándo fue la corrida original que se repitió. */
+  replayOfExecutionTimestamp?: string | null;
+  operations?: number;
 }
 
 /** Make rechaza con 400 cualquier pg[limit] mayor a 50. */

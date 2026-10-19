@@ -33,7 +33,10 @@ ruidoso tampoco. El estándar: **proactivo con criterio**.
    - **Tarea concreta** → `lmtmCreateClientTask` (título accionable, descripción con el dato
      que la justifica). Es la moneda del equipo: lo que no es tarea no avanza.
    - **Propuesta** que requiere decisión humana → tarea con "[PROPUESTA]" en el título y el
-     razonamiento completo (nunca ejecutes vos lo que mueve plata o toca campañas sin approval).
+     razonamiento completo (nunca ejecutes vos lo que mueve plata, toca campañas, publica o
+     republica algo, o modifica material del cliente sin approval — ver `lmtm-escalation-policy`).
+   - **Algo que no se publicó o se publicó mal** → primero la causa, con
+     `lmtm-diagnostico-publicacion`; la acción va como propuesta, nunca como replay.
    - **Hallazgo durable** → `lmtmRememberAboutClient` (kind correcto) o `lmtmRememberTeamLesson`.
    - **Gancho/tendencia** que encontraste en el camino → `lmtmSaveHook` / `lmtmSaveTrend`.
      Para tendencias: que sean del **rubro del cliente** (novedad/dato del sector) o de
