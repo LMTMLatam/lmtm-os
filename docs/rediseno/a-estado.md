@@ -64,7 +64,16 @@ agente salteando la firma. Avisadas solo dentro del resumen de las 9:00. Dos fal
   conector (actor board). Un agente que se firma solo deja la propuesta armada. La
   autonomía por historial ya no aplica a pausas (las decide el piloto).
 - Repetido sobre las 35 reales: 18 se habrían hecho solas igual, 17 quedaban para
-  una persona.
+  una persona (deploy `e3b5c4bd`).
+- **Después, pedido explícito: "no quiero que se frenen más anuncios sin
+  autorización humana".** El piloto ya no pausa nada (campañas, conjuntos ni
+  keywords); se sacaron `pausaSola`, sus topes y sus pruebas. Keywords de Google
+  solo si la decisión quedó `aprobada` por una persona en Hoy. Sigue automático:
+  bajar o mover presupuesto (mínimo $1.000), negativas de Google y tareas.
+- Revisados todos los caminos de escritura: aprobar (`/approvals/:id/approve`) y
+  ejecutar decisiones piden `assertBoard`; `lmtmSql` es solo lectura sin tokens; los
+  plugins `lmtm-meta-ads` y `lmtm-google-ads` (tienen `update_campaign` SIN guards)
+  están en `error` desde 06/06, sin config ni uso. Si alguien los activa, saltean todo.
 
 **Queda:** `crm_request` todavía confía en el `approved` del agente (no es pauta,
 no se tocó).

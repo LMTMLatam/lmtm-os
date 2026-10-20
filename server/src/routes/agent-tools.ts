@@ -1188,8 +1188,9 @@ export function agentToolsRoutes(
       }
 
       const { autonomiaDe } = await import("../services/ads-autonomia.js");
-      // Las pausas las decide solo el piloto, con sus topes y sin volver a apagar
-      // lo que prendió una persona: un buen historial no se los saltea (20/10).
+      // Frenar anuncios siempre lo autoriza una persona: ni el piloto ni un buen
+      // historial pausan solos (20/10, "no quiero que se frenen más anuncios sin
+      // autorización humana").
       const kindDeAccion =
         p.accion.accion === "pause" || p.accion.accion === "duplicate" ? null : "set_budget";
       const veredicto = kindDeAccion
