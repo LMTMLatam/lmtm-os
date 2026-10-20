@@ -13,7 +13,8 @@
 //   · pausar: el evaluador del playbook lo aprueba Y la evidencia es fuerte
 //     (menos de 1 en 50 de que una campaña en el objetivo traiga tan pocos
 //     leads); hasta 3 por cliente por día, nunca más del 40% del gasto de esa
-//     plataforma, nunca la última campaña que gasta;
+//     plataforma, nunca la última campaña que gasta; nunca lo que cuesta menos
+//     de 2,5 × el objetivo por lead ni lo que una persona volvió a prender (20/10);
 //   · bajar presupuesto y mover plata entre campañas (el gasto total no sube),
 //     si el evaluador lo aprueba;
 //   · negativas y pausar keywords de Google (ya traen evidencia mínima y
@@ -27,7 +28,7 @@
 // antes era la llave. Todo lo que se hace solo se avisa en el resumen.
 
 import type { Db } from "@paperclipai/db";
-import { approvals, decisiones } from "@paperclipai/db";
+import { agentActions, approvals, decisiones } from "@paperclipai/db";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { MetricasCampana } from "../metricas/campanas.js";
 import type { ContextoEval } from "../metricas/eval-propuestas.js";
@@ -39,6 +40,14 @@ export const POLITICA = {
   pausasPorClientePorDia: 3,
   /** Lo pausado solo en el día no puede pasar esta parte del gasto de la plataforma. */
   fraccionMaxPausada: 0.4,
+  /**
+   * Solo se pausa sin preguntar lo que cuesta al menos esto × el objetivo por
+   * lead (con objetivo de historial, el doble del promedio de la cuenta). Con
+   * mucho volumen, la evidencia sola pasa con poco: el 15/10 apagó WP AVELLANEDA
+   * de Distrillantas con 198 leads por estar 1,6 × arriba. Eso trae consultas;
+   * apagarlo lo decide una persona.
+   */
+  cplPausaSola: 2.5,
   tareasPorClientePorCorrida: 2,
   tareasPorCorrida: 30,
 } as const;
@@ -55,6 +64,9 @@ export function pausaSola(
   cuenta: { gastoPlataforma: number; pausadoHoy: number; pausasHoy: number; campanasConGasto: number },
   probPocosLeads: (k: number, esperados: number) => number,
 ): Veredicto {
+  if (e.leads > 0 && e.inversion / e.leads < POLITICA.cplPausaSola * tcpl) {
+    return { si: false, motivo: `trae consultas (CPL ${Math.round(e.inversion / e.leads)}, menos de ${POLITICA.cplPausaSola.toString().replace(".", ",")} × el objetivo de ${Math.round(tcpl)}): apagarla es decisión de una persona` };
+  }
   const p = probPocosLeads(e.leads, e.inversion / tcpl);
   if (p >= POLITICA.evidenciaPausa) return { si: false, motivo: `la evidencia alcanza para proponer pero no para hacerlo solo (1 en ${Math.round(1 / p)})` };
   if (cuenta.pausasHoy >= POLITICA.pausasPorClientePorDia) return { si: false, motivo: `ya se pausaron ${cuenta.pausasHoy} solas hoy en este cliente` };
@@ -120,6 +132,13 @@ export async function propuestaSeEjecutaSola(
     const e = buscar(accion.entityType, accion.entityId);
     const tcpl = e ? ctx.tcpl[e.c.plataforma] : null;
     if (!e || !tcpl) return { si: false, motivo: "no se encontró la entidad o su objetivo" };
+    // El sistema nunca reanuda: si algo que ya pausó vuelve a gastar, lo prendió
+    // una persona. El 14 al 20/10 el piloto volvió a apagar 3 veces campañas que
+    // el equipo había reactivado. Lo que una persona prendió, solo lo apaga otra.
+    const [previa] = await db.select({ at: agentActions.createdAt }).from(agentActions)
+      .where(and(eq(agentActions.kind, "pause_ad_entity"), eq(agentActions.entityId, accion.entityId)))
+      .limit(1);
+    if (previa) return { si: false, motivo: "ya se pausó antes y alguien la volvió a prender: lo decide una persona" };
     // Solo lo que busca consultas: un posteo promocionado o una campaña de perfil
     // no se juzga por leads, y si no se sabe adónde manda, no se toca solo.
     const { destinosDeCampanas } = await import("./ads-destinos.js");

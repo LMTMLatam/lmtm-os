@@ -1101,6 +1101,10 @@ export function agentToolsRoutes(
     const body = (req.body ?? {}) as { tool?: unknown; parameters?: unknown };
     const tool = typeof body.tool === "string" ? body.tool : "";
     const params = (body.parameters ?? {}) as Record<string, unknown>;
+    // La firma humana de la pauta (approved=true) solo vale si la manda una
+    // persona (el conector de Claude de un admin). Un agente que se la pone a
+    // sí mismo deja la propuesta armada, como si no la hubiera mandado (20/10).
+    const firmaHumana = req.actor.type === "board" && params.approved === true;
     const issueRef = typeof params.issueId === "string" ? params.issueId : "";
 
     const reply = (ok: boolean, content: string) => res.json({ ok, content });
@@ -1184,8 +1188,10 @@ export function agentToolsRoutes(
       }
 
       const { autonomiaDe } = await import("../services/ads-autonomia.js");
+      // Las pausas las decide solo el piloto, con sus topes y sin volver a apagar
+      // lo que prendió una persona: un buen historial no se los saltea (20/10).
       const kindDeAccion =
-        p.accion.accion === "pause" ? "pause_ad_entity" : p.accion.accion === "duplicate" ? null : "set_budget";
+        p.accion.accion === "pause" || p.accion.accion === "duplicate" ? null : "set_budget";
       const veredicto = kindDeAccion
         ? await autonomiaDe(db, ctx.companyId, kindDeAccion).catch(() => null)
         : null;
@@ -2268,7 +2274,7 @@ export function agentToolsRoutes(
         const entityId = typeof params.entityId === "string" ? params.entityId : "";
         if (!clientId || !entityId) return reply(false, "Faltan clientId o entityId.");
         const { pauseAdEntity } = await import("../services/ads-actions.js");
-        const r = await pauseAdEntity(db, { clientId, entityType, entityId, agentId: ctx.agentId, approved: params.approved === true });
+        const r = await pauseAdEntity(db, { clientId, entityType, entityId, agentId: ctx.agentId, approved: firmaHumana });
         if (r.approvalRequired) {
           return dejarPropuesta(
             { clientId, justificacion: textoDe(params.justificacion), resumen: `Pausar ${entityType} "${r.entity?.name ?? entityId}"`, accion: { accion: "pause", entityType, entityId } },
@@ -2289,7 +2295,7 @@ export function agentToolsRoutes(
         const r = await setBudget(db, {
           clientId, entityType, entityId, nuevoDiario,
           agentId: ctx.agentId,
-          approved: params.approved === true,
+          approved: firmaHumana,
           ensayo: params.ensayo === true,
         });
         if (r.approvalRequired) {
@@ -2321,7 +2327,7 @@ export function agentToolsRoutes(
           hacia: { entityType: params.haciaEntityType === "adset" ? "adset" : "campaign", entityId: haciaEntityId },
           monto,
           agentId: ctx.agentId,
-          approved: params.approved === true,
+          approved: firmaHumana,
           ensayo: params.ensayo === true,
         });
         if (r.approvalRequired) {
@@ -2347,7 +2353,7 @@ export function agentToolsRoutes(
         const adsetId = typeof params.adsetId === "string" ? params.adsetId : "";
         if (!clientId || !adsetId) return reply(false, "Faltan clientId o adsetId.");
         const { duplicateWinner } = await import("../services/ads-duplicar.js");
-        const r = await duplicateWinner(db, { clientId, adsetId, agentId: ctx.agentId, approved: params.approved === true });
+        const r = await duplicateWinner(db, { clientId, adsetId, agentId: ctx.agentId, approved: firmaHumana });
         if (r.approvalRequired) {
           return dejarPropuesta(
             {
@@ -2467,7 +2473,7 @@ export function agentToolsRoutes(
         const { agregarNegativas } = await import("../services/ads-actions.js");
         const r = await agregarNegativas(db, {
           clientId, campaignId, terminos, agentId: ctx.agentId,
-          approved: params.approved === true, ensayo: params.ensayo === true,
+          approved: firmaHumana, ensayo: params.ensayo === true,
         });
         // El rechazo por marca se informa SIEMPRE, salga bien o mal: es el dato
         // que evita que el agente vuelva a proponer lo mismo en el próximo ciclo.
@@ -2488,7 +2494,7 @@ export function agentToolsRoutes(
         const { pausarKeywords } = await import("../services/ads-actions.js");
         const r = await pausarKeywords(db, {
           clientId, textos, agentId: ctx.agentId,
-          approved: params.approved === true, ensayo: params.ensayo === true,
+          approved: firmaHumana, ensayo: params.ensayo === true,
         });
         const partes: string[] = [];
         if (r.protegidasPorMarca?.length) partes.push(`protegidas por ser de la marca: ${r.protegidasPorMarca.join(", ")}`);

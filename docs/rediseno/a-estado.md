@@ -41,6 +41,36 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 20/10: "los agentes desactivan anuncios sin autorización"
+
+**Qué pasaba (DB, solo lectura):** 35 pausas del 14 al 20/10, las 35 del piloto
+automático (`LMTM_AUTONOMIA_PAUTA=1`, prendido a pedido el 14/10), ninguna de un
+agente salteando la firma. Avisadas solo dentro del resumen de las 9:00. Dos fallas:
+- **Le peleaba al equipo:** 11 pausas fueron de cosas que alguien había vuelto a
+  prender (AMORTIGUADORES de Distrillantas y CAPTACION / SALTA 1250 de MA PROPIEDADES,
+  3 veces cada una). El sistema nunca reanuda, así que pausa previa + gasto de nuevo
+  = una persona la prendió.
+- **Apagaba lo que trae consultas:** la evidencia (Poisson) con mucho volumen pasa
+  con poco desvío. WP AVELLANEDA (198 leads, 1,6 × el objetivo) quedó apagada desde
+  el 16/10.
+- **Agujero abierto (sin uso):** las 6 herramientas de pauta aceptaban
+  `approved=true` del propio agente.
+
+**Hecho:**
+- `piloto-automatico.ts`: no pausa solo lo que ya pausó antes (está en
+  `agent_actions`) ni lo que cuesta menos de `cplPausaSola` = 2,5 × el objetivo por
+  lead. Queda como propuesta para una persona.
+- `agent-tools.ts`: `firmaHumana` = `approved` solo si lo manda un admin por el
+  conector (actor board). Un agente que se firma solo deja la propuesta armada. La
+  autonomía por historial ya no aplica a pausas (las decide el piloto).
+- Repetido sobre las 35 reales: 18 se habrían hecho solas igual, 17 quedaban para
+  una persona.
+
+**Queda:** `crm_request` todavía confía en el `approved` del agente (no es pauta,
+no se tocó).
+- Reactivar o no las que trae consultas y siguen pausadas (WP AVELLANEDA y LLANTAS
+  de Distrillantas): lo decide el equipo.
+
 ### 16/10 (tarde): registro cerrado, link del equipo y conector para todos
 
 **Pedido:** "cerrá el registro, pasame la invitación válida para todo el equipo y el
