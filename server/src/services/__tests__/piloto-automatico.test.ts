@@ -13,6 +13,14 @@ describe("piloto automático: qué pausa solo", () => {
     // 1 lead con 6 × objetivo: P ≈ 0,017 → sí; 2 leads con 5 × → P ≈ 0,12 → no.
     expect(pausaSola({ inversion: 5000, leads: 2 }, 1000, cuenta, probPocosLeads).si).toBe(false);
   });
+  it("lo que trae consultas no se apaga solo, aunque la evidencia sobre (20/10)", () => {
+    // WP AVELLANEDA: 198 leads donde el objetivo esperaba 311 → P ≈ 0, pero CPL 1,6 × objetivo.
+    const v = pausaSola({ inversion: 311_000, leads: 198 }, 1000, { ...cuenta, gastoPlataforma: 10_000_000 }, probPocosLeads);
+    expect(v.si).toBe(false);
+    expect(v.motivo).toMatch(/trae consultas/);
+    // A 2,5 × o más sí: 3 leads con 10 × objetivo.
+    expect(pausaSola({ inversion: 10_000, leads: 3 }, 1000, cuenta, probPocosLeads).si).toBe(true);
+  });
   it("topes: pausas por día, parte del gasto y la última campaña que gasta", () => {
     const fuerte = { inversion: 8000, leads: 0 };
     expect(pausaSola(fuerte, 1000, { ...cuenta, pausasHoy: POLITICA.pausasPorClientePorDia }, probPocosLeads).si).toBe(false);
