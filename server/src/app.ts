@@ -29,6 +29,7 @@ import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
 import { agentToolsRoutes } from "./routes/agent-tools.js";
 import { publicDashboardRoutes } from "./routes/public-dashboards.js";
+import { materialRoutes } from "./routes/material.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
 import { initWaBot } from "./services/wa-group-bot.js";
@@ -279,6 +280,8 @@ export async function createApp(
   // Public dashboard routes (no auth required; auth is enforced per-route).
   // Mounted at /api/public so the URL space stays under /api.
   api.use("/public", publicDashboardRoutes(db));
+  // Material de Drive de un cliente con link firmado de la guía de contenido (21/10).
+  api.use("/public", materialRoutes(db));
   api.use("/companies", companyRoutes(db, opts.storageService));
   api.use(companySkillRoutes(db));
   api.use(agentRoutes(db, { pluginWorkerManager: workerManager }));
@@ -312,6 +315,9 @@ export async function createApp(
   // ¿Se publica de verdad? Conexiones de Make, escenarios apagados, posts fallidos y vencidos.
   void import("./services/salud-posteos.js").then(({ initSaludPosteos }) => initSaludPosteos(db))
     .catch((e) => console.warn("[salud-posteos] init failed:", e instanceof Error ? e.message : e));
+  // Índice del material de Drive de cada cliente, para la guía de contenido de Claude (21/10).
+  void import("./services/guia-contenido.js").then(({ initIndiceDrive }) => initIndiceDrive(db))
+    .catch((e) => console.warn("[guia] init failed:", e instanceof Error ? e.message : e));
   // Stories de Instagram: Meta solo muestra las de las últimas 24 h, se leen cada 6 h.
   void import("./services/stories.js").then(({ initStories }) => initStories(db))
     .catch((e) => console.warn("[stories] init failed:", e instanceof Error ? e.message : e));

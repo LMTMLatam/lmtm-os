@@ -214,6 +214,24 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_guia_contenido",
+      description:
+        "GUÍA DE CONTENIDO: empezá acá para cualquier pieza de un cliente (video, reel, historia, placa, carrusel). En una llamada trae la identidad de marca, lo que se sabe del producto pedido, la memoria, lo que mejor le funcionó, el material REAL de Drive (videos, fotos, logos, con link de descarga de 24 h), su web y la receta para producirla. Acepta el nombre del cliente aunque sea parcial. Solo lectura.",
+      parameters: {
+        type: "object",
+        properties: {
+          cliente: { type: "string", description: "Nombre (aunque sea parcial) o id del cliente." },
+          producto: { type: "string", description: "Producto, servicio o tema de la pieza." },
+          formato: { type: "string", enum: ["reel", "video", "historia", "placa", "carrusel"] },
+          refrescar: { type: "boolean", description: "Rehacer el índice de Drive y la lectura de la web (solo si falta algo subido hoy)." },
+        },
+        required: ["cliente"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_analisis_seo",
       description:
         "ANÁLISIS SEO de la web de un cliente (o de cualquier URL, por ejemplo un competidor): título, descripción, encabezados, indexación, datos estructurados, imágenes sin texto alternativo, robots.txt, sitemap y, si Google contesta, la velocidad en celular y los Core Web Vitals reales. Devuelve los problemas ordenados por gravedad. Con clientId usa la web cargada en su Marca. Solo lectura.",
@@ -1369,6 +1387,14 @@ export function agentToolsRoutes(
           await db.insert(nicheReports).values({ niche, week: monday, sections, createdByAgentId: ctx.agentId });
         }
         return reply(true, `Radar de nicho guardado para "${niche}" (semana ${monday}): ${sections.referentes.length} referentes, ${sections.ideas.length} ideas, plan para ${sections.planPorCliente.length} clientes.`);
+      }
+
+      if (tool === "get_guia_contenido") {
+        const { guiaContenido } = await import("../services/guia-contenido.js");
+        const cliente = textoDe(params.cliente) || textoDe(params.clientId);
+        const formatos = ["reel", "video", "historia", "placa", "carrusel"] as const;
+        const formato = formatos.find((f) => f === params.formato) ?? null;
+        return reply(true, await guiaContenido(db, { cliente, producto: textoDe(params.producto) || null, formato, refrescar: params.refrescar === true }));
       }
 
       if (tool === "get_analisis_seo") {

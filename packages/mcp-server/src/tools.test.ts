@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PaperclipApiClient } from "./client.js";
-import { createToolDefinitions } from "./tools.js";
+import { createToolDefinitions, desenvolver } from "./tools.js";
 
 function makeClient() {
   return new PaperclipApiClient({
@@ -340,5 +340,18 @@ describe("paperclip MCP tools", () => {
     });
 
     expect(response.content[0]?.text).toContain("must not contain '..'");
+  });
+});
+
+describe("desenvolver (21/10)", () => {
+  it("devuelve el texto del ejecutor de agentes tal cual, sin JSON escapado", () => {
+    expect(desenvolver({ ok: true, content: "# Guía\nlínea" })).toBe("# Guía\nlínea");
+    expect(desenvolver({ ok: false, content: "Falta clientId." })).toBe("ERROR: Falta clientId.");
+  });
+  it("lo que no tiene esa forma pasa igual", () => {
+    const otro = { ok: true, content: "x", extra: 1 };
+    expect(desenvolver(otro)).toBe(otro);
+    expect(desenvolver([1, 2])).toEqual([1, 2]);
+    expect(desenvolver("texto")).toBe("texto");
   });
 });

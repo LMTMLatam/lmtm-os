@@ -24,6 +24,21 @@ export interface ToolDefinition {
   }>;
 }
 
+/**
+ * El ejecutor de agentes (/agent-tools/execute) contesta `{ ok, content }`, con el
+ * texto adentro. Devuelto como JSON, cada salto de línea y cada comilla llega
+ * escapado: más tokens y peor lectura. Se devuelve el texto tal cual (21/10).
+ */
+export function desenvolver(v: unknown): unknown {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    if (typeof o.ok === "boolean" && typeof o.content === "string" && Object.keys(o).length === 2) {
+      return o.ok ? o.content : `ERROR: ${o.content}`;
+    }
+  }
+  return v;
+}
+
 function makeTool<TSchema extends z.ZodRawShape>(
   name: string,
   description: string,
@@ -37,7 +52,7 @@ function makeTool<TSchema extends z.ZodRawShape>(
     execute: async (input) => {
       try {
         const parsed = schema.parse(input);
-        return formatTextResponse(await execute(parsed));
+        return formatTextResponse(desenvolver(await execute(parsed)));
       } catch (error) {
         return formatErrorResponse(error);
       }
@@ -610,6 +625,17 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     // (POST /agent-tools/execute {tool, parameters}). Exposing them as native
     // MCP tools (instead of making the model hand-craft paperclipApiRequest
     // calls) stops the model from fumbling/looping on guessed endpoints.
+    makeTool(
+      "lmtmGuiaContenido",
+      "EMPEZÁ ACÁ para cualquier pieza de un cliente: «quiero un video / reel / historia / placa / carrusel de X de tal cliente». En UNA llamada trae la identidad de marca (mensaje, público, diferencial, tono, frases propias, paleta, logo), lo que se sabe del producto pedido, la memoria del cliente, lo que mejor le funcionó, el MATERIAL REAL de Drive (videos, fotos, logos, documentos, con link de descarga que vence en 24 h), su web (páginas, videos e imágenes) y la receta para producirla. Acepta el nombre del cliente aunque sea parcial («Ferrol»): no hace falta llamar antes a lmtmListClients ni a lmtmGetClientBrain. Solo lectura, no gasta créditos.",
+      z.object({
+        cliente: z.string().min(1).describe("Nombre del cliente (aunque sea parcial) o su id."),
+        producto: z.string().optional().describe("Producto, servicio o tema de la pieza («departamento de 2 habitaciones», «promo invierno»)."),
+        formato: z.enum(["reel", "video", "historia", "placa", "carrusel"]).optional().describe("Default reel."),
+        refrescar: z.boolean().optional().describe("Rehacer el índice de Drive y la lectura de la web (tarda más). Solo si falta algo que se subió hoy."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_guia_contenido", parameters: p } }),
+    ),
     makeTool(
       "lmtmListClients",
       "Lista los clientes activos de la agencia (id, nombre, slug). Usalo para encontrar el clientId de un cliente por su nombre antes de pedir sus datos.",

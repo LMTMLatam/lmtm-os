@@ -104,7 +104,7 @@ export function conectorMcpRoutes(opts: { serverPort: number }) {
 export const AGENTE_EQUIPO = "Claude (equipo)";
 
 export const HERRAMIENTAS_EQUIPO = [
-  "lmtmListClients", "lmtmGetClientBrain", "lmtmGetClientAdsPerformance", "lmtmGetClientCampaigns",
+  "lmtmGuiaContenido", "lmtmListClients", "lmtmGetClientBrain", "lmtmGetClientAdsPerformance", "lmtmGetClientCampaigns",
   "lmtmGetClientCompetitors", "lmtmGetClientScores", "lmtmPortfolioSnapshot", "lmtmGetClientBalance",
   "lmtmGetClientMarketingPlan", "lmtmGetClientOrganicPosts", "lmtmGetClientScheduledContent",
   "lmtmGetClientContentMatrix", "lmtmGetClientVideoTasks", "lmtmGetCadenaPublicacion", "lmtmGetNicheIntel",

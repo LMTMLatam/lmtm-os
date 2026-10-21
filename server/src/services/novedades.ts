@@ -248,7 +248,7 @@ export interface NovedadesCliente { clientId: string; cliente: string; slug: str
 const filasDe = <T>(r: unknown): T[] => (r as { rows?: T[] }).rows ?? (r as T[]);
 
 /** Publicaciones con sus interacciones reales desde `desde`. Las mismas métricas que contenido-analisis.ts. */
-async function publicaciones(db: Db, desde: string, clientId?: string): Promise<Array<PostMedido & { clientId: string }>> {
+export async function publicaciones(db: Db, desde: string, clientId?: string): Promise<Array<PostMedido & { clientId: string; permalink: string | null }>> {
   const v = (m: string) => sql<string | null>`max(case when ${organicPostInsights.metric} = ${m} then ${organicPostInsights.value} end)`;
   const filas = await db
     .select({
@@ -261,6 +261,7 @@ async function publicaciones(db: Db, desde: string, clientId?: string): Promise<
     .groupBy(organicPosts.id);
   return filas.map((f) => ({
     clientId: f.clientId as string,
+    permalink: f.permalink ?? null,
     fecha: f.fecha ? diaLocal(f.fecha) : "",
     reacciones: Number(f.reacciones ?? 0),
     comentarios: Number(f.comentarios ?? 0),
