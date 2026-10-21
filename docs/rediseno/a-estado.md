@@ -41,6 +41,42 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 21/10: guía de contenido para Claude (`lmtmGuiaContenido`)
+
+**Pedido:** "Quiero un video de tal producto de tal cliente y que lo genere sin
+consumir muchos tokens: la dirección de Drive del contenido, la web, toda la
+identidad y memoria del cliente, como una guía para Claude".
+
+**Hecho:**
+- `services/guia-contenido.ts`: una llamada arma la guía (~3k tokens) con marca,
+  el producto (catálogo, memoria, web y posteos que lo mencionan), memoria útil
+  para producir (sin pauta, sin bitácoras, sin supuestos), lo que mejor funcionó,
+  el material de Drive, la web y la receta (con terminal: HyperFrames; sin
+  terminal: generar con IA o dejar la tarea a edición) y las reglas.
+- **Drive:** el material está repartido en la unidad compartida, así que se indexa
+  por nombre (cliente + palabra distintiva; `metadata.driveTerminos` lo pisa) y se
+  recorre lo que cuelga. Sin copias, sin basura del sistema, con los RAW como
+  "otro". Índice en `client_context_cache` ("drive-material"), vigente 24 h, y
+  rehecho de a uno cada día (`initIndiceDrive`). Web en "web-material" (7 días).
+- **Descargas:** `GET /api/public/material/:fileId?t=`, con un token por cliente
+  firmado con el secreto del servidor y válido 24 h. Solo sirve archivos de ese
+  cliente (su índice, su logo, sus productos). Pasa Range y transmite en stream.
+- Registrada en el conector (`lmtmGuiaContenido`), en los 14 agentes
+  (`get_guia_contenido`), en el conector del equipo, en el rol contenido del runner
+  y en la skill de referencia. El servidor MCP manda `instructions` que dicen
+  llamarla primero.
+- `makeTool` devuelve el texto del ejecutor tal cual: antes iba como JSON escapado
+  (`{"ok":true,"content":"…\n…"}`) en TODAS las herramientas lmtm*.
+- Ensayado local contra el Drive real: Ferrol «departamento» trajo los videos
+  "DEPARTAMENTO 2 HABITACIONES" y las fotos de "EDITADAS SELECCIONADAS/FERROL/
+  DEPARTAMENTOS DOBLES"; RENO «placares», los 4K "PLACARES" filmados el 20/10 y las
+  páginas de cada línea en la web.
+
+**Queda:**
+- Catálogo de productos vacío en los 59 clientes (`client_products`).
+- RENO: la reseña de contenido de su memoria (`content-review-posts`) describe una
+  inmobiliaria. Hay que rehacerla.
+
 ### 20/10: "los agentes desactivan anuncios sin autorización"
 
 **Qué pasaba (DB, solo lectura):** 35 pausas del 14 al 20/10, las 35 del piloto

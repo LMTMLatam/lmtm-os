@@ -36,7 +36,7 @@ export interface CarpetasCliente {
 
 let cache: { token: string; expiraEn: number } | null = null;
 
-async function token(): Promise<string> {
+export async function token(): Promise<string> {
   if (cache && cache.expiraEn - 60_000 > Date.now()) return cache.token;
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
@@ -53,7 +53,7 @@ async function token(): Promise<string> {
   return cache.token;
 }
 
-async function drive<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function drive<T>(path: string, init: RequestInit = {}): Promise<T> {
   const t = await token();
   const r = await fetch(`https://www.googleapis.com/drive/v3/${path}`, {
     ...init,

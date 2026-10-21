@@ -27,6 +27,7 @@ No adivines paths ni esperes tools que no están acá.
 
 Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:
 
+- `lmtmGuiaContenido` (tool `get_guia_contenido`) — **empezá acá para cualquier pieza de contenido** (video, reel, historia, placa, carrusel). Con el nombre del cliente (aunque sea parcial) y el producto, en una llamada trae marca, lo que se sabe del producto, memoria, lo que mejor funcionó, el material REAL de Drive (con link de descarga de 24 h), la web y la receta. No inventes nada que no esté ahí.
 - `lmtmListClients` — clientes activos (id, nombre, slug). Encontrá el clientId por nombre acá.
 - `lmtmGetClientBrain` — **memoria viva del cliente + Enfoque Técnico**. Leelo SIEMPRE primero.
 - `lmtmGetClientAdsPerformance` — métricas REALES de pauta (Meta y Google, total y por plataforma: spend, impresiones, clicks, leads, ventas, CTR, CPL, CPC) en una ventana que termina AYER. Sale del mismo módulo que las pantallas. **`null` = no se puede medir** (cuenta sin conectar, sin seguimiento de ventas, alcance que todavía no traemos): nunca lo tomes como 0. Trae `objetivo` (CPL objetivo) con su fuente: `cliente` lo pidió el cliente, `historial` es una propuesta nuestra (decilo así), `rubro` es el ideal del nicho. Trae `frescura` por fuente: si una dice `fallando` o `atrasada`, los números de esa plataforma pueden estar incompletos; avisalo antes de concluir. Si trae `notaLeadsDudosos`, los leads de Google de ese cliente no son leads: no uses su CPL.

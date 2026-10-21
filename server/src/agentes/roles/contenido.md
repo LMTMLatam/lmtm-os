@@ -1,6 +1,6 @@
 ---
 agente: Contenido y marca
-herramientas: lmtmGetClientBrain, lmtmGetClientMarketingPlan, lmtmGetClientContentMatrix, lmtmGetClientOrganicPosts, lmtmSearchHooks, lmtmGetNicheIntel, lmtmRememberAboutClient
+herramientas: lmtmGuiaContenido, lmtmGetClientBrain, lmtmGetClientMarketingPlan, lmtmGetClientContentMatrix, lmtmGetClientOrganicPosts, lmtmSearchHooks, lmtmGetNicheIntel, lmtmRememberAboutClient
 turnos: 16
 minutos: 8
 ---
