@@ -367,6 +367,28 @@ export function extractClaudeRetryNotBefore(
   return parseClaudeResetClockTime(match[1] ?? "", now, match[2]);
 }
 
+// Cuota agotada (22/10): el plan se terminó, no es un error pasajero. Reintentarlo
+// cada pocos minutos solo suma rechazos (MiniMax: "Token Plan usage limit reached").
+// Lo corta el servidor hasta el reset (server/src/services/cuota-llm.ts).
+const CLAUDE_QUOTA_EXHAUSTED_RE =
+  /(token\s+plan\s+usage\s+limit|usage\s+limit\s+reached|weekly\s+limit\s+reached|5[-\s]?hour\s+limit\s+reached|out\s+of\s+extra\s+usage|purchase\s+credits|insufficient\s+(?:balance|credits?|quota)|exceeded\s+your\s+current\s+quota|quota\s+exceeded)/i;
+
+export function isClaudeQuotaExhaustedError(input: {
+  parsed?: Record<string, unknown> | null;
+  stdout?: string | null;
+  stderr?: string | null;
+  errorMessage?: string | null;
+}): boolean {
+  const loginMeta = detectClaudeLoginRequired({
+    parsed: input.parsed ?? null,
+    stdout: input.stdout ?? "",
+    stderr: input.stderr ?? "",
+  });
+  if (loginMeta.requiresLogin) return false;
+  const haystack = buildClaudeTransientHaystack(input);
+  return Boolean(haystack) && CLAUDE_QUOTA_EXHAUSTED_RE.test(haystack);
+}
+
 export function isClaudeTransientUpstreamError(input: {
   parsed?: Record<string, unknown> | null;
   stdout?: string | null;

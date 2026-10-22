@@ -41,6 +41,39 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 22/10: se agotó el plan semanal de MiniMax → corte por cuota, ritmo y M3.1 Flash
+
+**Qué pasó (DB):** la semana del plan (dom 18/10 21:00 → dom 25/10 21:00) se gastó
+en un día y medio. Un día normal son 20–45 corridas y 10–20 M de tokens; el
+20/10 hubo 207 (~330 M) y el 21/10, 255 (~455 M). Desde el 20/10 MiniMax contesta
+429 "Token Plan usage limit reached (2056)". El adaptador lo tomaba como pasajero
+(`claude_transient_upstream`): 4 reintentos y después el lazo de recuperación
+volvía a despertar la tarea. ~230 tareas en ese círculo, con 916 corridas
+fallidas el 22/10. Además:
+- Los agentes no mapeaban los modelos internos del CLI: 733 corridas salieron como
+  `claude-sonnet-4-6`.
+- Corridas caras que fallan por tope de turnos o timeout se reintentaban igual
+  (LMTM-6183: 16 corridas, 41 M de tokens, todas fallidas).
+
+**Hecho:**
+- Adaptador claude-local: `isClaudeQuotaExhaustedError` → `claude_quota_exhausted`
+  (no transitorio; `errorFamily` en resultJson = `quota_exhausted`).
+- `services/cuota-llm.ts`:
+  - Corte por proveedor hasta el reset, o sondeo cada 1 h. Aplica en
+    `enqueueWakeup` y en la compuerta de reintentos programados, que los cancela.
+  - Ritmo semanal: lo automático no adelanta lo gastado a lo transcurrido (+10 %).
+    Se lee de `/v1/api/openplatform/coding_plan/remains`, que no está documentado;
+    si falla, rige el tope de 80 corridas por día (`LMTM_CORRIDAS_LLM_POR_DIA`).
+  - Lo pedido a mano (`on_demand`) pasa el ritmo y el tope.
+  - Un aviso al resumen por día.
+- Modelo: los 10 agentes de MiniMax, el runner de roles y el respaldo de LiteLLM
+  pasan a `MiniMax-M3.1-Flash`, con Sonnet/Opus/Haiku/subagentes mapeados y
+  `CLAUDE_CODE_EFFORT_LEVEL=medium`. El ID está verificado contra la API: un modelo
+  inventado da 400; M3.1-Flash, 429 de cuota.
+
+**Queda:** sin cuota hasta el domingo 25/10 21:00 (o comprar créditos). Los 4
+agentes `lmtm-glm` (NVIDIA) también fallaron el 21/10, sin revisar todavía.
+
 ### 21/10: guía de contenido para Claude (`lmtmGuiaContenido`)
 
 **Pedido:** "Quiero un video de tal producto de tal cliente y que lo genere sin

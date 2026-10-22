@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   extractClaudeRetryNotBefore,
+  isClaudeQuotaExhaustedError,
   isClaudeTransientUpstreamError,
 } from "./parse.js";
+
+describe("isClaudeQuotaExhaustedError (22/10)", () => {
+  it("reconoce el plan agotado de MiniMax y los límites de uso de Claude", () => {
+    expect(isClaudeQuotaExhaustedError({
+      errorMessage: "API Error: Request rejected (429) · Token Plan usage limit reached: Upgrade your Token Plan or purchase Credits for continued usage",
+    })).toBe(true);
+    expect(isClaudeQuotaExhaustedError({ errorMessage: "Claude usage limit reached — weekly limit reached. Try again in 2 days." })).toBe(true);
+  });
+  it("un límite de velocidad o una sobrecarga no son cuota agotada", () => {
+    expect(isClaudeQuotaExhaustedError({ stderr: "HTTP 429: Too Many Requests" })).toBe(false);
+    expect(isClaudeQuotaExhaustedError({ errorMessage: "API Error: 529 The server cluster is currently under high load." })).toBe(false);
+  });
+});
 
 describe("isClaudeTransientUpstreamError", () => {
   it("classifies the 'out of extra usage' subscription window failure as transient", () => {

@@ -246,7 +246,8 @@ export async function correrTrabajo(db: Db, t: Trabajo, opts: { serverPort: numb
       rol.herramientas,
     );
     const permitidas = new Set(rol.herramientas.map((h) => `mcp__${SERVIDOR_MCP}__${h}`));
-    const modelo = process.env.LMTM_RUNNER_MODELO?.trim() || "MiniMax-M3";
+    // MiniMax-M3.1-Flash desde el 22/10 (sale de la misma cuota del plan que M3).
+    const modelo = process.env.LMTM_RUNNER_MODELO?.trim() || "MiniMax-M3.1-Flash";
     const corte = new AbortController();
     const reloj = setTimeout(() => corte.abort(), rol.minutos * 60_000);
     const mensajes: Array<Record<string, any>> = [];
@@ -275,6 +276,15 @@ export async function correrTrabajo(db: Db, t: Trabajo, opts: { serverPort: numb
             ANTHROPIC_AUTH_TOKEN: clave,
             ANTHROPIC_API_KEY: clave,
             ANTHROPIC_MODEL: modelo,
+            // El CLI pide modelos propios para subtareas (sonnet/haiku): sin esto le
+            // llegan "claude-sonnet-4-6" a MiniMax (guía de MiniMax para Claude Code).
+            ANTHROPIC_DEFAULT_SONNET_MODEL: modelo,
+            ANTHROPIC_DEFAULT_OPUS_MODEL: modelo,
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: modelo,
+            ANTHROPIC_SMALL_FAST_MODEL: modelo,
+            CLAUDE_CODE_SUBAGENT_MODEL: modelo,
+            // M3.1-Flash siempre razona y el razonamiento gasta cuota: medio alcanza para estas tareas.
+            CLAUDE_CODE_EFFORT_LEVEL: process.env.LMTM_RUNNER_ESFUERZO?.trim() || "medium",
             DISABLE_TELEMETRY: "1",
             DISABLE_AUTOUPDATER: "1",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
