@@ -136,6 +136,9 @@ function didAutomaticRecoveryFail(
   expectedRetryReason: "assignment_recovery" | "issue_continuation_needed",
 ) {
   if (!latestRun) return false;
+  // Una corrida que falló por cuota agotada del proveedor no es una falla de la
+  // tarea: no se la manda a blocked (22/10, ver services/cuota-llm.ts).
+  if (latestRun.errorCode === "claude_quota_exhausted") return false;
 
   const latestContext = parseObject(latestRun.contextSnapshot);
   const latestRetryReason = readNonEmptyString(latestContext.retryReason);
@@ -537,7 +540,14 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       issueId: issue.id,
       projectId: issue.projectId,
     });
-    return Boolean(budgetBlock);
+    if (budgetBlock) return true;
+    // Cuota del proveedor agotada o ritmo semanal (22/10): la recuperación espera
+    // igual que un despertar automático. Ver services/cuota-llm.ts.
+    const [agente] = await db.select({ adapterType: agents.adapterType, adapterConfig: agents.adapterConfig })
+      .from(agents).where(eq(agents.id, agentId)).limit(1);
+    if (agente?.adapterType !== "claude_local") return false;
+    const { corteParaDespertar } = await import("../cuota-llm.js");
+    return (await corteParaDespertar(db, agente.adapterConfig, "automation")) != null;
   }
 
   async function reconcileUnassignedBlockingIssues() {
