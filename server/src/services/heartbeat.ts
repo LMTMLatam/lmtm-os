@@ -4758,7 +4758,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           | "issue_execution_lock_changed"
           | "issue_review_participant_changed"
           | "issue_paused"
-          | "issue_dependencies_blocked";
+          | "issue_dependencies_blocked"
+          | "llm_quota_exhausted";
         issueId: string | null;
         details: Record<string, unknown>;
       };
@@ -4805,6 +4806,22 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           agentStatus: agent.status,
         },
       };
+    }
+
+    // Cuota del proveedor agotada (22/10): el reintento se cancela en vez de
+    // volver a pegarle al proveedor. Ver services/cuota-llm.ts.
+    if (agent.adapterType === "claude_local") {
+      const { cuotaPausadaHasta, proveedorDe } = await import("./cuota-llm.js");
+      const hasta = cuotaPausadaHasta(proveedorDe(agent.adapterConfig));
+      if (hasta) {
+        return {
+          allowed: false,
+          reason: `Scheduled retry suppressed: provider quota exhausted until ${hasta.toISOString()}`,
+          errorCode: "llm_quota_exhausted",
+          issueId,
+          details: { hasta: hasta.toISOString() },
+        };
+      }
     }
 
     if (!issueId) return { allowed: true };
@@ -7956,6 +7973,11 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             );
           }
         }
+        if (outcome === "failed" && livenessRun.errorCode === "claude_quota_exhausted") {
+          const { registrarCuotaAgotada } = await import("./cuota-llm.js");
+          await registrarCuotaAgotada(db, agent.adapterConfig, readNonEmptyString(parseObject(livenessRun.resultJson).retryNotBefore) ?? null)
+            .catch(() => {});
+        }
         if (outcome === "failed" && isMaxTurnExhaustionRun(livenessRun)) {
           const policy = parseMaxTurnContinuationPolicy(agent);
           if (policy.enabled && policy.maxAttempts > 0) {
@@ -8688,6 +8710,16 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       agent.status === "pending_approval"
     ) {
       throw conflict("Agent is not invokable in its current state", { status: agent.status });
+    }
+
+    // Cuota del proveedor agotada, ritmo semanal o tope diario (22/10): ver services/cuota-llm.ts.
+    if (agent.adapterType === "claude_local") {
+      const { corteParaDespertar } = await import("./cuota-llm.js");
+      const corte = await corteParaDespertar(db, agent.adapterConfig, source);
+      if (corte) {
+        await writeSkippedRequest(corte);
+        return null;
+      }
     }
 
     const policy = parseHeartbeatPolicy(agent);
