@@ -71,8 +71,24 @@ fallidas el 22/10. Además:
   `CLAUDE_CODE_EFFORT_LEVEL=medium`. El ID está verificado contra la API: un modelo
   inventado da 400; M3.1-Flash, 429 de cuota.
 
-**Queda:** sin cuota hasta el domingo 25/10 21:00 (o comprar créditos). Los 4
-agentes `lmtm-glm` (NVIDIA) también fallaron el 21/10, sin revisar todavía.
+- **Recuperación** (25c976f): creaba corridas sin pasar por `enqueueWakeup` y, si la
+  continuación fallaba por cuota, mandaba la tarea a `blocked`. Ahora la cuota frena
+  igual que el presupuesto, y una falla por cuota no cuenta como falla de la tarea.
+  Ya habían quedado 30 tareas bloqueadas en falso entre el 20 y el 22/10.
+- **Los 4 agentes "NVIDIA"** (`lmtm-glm` por LiteLLM): GLM-5.2 de NVIDIA da 410 desde
+  el 21/08, así que corrían enteros por el respaldo de MiniMax, invisibles para el
+  corte. Pasaron directo a MiniMax-M3.1-Flash: los 14 agentes quedan iguales.
+- **Verificado en prod** (deploys fa08f822 y f31c8a8b): desde el arranque, 879
+  despertares cortados por cuota y 168 por tope diario; ninguna corrida nueva de
+  MiniMax; 0 en cola. La guía de contenido anda por el conector (14 s la primera
+  vez). Descarga firmada: 206 con el MP4 real; 403 con token falso; 404 con un
+  archivo de otro cliente.
+
+**Queda:**
+- Sin cuota hasta el domingo 25/10 21:00 (o comprar créditos).
+- El bot de WhatsApp está desvinculado (`SCAN_QR`): ningún aviso salió desde el 20/10
+  21:15 (36 con error, 86 pendientes). Hay que escanear el QR.
+- 30 tareas en `blocked` por cuota esperan decisión.
 
 ### 21/10: guía de contenido para Claude (`lmtmGuiaContenido`)
 
