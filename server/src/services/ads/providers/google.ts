@@ -41,8 +41,11 @@ import type { AdsConnection, AdsAccountMapping } from "@paperclipai/db";
 // Google sunsets each Ads API version ~1 year after release. A dead version
 // returns 404 HTML (not JSON) on every call. Probe live versions with:
 //   curl -o /dev/null -w "%{http_code}" https://googleads.googleapis.com/vNN/customers:listAccessibleCustomers
-// (401 = alive, 404 = sunset) and bump this. v17 died mid-2026.
-const API_VERSION = "v22";
+// (401 = alive, 404 = sunset) and bump this. v17 died mid-2026. v22 dejó de
+// aceptar pedidos el 21/10/2026 con 400 UNSUPPORTED_VERSION (no 404), así que
+// la sonda con 401 no alcanza: leer las fechas en
+// developers.google.com/google-ads/api/docs/sunset-dates.
+const API_VERSION = "v26";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API_BASE = `https://googleads.googleapis.com/${API_VERSION}`;
 
@@ -60,6 +63,11 @@ function num(v: unknown): number | undefined {
 function intNum(v: unknown): number {
   const n = num(v);
   return n ?? 0;
+}
+
+/** "2026-10-01 00:00:00" (o "2026-10-01") → ese día a las 00:00 UTC. */
+export function dia(v: unknown): Date | undefined {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) ? new Date(`${v.slice(0, 10)}T00:00:00Z`) : undefined;
 }
 
 function microsToUnits(micros: unknown): number | undefined {
@@ -328,7 +336,7 @@ export const googleAdsProvider: AdsProvider = {
     const query = `
       SELECT
         campaign.id, campaign.name, campaign.status,
-        campaign.start_date, campaign.end_date,
+        campaign.start_date_time, campaign.end_date_time,
         campaign.advertising_channel_type
       FROM campaign
     `.trim();
@@ -341,8 +349,10 @@ export const googleAdsProvider: AdsProvider = {
         name: (c.name as string) ?? String(c.id),
         status: ((c.status as string) ?? "UNKNOWN").toLowerCase(),
         objective: (c.advertising_channel_type as string | undefined) ?? undefined,
-        startTime: c.start_date ? new Date(`${c.start_date}T00:00:00Z`) : undefined,
-        stopTime: c.end_date ? new Date(`${c.end_date}T00:00:00Z`) : undefined,
+        // v23 cambió start_date/end_date por "yyyy-MM-dd HH:mm:ss": se sigue
+        // guardando el día, como antes.
+        startTime: dia(c.start_date_time),
+        stopTime: dia(c.end_date_time),
         raw: c,
       }));
   },
