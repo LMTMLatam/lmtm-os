@@ -41,6 +41,16 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 23/10: la guía de contenido matcheaba palabras cortas adentro de otras
+
+Armando un reel de OPI para El Hiper de la Pelu, `lmtmGuiaContenido` traía como
+"lo que se sabe del producto" frases de la memoria que decían "propio/propios":
+`puntaje` buscaba cada palabra del pedido por substring. Arreglo (861eacb): las
+palabras de menos de 5 letras tienen que empezar una palabra del texto; las
+largas siguen por substring (nombres de archivo pegados). Test nuevo (13/13).
+Deploy 5d9c5c7d SUCCESS; verificado en prod con la misma llamada: el producto
+trae "OPI: distribución exclusiva en Rosario" y ninguna línea de "propio".
+
 ### 22/10: se agotó el plan semanal de MiniMax → corte por cuota, ritmo y M3.1 Flash
 
 **Qué pasó (DB):** la semana del plan (dom 18/10 21:00 → dom 25/10 21:00) se gastó
