@@ -24,6 +24,12 @@ describe("guía de contenido: coincidencias con el pedido", () => {
     expect(puntaje("FERROL - DEPARTAMENTO 2 HABITACIONES.mp4", p)).toBe(2);
     expect(puntaje("DSC00816.jpg", p)).toBe(0);
   });
+  it("una palabra corta tiene que empezar una palabra (23/10: OPI matcheaba 'propio')", () => {
+    const p = palabrasDePedido("OPI esmaltes");
+    expect(puntaje("Esmaltes OPI nuevo ingreso.mp4", p)).toBe(2);
+    expect(puntaje("Su marca propia Mahila, productos propios", p)).toBe(0);
+    expect(puntaje("OPIcons de verano", p)).toBe(1);
+  });
 });
 
 describe("guía de contenido: qué es cada archivo", () => {

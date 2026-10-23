@@ -64,11 +64,17 @@ export function palabrasDePedido(pedido: string | null | undefined): string[] {
   return [...new Set(palabras(pedido ?? "").filter((w) => w.length >= 3 && !VACIAS.has(w)))];
 }
 
-/** Cuántas palabras del pedido aparecen en el texto (singular o plural). Pura. */
+/**
+ * Cuántas palabras del pedido aparecen en el texto (singular o plural). Pura.
+ * Las cortas (menos de 5 letras) tienen que empezar una palabra: "opi" no es
+ * "propio" ni "copia".
+ */
 export function puntaje(texto: string, pedido: string[]): number {
   if (!pedido.length) return 0;
   const t = norm(texto);
-  return pedido.filter((w) => t.includes(w) || t.includes(w.replace(/(es|s)$/, ""))).length;
+  const enTexto = palabras(texto);
+  const esta = (w: string) => w.length >= 3 && (w.length >= 5 ? t.includes(w) : enTexto.some((p) => p.startsWith(w)));
+  return pedido.filter((w) => esta(w) || esta(w.replace(/(es|s)$/, ""))).length;
 }
 
 const recortar = (s: string | null | undefined, n: number) => {
