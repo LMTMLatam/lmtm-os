@@ -41,6 +41,20 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 23/10: Google Ads caído por la versión de la API (v22 → v26)
+
+Desde el 21/10 Google contesta `400 UNSUPPORTED_VERSION` ("Version v22 is
+deprecated") en las 21 cuentas: `ads_insights` de Google quedó en el 20/10, el
+monitor de saldo fallaba y "ver cuentas" en Integraciones daba 502. A las 19:50
+UTC alguien borró la conexión (`DELETE /integrations/connections/5d855aab…`) y
+las 21 cuentas quedaron sueltas; hubo 5 `oauth/start` sin ningún callback (el
+login de Google no se terminó; el cliente OAuth y la redirect_uri están bien).
+Arreglo (2197379, deploy 32d5013a SUCCESS): API v26. El único cambio que nos
+tocaba entre v22 y v26 es de v23 (`campaign.start_date/end_date` →
+`start_date_time/end_date_time`). Test nuevo. **Falta (humano):** reconectar
+Google Ads desde Integraciones con lmtm.ml@gmail.com; el callback re-vincula
+las cuentas y pone el MCC. Después: sync y verificar que vuelvan los días 21–23.
+
 ### 23/10: la guía de contenido matcheaba palabras cortas adentro de otras
 
 Armando un reel de OPI para El Hiper de la Pelu, `lmtmGuiaContenido` traía como
