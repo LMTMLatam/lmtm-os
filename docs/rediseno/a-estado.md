@@ -51,9 +51,10 @@ las 21 cuentas quedaron sueltas; hubo 5 `oauth/start` sin ningún callback (el
 login de Google no se terminó; el cliente OAuth y la redirect_uri están bien).
 Arreglo (2197379, deploy 32d5013a SUCCESS): API v26. El único cambio que nos
 tocaba entre v22 y v26 es de v23 (`campaign.start_date/end_date` →
-`start_date_time/end_date_time`). Test nuevo. **Falta (humano):** reconectar
-Google Ads desde Integraciones con lmtm.ml@gmail.com; el callback re-vincula
-las cuentas y pone el MCC. Después: sync y verificar que vuelvan los días 21–23.
+`start_date_time/end_date_time`). Test nuevo. 24/10: el equipo reconectó
+(11:50 UTC, `374f33a6…`); el callback puso el MCC y re-vinculó las 21 cuentas.
+Verificado por efecto: MA PROPIEDADES sincronizó con v26 (11 campañas con
+fechas, insights 21–23/10). Las otras 20 vuelven con el sync diario (90 días).
 
 ### 23/10: la guía de contenido matcheaba palabras cortas adentro de otras
 
