@@ -41,6 +41,21 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 26/10: la semana nueva de MiniMax se iba igual (30% en 14 h)
+
+- **Ráfaga al reset:** a las 00:00:11 UTC el barrido de pendientes despertó ~40
+  corridas juntas: ~80 M de tokens en una hora, la ventana de 5 h entera. A las
+  05:00 se repitió. El ritmo semanal no lo frena al arrancar la semana. Arreglo
+  (f575c5d): tope de 4 arranques automáticos por hora por proveedor
+  (`LMTM_CORRIDAS_LLM_POR_HORA`), contado en memoria; motivo `llm.tope_hora`.
+- **El M2.5 que mostraba la consola:** 61 tareas tienen el perfil "cheap", que en
+  el adaptador pide `claude-sonnet-4-6` (effort low) y pisa el modelo del agente;
+  MiniMax lo atiende con M2.5. Arreglado en la base (`runtime_config.modelProfiles.cheap`
+  → MiniMax-M3.1-Flash) en los 14 agentes.
+- **Clave nueva:** el usuario regeneró la clave (la vieja da 1004). Va en los 14
+  agentes (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) y en `MINIMAX_API_KEY` de
+  Railway. Es el mismo plan: semanal 69% libre, vuelve el 02/11 00:00 UTC.
+
 ### 23/10: Google Ads caído por la versión de la API (v22 → v26)
 
 Desde el 21/10 Google contesta `400 UNSUPPORTED_VERSION` ("Version v22 is
