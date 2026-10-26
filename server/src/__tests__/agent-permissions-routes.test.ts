@@ -686,6 +686,22 @@ describe.sequential("agent permission routes", () => {
     expect(mockLogActivity).not.toHaveBeenCalled();
   }, 15_000);
 
+  it("26/10: un agente no se cambia el env, el comando ni el adaptador", async () => {
+    const app = await createApp({ type: "agent", agentId, companyId, source: "agent_key", runId: "run-1" });
+    const pedidos = [
+      { adapterConfig: { env: { LMTM_PERMITIR_ESCRIBIR_PLANILLAS: "true" } } },
+      { adapterConfig: { command: "bash" } },
+      { adapterConfig: { extraArgs: ["--dangerously-skip-permissions"] } },
+      { replaceAdapterConfig: true, adapterConfig: { model: "x" } },
+      { adapterType: "claude_local" },
+    ];
+    for (const body of pedidos) {
+      const res = await requestApp(app, (baseUrl) => request(baseUrl).patch(`/api/agents/${agentId}`).send(body));
+      expect(res.status, JSON.stringify(body)).toBe(403);
+    }
+    expect(mockAgentService.update).not.toHaveBeenCalled();
+  }, 15_000);
+
   it("blocks agent-authenticated instructions-path updates", async () => {
     const app = await createApp({
       type: "agent",

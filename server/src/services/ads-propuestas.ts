@@ -306,7 +306,7 @@ export function initLimpiezaPropuestas(db: Db): void {
     console.log(`[propuestas-pauta] cola ordenada: ${r.repetidas} repetidas, ${r.sinGasto} pausas de lo que no gasta, ${r.noSeSostienen} que no se sostienen, ${r.vencidas} vencidas`);
     const { correrPiloto } = await import("./piloto-automatico.js");
     const p = await correrPiloto(db);
-    console.log(`[piloto] ${p.propuestas} propuestas de pauta y ${p.decisiones} acciones del motor hechas solas, ${p.tareas} tareas creadas en ClickUp, ${p.fallas} fallas`);
+    console.log(`[piloto] ${p.decisiones} acciones del motor hechas solas, ${p.tareas} tareas creadas en ClickUp, ${p.fallas} fallas`);
   };
   const correr = () => void vuelta().catch((e) => console.warn("[propuestas-pauta] falló:", e instanceof Error ? e.message : e));
   setTimeout(correr, 10 * 60_000);

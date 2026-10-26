@@ -80,6 +80,7 @@ import {
   SVG_CONTENT_TYPE,
 } from "../attachment-types.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
+import { esDecisionHumana, MENSAJE_DECISION_HUMANA, tieneAprobacionHumana } from "../services/decision-humana.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
 import { executionWorkspaceService as executionWorkspaceServiceDirect } from "../services/execution-workspaces.js";
 import { feedbackService } from "../services/feedback.js";
@@ -2544,6 +2545,15 @@ export function issueRoutes(
     assertCompanyAccess(req, existing.companyId);
     assertNoAgentHostWorkspaceCommandMutation(req, collectIssueWorkspaceCommandPaths(req.body));
     if (!(await assertAgentIssueMutationAllowed(req, res, existing))) return;
+    // Lo que decide una persona no lo cierra un agente (26/10, LMTM-6165).
+    if (req.actor.type === "agent" && esDecisionHumana(existing.title)) {
+      const cierra = req.body.status === "done" || req.body.status === "cancelled";
+      const sacaMarca = typeof req.body.title === "string" && !esDecisionHumana(req.body.title);
+      if (sacaMarca || (cierra && !(await tieneAprobacionHumana(db, existing.id)))) {
+        res.status(403).json({ error: MENSAJE_DECISION_HUMANA });
+        return;
+      }
+    }
 
     const actor = getActorInfo(req);
     const isClosed = isClosedIssueStatus(existing.status);

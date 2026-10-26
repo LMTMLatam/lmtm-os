@@ -205,6 +205,29 @@ describe("materializePaperclipSkillCopy", () => {
 });
 
 describe("runChildProcess", () => {
+  it("26/10: el proceso de un agente no hereda los secretos del servidor, solo la lista blanca", async () => {
+    const antes = { ...process.env };
+    Object.assign(process.env, {
+      DATABASE_URL: "postgres://admin:clave@db/x",
+      CRM_SSH_KEY: "llave",
+      META_APP_SECRET: "s",
+      PAPERCLIP_AGENT_JWT_SECRET: "jwt",
+      CLICKUP_API_TOKEN: "pk_ok",
+    });
+    try {
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        ["-e", "const e=process.env;process.stdout.write(JSON.stringify([e.DATABASE_URL,e.CRM_SSH_KEY,e.META_APP_SECRET,e.PAPERCLIP_AGENT_JWT_SECRET,e.CLICKUP_API_TOKEN,e.PROPIA,!!e.PATH]))"],
+        { cwd: process.cwd(), env: { PROPIA: "del adaptador" }, timeoutSec: 10, graceSec: 1, onLog: async () => {} },
+      );
+      expect(JSON.parse(result.stdout)).toEqual([null, null, null, null, "pk_ok", "del adaptador", true]);
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in antes)) delete process.env[k];
+      Object.assign(process.env, antes);
+    }
+  });
+
   it("does not arm a timeout when timeoutSec is 0", async () => {
     const result = await runChildProcess(
       randomUUID(),

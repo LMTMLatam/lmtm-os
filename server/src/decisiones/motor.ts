@@ -616,7 +616,7 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
       console.warn("[decisiones] piloto automático falló:", e instanceof Error ? e.message : e);
       return null;
     });
-  if (piloto) console.log(`[piloto] ${piloto.propuestas} propuestas de pauta y ${piloto.decisiones} acciones del motor hechas solas, ${piloto.tareas} tareas creadas en ClickUp, ${piloto.fallas} fallas`);
+  if (piloto) console.log(`[piloto] ${piloto.decisiones} acciones del motor hechas solas, ${piloto.tareas} tareas creadas en ClickUp, ${piloto.fallas} fallas`);
 
   const efecto = await verificarAccionesDePlataforma(db, await leerVivas(db), ahora).catch((e) => {
     console.warn("[decisiones] verificación por efecto falló:", e instanceof Error ? e.message : e);

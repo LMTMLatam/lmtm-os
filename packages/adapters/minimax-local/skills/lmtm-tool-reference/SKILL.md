@@ -143,6 +143,12 @@ scenarios, hooks, connections y data stores de la org LMTM (team 228071):
   - No pruebes cambios guardando una y otra vez un scenario que está en uso: cada guardado
     que falla manda un mail. Armá el blueprint completo, explicalo en el issue y aplicalo una vez.
   - No pongas tokens ni claves en el blueprint (headers, URLs): usá una conexión de Make.
+  - **Nunca corras (`scenarios_run`) ni repitas ejecuciones de un scenario de publicación de
+    un cliente:** publica en sus redes. El 19/10 salieron en Reno tres posts viejos juntos así.
+- **Lo marcado [HUMANO], [L2…] u "OK humano" lo decide una persona.** Desde el 26/10 el
+  servidor no te deja cerrar esa tarea ni sacarle la marca: armá la aprobación
+  (`paperclipCreateApproval`, vinculada a la tarea), dejá tu análisis y esperá. Tampoco
+  podés cambiar tu `env`, tu comando ni tu adaptador, ni aprobar o ejecutar decisiones de Hoy.
 
 ## Google (MCP `google`) — Sheets · Drive · Apps Script
 

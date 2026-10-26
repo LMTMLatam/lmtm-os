@@ -1142,25 +1142,17 @@ export function agentToolsRoutes(
       p: Omit<Parameters<typeof import("../services/ads-propuestas.js").proponerAccionPauta>[1], "companyId" | "agentId">,
       motivo?: string,
     ) => {
-      // La justificación se exige ANTES de mirar la autonomía: el aviso al
-      // equipo la usa como cuerpo, así que una acción automática sin ella se
-      // anunciaría como "el sistema movió plata, motivo: (vacío)".
+      // Sin justificación no hay propuesta: es lo que lee la persona que aprueba.
       if (!p.justificacion) {
         return reply(
           false,
-          "Para proponer o ejecutar esto necesito el parámetro `justificacion` con los números que lo sostienen (gasto, leads, CPL vs el rubro). Es lo que lee la persona que aprueba, y lo que queda escrito si se ejecuta solo.",
+          "Para proponer esto necesito el parámetro `justificacion` con los números que lo sostienen (gasto, leads, CPL vs el rubro). Es lo que lee la persona que aprueba.",
         );
       }
 
-      // AUTONOMÍA GRADUADA: si este tipo de acción se ganó el derecho —con
-      // historial medido, no por decreto— se ejecuta sola y se avisa, en vez de
-      // quedar esperando un click. Arranca apagada; ver ads-autonomia.ts.
-      //
-      // DUPLICAR NUNCA ES AUTOMÁTICO, por buen historial que tenga. Las otras
-      // palancas modifican un número en algo que ya existe y se revierten
-      // poniéndolo como estaba; ésta CREA una entidad en la cuenta del cliente,
-      // y lo creado no se "deshace" — se borra, que es otra cosa. Una persona
-      // decide que exista.
+      // Acá solo se ARMA la propuesta. Mover plata del cliente, frenar anuncios o
+      // duplicar siempre lo decide una persona (20/10 y 26/10): ni el piloto ni un
+      // buen historial lo hacen solos.
       // Pausar lo que ya no gasta no ahorra nada y llenaba la cola (14/10: la
       // mayor parte de las 313 pendientes). Se le contesta al agente sin armar nada.
       if (p.accion.accion === "pause") {
@@ -1189,57 +1181,6 @@ export function agentToolsRoutes(
             `No armé la propuesta «${p.resumen}»: con los números de los últimos 14 días no se sostiene (${v.fallas.join("; ")}). Si hay otro motivo que los números no muestran (pedido del cliente, fin de una promo), escribilo en el issue para que lo decida una persona.`,
           );
         }
-        // Piloto automático (14/10): lo que pasa las reglas con evidencia y
-        // topes se hace solo y se avisa; lo demás queda como propuesta.
-        const piloto = await import("../services/piloto-automatico.js");
-        const solo = await piloto.propuestaSeEjecutaSola(db, ctx.companyId, p.clientId, p.accion, campanas, vara);
-        if (solo.si) {
-          const { ejecutarAccionAprobada } = await import("../services/ads-propuestas.js");
-          const payload = { clientId: p.clientId, justificacion: p.justificacion, resumen: p.resumen, accion: p.accion };
-          const r = await ejecutarAccionAprobada(db, payload, ctx.agentId);
-          await piloto.registrarEjecutadaSola(db, { companyId: ctx.companyId, agentId: ctx.agentId, payload, motivo: solo.motivo, resultado: r });
-          await piloto.avisarHechoSolo(db, p.clientId, p.resumen, p.justificacion, solo.motivo, r);
-          return r.ok
-            ? reply(true, `${r.detalle} Lo hizo el piloto automático (${solo.motivo}); el equipo queda avisado en el resumen.`)
-            : reply(false, `El piloto automático intentó hacerlo y falló: ${r.detalle}. Quedó como propuesta para una persona.`);
-        }
-      }
-
-      const { autonomiaDe } = await import("../services/ads-autonomia.js");
-      // Frenar anuncios siempre lo autoriza una persona: ni el piloto ni un buen
-      // historial pausan solos (20/10, "no quiero que se frenen más anuncios sin
-      // autorización humana").
-      const kindDeAccion =
-        p.accion.accion === "pause" || p.accion.accion === "duplicate" ? null : "set_budget";
-      const veredicto = kindDeAccion
-        ? await autonomiaDe(db, ctx.companyId, kindDeAccion).catch(() => null)
-        : null;
-
-      if (veredicto?.nivel === "ejecuta_y_avisa") {
-        const { ejecutarAccionAprobada } = await import("../services/ads-propuestas.js");
-        const r = await ejecutarAccionAprobada(
-          db,
-          { clientId: p.clientId, justificacion: p.justificacion, resumen: p.resumen, accion: p.accion },
-          ctx.agentId,
-        );
-        // Se avisa SIEMPRE, salga bien o mal: el equipo tiene que poder enterarse
-        // de todo lo que el sistema movió solo. Va en nivel 3 (resumen de las
-        // 9:00, con su texto) y no interrumpiendo, porque es una clase de acción ya
-        // probada y con tope del 30% — hacerla interrumpir reconstruiría el
-        // ruido que el embudo vino a sacar.
-        const { avisarAlEquipo } = await import("../services/wa-embudo.js");
-        await avisarAlEquipo(db, {
-          origen: "pauta-automatica",
-          nivel: 3,
-          clave: `auto:${p.resumen}`,
-          clientId: p.clientId,
-          texto:
-            `*${r.ok ? "Ejecutado solo" : "Intentó solo y FALLÓ"}* — ${p.resumen}\n\n` +
-            `${p.justificacion}\n\n_${r.detalle}_\n_Automático porque ${veredicto.motivo}._`,
-        }).catch(() => {});
-
-        if (!r.ok) return reply(false, `Esta acción ya se ejecuta sin aprobación, pero falló: ${r.detalle}`);
-        return reply(true, `${r.detalle} Se ejecutó sin esperar aprobación (${veredicto.motivo}) y el equipo queda avisado en el resumen.`);
       }
 
       const { proponerAccionPauta } = await import("../services/ads-propuestas.js");

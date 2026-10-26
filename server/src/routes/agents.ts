@@ -115,6 +115,9 @@ function readLiveRunsQueryInt(value: unknown, max: number, fallback = 0) {
   return Math.min(max, Math.trunc(parsed));
 }
 
+/** Claves de la config de un agente que solo cambia una persona (26/10). */
+const CLAVES_SOLO_DE_UNA_PERSONA = ["env", "command", "args", "extraArgs", "dangerouslySkipPermissions"];
+
 export function agentRoutes(
   db: Db,
   options: { pluginWorkerManager?: PluginWorkerManager } = {},
@@ -1167,6 +1170,15 @@ export function agentRoutes(
     adapterConfig: Record<string, unknown>,
     path = "adapterConfig",
   ) {
+    // Lo que un agente no toca de su config ni de la de otro (26/10): con `env`
+    // los agentes se habían prendido solos la escritura en las planillas de los
+    // clientes; con `command` o `args` un agente corre lo que quiera.
+    if (req.actor.type === "agent") {
+      const tocadas = CLAVES_SOLO_DE_UNA_PERSONA.filter((k) => hasOwn(adapterConfig, k));
+      if (tocadas.length > 0) {
+        throw forbidden(`Un agente no puede cambiar ${tocadas.map((k) => `${path}.${k}`).join(", ")}: lo cambia una persona del equipo.`);
+      }
+    }
     assertNoAgentInstructionsConfigMutation(req, adapterConfig, path);
     assertNoAgentHostWorkspaceCommandMutation(
       req,
@@ -2560,6 +2572,11 @@ export function agentRoutes(
     const patchData = { ...(req.body as Record<string, unknown>) };
     const replaceAdapterConfig = patchData.replaceAdapterConfig === true;
     delete patchData.replaceAdapterConfig;
+    // Reemplazar la config entera (borra el env) o cambiar de adaptador: solo una persona (26/10).
+    if (req.actor.type === "agent" && (replaceAdapterConfig || (hasOwn(patchData, "adapterType") && patchData.adapterType !== existing.adapterType))) {
+      res.status(403).json({ error: "Un agente no puede reemplazar su configuración ni cambiar de adaptador: lo hace una persona del equipo." });
+      return;
+    }
     if (hasOwn(patchData, "adapterConfig")) {
       const adapterConfig = asRecord(patchData.adapterConfig);
       if (!adapterConfig) {

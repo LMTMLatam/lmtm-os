@@ -1119,16 +1119,35 @@ export function refreshPaperclipWorkspaceEnvForExecution(input: {
   return shapedWorkspaceEnv;
 }
 
-export function sanitizeInheritedPaperclipEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...baseEnv };
-  for (const key of Object.keys(env)) {
-    if (!key.startsWith("PAPERCLIP_")) continue;
-    if (key === "PAPERCLIP_RUNTIME_API_URL") continue;
-    if (key === "PAPERCLIP_LISTEN_HOST") continue;
-    if (key === "PAPERCLIP_LISTEN_PORT") continue;
-    delete env[key];
-  }
-  return env;
+/**
+ * Lo único del entorno del servidor que hereda un proceso de agente (26/10/26).
+ *
+ * Antes heredaba TODO `process.env`: la base de datos como admin, las claves de
+ * Meta, Google Ads, Make y los modelos, los secretos de sesión y la llave SSH
+ * del CRM. Con eso y la terminal, los agentes corrieron psql como admin,
+ * recompilaron el servidor en vivo, entraron como root al VPS del CRM y se
+ * prendieron solos la escritura en planillas. Lo demás que necesita el agente
+ * lo pone el adaptador en `env` (la config del agente y las PAPERCLIP_* de la
+ * corrida). Si un MCP nuevo necesita una variable, va acá a propósito.
+ */
+const ENTORNO_HEREDABLE = new Set([
+  // Sistema
+  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "PWD", "TMPDIR", "TMP", "TEMP", "TERM", "COLORTERM", "HOSTNAME",
+  "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ", "NODE_ENV", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+  "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+  // Windows (desarrollo local)
+  "SystemRoot", "SYSTEMROOT", "windir", "PATHEXT", "ComSpec", "COMSPEC", "APPDATA", "LOCALAPPDATA", "USERPROFILE",
+  "HOMEDRIVE", "HOMEPATH", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "CommonProgramFiles", "OS",
+  "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+  // Cómo hablarle a la API de Paperclip
+  "PAPERCLIP_RUNTIME_API_URL", "PAPERCLIP_LISTEN_HOST", "PAPERCLIP_LISTEN_PORT",
+  // Lo que piden los MCP de docker/claude-mcp.json
+  "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN", "LMTM_DRIVE_AGENTS_FOLDER",
+  "CLICKUP_API_TOKEN", "TRENDS_MCP_API_KEY",
+]);
+
+export function entornoHeredable(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(baseEnv).filter(([key]) => ENTORNO_HEREDABLE.has(key)));
 }
 
 export function defaultPathForPlatform() {
@@ -1915,7 +1934,7 @@ export async function runChildProcess(
   const onLogError = opts.onLogError ?? ((err, id, msg) => console.warn({ err, runId: id }, msg));
   return new Promise<RunProcessResult>((resolve, reject) => {
     const rawMerged: NodeJS.ProcessEnv = {
-      ...sanitizeInheritedPaperclipEnv(process.env),
+      ...entornoHeredable(process.env),
       ...opts.env,
     };
 

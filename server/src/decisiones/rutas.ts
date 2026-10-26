@@ -153,8 +153,11 @@ export function decisionesRoutes(db: Db) {
     }
   });
 
+  // Aprobar y ejecutar de verdad es de una persona (26/10): antes un agente podía
+  // hacerlo por la API y saltarse el "lo autoriza el equipo".
   router.post("/decisiones/:id/aprobar", async (req, res) => {
     try {
+      if (req.actor.type !== "board") throw new ErrorDecision(403, "Aprobar una decisión lo hace una persona del equipo, no un agente.");
       await accesoADecision(req, req.params.id);
       res.json({ decision: await aprobar(db, req.params.id, actorDe(req)) });
     } catch (e) {
@@ -176,6 +179,7 @@ export function decisionesRoutes(db: Db) {
     try {
       await accesoADecision(req, req.params.id);
       const ensayo = req.body?.confirmar !== true;
+      if (!ensayo && req.actor.type !== "board") throw new ErrorDecision(403, "Ejecutar una decisión lo hace una persona del equipo; un agente puede correr el ensayo.");
       const r = await ejecutar(db, req.params.id, actorDe(req), { ensayo });
       res.status(r.resultado.ok ? 200 : 422).json(r);
     } catch (e) {
