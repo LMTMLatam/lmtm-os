@@ -19,7 +19,9 @@
 //    tareas no se come la semana en dos días.
 // 3. Tope diario: si no se puede leer la cuota, las corridas automáticas tienen
 //    un tope por día (LMTM_CORRIDAS_LLM_POR_DIA, 80; un día normal son 20 a 45).
-// Lo que pide una persona a mano pasa el ritmo y el tope, pero no el corte.
+// 4. Tope por hora (26/10): como mucho LMTM_CORRIDAS_LLM_POR_HORA (4) arranques
+//    automáticos por proveedor, para que una pila de tareas no salga junta.
+// Lo que pide una persona a mano pasa el ritmo y los topes, pero no el corte.
 //
 // La cuota se lee de /v1/api/openplatform/coding_plan/remains con la misma clave
 // del plan. Es lo que usa la consola de MiniMax; no está documentado, así que si
@@ -148,9 +150,40 @@ export async function corridasDeHoy(db: Db, ahora = Date.now()): Promise<number>
   return cuenta.n;
 }
 
+// ── tope por hora (26/10) ────────────────────────────────────────────────────
+// Al terminar un corte, el barrido de tareas pendientes despierta todo lo que
+// juntó en el mismo segundo: el 26/10 a las 00:00:11 arrancaron ~40 corridas y
+// se comieron la ventana de 5 h en una hora (otra vez a las 05:00). El ritmo
+// semanal no lo frena porque a esa hora la semana recién empieza. Se cuenta en
+// memoria (no en la base) porque las corridas de una ráfaga todavía no existen
+// cuando se decide la siguiente.
+
+export function topePorHora(): number {
+  const n = Number(process.env.LMTM_CORRIDAS_LLM_POR_HORA);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 4;
+}
+
+const HORA = 60 * 60_000;
+const arranques = new Map<string, number[]>();
+
+/** Arranques automáticos que se dejaron pasar en la última hora para ese proveedor. */
+export function arrancadasUltimaHora(proveedor: string, ahora = Date.now()): number {
+  const vivos = (arranques.get(proveedor) ?? []).filter((t) => ahora - t < HORA);
+  arranques.set(proveedor, vivos);
+  return vivos.length;
+}
+
+export function anotarArranque(proveedor: string, ahora = Date.now()): void {
+  arranques.set(proveedor, [...(arranques.get(proveedor) ?? []), ahora]);
+}
+
+export function olvidarArranques(): void {
+  arranques.clear();
+}
+
 // ── la decisión ──────────────────────────────────────────────────────────────
 
-export type MotivoCorte = "llm.cuota_agotada" | "llm.ritmo_semanal" | "llm.tope_diario";
+export type MotivoCorte = "llm.cuota_agotada" | "llm.tope_hora" | "llm.ritmo_semanal" | "llm.tope_diario";
 
 /** ¿Este despertar se corta? Pura: decide con lo ya medido. */
 export function motivoDeCorte(input: {
@@ -159,10 +192,13 @@ export function motivoDeCorte(input: {
   estado: EstadoCuota | null;
   corridasHoy: number;
   tope: number;
+  arrancadasHora?: number;
+  topeHora?: number;
   ahora?: number;
 }): MotivoCorte | null {
   if (input.pausadaHasta) return "llm.cuota_agotada";
   if (input.fuente === "on_demand") return null;
+  if ((input.arrancadasHora ?? 0) >= (input.topeHora ?? Number.POSITIVE_INFINITY)) return "llm.tope_hora";
   if (input.estado) return vaAdelantado(input.estado, input.ahora) ? "llm.ritmo_semanal" : null;
   return input.corridasHoy >= input.tope ? "llm.tope_diario" : null;
 }
@@ -179,8 +215,14 @@ export async function corteParaDespertar(db: Db, adapterConfig: unknown, fuente:
     pausarPorCuota(proveedorDe(adapterConfig), reset);
     return "llm.cuota_agotada";
   }
+  const proveedor = proveedorDe(adapterConfig);
   const corridasHoy = estado ? 0 : await corridasDeHoy(db);
-  return motivoDeCorte({ pausadaHasta, fuente, estado, corridasHoy, tope: topePorDia() });
+  const motivo = motivoDeCorte({
+    pausadaHasta, fuente, estado, corridasHoy, tope: topePorDia(),
+    arrancadasHora: arrancadasUltimaHora(proveedor), topeHora: topePorHora(),
+  });
+  if (!motivo) anotarArranque(proveedor);
+  return motivo;
 }
 
 /** Corrida con cuota agotada: corta el proveedor hasta el reset y avisa al equipo. */

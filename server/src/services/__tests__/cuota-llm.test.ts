@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  cuotaPausadaHasta, leerEstado, motivoDeCorte, olvidarPausas, pausarPorCuota, proveedorDe, resetDe, SONDEO_MS, vaAdelantado,
+  anotarArranque, arrancadasUltimaHora, cuotaPausadaHasta, leerEstado, motivoDeCorte, olvidarArranques, olvidarPausas, pausarPorCuota,
+  proveedorDe, resetDe, SONDEO_MS, vaAdelantado,
   type EstadoCuota,
 } from "../cuota-llm.js";
 
@@ -15,7 +16,7 @@ const estado = (restante: number, ventana = 1): EstadoCuota => ({
 });
 
 describe("cuota del proveedor de los agentes (22/10)", () => {
-  afterEach(() => olvidarPausas());
+  afterEach(() => { olvidarPausas(); olvidarArranques(); });
 
   it("el proveedor sale del ANTHROPIC_BASE_URL del agente", () => {
     expect(proveedorDe({ env: { ANTHROPIC_BASE_URL: `${MINIMAX}/` } })).toBe(MINIMAX);
@@ -63,5 +64,22 @@ describe("cuota del proveedor de los agentes (22/10)", () => {
     expect(motivoDeCorte({ ...base, pausadaHasta: null, fuente: "on_demand", estado: estado(0.25) })).toBeNull();
     expect(motivoDeCorte({ ...base, pausadaHasta: null, fuente: "timer", estado: null, corridasHoy: 80 })).toBe("llm.tope_diario");
     expect(motivoDeCorte({ ...base, pausadaHasta: null, fuente: "timer", estado: null, corridasHoy: 79 })).toBeNull();
+  });
+
+  it("26/10: al abrirse la ventana, una pila de despertares no sale junta (tope por hora)", () => {
+    const lunes = INICIO + 60_000; // la semana recién empieza: el ritmo deja pasar todo
+    const base = { pausadaHasta: null, fuente: "automation", estado: estado(1), corridasHoy: 0, tope: 80, topeHora: 4, ahora: lunes };
+    const pasan = [];
+    for (let i = 0; i < 40; i++) {
+      const m = motivoDeCorte({ ...base, arrancadasHora: arrancadasUltimaHora(MINIMAX, lunes) });
+      if (!m) { anotarArranque(MINIMAX, lunes); pasan.push(i); }
+      else expect(m).toBe("llm.tope_hora");
+    }
+    expect(pasan).toHaveLength(4);
+    // Lo pedido a mano pasa igual; otro proveedor lleva su propia cuenta.
+    expect(motivoDeCorte({ ...base, fuente: "on_demand", arrancadasHora: 4 })).toBeNull();
+    expect(arrancadasUltimaHora("http://127.0.0.1:4000", lunes)).toBe(0);
+    // Pasada la hora, vuelve a dejar arrancar.
+    expect(arrancadasUltimaHora(MINIMAX, lunes + 60 * 60_000)).toBe(0);
   });
 });
