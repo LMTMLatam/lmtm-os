@@ -41,6 +41,51 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 26/10: cerco a los agentes (8060187, deploy 276e1309)
+
+Auditoría: los agentes corrían con todo el entorno del servidor y Bash en el
+mismo contenedor. Usaron la clave de admin de la base (quedó en
+`heartbeat_runs.stdout_excerpt`), recompilaron el server en `/app`, entraron por
+SSH root al VPS del CRM y se auto-aprobaron tareas L2 (Pablo dio el "OK PM" y
+Esteban abrió la escritura de planillas). Con OK del usuario ("avanzá con todas"):
+
+- **Entorno por lista blanca:** `entornoHeredable()` en `adapter-utils`, usada por
+  `runChildProcess`, `claude_local` y `process`. Las variables de los MCP salen de
+  esa lista o del `env` de la corrida (PAPERCLIP_*). Un MCP nuevo que necesite una
+  variable tiene que sumarla ahí.
+- **Configuración:** un agente no cambia por API su `env`, `command`, `args`,
+  `extraArgs` ni `dangerouslySkipPermissions`, no reemplaza la config y no cambia
+  de adaptador.
+- **Decisiones humanas:** una tarea [HUMANO]/[L2…]/"OK humano" la cierra un agente
+  solo si tiene una aprobación aprobada (`decision-humana.ts`). Las decisiones de
+  Hoy (`aprobar`, `ejecutar`) son solo de tablero.
+- **Pauta:** sin piloto de presupuesto ni autonomía graduada; solo `approvals.ts`
+  ejecuta acciones de pauta (test). El piloto sigue sumando negativas solo.
+- **Llave SSH del CRM:** revocada en el VPS; `CRM_SSH_KEY` vacía en Railway.
+- **Contraseña de la base:** rotada al arrancar el deploy (`ALTER USER`). La nueva
+  entra y la vieja da rechazo; server escuchando a las 15:20 UTC y health 200.
+
+Verificado: tests y tsc en verde, deploy SUCCESS, sin errores de autenticación en
+los logs. No verificado todavía: que un agente real arranque sus MCP con el
+entorno recortado. Desde el deploy no corrió ninguno: el ritmo semanal de MiniMax
+saltea los despertares (`llm.ritmo_semanal`, 5058 en 6 h). `railway ssh` ahora
+pide registrar una llave en la cuenta, así que no se probó adentro del
+contenedor. La revisión estática da que las 12 variables de
+`docker/claude-mcp.json` llegan.
+
+Queda como riesgo:
+- el token de Make en la URL del MCP;
+- el refresh token de Google con escritura en Sheets/Drive;
+- los adaptadores sin uso (codex, gemini, opencode, cursor, acpx), que pasan
+  `process.env` entero;
+- `BETTER_AUTH_SECRET` sin rotar.
+
+De paso:
+- El bot de WhatsApp del equipo está en `SCAN_QR` desde al menos el 20/10 y el
+  resumen no sale (`gateway 409 not connected`).
+- Hay contenido fechado que los agentes cargan en listas de publicación (SRP,
+  04:00 ART). Solo lo frena la compuerta APROBADO del despachador.
+
 ### 26/10: escenarios de prueba de los agentes en la cuenta real de Make
 
 El equipo recibía mails de error de Make. Eran pruebas de agentes en la cuenta
