@@ -41,6 +41,22 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 26/10: escenarios de prueba de los agentes en la cuenta real de Make
+
+El equipo recibía mails de error de Make. Eran pruebas de agentes en la cuenta
+real: Nicolas (LMTM-6271, dom 25/10 21:08–21:38 ART) creó `ZZ-SCRATCH-A2-*` y
+`TMP-TEST-LMTM-6271` y guardó 5 veces el health-check `LMTM-5441-A2` (2
+ejecuciones con error; desde las 21:32 anda). Esteban (LMTM-6096, 20/10) dejó
+`ZZ-TEST-ESTEBAN-*`. Con OK del usuario se borraron los 7 (83 → 76 scenarios;
+queda `ZZ-TEST-PATCH-probe`, apagado). Regla nueva en `lmtm-tool-reference`: no
+crear scenarios de prueba (y si es imprescindible, borrarlo en la misma corrida),
+no probar guardando un scenario en uso, no poner claves en el blueprint. Ojo: el
+blueprint de `LMTM-5441-A2` tiene un token de la API de Make escrito a mano.
+
+De paso, "Clean Unity publicó cosas sueltas el finde": no es una falla. Make
+publicó las tareas 8–11 del calendario de ClickUp en sus fechas (23–26/10), las
+4 con "APROBADO" del cliente y en su formato.
+
 ### 26/10: la semana nueva de MiniMax se iba igual (30% en 14 h)
 
 - **Ráfaga al reset:** a las 00:00:11 UTC el barrido de pendientes despertó ~40

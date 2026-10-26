@@ -134,6 +134,15 @@ scenarios, hooks, connections y data stores de la org LMTM (team 228071):
 - **No borres scenarios de clientes** sin confirmación del equipo.
 - Si un scenario falla, revisá `executions_get-detail` antes de tocar el blueprint.
 - Para crear un cliente nuevo: cloná el scenario desde "AutoPoster: Plantilla Clientes".
+- **Esta es la cuenta real de la agencia, no un sandbox.** Cada error le llega por mail al
+  equipo. El 26/10 quedaron 7 scenarios de prueba (`ZZ-SCRATCH-*`, `ZZ-TEST-*`, `TMP-TEST-*`)
+  prendidos y mandando errores; hubo que borrarlos a mano.
+  - No crees scenarios de prueba. Si uno es imprescindible: creálo con el número del issue
+    en el nombre, corrélo con `scenarios_run` y **borralo en la misma corrida** con
+    `scenarios_delete`. Dejá en el comentario del issue que lo borraste.
+  - No pruebes cambios guardando una y otra vez un scenario que está en uso: cada guardado
+    que falla manda un mail. Armá el blueprint completo, explicalo en el issue y aplicalo una vez.
+  - No pongas tokens ni claves en el blueprint (headers, URLs): usá una conexión de Make.
 
 ## Google (MCP `google`) — Sheets · Drive · Apps Script
 
