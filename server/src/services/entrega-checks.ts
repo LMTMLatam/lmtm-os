@@ -149,7 +149,7 @@ export async function gateBinario(args: { criterio: string; contenido: string; c
 // riesgo de contaminación entre cuentas que ya cubre el check de texto — el más
 // caro de una agencia — pero en el soporte donde de verdad se ve.
 //
-// kimi-k3 es lo único de la flota que puede mirar una imagen.
+// La mira GPT-6.1 Terra (kimi-k3 hasta el 28/10): ver verImagen.
 
 export interface ChecksImagen extends ResultadoChecks {
   /** true = no se pudo mirar la imagen. NO es lo mismo que "está bien": si el
@@ -177,8 +177,8 @@ export async function verificarImagen(
     sinTextoEsperado?: boolean;
   } = {},
 ): Promise<ChecksImagen> {
-  const { verImagen, nvidiaConfigurado } = await import("./nvidia-modelos.js");
-  if (!nvidiaConfigurado()) {
+  const { verImagen, visionConfigurada } = await import("./nvidia-modelos.js");
+  if (!visionConfigurada()) {
     return { ok: true, problemas: [], sinVerificar: true };
   }
 

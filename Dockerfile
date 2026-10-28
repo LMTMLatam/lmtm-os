@@ -146,6 +146,27 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
+# HyperFrames: el entorno con el que se arman los reels a mano, replicado para el
+# agente "Productor de video" y el servicio de render (28/10). La CLI pide Node 22
+# y la imagen corre en 20, así que va un Node 22 aparte en /opt/node22 que solo
+# usan ellos (el PATH del agente lo pone primero). Chrome lo baja `browser
+# ensure` en la versión que fija HyperFrames, para que los cuadros salgan iguales
+# en cualquier máquina; las librerías son las que pide Chrome sin pantalla.
+ARG HYPERFRAMES_VERSION=0.8.212
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends xz-utils libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+     libpango-1.0-0 libcairo2 libx11-xcb1 libxshmfence1 fonts-liberation fonts-noto-core fonts-noto-color-emoji \
+  && rm -rf /var/lib/apt/lists/* \
+  && N22=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt | grep -oE 'node-v22\.[0-9]+\.[0-9]+-linux-x64\.tar\.xz' | head -1) \
+  && curl -fsSL "https://nodejs.org/dist/latest-v22.x/${N22}" | tar -xJ -C /opt \
+  && mv /opt/node-v22*-linux-x64 /opt/node22 \
+  && PATH=/opt/node22/bin:$PATH npm install -g "hyperframes@${HYPERFRAMES_VERSION}" --no-audit --no-fund --loglevel=error \
+  && PATH=/opt/node22/bin:$PATH HYPERFRAMES_NO_TELEMETRY=1 hyperframes browser ensure \
+  && PATH=/opt/node22/bin:$PATH hyperframes --version
+COPY docker/video-skills/ /app/video-skills/
+COPY docker/render-worker.mjs /app/render-worker.mjs
+
 # Higgsfield CLI (binario Go oficial): la usa el PLAN de la agencia, cuyos
 # créditos solo se gastan por la cuenta de usuario (la API de plataforma tiene
 # bolsa aparte). fnf-api-gw.higgsfield.ai está detrás de Cloudflare y rechaza

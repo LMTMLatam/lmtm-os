@@ -61,6 +61,43 @@ export function nvidiaConfigurado(): boolean {
   return Boolean(process.env.NVIDIA_API_KEY_VISION?.trim() || process.env.NVIDIA_API_KEY?.trim());
 }
 
+/** ¿Hay algún modelo que pueda mirar una imagen? (GPT o kimi) */
+export function visionConfigurada(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY?.trim()) || nvidiaConfigurado();
+}
+
+/** Modelo de visión de OpenAI: el mismo que revisa los videos del Productor. */
+export const MODELO_VISION_OPENAI = process.env.OPENAI_MODEL_VISION?.trim() || "gpt-6.1-terra";
+
+async function verImagenOpenAI(
+  instruccion: string,
+  imagenUrl: string,
+  clave: string,
+  opts: { maxTokens?: number },
+): Promise<RespuestaModelo> {
+  try {
+    // Sin temperature: los modelos que razonan solo aceptan la de fábrica.
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${clave}` },
+      body: JSON.stringify({
+        model: MODELO_VISION_OPENAI,
+        messages: [{ role: "user", content: [{ type: "text", text: instruccion }, { type: "image_url", image_url: { url: imagenUrl } }] }],
+        max_completion_tokens: tokensSeguros(opts.maxTokens, true),
+      }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    if (!r.ok) return { texto: null, motivo: "http", detalle: `${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}` };
+    const j = (await r.json()) as { choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>; usage?: { total_tokens?: number } };
+    const c = j.choices?.[0];
+    const texto = (c?.message?.content ?? "").trim();
+    if (texto) return { texto, tokens: j.usage?.total_tokens };
+    return { texto: null, motivo: c?.finish_reason === "length" ? "razonamiento_sin_texto" : "vacio", detalle: `${MODELO_VISION_OPENAI} finish_reason=${c?.finish_reason ?? "?"}` };
+  } catch (e) {
+    return { texto: null, motivo: "red", detalle: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** El motivo por el que no hubo texto. Sirve para no confundir "el modelo no
  *  contestó" con "el modelo contestó y nos comimos la respuesta". */
 export type MotivoVacio = "sin_clave" | "http" | "red" | "razonamiento_sin_texto" | "vacio";
@@ -152,6 +189,9 @@ export async function verImagen(
   imagenUrl: string,
   opts: { maxTokens?: number } = {},
 ): Promise<RespuestaModelo> {
+  // 28/10: kimi ya no está; con OPENAI_API_KEY mira GPT (también razona: mismo piso).
+  const openai = process.env.OPENAI_API_KEY?.trim();
+  if (openai) return verImagenOpenAI(instruccion, imagenUrl, openai, opts);
   const clave = claveVision();
   if (!clave) return { texto: null, motivo: "sin_clave", detalle: "falta NVIDIA_API_KEY_VISION" };
   return llamar(MODELO_VISION, clave, [{

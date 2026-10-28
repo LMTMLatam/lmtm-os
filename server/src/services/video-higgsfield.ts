@@ -29,8 +29,8 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { aiNarrative } from "./agency-ops.js";
 import { NON_LATIN_RE } from "./entrega-checks.js";
 import { entregarVideo, type EntregaResultado } from "./video-entrega.js";
-import { planDe } from "./contenido-tipos.js";
-import { conGasto, estado as estadoHiggsfield, generarVideo, SinCreditos, type ContextoGasto } from "./higgsfield.js";
+import { ES_VIDEO, planDe } from "./contenido-tipos.js";
+import { conGasto, estado as estadoHiggsfield, generarVideo, SinCreditos, sinHiggsfield, type ContextoGasto } from "./higgsfield.js";
 import { hayPlan, prepararCredenciales, MODELO_VIDEO_PLAN } from "./higgsfield-cli.js";
 import { hayCredenciales as hayApi } from "./higgsfield-api.js";
 
@@ -741,6 +741,18 @@ async function generarPieza(
     return { ok: true, taskId, error: "ya tenía contenido generado (no se regeneró)" };
   }
 
+  // Sin Higgsfield (28/10) el video lo arma el agente Productor de video con
+  // HyperFrames: se le pide con un issue y la etiqueta «contenido generado» la
+  // pone él al entregar (no antes: la tarea diría que hay video y no lo hay).
+  if (sinHiggsfield() && ES_VIDEO(planDe(tarea.tipo, `${tarea.name} ${tarea.copy ?? ""}`).formato)) {
+    const { pedirVideoAlProductor } = await import("./video-agente.js");
+    const r = await pedirVideoAlProductor(db, {
+      companyId: COMPANY_ID, clientId, clienteNombre: cliente.name, clickupTaskId: taskId, clickupUrl: tarea.url,
+      nombre: tarea.name, tipo: tarea.tipo, copy: tarea.copy, producto: tarea.producto, objetivo: tarea.objetivo,
+    });
+    return { ok: r.ok, taskId, error: r.mensaje };
+  }
+
   // RESERVA antes de gastar: el barrido corre cada 10 min y el botón del panel
   // puede caer justo encima. En la prueba del 12/8 los dos arrancaron a la vez
   // y pagamos el mismo video dos veces — el dedupe por deliverable no alcanza
@@ -897,8 +909,8 @@ export async function barrerPendientes(db: Db): Promise<{ vistas: number; genera
 export function initVideoHiggsfield(db: Db): void {
   // El plan necesita sus credenciales materializadas en el volumen; el API no
   // necesita nada más que las variables.
-  const conPlan = hayPlan() && prepararCredenciales();
-  if (!conPlan && !hayApi()) {
+  const conPlan = !sinHiggsfield() && hayPlan() && prepararCredenciales();
+  if (!conPlan && !hayApi() && !sinHiggsfield()) {
     console.log("[higgsfield] sin plan ni credenciales de API — generación de contenido deshabilitada.");
     return;
   }

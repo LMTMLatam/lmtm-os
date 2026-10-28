@@ -1558,6 +1558,15 @@ function toCompanySkillListItem(skill: CompanySkillListRow, attachedAgentCount: 
   };
 }
 
+/** Las skills que cargan TODOS los agentes, pidan lo que pidan (28/10). */
+export const SKILLS_DE_TODOS = new Set([
+  "caveman",
+  "lmtm-ahorro-tokens",
+  "lmtm-tool-reference",
+  "lmtm-agency-overview",
+  "lmtm-escalation-policy",
+]);
+
 export function companySkillService(db: Db) {
   const agents = agentService(db);
   const projects = projectService(db);
@@ -2196,14 +2205,18 @@ export function companySkillService(db: Db) {
       }
       if (!source) continue;
 
-      const required = sourceKind === "paperclip_bundled";
+      // LMTM 28/10: solo el núcleo va a todos. Antes las 122 skills de la agencia
+      // eran obligatorias para los 14 agentes: ~12.000 tokens de descripciones en
+      // cada turno, aunque cada uno pide entre 8 y 18. Las demás llegan por la
+      // lista de cada agente o porque el issue las nombra.
+      const required = sourceKind === "paperclip_bundled" && SKILLS_DE_TODOS.has(skill.slug);
       out.push({
         key: skill.key,
         runtimeName: buildSkillRuntimeName(skill.key, skill.slug),
         source,
         required,
         requiredReason: required
-          ? "Bundled Paperclip skills are always available for local adapters."
+          ? "Núcleo de LMTM: lo cargan todos los agentes."
           : null,
       });
     }

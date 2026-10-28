@@ -336,6 +336,9 @@ export async function createApp(
     const { initVideoHiggsfield } = await import("./services/video-higgsfield.js");
     initVideoHiggsfield(db);
   } catch (e) { console.warn("[higgsfield] init failed:", e); }
+  // Productor de video (28/10): las skills de HyperFrames de la imagen.
+  void import("./services/video-agente.js").then(({ registrarSkillsDeVideo }) => registrarSkillsDeVideo(db))
+    .catch((e) => console.warn("[video-agente] no se registraron las skills:", e instanceof Error ? e.message : e));
   // Content publication monitor: flags planned content that passed its date
   // without being marked published (closes the idea→published last mile).
   try {

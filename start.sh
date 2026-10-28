@@ -14,6 +14,14 @@ set -u
 echo "=== LMTM-OS wrapper $(date -u) ==="
 echo "PORT=${PORT:-3100} NODE_ENV=${NODE_ENV:-?}"
 
+# ── Servicio de render (misma imagen, otro servicio de Railway) ───────────────
+# Con LMTM_RENDER_WORKER=1 este contenedor solo renderiza videos de HyperFrames:
+# ni servidor, ni agentes, ni WhatsApp (ver /app/render-worker.mjs).
+if [ "${LMTM_RENDER_WORKER:-}" = "1" ]; then
+  echo "[wrapper] modo servicio de render"
+  exec /opt/node22/bin/node /app/render-worker.mjs
+fi
+
 # ── CRM VPS SSH key ──────────────────────────────────────────────────────────
 # The CRM Engineer agent (Esteban) operates the OWN LMTM CRM (FastAPI+React on
 # VPS 82.29.56.162:2222). If CRM_SSH_KEY is provided, materialize it so the
@@ -59,7 +67,7 @@ fi
 # hit MiniMax directly, so if this sidecar is down only the pilot agents are
 # affected (never the main server). Gated on config + the required secrets.
 if [ -f /app/litellm-config.yaml ] && [ -x /opt/litellm/bin/litellm ] \
-   && [ -n "${NVIDIA_API_KEY:-}" ] && [ -n "${LITELLM_MASTER_KEY:-}" ] \
+   && [ -n "${NVIDIA_API_KEY:-}${OPENAI_API_KEY:-}" ] && [ -n "${LITELLM_MASTER_KEY:-}" ] \
    && [ -n "${MINIMAX_API_KEY:-}" ]; then
   (
     while true; do
@@ -72,7 +80,7 @@ if [ -f /app/litellm-config.yaml ] && [ -x /opt/litellm/bin/litellm ] \
   ) &
   echo "[wrapper] litellm router supervisor started on 127.0.0.1:4000"
 else
-  echo "[wrapper] litellm router disabled (missing config/binary/NVIDIA_API_KEY/LITELLM_MASTER_KEY/MINIMAX_API_KEY)"
+  echo "[wrapper] litellm router disabled (missing config/binary/NVIDIA_API_KEY u OPENAI_API_KEY/LITELLM_MASTER_KEY/MINIMAX_API_KEY)"
 fi
 
 # ── Hermes Agent config (~/.hermes): provider MiniMax + MCP de Paperclip ─────

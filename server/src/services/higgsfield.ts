@@ -92,6 +92,9 @@ export interface EstadoHiggsfield {
 
 /** Qué vía está disponible ahora mismo, para mostrarlo en el panel. */
 export async function estado(db: Db): Promise<EstadoHiggsfield> {
+  if (sinHiggsfield()) {
+    return { ok: hayMagnific(), via: null, creditosPlan: null, motivo: "Higgsfield dado de baja: imágenes con Magnific, videos con el Productor de video" };
+  }
   if (hayPlan()) {
     const { creditos: c, error } = await creditosPlan(db);
     if (c != null && c >= PISO_PLAN) return { ok: true, via: "plan", creditosPlan: c, motivo: null };
@@ -114,6 +117,9 @@ export async function generarVideo(
   prompt: string,
   opts: { imagenUrl?: string | null } = {},
 ): Promise<Generado> {
+  if (sinHiggsfield()) {
+    throw new Error("Higgsfield ya no está (28/10): los videos los arma el agente Productor de video. Pedíselo con un issue o la etiqueta 'generar contenido'.");
+  }
   if (hayPlan()) {
     try {
       const r = await generarVideoPlan(db, prompt, opts);
@@ -130,13 +136,16 @@ export async function generarVideo(
   }, "video");
 }
 
+/** 28/10: la agencia dio de baja Higgsfield. Imágenes → Magnific; videos → Productor de video. */
+export const sinHiggsfield = (): boolean => process.env.LMTM_SIN_HIGGSFIELD === "1";
+
 export async function generarImagen(
   db: Db,
   prompt: string,
   opts: { referencias?: string[]; aspect?: "3:4" | "9:16"; soloMagnific?: boolean } = {},
 ): Promise<Generado> {
-  // Pedido explícito de Magnific (desde Claude o el panel): sin pasar por Higgsfield.
-  if (opts.soloMagnific) return conMagnific(db, prompt, opts.aspect ?? "3:4");
+  // Pedido explícito de Magnific (desde Claude o el panel), o ya sin Higgsfield.
+  if (opts.soloMagnific || sinHiggsfield()) return conMagnific(db, prompt, opts.aspect ?? "3:4");
   if (hayPlan()) {
     try {
       // Sin aspect explícito: lo decide generarImagenPlan según el modelo. Acá

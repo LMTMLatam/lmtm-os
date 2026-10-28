@@ -33,7 +33,7 @@ interface RespuestaTrabajo {
   data?: { task_id?: string; status?: string; generated?: string[] };
 }
 
-async function pedir<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function pedir<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const key = process.env.MAGNIFIC_API_KEY?.trim();
   if (!key) throw new Error("falta MAGNIFIC_API_KEY");
   const r = await fetch(`${BASE}${path}`, {

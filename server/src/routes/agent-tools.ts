@@ -38,6 +38,7 @@ import {
   MODO_POR_DEFECTO,
   type ModoAgente,
 } from "../services/agent-modo.js";
+import { ejecutarHerramientaVideo, VIDEO_TOOLS } from "../services/video-agente.js";
 import { unauthorized } from "../errors.js";
 import { assertMiembro } from "./authz.js";
 
@@ -1104,7 +1105,7 @@ export function agentToolsRoutes(
   // más barato que las ignore a que las llame y se coma un error.
   router.get("/agent-tools", async (req, res) => {
     assertMiembro(req);
-    const todas = [...CORE_TOOLS, ...pluginToolDefs()];
+    const todas = [...CORE_TOOLS, ...VIDEO_TOOLS, ...pluginToolDefs()];
     const modo = await modoDelActor(req);
     const tools = modo === "accion" ? todas : todas.filter((t) => !esDeAccion(t.function.name));
     res.json({ tools });
@@ -1199,6 +1200,9 @@ export function agentToolsRoutes(
     // el nombre igual. Este es el que corta de verdad.
     const modo = await modoDelActor(req);
     if (!puedeUsar(modo, tool)) return reply(false, mensajeDeBloqueo(tool));
+
+    const video = await ejecutarHerramientaVideo(db, ctx, tool, params);
+    if (video) return reply(video.ok, video.content);
 
     try {
       if (tool === "get_issue") {

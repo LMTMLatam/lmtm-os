@@ -1120,6 +1120,88 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       }),
       async (p) => client.requestJson("POST", "/contenido/generar-libre", { body: { ...p, origen: "claude" } }),
     ),
+    // Productor de video (28/10): lo que necesita una clave o el servicio de render.
+    // La composición la escribe el agente con HyperFrames; ver la skill lmtm-video.
+    makeTool(
+      "lmtmVideoVoz",
+      "VOZ EN OFF en español rioplatense (OpenAI). Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Después sacale los tiempos con lmtmVideoTranscribir.",
+      z.object({
+        texto: z.string().min(1).max(600),
+        archivo: z.string().min(1).describe("Ruta .wav bajo /tmp/videos/."),
+        voz: z.enum(["marin", "cedar", "coral", "sage", "ash", "ballad", "verse", "alloy", "echo", "fable", "nova", "onyx", "shimmer"]).optional().describe("marin (femenina, cálida) por defecto; cedar masculina."),
+        instrucciones: z.string().optional().describe("Tono extra: entusiasta, pausado, susurrado..."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_voz", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoTranscribir",
+      "TIEMPOS de cada palabra de un audio o video (Whisper). Guarda <archivo>.words.json, el formato que leen las skills de subtítulos. Usá los tiempos; el texto de los subtítulos sale del guion.",
+      z.object({ archivo: z.string().min(1).describe("Ruta bajo /tmp/videos/."), idioma: z.string().optional().describe("ISO, por defecto es.") }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_transcribir", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoPlano",
+      "GENERA un plano de video vertical con Magnific (Seedance 2.5 Pro). GASTA CRÉDITOS: solo para lo que el material del cliente no tiene; nunca para mostrar su producto, local o gente como si fueran reales. En segundo plano: devuelve un id para lmtmVideoEstado.",
+      z.object({
+        prompt: z.string().min(10).max(4000).describe("En inglés: sujeto, lugar, luz, cámara, estilo. Sin texto ni logos."),
+        archivo: z.string().min(1).describe("Ruta .mp4 bajo /tmp/videos/."),
+        duracion: z.number().int().min(4).max(15).optional(),
+        imagen: z.string().optional().describe("Primer cuadro: ruta bajo /tmp/videos/ o URL https."),
+        resolucion: z.enum(["720p", "1080p"]).optional(),
+        clientId: z.string().optional(),
+        pieza: z.string().optional().describe("Id de la tarea de ClickUp o del issue."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_plano", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoMusica",
+      "GENERA música de fondo sin voces con Magnific (Lyria 3). GASTA CRÉDITOS. En segundo plano: devuelve un id para lmtmVideoEstado.",
+      z.object({
+        prompt: z.string().min(10).max(2000).describe("Género, ánimo, instrumentos, tempo."),
+        archivo: z.string().min(1).describe("Ruta .mp3 o .wav bajo /tmp/videos/."),
+        clientId: z.string().optional(),
+        pieza: z.string().optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_musica", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoRenderizar",
+      "RENDERIZA un proyecto de HyperFrames (directorio con index.html bajo /tmp/videos/) a .mp4 en el servicio de render. Antes: `npx hyperframes check --json` sin errores. En segundo plano: devuelve un id para lmtmVideoEstado.",
+      z.object({
+        proyecto: z.string().min(1),
+        calidad: z.enum(["draft", "looks", "delivery"]).optional().describe("delivery para entregar (por defecto)."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_renderizar", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoEstado",
+      "ESTADO de un render, plano o música en curso. Espera hasta 90 s; si sigue en curso, volvé a consultar.",
+      z.object({ id: z.string().min(1) }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_estado", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoRevisar",
+      "CONTROL DE CALIDAD de un .mp4 renderizado: saca cuadros y GPT los revisa contra el brief (subtítulos legibles, zona segura, texto sobre caras o producto, logo, ortografía, nada que el brief no permita). Complementa a `hyperframes check`.",
+      z.object({
+        archivo: z.string().min(1),
+        brief: z.string().min(10).describe("Qué tiene que decir y mostrar el video y qué no."),
+        cuadros: z.number().int().min(4).max(12).optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_revisar", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoEntregar",
+      "ENTREGA un video: lo sube a la carpeta VIDEOS del cliente en Drive y lo registra. No publica ni toca el calendario. Devuelve el link para dejar en la tarea.",
+      z.object({
+        archivo: z.string().min(1).describe("Ruta .mp4 bajo /tmp/videos/."),
+        clientId: z.string().min(1),
+        titulo: z.string().min(1).max(120),
+        guion: z.string().optional().describe("El guion y de dónde salió cada plano (cliente o generado)."),
+        issueId: z.string().optional(),
+        clickupTaskId: z.string().optional().describe("Si el pedido vino de una tarea de ClickUp: ahí queda el link y la etiqueta «contenido generado»."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_entregar", parameters: p } }),
+    ),
     makeTool(
       "lmtmGenerarPieza",
       "Genera el contenido de una PIEZA que ya es tarea de ClickUp (Super Redes o Redes Sociales), igual que la etiqueta 'generar contenido': el campo Tipo de Contenido decide si sale reel (3 clips pegados), clip, placa o carrusel; usa el Copy y la imagen de la tarea; sube a Drive, carga el Enlace de publicación y comenta en la tarea. GASTA CRÉDITOS: primero llamala con soloPrompt=true para ver qué se va a pedir, mostráselo a la persona y recién con su OK generá. Si la pieza ya se generó no la repite, salvo forzar=true.",

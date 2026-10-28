@@ -1,19 +1,42 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MIN_TOKENS_RAZONAMIENTO,
   MODELO_TEXTO,
   MODELO_VISION,
+  MODELO_VISION_OPENAI,
   analizarTexto,
   nvidiaConfigurado,
   tokensSeguros,
   verImagen,
+  visionConfigurada,
 } from "../nvidia-modelos.js";
 
 const IMG = "https://ejemplo.test/placa.jpg";
 
+// Estas pruebas son del camino de NVIDIA: sin clave de OpenAI (la de la máquina no cuenta).
+beforeEach(() => vi.stubEnv("OPENAI_API_KEY", ""));
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe("verImagen con OpenAI (28/10: kimi ya no está)", () => {
+  it("con OPENAI_API_KEY mira GPT, con el piso de tokens y sin temperature", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-prueba");
+    vi.stubEnv("NVIDIA_API_KEY_VISION", "nvapi-x");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "una placa" } }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const r = await verImagen("¿qué ves?", IMG, { maxTokens: 100 });
+    expect(r.texto).toBe("una placa");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/chat/completions");
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe(MODELO_VISION_OPENAI);
+    expect(body.max_completion_tokens).toBeGreaterThanOrEqual(MIN_TOKENS_RAZONAMIENTO);
+    expect(body.temperature).toBeUndefined();
+    expect(visionConfigurada()).toBe(true);
+  });
 });
 
 /** Respuesta cruda de la API, para simular cada forma que devuelve de verdad. */

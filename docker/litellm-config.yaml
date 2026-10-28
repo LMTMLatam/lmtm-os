@@ -21,17 +21,33 @@ model_list:
       model: openai/z-ai/glm-5.2
       api_base: https://integrate.api.nvidia.com/v1
       api_key: os.environ/NVIDIA_API_KEY_2
-  # Kimi K3 en NVIDIA: el ÚNICO modelo de la flota que ve imágenes. Verificado
-  # 11/9/26 (describió una foto correctamente en español). OJO: es un modelo de
-  # RAZONAMIENTO — con max_tokens chico devuelve content vacío y el texto queda
-  # en reasoning_content, con HTTP 200. Medido: 16 tokens falla, 4096 anda.
-  # No le pongas un cap bajo a este model_name.
+  # Visión: el único model_name de la flota que ve imágenes. Hasta el 28/10 era
+  # kimi-k3 en NVIDIA (ya no está); ahora GPT-6.1 Terra. Los dos RAZONAN: con un
+  # tope de tokens chico la respuesta vuelve vacía con HTTP 200. No le pongas cap.
   - model_name: lmtm-vision
     litellm_params:
-      model: openai/moonshotai/kimi-k3
-      api_base: https://integrate.api.nvidia.com/v1
-      api_key: os.environ/NVIDIA_API_KEY_VISION
-      max_tokens: 4096
+      model: openai/gpt-6.1-terra
+      api_base: https://api.openai.com/v1
+      api_key: os.environ/OPENAI_API_KEY
+  # Productor de video (28/10): GPT-6.1 Terra. Elegido con una prueba propia
+  # (el mismo reel de HyperFrames a Astra, Sol, Terra y Luna): Terra igualó a Sol
+  # y a Astra a la mitad de precio que Sol; Luna salió con letra chica e ilegible.
+  # Si Terra falla, responde Sol. Las tareas chicas del CLI van a Luna.
+  - model_name: lmtm-video
+    litellm_params:
+      model: openai/gpt-6.1-terra
+      api_base: https://api.openai.com/v1
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: lmtm-video-sol
+    litellm_params:
+      model: openai/gpt-6.1-sol
+      api_base: https://api.openai.com/v1
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: lmtm-video-rapido
+    litellm_params:
+      model: openai/gpt-6-luna
+      api_base: https://api.openai.com/v1
+      api_key: os.environ/OPENAI_API_KEY
   # DeepSeek V4 Flash: texto y análisis, sin fuga de CJK. Reemplaza al -pro-0813,
   # que llegó a su end of life el 14/9/26 (HTTP 410) tres días después de
   # integrarlo. OJO: flash SÍ devuelve reasoning_content, así que necesita
@@ -69,7 +85,7 @@ litellm_settings:
   # lmtm-vision NO tiene fallback a propósito: MiniMax y GLM no ven imágenes, y
   # caer a un modelo ciego devolvería una descripción inventada con cara de
   # respuesta válida. Mejor que falle y se note.
-  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}, {"lmtm-deepseek": ["lmtm-minimax"]}]
+  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}, {"lmtm-deepseek": ["lmtm-minimax"]}, {"lmtm-video": ["lmtm-video-sol"]}]
   drop_params: true
   request_timeout: 600
   num_retries: 1

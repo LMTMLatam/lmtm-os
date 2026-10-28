@@ -135,19 +135,24 @@ export function topePorDia(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 80;
 }
 
-let cuenta: { at: number; n: number } | null = null;
+const cuentas = new Map<string, { at: number; n: number }>();
 
-/** Corridas de agentes de Claude que arrancaron hoy (hora de Buenos Aires). Un minuto de caché. */
-export async function corridasDeHoy(db: Db, ahora = Date.now()): Promise<number> {
-  if (cuenta && ahora - cuenta.at < 60_000) return cuenta.n;
+/** Corridas de agentes de Claude de ESE proveedor que arrancaron hoy (hora de
+ *  Buenos Aires). Un minuto de caché. Por proveedor (28/10): el Productor de
+ *  video va a OpenAI y no tiene por qué frenarse por las corridas de MiniMax. */
+export async function corridasDeHoy(db: Db, proveedor: string, ahora = Date.now()): Promise<number> {
+  const c = cuentas.get(proveedor);
+  if (c && ahora - c.at < 60_000) return c.n;
   const r = await db.execute(sql`
     select count(*)::int as n
     from heartbeat_runs r join agents a on a.id = r.agent_id
     where a.adapter_type = 'claude_local'
+      and coalesce(nullif(rtrim(a.adapter_config->'env'->>'ANTHROPIC_BASE_URL', '/'), ''), 'anthropic') = ${proveedor}
       and r.created_at >= date_trunc('day', now() at time zone 'America/Argentina/Buenos_Aires') at time zone 'America/Argentina/Buenos_Aires'`);
   const filas = (r as { rows?: Array<{ n: number }> }).rows ?? (r as unknown as Array<{ n: number }>);
-  cuenta = { at: ahora, n: Number(filas[0]?.n ?? 0) };
-  return cuenta.n;
+  const n = Number(filas[0]?.n ?? 0);
+  cuentas.set(proveedor, { at: ahora, n });
+  return n;
 }
 
 // ── tope por hora (26/10) ────────────────────────────────────────────────────
@@ -216,7 +221,7 @@ export async function corteParaDespertar(db: Db, adapterConfig: unknown, fuente:
     return "llm.cuota_agotada";
   }
   const proveedor = proveedorDe(adapterConfig);
-  const corridasHoy = estado ? 0 : await corridasDeHoy(db);
+  const corridasHoy = estado ? 0 : await corridasDeHoy(db, proveedor);
   const motivo = motivoDeCorte({
     pausadaHasta, fuente, estado, corridasHoy, tope: topePorDia(),
     arrancadasHora: arrancadasUltimaHora(proveedor), topeHora: topePorHora(),

@@ -6,7 +6,7 @@ const IMG = "https://ejemplo.test/placa.jpg";
 /** Simula lo que devuelve el modelo de visión. */
 function modeloDice(texto: string | null, motivo?: string) {
   vi.doMock("../nvidia-modelos.js", () => ({
-    nvidiaConfigurado: () => true,
+    visionConfigurada: () => true,
     verImagen: async () => ({ texto, motivo, detalle: motivo }),
   }));
 }
@@ -81,10 +81,10 @@ describe("verificarImagen", () => {
   });
 });
 
-describe("verificarImagen sin NVIDIA configurado", () => {
+describe("verificarImagen sin modelo de visión configurado", () => {
   it("no bloquea la entrega pero deja claro que no miró", async () => {
     vi.doMock("../nvidia-modelos.js", () => ({
-      nvidiaConfigurado: () => false,
+      visionConfigurada: () => false,
       verImagen: async () => { throw new Error("no debería llamarse"); },
     }));
     const { verificarImagen: fn } = await import("../entrega-checks.js");
@@ -110,7 +110,7 @@ describe("sinTextoEsperado", () => {
   it("le dice al modelo que la ausencia de texto y logo no es un problema", async () => {
     const capturadas: string[] = [];
     vi.doMock("../nvidia-modelos.js", () => ({
-      nvidiaConfigurado: () => true,
+      visionConfigurada: () => true,
       verImagen: async (instruccion: string) => {
         capturadas.push(instruccion);
         return { texto: JSON.stringify({ descripcion: "x", legible: true, marcasVisibles: [], idiomaTextoOk: true, problemas: [] }) };
@@ -133,7 +133,7 @@ describe("sinTextoEsperado", () => {
     // Lo que NO se relaja: la contaminación entre cuentas es el riesgo caro y
     // no depende de que la pieza lleve texto.
     vi.doMock("../nvidia-modelos.js", () => ({
-      nvidiaConfigurado: () => true,
+      visionConfigurada: () => true,
       verImagen: async () => ({ texto: JSON.stringify({ descripcion: "x", legible: true, marcasVisibles: ["BOERO"], idiomaTextoOk: true, problemas: [] }) }),
     }));
     const { verificarImagen: fn } = await import("../entrega-checks.js");
