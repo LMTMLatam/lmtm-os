@@ -1,0 +1,375 @@
+{
+ "titulo": "El Hiper de la Pelu — OPI",
+ "duracion": 21.8,
+ "voz": [
+  {
+   "archivo": "assets/voice/l1.wav",
+   "desde": 0.1,
+   "dur": 1.76
+  },
+  {
+   "archivo": "assets/voice/l2.wav",
+   "desde": 1.7,
+   "dur": 4.36
+  },
+  {
+   "archivo": "assets/voice/l3.wav",
+   "desde": 5.65,
+   "dur": 3.8
+  },
+  {
+   "archivo": "assets/voice/l4.wav",
+   "desde": 9.1,
+   "dur": 2.8
+  },
+  {
+   "archivo": "assets/voice/l5.wav",
+   "desde": 11.55,
+   "dur": 3.88
+  },
+  {
+   "archivo": "assets/voice/l6.wav",
+   "desde": 15.3,
+   "dur": 2.04
+  },
+  {
+   "archivo": "assets/voice/l7.wav",
+   "desde": 17.1,
+   "dur": 3.16
+  }
+ ],
+ "planos": [
+  {
+   "archivo": "assets/planos/o1.mp4",
+   "desde": 0,
+   "dur": 2.95
+  },
+  {
+   "archivo": "assets/planos/o2.mp4",
+   "desde": 2.95,
+   "dur": 1.15
+  },
+  {
+   "archivo": "assets/planos/o6.mp4",
+   "desde": 4.1,
+   "dur": 1.65
+  },
+  {
+   "archivo": "assets/planos/o4.mp4",
+   "desde": 5.75,
+   "dur": 0.8
+  },
+  {
+   "archivo": "assets/planos/e1.mp4",
+   "desde": 6.55,
+   "dur": 0.85
+  },
+  {
+   "archivo": "assets/planos/e3.mp4",
+   "desde": 7.4,
+   "dur": 0.55
+  },
+  {
+   "archivo": "assets/planos/o3.mp4",
+   "desde": 7.95,
+   "dur": 1.45
+  },
+  {
+   "archivo": "assets/planos/o8.mp4",
+   "desde": 9.4,
+   "dur": 1.38
+  },
+  {
+   "archivo": "assets/planos/e4.mp4",
+   "desde": 10.78,
+   "dur": 1.27
+  },
+  {
+   "archivo": "assets/planos/e6.mp4",
+   "desde": 12.05,
+   "dur": 1.35
+  },
+  {
+   "archivo": "assets/planos/e5.mp4",
+   "desde": 13.4,
+   "dur": 0.85
+  },
+  {
+   "archivo": "assets/planos/o7.mp4",
+   "desde": 14.25,
+   "dur": 1.4
+  }
+ ],
+ "frases": [
+  {
+   "desde": 0.05,
+   "hasta": 1.72,
+   "palabras": [
+    [
+     "¿Buscás",
+     0.19
+    ],
+    [
+     "OPI",
+     0.62,
+     1
+    ],
+    [
+     "en",
+     1.02
+    ],
+    [
+     "Rosario?",
+     1.18,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 1.75,
+   "hasta": 3.05,
+   "palabras": [
+    [
+     "En",
+     1.85
+    ],
+    [
+     "el",
+     1.96
+    ],
+    [
+     "Hiper",
+     2,
+     1
+    ],
+    [
+     "de",
+     2.4,
+     1
+    ],
+    [
+     "la",
+     2.53,
+     1
+    ],
+    [
+     "Pelu",
+     2.68,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 3.05,
+   "hasta": 5.86,
+   "palabras": [
+    [
+     "somos",
+     3.1
+    ],
+    [
+     "distribuidores",
+     3.5,
+     1
+    ],
+    [
+     "exclusivos",
+     4.62,
+     1
+    ],
+    [
+     "de",
+     5.42
+    ],
+    [
+     "OPI.",
+     5.64,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 5.86,
+   "hasta": 7.9,
+   "palabras": [
+    [
+     "Esmaltes,",
+     5.86,
+     1
+    ],
+    [
+     "semipermanente",
+     6.47,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 7.9,
+   "hasta": 9.25,
+   "palabras": [
+    [
+     "y",
+     7.95
+    ],
+    [
+     "lo",
+     7.96
+    ],
+    [
+     "nuevo",
+     8.1,
+     1
+    ],
+    [
+     "de",
+     8.47
+    ],
+    [
+     "la",
+     8.61
+    ],
+    [
+     "marca.",
+     8.75
+    ]
+   ]
+  },
+  {
+   "desde": 9.25,
+   "hasta": 10.75,
+   "palabras": [
+    [
+     "¿No",
+     9.18
+    ],
+    [
+     "sabés",
+     9.34
+    ],
+    [
+     "cuál",
+     9.74,
+     1
+    ],
+    [
+     "elegir?",
+     10.06,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 10.75,
+   "hasta": 11.75,
+   "palabras": [
+    [
+     "Te",
+     10.8
+    ],
+    [
+     "asesoramos.",
+     10.97,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 11.75,
+   "hasta": 13.3,
+   "palabras": [
+    [
+     "Un",
+     11.56
+    ],
+    [
+     "negocio",
+     11.87
+    ],
+    [
+     "familiar,",
+     12.45,
+     1
+    ]
+   ]
+  },
+  {
+   "desde": 13.3,
+   "hasta": 15.15,
+   "palabras": [
+    [
+     "con",
+     13.38
+    ],
+    [
+     "más",
+     13.45
+    ],
+    [
+     "de",
+     13.63
+    ],
+    [
+     "1.500",
+     13.75,
+     1
+    ],
+    [
+     "productos.",
+     14.48,
+     1
+    ]
+   ]
+  }
+ ],
+ "marca": {
+  "logo": "assets/marca/logo-hiper.png",
+  "color": "#f36c21",
+  "colorTexto": "#dc5c14",
+  "oscuro": "#1f1f1f",
+  "claro": "#f4f4f4",
+  "tinta": "#404040",
+  "fuente": "Montserrat"
+ },
+ "cierre": {
+  "desde": 15.15,
+  "etiqueta": "ROSARIO · +1.500 PRODUCTOS",
+  "titulo": [
+   [
+    "Elegí",
+    15.31
+   ],
+   [
+    "tu",
+    15.85
+   ],
+   [
+    "OPI",
+    16.07,
+    1
+   ],
+   [
+    "en",
+    16.4
+   ],
+   [
+    "el",
+    16.62
+   ],
+   [
+    "Hiper.",
+    16.83
+   ]
+  ],
+  "corte": 3,
+  "cta": "Consultanos",
+  "ctaDesde": 17.42,
+  "url": "hiperdelapelu.com.ar",
+  "urlDesde": 18.18,
+  "fantasma": "OPI"
+ },
+ "musica": {
+  "archivo": "assets/audio/cama.m4a",
+  "volumen": 0.3
+ }
+}

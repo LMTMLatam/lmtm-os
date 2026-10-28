@@ -83,9 +83,12 @@ http.createServer((req, res) => {
     res.writeHead(400);
     return res.end("calidad: draft, looks o delivery");
   }
+  const t0 = Date.now();
+  console.log(`[render] pedido (${calidad}, ${req.headers["content-length"] ?? "?"} bytes)`);
   const turno = ocupado.then(() => renderizar(req, calidad));
   ocupado = turno.then(() => undefined, () => undefined);
   turno.then((r) => {
+    console.log(`[render] ${r.ok ? "listo" : "falló"} en ${Math.round((Date.now() - t0) / 1000)} s${r.ok ? "" : `: ${String(r.error).slice(0, 300)}`}`);
     if (!r.ok) {
       res.writeHead(500, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ok: false, error: r.error }));
@@ -95,4 +98,5 @@ http.createServer((req, res) => {
     s.pipe(res);
     s.on("close", () => fs.rmSync(r.dir, { recursive: true, force: true }));
   });
-}).listen(PUERTO, () => console.log(`[render] escuchando en ${PUERTO}`));
+  // "::" para la red privada de Railway (IPv6), que también acepta IPv4.
+}).listen(PUERTO, "::", () => console.log(`[render] escuchando en [::]:${PUERTO}`));

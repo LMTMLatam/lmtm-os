@@ -38,6 +38,13 @@ model_list:
       model: openai/gpt-6.1-terra
       api_base: https://api.openai.com/v1
       api_key: os.environ/OPENAI_API_KEY
+  # 28/10 (pedido del usuario después de ver el primer reel): el Productor pasa a
+  # Astra para elegir material y guion con más criterio. Terra queda para revisar.
+  - model_name: lmtm-video-astra
+    litellm_params:
+      model: openai/gpt-6-astra
+      api_base: https://api.openai.com/v1
+      api_key: os.environ/OPENAI_API_KEY
   - model_name: lmtm-video-sol
     litellm_params:
       model: openai/gpt-6.1-sol
@@ -85,7 +92,7 @@ litellm_settings:
   # lmtm-vision NO tiene fallback a propósito: MiniMax y GLM no ven imágenes, y
   # caer a un modelo ciego devolvería una descripción inventada con cara de
   # respuesta válida. Mejor que falle y se note.
-  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}, {"lmtm-deepseek": ["lmtm-minimax"]}, {"lmtm-video": ["lmtm-video-sol"]}]
+  fallbacks: [{"lmtm-glm": ["lmtm-minimax"]}, {"claude-sonnet-4-6": ["lmtm-minimax"]}, {"claude-haiku-4-5-20251001": ["lmtm-minimax"]}, {"lmtm-deepseek": ["lmtm-minimax"]}, {"lmtm-video": ["lmtm-video-sol"]}, {"lmtm-video-astra": ["lmtm-video-sol"]}]
   drop_params: true
   request_timeout: 600
   num_retries: 1

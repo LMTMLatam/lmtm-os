@@ -1124,12 +1124,14 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     // La composición la escribe el agente con HyperFrames; ver la skill lmtm-video.
     makeTool(
       "lmtmVideoVoz",
-      "VOZ EN OFF en español rioplatense (OpenAI). Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Después sacale los tiempos con lmtmVideoTranscribir.",
+      "VOZ EN OFF en español rioplatense: Gemini (voz Sulafat, la de los reels aprobados) si está configurado; si no, OpenAI. Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Usá el MISMO estilo en todas las frases. Después sacale los tiempos con lmtmVideoTranscribir.",
       z.object({
         texto: z.string().min(1).max(600),
         archivo: z.string().min(1).describe("Ruta .wav bajo /tmp/videos/."),
-        voz: z.enum(["marin", "cedar", "coral", "sage", "ash", "ballad", "verse", "alloy", "echo", "fable", "nova", "onyx", "shimmer"]).optional().describe("marin (femenina, cálida) por defecto; cedar masculina."),
-        instrucciones: z.string().optional().describe("Tono extra: entusiasta, pausado, susurrado..."),
+        estilo: z.string().optional().describe("Cómo suena, adaptado al cliente («mujer argentina con acento rioplatense, cálida, como una asesora que recomienda a una amiga, sin tono de locutora»)."),
+        voz: z.string().optional().describe("Gemini: Sulafat por defecto. OpenAI: marin o cedar."),
+        proveedor: z.enum(["gemini", "openai"]).optional().describe("Solo para forzar OpenAI."),
+        instrucciones: z.string().optional().describe("OpenAI: tono extra."),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_voz", parameters: p } }),
     ),

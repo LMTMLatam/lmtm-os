@@ -35,6 +35,11 @@ const MODELO_REVISION = process.env.LMTM_VIDEO_MODELO_REVISION ?? "gpt-6.1-terra
 /** Generaciones de Magnific por mes que puede pedir el agente (planos + música). */
 const TOPE_MAGNIFIC_MES = Number(process.env.LMTM_VIDEO_TOPE_MAGNIFIC_MES) || 40;
 const VOCES = ["marin", "cedar", "coral", "sage", "ash", "ballad", "verse", "alloy", "echo", "fable", "nova", "onyx", "shimmer"] as const;
+const MODELO_VOZ_GEMINI = process.env.LMTM_VOZ_GEMINI_MODELO ?? "gemini-3.8-flash-tts";
+/** El estilo del reel aprobado de El Hiper (23/10). El agente lo adapta al cliente con `estilo`. */
+const ESTILO_GEMINI =
+  "Mujer argentina con acento rioplatense natural. Voz cálida, segura y con energía, como alguien que le recomienda algo a una amiga. " +
+  "Ritmo ágil pero claro, con una sonrisa en la voz, sin tono de locutora de radio ni exageración.";
 const ACENTO =
   "Hablá en español rioplatense de Argentina: voseo, acento de Buenos Aires o Rosario, cálido, cercano y natural, " +
   "como un aviso para redes. Ritmo ágil sin apurarte; pronunciá bien las marcas.";
@@ -147,13 +152,23 @@ async function renderizar(proyecto: string, calidad: string): Promise<string> {
   if (url) {
     const tar = path.join(path.dirname(proyecto), `.${path.basename(proyecto)}-${Date.now()}.tar.gz`);
     try {
-      await run("tar", ["-czf", tar, "--exclude=./node_modules", "--exclude=./renders", "--exclude=./.hyperframes", "-C", proyecto, "."], { maxBuffer: 1 << 24 });
-      const r = await fetch(`${url.replace(/\/$/, "")}/render?calidad=${calidad}`, {
-        method: "POST",
-        headers: { "x-render-token": process.env.LMTM_RENDER_TOKEN ?? "", "content-type": "application/gzip" },
-        body: fs.readFileSync(tar),
-        signal: AbortSignal.timeout(25 * 60_000),
-      });
+      // Sin los originales (assets/fuente: videos 4K de cientos de MB): el render usa los planos ya cortados.
+      await run("tar", ["-czf", tar, "--exclude=./node_modules", "--exclude=./renders", "--exclude=./.hyperframes", "--exclude=./assets/fuente", "--exclude=./capture", "-C", proyecto, "."], { maxBuffer: 1 << 24 });
+      const mb = fs.statSync(tar).size / 1e6;
+      let r: Response;
+      try {
+        r = await fetch(`${url.replace(/\/$/, "")}/render?calidad=${calidad}`, {
+          method: "POST",
+          headers: { "x-render-token": process.env.LMTM_RENDER_TOKEN ?? "", "content-type": "application/gzip" },
+          body: fs.readFileSync(tar),
+          signal: AbortSignal.timeout(25 * 60_000),
+        });
+      } catch (e) {
+        const causa = (e as { cause?: { code?: string; message?: string } })?.cause;
+        const detalle = `${e instanceof Error ? e.message : String(e)}${causa ? ` (${causa.code ?? ""} ${causa.message ?? ""})` : ""}`;
+        console.warn(`[video-agente] servicio de render inalcanzable (${mb.toFixed(1)} MB): ${detalle}`);
+        throw new Error(`no se pudo llegar al servicio de render: ${detalle}`);
+      }
       if (!r.ok) throw new Error(`servicio de render ${r.status}: ${(await r.text()).slice(0, 3000)}`);
       fs.writeFileSync(salida, Buffer.from(await r.arrayBuffer()));
     } finally {
@@ -179,9 +194,12 @@ const def = (name: string, description: string, properties: Record<string, unkno
 const ARCHIVO = { type: "string", description: `Ruta bajo ${RAIZ}/` };
 
 export const VIDEO_TOOLS: ToolDef[] = [
-  def("video_voz", "VOZ EN OFF en español rioplatense (OpenAI). Una frase por llamada; guarda un .wav en la ruta pedida y devuelve su duración.", {
-    texto: { type: "string" }, archivo: ARCHIVO, voz: { type: "string", enum: [...VOCES], description: "Por defecto marin (femenina, cálida). cedar = masculina." },
-    instrucciones: { type: "string", description: "Tono extra (por ejemplo: entusiasta, susurrado, pausado)." },
+  def("video_voz", "VOZ EN OFF en español rioplatense. Gemini (voz Sulafat, la de los reels aprobados) si está configurado; si no, OpenAI. Una frase por llamada; guarda un .wav y devuelve su duración.", {
+    texto: { type: "string" }, archivo: ARCHIVO,
+    estilo: { type: "string", description: "Gemini: cómo suena, adaptado al cliente («mujer argentina, cálida, como una asesora que recomienda a una amiga…»). Mismo estilo en todas las frases del video." },
+    voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina)." },
+    proveedor: { type: "string", enum: ["gemini", "openai"], description: "Solo para forzar OpenAI." },
+    instrucciones: { type: "string", description: "OpenAI: tono extra." },
   }, ["texto", "archivo"]),
   def("video_transcribir", "TIEMPOS de cada palabra de un audio o video (Whisper). Guarda <archivo>.words.json (formato OpenAI, el que leen las skills de subtítulos) y devuelve las palabras con sus segundos. El texto puede salir mal escrito: usá los tiempos y escribí los subtítulos del guion.", {
     archivo: ARCHIVO, idioma: { type: "string", description: "ISO, por defecto es." },
@@ -349,6 +367,31 @@ export async function ejecutarHerramientaVideo(
       const archivo = rutaSegura(p.archivo);
       if (!archivo || !/\.wav$/i.test(archivo)) return mal(`archivo tiene que ser un .wav bajo ${RAIZ}/`);
       if (!txt(p.texto)) return mal("falta el texto");
+      // 28/10: la voz de OpenAI sonó «rara» al equipo. La de los reels aprobados
+      // es Gemini (gemini-3.8-flash-tts, voz Sulafat, con estilo por cliente).
+      const gemini = process.env.GEMINI_API_KEY?.trim();
+      if (gemini && txt(p.proveedor) !== "openai") {
+        const estilo = txt(p.estilo) || ESTILO_GEMINI;
+        const r = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": gemini },
+          signal: AbortSignal.timeout(120_000),
+          body: JSON.stringify({
+            model: MODELO_VOZ_GEMINI,
+            input: [{ type: "user_input", content: [{ type: "text", text: txt(p.texto), annotations: [{ type: "speech_metadata", style: estilo }] }] }],
+            response_format: { type: "audio", mime_type: "audio/wav" },
+            generation_config: { speech_config: [{ voice: txt(p.voz) && !(VOCES as readonly string[]).includes(txt(p.voz)) ? txt(p.voz) : "Sulafat" }] },
+            store: false,
+          }),
+        });
+        if (!r.ok) return mal(`Gemini voz ${r.status}: ${(await r.text()).split(gemini).join("[clave]").slice(0, 300)}`);
+        const j = (await r.json()) as { status?: string; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string }> }> };
+        const audio = (j.steps ?? []).filter((s) => s.type === "model_output").flatMap((s) => s.content ?? []).find((c) => c.type === "audio" && c.data);
+        if (j.status !== "completed" || !audio?.data) return mal("Gemini no devolvió audio; probá de nuevo o con proveedor=openai");
+        fs.mkdirSync(path.dirname(archivo), { recursive: true });
+        fs.writeFileSync(archivo, Buffer.from(audio.data, "base64"));
+        return ok(`Voz (Gemini, Sulafat) guardada en ${archivo} (${await duracion(archivo)} s). Sacale los tiempos con video_transcribir.`);
+      }
       const voz = (VOCES as readonly string[]).includes(txt(p.voz)) ? txt(p.voz) : "marin";
       const r = await fetch(`${OPENAI}/audio/speech`, {
         method: "POST",

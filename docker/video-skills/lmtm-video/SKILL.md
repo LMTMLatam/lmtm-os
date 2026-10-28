@@ -1,119 +1,118 @@
 ---
 name: lmtm-video
-description: Cómo arma LMTM un video para un cliente (reel, historia, clip) con HyperFrames de punta a punta: material real del cliente, guion con su voz, voz en off, subtítulos, cierre con marca, render, control y entrega en Drive. Leela ANTES que /hyperframes cuando el pedido es un video de un cliente de LMTM; manda sobre las partes de las otras skills que hablan de iniciar sesión en HeyGen, preview o esperar a una persona.
+description: Cómo arma LMTM un video para un cliente (reel, historia, clip) con HyperFrames de punta a punta, con la PLANTILLA del reel aprobado. Material real del cliente, guion con su voz, voz en off, subtítulos, cierre con marca, render, control y entrega en Drive. Leela ANTES que /hyperframes cuando el pedido es un video de un cliente de LMTM; manda sobre las partes de las otras skills que hablan de iniciar sesión en HeyGen, preview o esperar a una persona.
 ---
 
 # Video de un cliente de LMTM
 
 Sos el productor de contenido de la agencia (para placas y carruseles, ver la
-skill `lmtm-placas`). Cada video termina en un .mp4 vertical
-en la carpeta VIDEOS del cliente en Drive y el link en la tarea. Nunca se publica
-solo: una persona lo mira y decide.
+skill `lmtm-placas`). Cada video termina en un .mp4 vertical en la carpeta VIDEOS
+del cliente en Drive y el link en la tarea. Nunca se publica solo: una persona lo
+mira y decide.
 
-El estándar son los dos reels que el equipo aprobó: Ferrol Apart Hotel (33,5 s) y
-El Hiper de la Pelu / OPI (21,8 s). Sus scripts están en `ejemplos/`
-(`ferrol-build.mjs`, `hiper-build.mjs`) y el brief en `ejemplos/ferrol-BRIEF.md`.
-Para un cliente nuevo, partí de uno de esos dos: no reinventes la estructura.
+## El diseño NO lo inventás: usás la plantilla
+
+El equipo aprobó un estándar, y el diseño ya está resuelto en
+`plantilla/plantilla-reel.mjs`, en la carpeta de esta skill
+(`/app/video-skills/lmtm-video/plantilla/`):
+- planos a pantalla completa con empuje suave;
+- velo para leer;
+- logo fijo arriba;
+- subtítulos grandes palabra por palabra con marcador del color de la marca;
+- cierre con logo, titular, botón, web, palabra fantasma y mancha de color.
+
+**Mirá `ejemplos/estandar-hiper.jpg` antes de empezar: así tiene que verse.**
+
+Tu trabajo es lo que la plantilla no puede hacer sola:
+- elegir el material correcto y recortarlo bien;
+- escribir el guion con la voz del cliente;
+- generar la voz;
+- cargar los datos en `reel.json`.
+
+No escribas `index.html` a mano y no cambies el CSS de la plantilla. Si algo del
+diseño no sirve para un cliente, decilo en el issue.
+
+La primera prueba sin plantilla (28/10) salió mal en todo eso: fotos como tarjetas
+repetidas, subtítulos chicos arriba con cajitas, sin música, cierre pobre y tomas
+de fábrica con papeles para un reel de placares.
 
 ## Reglas que no se negocian
 
-1. **Nada inventado.** El guion dice solo lo que el cliente ofrece de verdad: lo
-   que trae `lmtmGuiaContenido` (marca, diferencial verificable, memoria del
-   cliente, web). Sin precios, promos, direcciones ni testimonios que no estén ahí.
-   Si falta un dato, el guion no lo menciona.
-2. **La voz del cliente.** Tono, palabras que usa y que evita, voseo. Si la marca
-   está incompleta, decilo en la tarea en vez de suplirlo con algo genérico.
-3. **Material real primero.** Fotos y videos del cliente (Drive, su web) antes que
-   cualquier cosa generada. Lo generado (`lmtmVideoPlano`) es para lo que falta,
-   y nunca muestra el producto, el local o personas como si fueran del cliente.
-4. **No se publica ni se programa nada.** Tampoco se toca el Cronopost ni el
-   calendario de Redes.
-5. **Plata:** cada plano y cada música de Magnific gasta créditos. Pedí lo justo;
-   no generes cinco versiones para elegir una.
-
-## Lo que reemplaza a las otras skills
-
-Las skills de HyperFrames están escritas para alguien trabajando con una persona
-al lado. Acá no hay nadie mirando en vivo:
-
-- **Voz en off:** `lmtmVideoVoz` (una frase por llamada). No hagas el "Preflight"
-  de HeyGen, no corras `hyperframes auth`, no uses Kokoro ni Gemini.
-- **Tiempos de cada palabra:** `lmtmVideoTranscribir` sobre cada archivo de voz.
-  Sirve para los tiempos; el texto de los subtítulos lo escribís vos, del guion
-  (la transcripción automática escribe mal palabras y marcas).
-- **Planos que falten / música:** `lmtmVideoPlano` y `lmtmVideoMusica` (Magnific).
-- **Preview y "esperar a la persona":** no. Se valida con `hyperframes check` y
-  `snapshot`, se renderiza con `lmtmVideoRenderizar`, se controla con
-  `lmtmVideoRevisar` y se entrega con `lmtmVideoEntregar`.
-- `hyperframes capture <web del cliente>` sí sirve: trae fotos, videos, colores,
-  tipografías y el logo de su sitio.
-
-## Estándar de calidad (no se negocia)
-
-Medido contra los reels aprobados y contra la primera prueba del agente (28/10,
-que salió con fotos como tarjetas, repetidas y sin música):
-
-- Cada plano llena la pantalla 9:16 (`object-fit: cover`, recorte pensado).
-  Nunca una foto como tarjeta con franjas arriba y abajo.
-- 8 planos distintos o más en 20–35 s, cortes cada 1,5–3 s, sin repetir. Videos
-  del cliente antes que fotos; si solo hay fotos, movimiento suave en cada una.
-- Música siempre, bajita debajo de la voz.
-- Los subtítulos terminan antes del cierre; el cierre queda limpio. Frases
-  completas, nunca cortadas.
-- Logo nítido (si el que hay es chico o borroso, buscá uno mejor).
+1. **Nada inventado.** El guion dice solo lo que trae `lmtmGuiaContenido`: marca,
+   diferencial verificable, memoria del cliente y web. Sin precios, promos,
+   direcciones ni testimonios que no estén ahí.
+2. **La voz del cliente.** Tono, palabras que usa y que evita, voseo.
+3. **Material real del PRODUCTO.** Cada plano muestra el producto, su uso o el
+   local. Nada de oficinas, papeles, depósitos ni máquinas, salvo que el pedido
+   sea sobre eso. Lo generado (`lmtmVideoPlano`) es solo para lo que falta, y
+   nunca hace pasar algo por el producto, el local o la gente del cliente.
+4. **No se publica ni se programa nada.**
+5. **Plata:** cada plano y cada música de Magnific gasta créditos. Pedí lo justo.
 
 ## El recorrido
 
-Trabajá en `/tmp/videos/<cliente>-<tema>/` (es lo único que leen las herramientas
-de video). `hyperframes init` crea el proyecto; corré todo con `npx hyperframes`.
+Trabajá en `/tmp/videos/<cliente>-<tema>/`. Las herramientas de video solo leen
+ahí. `P=/app/video-skills/lmtm-video/plantilla`.
 
-1. **Contexto:** `lmtmGuiaContenido` con el cliente y el producto. Trae marca,
-   memoria, el material de Drive con links de descarga, la web y qué evitar.
-2. **Brief corto** (`BRIEF.md`): mensaje, público, ángulo, duración (15–35 s),
-   qué se puede afirmar y qué no. Mirá `ejemplos/ferrol-BRIEF.md`.
-3. **Material:** si lo que trae la guía por nombre no alcanza (o el pedido es un
-   producto puntual), `lmtmBuscarMaterial` con el cliente y el producto: mira
-   las fotos y videos del Drive y devuelve los que de verdad lo muestran, con
-   link de descarga. Preferí los que no tienen texto ni logos encima.
-   Bajá los archivos con `curl -L` a `assets/fuente/`. Revisá cada
-   video con una hoja de contacto (`ffmpeg ... tile`) antes de cortar: zonas con
-   texto sobreimpreso, logos de terceros, marcas de agua, subtítulos quemados.
-4. **Planos 9:16:** recortá cada plano con ffmpeg (crop + escala a 1080x1920 con
-   lanczos + unsharp). El centro casi nunca es el mejor recorte: mirá la hoja
-   antes y después. Si el original trae subtítulos quemados, medí la franja y
-   recortá solo de arriba.
-5. **Guion y voz:** frases cortas, una idea cada una. Una llamada a
-   `lmtmVideoVoz` por frase (`assets/voice/l1.wav`, `l2.wav`, ...). Después
-   `lmtmVideoTranscribir` de cada una para los tiempos.
-6. **Música:** si el material del cliente trae una cama instrumental, verificá
-   que no tenga voz (`lmtmVideoTranscribir`); si no hay, `lmtmVideoMusica`.
-   Debajo de la voz, bajita (0,15–0,2).
-7. **Composición:** copiá el `build.mjs` del ejemplo más parecido a `.work/` y
-   cambiale los datos (voz, planos, frases, paleta, tipografía, logo, cierre).
-   Que genere `index.html` y el cierre en `compositions/`.
-   - Subtítulos palabra por palabra, palabras clave destacadas, legibles sin sonido.
-   - Zona segura: nada de texto en los 250 px de arriba ni en los 420 px de abajo
-     (ahí van los botones de Instagram).
-   - Que el texto no tape caras, carteles ni el producto.
-   - Cierre con el logo real, una frase de la marca y el llamado (web o
-     WhatsApp del cliente, si está en su marca).
-8. **Control:** `npx hyperframes check --json` sin errores (los avisos de
-   contraste se corrigen), `npx hyperframes snapshot --at <momentos>` y mirá los
-   PNG. Corregí y repetí.
-9. **Render:** `lmtmVideoRenderizar` con el directorio del proyecto. Devuelve el
-   .mp4 y su duración.
-10. **Revisión:** `lmtmVideoRevisar` con el .mp4 y el brief. Si marca problemas
-    reales, corregí y volvé a renderizar (como mucho dos vueltas; si sigue mal,
-    entregalo igual y decí qué falta).
-11. **Entrega:** `lmtmVideoEntregar` (sube a Super Redes/<cliente>/VIDEOS en
-    Drive y deja el registro). Si el issue trae una tarea de ClickUp, pasá su
-    `clickupTaskId`: el link queda en la tarea y se marca «contenido generado».
-    En el issue: el link, el guion, de dónde salió cada plano (cliente o
-    generado) y lo que no se pudo verificar. Después cerralo.
+1. **Contexto:** `lmtmGuiaContenido` con el cliente y el producto (marca, paleta,
+   logo, memoria, material, web).
+2. **Material:** `lmtmBuscarMaterial` con el cliente y el producto («placard»,
+   «frascos de OPI»). Devuelve lo que MUESTRA el producto. Elegí entre 8 y 14,
+   videos antes que fotos, sin texto ni logos encima. Bajalos con `curl -L` a
+   `assets/fuente/`.
+3. **Mirar antes de cortar:** `node $P/plano.mjs hoja assets/fuente/X.mp4 hoja-X.jpg`
+   y abrí la hoja. Elegí el segundo y la franja de cada plano.
+4. **Planos 9:16:**
+   `node $P/plano.mjs corte assets/fuente/X.mp4 assets/planos/p01.mp4 --desde 3.2 --dur 2.4 --foco 0.4 --lento 0.85`
+   - Un plano por corte, de 1,5 a 3 s, entre 8 y 14 planos distintos.
+   - `--foco` elige la franja: 0 = izquierda, 1 = derecha. El centro casi nunca es el mejor.
+   - Las fotos salen .jpg y la plantilla les pone movimiento.
+5. **Guion:** de 20 a 35 s.
+   - Gancho en los primeros 2 s.
+   - 3 o 4 frases cortas con el diferencial.
+   - Cierre con titular corto y el llamado: web o WhatsApp de la marca.
+6. **Voz:** `lmtmVideoVoz`, una llamada por frase (`assets/voice/l1.wav`, `l2.wav`…),
+   con el MISMO `estilo` en todas, adaptado al cliente. Por ejemplo: «Mujer
+   argentina con acento rioplatense natural. Voz cálida, segura, con una sonrisa en
+   la voz, como alguien que le recomienda algo a una amiga. Sin tono de locutora».
+   Después, `lmtmVideoTranscribir` de cada archivo para los tiempos de cada palabra.
+7. **Música:** siempre.
+   - Si el material del cliente trae una cama instrumental, verificala con `lmtmVideoTranscribir`.
+   - Si no hay, `lmtmVideoMusica` («cálida, acústica, moderna, sin voces, 90 bpm»).
+   - Va a `assets/audio/`.
+8. **reel.json:** copiá `$P/reel.ejemplo.json` y cambiá los datos.
+   - `voz`: archivo y `desde` (segundo global en que arranca cada frase). Encadenalas, unos 0,1 s de aire entre una y otra.
+   - `planos`: archivo, `desde` y `dur`. Tienen que cubrir todo hasta el cierre, sin huecos.
+   - `frases`: los subtítulos. Cada palabra con el segundo en que se dice (de la transcripción más el `desde` de su voz) y `1` en las 2 o 3 palabras clave. Texto del GUION, no de la transcripción. Ninguna frase termina después de `cierre.desde`.
+   - `marca`: el logo real (PNG nítido; si el de la guía es chico, buscá otro con `lmtmBuscarMaterial «logo»`), `color` de la paleta del cliente y `colorTexto` (más oscuro, para el titular).
+   - `cierre`:
+     - `desde` (cuando arranca la última frase de voz);
+     - `titulo` (palabras con su segundo, de la voz del cierre);
+     - `etiqueta`: dato real corto, como «ROSARIO · +1.500 PRODUCTOS»;
+     - `cta` y `url`;
+     - `fantasma`: una palabra de la marca o del producto, en marca de agua.
+   - `musica`: archivo y volumen entre 0,2 y 0,3.
+9. **Armar:** `node $P/plantilla-reel.mjs reel.json`. Si dice que algo no cumple el
+   estándar, corregí reel.json; no toques la plantilla. Después
+   `npx hyperframes check --json`, sin errores.
+10. **Mirar:** `npx hyperframes snapshot --at <6 a 8 momentos>` y compará con
+    `ejemplos/estandar-hiper.jpg`. Revisá:
+    - si cada plano muestra el producto;
+    - si algún recorte corta caras o el producto;
+    - si los subtítulos se leen.
+    Corregí y repetí.
+11. **Render:** `lmtmVideoRenderizar` con el directorio del proyecto, y
+    `lmtmVideoEstado` hasta que esté.
+12. **Revisión:** `lmtmVideoRevisar` con el .mp4 y el brief. Corregí lo que marque
+    de verdad, dos vueltas como mucho.
+13. **Entrega:** `lmtmVideoEntregar`. Si el issue trae una tarea de ClickUp, pasá
+    su `clickupTaskId`. En el issue dejá el link, el guion, de dónde salió cada
+    plano y lo que no se pudo verificar. Después cerralo.
 
 ## Cuando algo falla
 
-- Sin material del cliente y sin web: decilo en la tarea y proponé qué filmar o
-  pedir. No armes un video entero con planos generados sin avisar.
-- Una herramienta de video falla: el error dice qué pasó. No reintentes en loop:
-  dos intentos y después contalo en la tarea.
+- Sin material del producto: decilo en la tarea y proponé qué filmar o pedir.
+- Una herramienta falla dos veces igual: contalo en la tarea y seguí o cerrá.
+- `ejemplos/hiper-build.mjs` y `ejemplos/ferrol-build.mjs` son los scripts
+  originales de los reels aprobados. Sirven de referencia; la plantilla los
+  reemplaza.
