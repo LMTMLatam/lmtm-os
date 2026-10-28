@@ -48,6 +48,20 @@ al lado. Acá no hay nadie mirando en vivo:
 - `hyperframes capture <web del cliente>` sí sirve: trae fotos, videos, colores,
   tipografías y el logo de su sitio.
 
+## Estándar de calidad (no se negocia)
+
+Medido contra los reels aprobados y contra la primera prueba del agente (28/10,
+que salió con fotos como tarjetas, repetidas y sin música):
+
+- Cada plano llena la pantalla 9:16 (`object-fit: cover`, recorte pensado).
+  Nunca una foto como tarjeta con franjas arriba y abajo.
+- 8 planos distintos o más en 20–35 s, cortes cada 1,5–3 s, sin repetir. Videos
+  del cliente antes que fotos; si solo hay fotos, movimiento suave en cada una.
+- Música siempre, bajita debajo de la voz.
+- Los subtítulos terminan antes del cierre; el cierre queda limpio. Frases
+  completas, nunca cortadas.
+- Logo nítido (si el que hay es chico o borroso, buscá uno mejor).
+
 ## El recorrido
 
 Trabajá en `/tmp/videos/<cliente>-<tema>/` (es lo único que leen las herramientas
