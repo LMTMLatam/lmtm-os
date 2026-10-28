@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  esDeContenido, firmarAcceso, leerPagina, palabrasDePedido, puntaje, sinCopias, terminosDeCliente, tipoDe, verificarAcceso,
+  elegirMaterial, esDeContenido, firmarAcceso, leerPagina, palabrasDePedido, puntaje, sinCopias, terminosDeCliente, textoSinCliente, tipoDe, verificarAcceso,
   type ArchivoDrive,
 } from "../guia-contenido.js";
 
@@ -101,5 +101,18 @@ describe("guía de contenido: bitácoras y RAW afuera", () => {
   it("un RAW de cámara no es una foto lista para usar", () => {
     expect(tipoDe("DJI_20261020155010_0009_D.DNG", "image/x-adobe-dng")).toBe("otro");
     expect(tipoDe("DJI_20261020155010_0009_D.JPG", "image/jpeg")).toBe("foto");
+  });
+});
+
+describe("el nombre del cliente no cuenta como coincidencia (28/10)", () => {
+  const a = (id: string, n: string, ruta: string): ArchivoDrive => ({ id, n, tipo: "video", mb: 1, fecha: "2026-06-23", ruta });
+  const archivos = [
+    a("1", "Copia de SEGUROS.mp4", "AALMTMLATAM/Distrillantas/DISENO/RECURSOS"),
+    a("2", "LLANTAS BMW reparadas.mp4", "AALMTMLATAM/Distrillantas/REELS"),
+  ];
+  it("«llantas» no empata con «Distrillantas» de la ruta", () => {
+    expect(textoSinCliente("AALMTMLATAM/Distrillantas/DISENO", ["Distrillantas"])).not.toContain("llantas");
+    const { relevantes } = elegirMaterial(archivos, palabrasDePedido("llantas deportivas"), "reel", ["Distrillantas"]);
+    expect(relevantes.map((x) => x.id)).toEqual(["2"]);
   });
 });

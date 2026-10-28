@@ -1,4 +1,4 @@
-// LMTM-OS: herramientas del agente "Productor de video" (28/10).
+// LMTM-OS: herramientas del agente "Productor de contenido" (28/10): reels, carruseles y placas.
 //
 // Pedido: replicar en un agente el entorno con el que se armaron a mano los
 // reels de Ferrol y El Hiper de la Pelu (HyperFrames + ffmpeg + Chrome), con
@@ -203,10 +203,30 @@ export const VIDEO_TOOLS: ToolDef[] = [
   def("video_estado", "ESTADO de una tarea en segundo plano (render, plano, música). Espera hasta 90 s; si sigue en curso, volvé a consultar.", {
     id: { type: "string" },
   }, ["id"]),
-  def("video_revisar", "CONTROL DE CALIDAD de un video renderizado: saca cuadros y GPT los revisa contra el brief (subtítulos legibles, zona segura, texto que tapa caras o producto, logo, ortografía, que no diga nada que el brief no permite). Devuelve apto o la lista de problemas.", {
-    archivo: ARCHIVO, brief: { type: "string", description: "Qué tiene que decir y mostrar el video y qué no." },
-    cuadros: { type: "number", description: "Cuántos cuadros mirar (4 a 12, por defecto 8)." },
-  }, ["archivo", "brief"]),
+  def("video_revisar", "CONTROL DE CALIDAD con GPT contra el brief: de un video (saca cuadros) o de las placas de un carrusel/post (imagenes). Revisa texto legible, zona segura, texto que tapa caras o producto, logo, ortografía y que no diga nada que el brief no permite. Devuelve apto o la lista de problemas.", {
+    archivo: { type: "string", description: `Un .mp4 bajo ${RAIZ}/ (para video).` },
+    imagenes: { type: "array", items: { type: "string" }, description: `PNG o JPG bajo ${RAIZ}/ (para placas y carruseles, en orden).` },
+    brief: { type: "string", description: "Qué tiene que decir y mostrar la pieza y qué no." },
+    cuadros: { type: "number", description: "Video: cuántos cuadros mirar (4 a 12, por defecto 8)." },
+  }, ["brief"]),
+  def("buscar_material", "BUSCA en el Drive del cliente las fotos y videos que MUESTRAN un producto o escena (GPT mira las miniaturas; sirve aunque el archivo se llame DJI_….jpg). Devuelve los mejores con qué se ve en cada uno y el link de descarga. Lo ya mirado queda guardado: la segunda vez es instantáneo.", {
+    cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
+    producto: { type: "string", description: "Qué tiene que verse: «placard blanco», «llantas de BMW», «frascos de OPI»." },
+    tipo: { type: "string", enum: ["foto", "video", "todo"], description: "Por defecto todo." },
+    cantidad: { type: "number", description: "Cuántos devolver (3 a 30, por defecto 12)." },
+  }, ["cliente", "producto"]),
+  def("contenido_imagen","GENERA una imagen con Magnific (Mystic) para fondo o ilustración de una placa o carrusel. GASTA CRÉDITOS. Nunca con texto ni logos (el texto va en HTML) y nunca haciéndola pasar por el producto o local real del cliente. Tarda hasta 2 min.", {
+    prompt: { type: "string", description: "En inglés: sujeto, lugar, luz, estilo. Sin texto ni logos." },
+    archivo: { type: "string", description: `Ruta .jpg o .png bajo ${RAIZ}/` },
+    formato: { type: "string", enum: ["retrato", "vertical", "cuadrado"], description: "retrato 2:3 (se recorta a 4:5 para feed, por defecto), vertical 9:16 (historia), cuadrado 1:1." },
+    clientId: { type: "string" }, pieza: { type: "string" },
+  }, ["prompt", "archivo"]),
+  def("contenido_entregar_imagenes", "ENTREGA una placa o un carrusel (PNG en orden): los sube a la carpeta PLACAS del cliente en Drive, deja la portada en la tarea de ClickUp si viene de una y lo registra. No publica.", {
+    archivos: { type: "array", items: { type: "string" }, description: `Los PNG en el orden del carrusel, bajo ${RAIZ}/` },
+    clientId: { type: "string" }, titulo: { type: "string" },
+    textos: { type: "string", description: "El texto de cada slide y el copy sugerido para el posteo." },
+    issueId: { type: "string" }, clickupTaskId: { type: "string" },
+  }, ["archivos", "clientId", "titulo"]),
   def("video_entregar", "ENTREGA el video: lo sube a la carpeta VIDEOS del cliente en Drive y lo registra. No publica ni toca el calendario. Devuelve el link para dejar en la tarea.", {
     archivo: ARCHIVO, clientId: { type: "string" }, titulo: { type: "string" },
     guion: { type: "string", description: "El guion y de dónde salió cada plano (cliente o generado)." },
@@ -219,7 +239,7 @@ export const NOMBRES_VIDEO = new Set(VIDEO_TOOLS.map((t) => t.function.name));
 
 // ── pedidos ──────────────────────────────────────────────────────────────────
 
-const AGENTE = "Productor de video";
+export const AGENTE_PRODUCTOR = "Productor de contenido";
 const TAG_LISTO = "contenido generado";
 
 /** Comenta en una tarea de ClickUp (y opcionalmente le pone «contenido generado»). Nunca rompe. */
@@ -233,36 +253,45 @@ async function avisarEnClickUp(taskId: string, texto: string, listo = false): Pr
 }
 
 /**
- * Le pide un video al Productor: issue asignado + despertar. Lo usa el barrido de
+ * Le pide una pieza al Productor: issue asignado + despertar. Lo usa el barrido de
  * la etiqueta «generar contenido» de ClickUp desde que no hay Higgsfield (28/10).
  * No se repite: si ya hay un pedido para esa tarea de ClickUp, devuelve ese.
  */
-export async function pedirVideoAlProductor(
+export async function pedirPiezaAlProductor(
   db: Db,
-  p: { companyId: string; clientId: string; clienteNombre: string; clickupTaskId: string; clickupUrl: string | null; nombre: string; tipo: string | null; copy: string | null; producto: string | null; objetivo: string | null },
+  p: {
+    companyId: string; clientId: string; clienteNombre: string; clickupTaskId: string; clickupUrl: string | null;
+    nombre: string; tipo: string | null; copy: string | null; producto: string | null; objetivo: string | null;
+    formato: "reel" | "clip" | "carrusel" | "placa"; piezas: number;
+  },
 ): Promise<{ ok: boolean; mensaje: string }> {
   const { agents, issues } = await import("@paperclipai/db");
-  const [agente] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.companyId, p.companyId), eq(agents.name, AGENTE))).limit(1);
-  if (!agente) return { ok: false, mensaje: `no existe el agente «${AGENTE}»` };
+  const [agente] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.companyId, p.companyId), eq(agents.name, AGENTE_PRODUCTOR))).limit(1);
+  if (!agente) return { ok: false, mensaje: `no existe el agente «${AGENTE_PRODUCTOR}»` };
   const marca = `clickup:${p.clickupTaskId}`;
   const [ya] = await db.select({ identifier: issues.identifier }).from(issues)
     .where(and(eq(issues.assigneeAgentId, agente.id), sql`${issues.status} <> 'cancelled'`, sql`${issues.description} like ${"%" + marca + "%"}`)).limit(1);
   if (ya) return { ok: true, mensaje: `ya pedido al Productor (${ya.identifier ?? "s/n"})` };
 
+  const esVideo = p.formato === "reel" || p.formato === "clip";
+  const que = esVideo
+    ? `el video con la skill **lmtm-video** (${p.formato === "clip" ? "clip o historia de 8 a 15 s" : "reel vertical de 15 a 35 s"})`
+    : `${p.formato === "carrusel" ? `el carrusel (${p.piezas} placas)` : "la placa"} con la skill **lmtm-placas**`;
+  const entrega = esVideo ? "lmtmVideoEntregar" : "lmtmContenidoEntregarImagenes";
   const { issueService } = await import("./issues.js");
   const creado = await issueService(db).create(p.companyId, {
-    title: `[${p.clienteNombre.toUpperCase()}] ${p.tipo ?? "Video"}: ${p.nombre}`.slice(0, 200),
+    title: `[${p.clienteNombre.toUpperCase()}] ${p.tipo ?? (esVideo ? "Reel" : "Placa")}: ${p.nombre}`.slice(0, 200),
     description: [
-      `Pedido del equipo desde ClickUp (etiqueta «generar contenido»). Armá el video con la skill **lmtm-video**.`,
+      `Pedido del equipo desde ClickUp (etiqueta «generar contenido»). Armá ${que}.`,
       "",
       `- Cliente: ${p.clienteNombre} (clientId \`${p.clientId}\`)`,
-      `- Tipo de contenido: ${p.tipo ?? "(sin especificar: reel vertical de 15 a 30 s)"}`,
+      `- Tipo de contenido: ${p.tipo ?? "(sin especificar)"}`,
       p.producto ? `- Producto o servicio: ${p.producto}` : null,
       p.objetivo ? `- Objetivo: ${p.objetivo}` : null,
-      p.copy ? `- Copy de la pieza (la idea aprobada; el guion sale de acá):\n\n${p.copy}` : null,
+      p.copy ? `- Copy de la pieza (la idea aprobada; el texto sale de acá):\n\n${p.copy}` : null,
       p.clickupUrl ? `- Tarea: ${p.clickupUrl}` : null,
       "",
-      `Al entregar: lmtmVideoEntregar con clickupTaskId \`${p.clickupTaskId}\` (deja el link en la tarea y la marca «contenido generado»).`,
+      `Al entregar: ${entrega} con clickupTaskId \`${p.clickupTaskId}\` (deja el link en la tarea y la marca «contenido generado»).`,
       `<!-- ${marca} -->`,
     ].filter((l) => l !== null).join("\n"),
     status: "todo",
@@ -275,9 +304,9 @@ export async function pedirVideoAlProductor(
   const issueId = String((creado as { id?: string }).id ?? "");
   const identifier = String((creado as { identifier?: string }).identifier ?? issueId);
   const { heartbeatService } = await import("./heartbeat.js");
-  await heartbeatService(db).wakeup(agente.id, { source: "assignment", triggerDetail: "system", reason: "pedido_video", payload: { issueId } }).catch(() => {});
-  await avisarEnClickUp(p.clickupTaskId, `🎬 Pedido al Productor de video (${identifier}). Cuando esté listo, el link queda en esta tarea.`);
-  return { ok: true, mensaje: `pedido al Productor de video (${identifier})` };
+  await heartbeatService(db).wakeup(agente.id, { source: "assignment", triggerDetail: "system", reason: "pedido_contenido", payload: { issueId } }).catch(() => {});
+  await avisarEnClickUp(p.clickupTaskId, `${esVideo ? "🎬" : "🖼️"} Pedido al Productor de contenido (${identifier}). Cuando esté listo, el link queda en esta tarea.`);
+  return { ok: true, mensaje: `pedido al Productor de contenido (${identifier})` };
 }
 
 // ── skills ───────────────────────────────────────────────────────────────────
@@ -309,6 +338,12 @@ export async function ejecutarHerramientaVideo(
   const txt = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   try {
     if (tool === "video_estado") return await estadoDe(txt(p.id));
+
+    if (tool === "buscar_material") {
+      const { buscarMaterial } = await import("./material-visual.js");
+      const tipo = ["foto", "video", "todo"].includes(txt(p.tipo)) ? (txt(p.tipo) as "foto" | "video" | "todo") : "todo";
+      return ok(await buscarMaterial(db, { cliente: txt(p.cliente), producto: txt(p.producto), tipo, cantidad: Number(p.cantidad) || undefined }));
+    }
 
     if (tool === "video_voz") {
       const archivo = rutaSegura(p.archivo);
@@ -343,10 +378,10 @@ export async function ejecutarHerramientaVideo(
       return ok(`Guardado ${archivo}.words.json. Texto: «${j.text ?? ""}». Palabras: ${palabras || "(sin palabras: puede ser música sin voz)"}`);
     }
 
-    if (tool === "video_plano" || tool === "video_musica") {
+    if (tool === "video_plano" || tool === "video_musica" || tool === "contenido_imagen") {
       const archivo = rutaSegura(p.archivo);
-      const ext = tool === "video_plano" ? /\.mp4$/i : /\.(mp3|wav)$/i;
-      if (!archivo || !ext.test(archivo)) return mal(`archivo tiene que ser ${tool === "video_plano" ? ".mp4" : ".mp3 o .wav"} bajo ${RAIZ}/`);
+      const ext = tool === "video_plano" ? /\.mp4$/i : tool === "video_musica" ? /\.(mp3|wav)$/i : /\.(png|jpe?g)$/i;
+      if (!archivo || !ext.test(archivo)) return mal(`archivo tiene que ser ${tool === "video_plano" ? ".mp4" : tool === "video_musica" ? ".mp3 o .wav" : ".png o .jpg"} bajo ${RAIZ}/`);
       if (txt(p.prompt).length < 10) return mal("el prompt es muy corto");
       const { hayMagnific, pedir } = await import("./magnific.js");
       if (!hayMagnific()) return mal("Magnific no está configurado en el servidor (MAGNIFIC_API_KEY).");
@@ -354,6 +389,19 @@ export async function ejecutarHerramientaVideo(
       if (quedan <= 0) return mal(`Se llegó al tope de ${TOPE_MAGNIFIC_MES} generaciones de Magnific de este mes. Usá material del cliente o pedí que lo suban.`);
       const clientId = txt(p.clientId) || null;
       const pieza = txt(p.pieza) || null;
+
+      if (tool === "contenido_imagen") {
+        // Mystic no tiene 4:5: retrato 2:3 y la composición lo recorta con cover.
+        const aspecto = { retrato: "portrait_2_3", vertical: "social_story_9_16", cuadrado: "square_1_1" }[txt(p.formato)] ?? "portrait_2_3";
+        const { MODELO_MAGNIFIC } = await import("./magnific.js");
+        const creado = await pedir<{ data?: { task_id?: string } }>("/mystic", { method: "POST", body: { prompt: txt(p.prompt), aspect_ratio: aspecto, model: MODELO_MAGNIFIC } });
+        const taskId = creado.data?.task_id;
+        if (!taskId) return mal("Magnific no devolvió task_id");
+        const url = await esperarMagnific("/mystic", taskId, 4 * 60_000);
+        await bajar(url, archivo);
+        await anotarGasto(db, { clientId, pieza, modelo: `mystic-${MODELO_MAGNIFIC}`, tipo: "imagen", url, jobId: taskId });
+        return ok(`Imagen en ${archivo} (${aspecto}). Es GENERADA: decilo en la entrega. Quedan ${quedan - 1} generaciones este mes.`);
+      }
 
       if (tool === "video_plano") {
         const res = txt(p.resolucion) === "720p" ? "720p" : "1080p";
@@ -405,26 +453,36 @@ export async function ejecutarHerramientaVideo(
     }
 
     if (tool === "video_revisar") {
-      const archivo = rutaSegura(p.archivo);
-      if (!archivo || !fs.existsSync(archivo)) return mal(`no existe el video bajo ${RAIZ}/`);
-      const d = await duracion(archivo);
-      if (!d) return mal("no es un video que se pueda leer");
-      const n = Math.min(12, Math.max(4, Math.round(Number(p.cuadros) || 8)));
+      const sueltas = Array.isArray(p.imagenes) ? (p.imagenes as unknown[]).slice(0, 12).map(rutaSegura) : [];
+      const esVideo = sueltas.length === 0;
+      const archivo = esVideo ? rutaSegura(p.archivo) : sueltas[0];
+      if (!archivo || !fs.existsSync(archivo)) return mal(`no existe ${esVideo ? "el video" : "la imagen"} bajo ${RAIZ}/`);
+      if (!esVideo && sueltas.some((s) => !s || !fs.existsSync(s))) return mal(`todas las imágenes tienen que existir bajo ${RAIZ}/`);
+      const d = esVideo ? await duracion(archivo) : 0;
+      if (esVideo && !d) return mal("no es un video que se pueda leer");
+      const n = esVideo ? Math.min(12, Math.max(4, Math.round(Number(p.cuadros) || 8))) : sueltas.length;
       const dir = fs.mkdtempSync(path.join(path.dirname(archivo), ".revision-"));
       try {
-        const momentos = Array.from({ length: n }, (_, i) => Number(((d * (i + 0.5)) / n).toFixed(2)));
+        const momentos = esVideo ? Array.from({ length: n }, (_, i) => Number(((d! * (i + 0.5)) / n).toFixed(2))) : [];
         const imagenes: string[] = [];
-        for (const [i, t] of momentos.entries()) {
-          const png = path.join(dir, `c${i}.jpg`);
-          await run("ffmpeg", ["-v", "error", "-y", "-ss", String(t), "-i", archivo, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", png]);
-          imagenes.push(fs.readFileSync(png).toString("base64"));
+        for (let i = 0; i < n; i++) {
+          const jpg = path.join(dir, `c${i}.jpg`);
+          const entrada = esVideo ? ["-ss", String(momentos[i]), "-i", archivo] : ["-i", sueltas[i]!];
+          await run("ffmpeg", ["-v", "error", "-y", ...entrada, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", jpg]);
+          imagenes.push(fs.readFileSync(jpg).toString("base64"));
         }
-        const pedido =
-          "Sos el control de calidad de reels verticales 1080x1920 de una agencia. Te paso cuadros del video terminado en orden " +
-          `(en los segundos ${momentos.join(", ")}) y el brief. Para cada cuadro revisá: subtítulos legibles (tamaño y contraste con lo de atrás), ` +
-          "texto cortado o en los 250 px de arriba / 420 px de abajo, texto que tapa caras, carteles o el producto, logo deformado o pixelado, " +
-          "faltas de ortografía, y que no se diga ni muestre nada que el brief no permite. No inventes problemas: si está bien, decilo. " +
-          'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"segundo": n, "que": "...", "como_arreglarlo": "..."}]}\n\nBRIEF:\n' + txt(p.brief);
+        const comun =
+          "logo deformado o pixelado, faltas de ortografía, y que no se diga ni muestre nada que el brief no permite. No inventes problemas: si está bien, decilo. ";
+        const pedido = (esVideo
+          ? "Sos el control de calidad de reels verticales 1080x1920 de una agencia. Te paso cuadros del video terminado en orden " +
+            `(en los segundos ${momentos.join(", ")}) y el brief. Para cada cuadro revisá: subtítulos legibles (tamaño y contraste con lo de atrás), ` +
+            "texto cortado o en los 250 px de arriba / 420 px de abajo, texto que tapa caras, carteles o el producto, " + comun +
+            'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"segundo": n, "que": "...", "como_arreglarlo": "..."}]}'
+          : `Sos el control de calidad de placas de Instagram de una agencia. Te paso ${n === 1 ? "una placa" : `las ${n} placas de un carrusel, en orden`} y el brief. ` +
+            "Revisá: texto legible en el celular (tamaño y contraste), texto cortado o pegado al borde, jerarquía clara (se entiende en 2 segundos), " +
+            "que el carrusel tenga gancho en la portada y llamado al final, coherencia visual entre placas, texto que tapa caras o el producto, " + comun +
+            'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"placa": n, "que": "...", "como_arreglarlo": "..."}]}') +
+          "\n\nBRIEF:\n" + txt(p.brief);
         const r = await fetch(`${OPENAI}/chat/completions`, {
           method: "POST",
           headers: { authorization: `Bearer ${claveOpenAI()}`, "content-type": "application/json" },
@@ -437,11 +495,44 @@ export async function ejecutarHerramientaVideo(
         });
         if (!r.ok) return mal(`OpenAI revisión ${r.status}: ${(await r.text()).slice(0, 300)}`);
         const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        return ok(`Revisión de ${n} cuadros (${MODELO_REVISION}): ${j.choices?.[0]?.message?.content ?? "(sin respuesta)"}. ` +
+        return ok(`Revisión de ${n} ${esVideo ? "cuadros" : "placas"} (${MODELO_REVISION}): ${j.choices?.[0]?.message?.content ?? "(sin respuesta)"}. ` +
           "Esto complementa a `hyperframes check` (contraste y diseño medidos), no lo reemplaza.");
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
+    }
+
+    if (tool === "contenido_entregar_imagenes") {
+      const lista = Array.isArray(p.archivos) ? (p.archivos as unknown[]).slice(0, 20).map(rutaSegura) : [];
+      if (lista.length === 0 || lista.some((a) => !a || !fs.existsSync(a) || !/\.(png|jpe?g)$/i.test(a))) {
+        return mal(`archivos tiene que ser una lista de PNG o JPG que existan bajo ${RAIZ}/`);
+      }
+      const [c] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.id, txt(p.clientId))).limit(1);
+      if (!c) return mal("no encuentro ese clientId");
+      const titulo = (txt(p.titulo) || "Placa").replace(/[\\/:*?"<>|]/g, "-").slice(0, 70);
+      const sello = new Date().toISOString().slice(0, 10);
+      const { subirDesdeUrl } = await import("./contenido-drive.js");
+      const links: string[] = [];
+      for (const [i, a] of (lista as string[]).entries()) {
+        const nombre = lista.length > 1 ? `${titulo} — slide ${i + 1} — ${sello}${path.extname(a)}` : `${titulo} — ${sello}${path.extname(a)}`;
+        const r = await subirDesdeUrl(db, { clientId: c.id, clienteNombre: c.name, url: pathToFileURL(a).href, nombreArchivo: nombre, destino: "placas" });
+        links.push(r.link);
+      }
+      const clickupTaskId = txt(p.clickupTaskId) || undefined;
+      let enlace = "";
+      if (clickupTaskId) {
+        // Como el resto de las placas: la portada va al "Enlace de publicación"; las demás, al comentario.
+        const { escribirEnlacePublicacion } = await import("./video-entrega.js");
+        const e = await escribirEnlacePublicacion(clickupTaskId, links[0]);
+        enlace = e.ok ? " La portada quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.motivo}.`;
+        await avisarEnClickUp(clickupTaskId, `🖼️ ${lista.length > 1 ? `Carrusel de ${lista.length} placas` : "Placa"} lista (Productor de contenido):\n${links.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\n${txt(p.textos).slice(0, 1500)}`, true);
+      }
+      await db.insert(agentDeliverables).values({
+        companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "placa",
+        title: `${lista.length > 1 ? "Carrusel" : "Placa"}: ${titulo}`.slice(0, 200), content: txt(p.textos) || titulo, url: links[0],
+        metadata: { via: "productor-contenido", piezas: lista.length, links, issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null },
+      });
+      return ok(`Entregado en Drive (Super Redes/${c.name}/PLACAS): ${links.join(" ")}.${enlace} Dejá los links y los textos en el issue. No se publicó nada.`);
     }
 
     if (tool === "video_entregar") {
@@ -461,7 +552,7 @@ export async function ejecutarHerramientaVideo(
         title: `Video: ${titulo}`.slice(0, 200), content: txt(p.guion) || titulo, url: e.driveLink,
         metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null },
       });
-      if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de video): ${e.driveLink}\n\n${txt(p.guion).slice(0, 1500)}`, true);
+      if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${txt(p.guion).slice(0, 1500)}`, true);
       const enlace = e.enlace ? (e.enlace.ok ? " Quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.enlace.motivo}.`) : "";
       return ok(`Entregado en Drive (Super Redes/${c.name}/VIDEOS): ${e.driveLink}.${enlace} Dejá el link y el guion en el issue. No se publicó nada.`);
     }

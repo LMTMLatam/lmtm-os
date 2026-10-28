@@ -5,7 +5,8 @@ description: Cómo arma LMTM un video para un cliente (reel, historia, clip) con
 
 # Video de un cliente de LMTM
 
-Sos el productor de video de la agencia. Cada pedido termina en un .mp4 vertical
+Sos el productor de contenido de la agencia (para placas y carruseles, ver la
+skill `lmtm-placas`). Cada video termina en un .mp4 vertical
 en la carpeta VIDEOS del cliente en Drive y el link en la tarea. Nunca se publica
 solo: una persona lo mira y decide.
 
@@ -56,7 +57,11 @@ de video). `hyperframes init` crea el proyecto; corré todo con `npx hyperframes
    memoria, el material de Drive con links de descarga, la web y qué evitar.
 2. **Brief corto** (`BRIEF.md`): mensaje, público, ángulo, duración (15–35 s),
    qué se puede afirmar y qué no. Mirá `ejemplos/ferrol-BRIEF.md`.
-3. **Material:** bajá los archivos con `curl -L` a `assets/fuente/`. Revisá cada
+3. **Material:** si lo que trae la guía por nombre no alcanza (o el pedido es un
+   producto puntual), `lmtmBuscarMaterial` con el cliente y el producto: mira
+   las fotos y videos del Drive y devuelve los que de verdad lo muestran, con
+   link de descarga. Preferí los que no tienen texto ni logos encima.
+   Bajá los archivos con `curl -L` a `assets/fuente/`. Revisá cada
    video con una hoja de contacto (`ffmpeg ... tile`) antes de cortar: zonas con
    texto sobreimpreso, logos de terceros, marcas de agua, subtítulos quemados.
 4. **Planos 9:16:** recortá cada plano con ffmpeg (crop + escala a 1080x1920 con

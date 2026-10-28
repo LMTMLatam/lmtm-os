@@ -93,7 +93,7 @@ export interface EstadoHiggsfield {
 /** Qué vía está disponible ahora mismo, para mostrarlo en el panel. */
 export async function estado(db: Db): Promise<EstadoHiggsfield> {
   if (sinHiggsfield()) {
-    return { ok: hayMagnific(), via: null, creditosPlan: null, motivo: "Higgsfield dado de baja: imágenes con Magnific, videos con el Productor de video" };
+    return { ok: hayMagnific(), via: null, creditosPlan: null, motivo: "Higgsfield dado de baja: el contenido lo arma el agente Productor de contenido (imágenes de Magnific)" };
   }
   if (hayPlan()) {
     const { creditos: c, error } = await creditosPlan(db);
@@ -118,7 +118,7 @@ export async function generarVideo(
   opts: { imagenUrl?: string | null } = {},
 ): Promise<Generado> {
   if (sinHiggsfield()) {
-    throw new Error("Higgsfield ya no está (28/10): los videos los arma el agente Productor de video. Pedíselo con un issue o la etiqueta 'generar contenido'.");
+    throw new Error("Higgsfield ya no está (28/10): los videos los arma el agente Productor de contenido. Pedíselo con un issue o la etiqueta 'generar contenido'.");
   }
   if (hayPlan()) {
     try {
@@ -136,7 +136,7 @@ export async function generarVideo(
   }, "video");
 }
 
-/** 28/10: la agencia dio de baja Higgsfield. Imágenes → Magnific; videos → Productor de video. */
+/** 28/10: la agencia dio de baja Higgsfield. Imágenes → Magnific; piezas terminadas → Productor de contenido. */
 export const sinHiggsfield = (): boolean => process.env.LMTM_SIN_HIGGSFIELD === "1";
 
 export async function generarImagen(

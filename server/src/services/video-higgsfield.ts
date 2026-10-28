@@ -741,16 +741,22 @@ async function generarPieza(
     return { ok: true, taskId, error: "ya tenía contenido generado (no se regeneró)" };
   }
 
-  // Sin Higgsfield (28/10) el video lo arma el agente Productor de video con
-  // HyperFrames: se le pide con un issue y la etiqueta «contenido generado» la
-  // pone él al entregar (no antes: la tarea diría que hay video y no lo hay).
-  if (sinHiggsfield() && ES_VIDEO(planDe(tarea.tipo, `${tarea.name} ${tarea.copy ?? ""}`).formato)) {
-    const { pedirVideoAlProductor } = await import("./video-agente.js");
-    const r = await pedirVideoAlProductor(db, {
+  // Sin Higgsfield (28/10) la pieza la arma el agente Productor de contenido con
+  // HyperFrames: reels y clips con voz y subtítulos; placas y carruseles
+  // terminados, con el texto y la marca puestos (antes salían imágenes sin
+  // texto para que diseño las completara). Se le pide con un issue y la
+  // etiqueta «contenido generado» la pone él al entregar (no antes: la tarea
+  // diría que hay contenido y no lo hay).
+  const planSin = sinHiggsfield() ? planDe(tarea.tipo, `${tarea.name} ${tarea.copy ?? ""}`) : null;
+  if (planSin && planSin.formato !== "ninguno") {
+    const { pedirPiezaAlProductor } = await import("./video-agente.js");
+    const r = await pedirPiezaAlProductor(db, {
       companyId: COMPANY_ID, clientId, clienteNombre: cliente.name, clickupTaskId: taskId, clickupUrl: tarea.url,
       nombre: tarea.name, tipo: tarea.tipo, copy: tarea.copy, producto: tarea.producto, objetivo: tarea.objetivo,
+      formato: planSin.formato, piezas: planSin.piezas,
     });
-    return { ok: r.ok, taskId, error: r.mensaje };
+    // Sin el agente creado, sigue el camino viejo (placas de Magnific sin texto).
+    if (r.ok || ES_VIDEO(planSin.formato)) return { ok: r.ok, taskId, error: r.mensaje };
   }
 
   // RESERVA antes de gastar: el barrido corre cada 10 min y el botón del panel

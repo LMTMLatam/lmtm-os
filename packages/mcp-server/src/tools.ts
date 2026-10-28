@@ -1120,7 +1120,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       }),
       async (p) => client.requestJson("POST", "/contenido/generar-libre", { body: { ...p, origen: "claude" } }),
     ),
-    // Productor de video (28/10): lo que necesita una clave o el servicio de render.
+    // Productor de contenido (28/10): lo que necesita una clave o el servicio de render.
     // La composición la escribe el agente con HyperFrames; ver la skill lmtm-video.
     makeTool(
       "lmtmVideoVoz",
@@ -1181,13 +1181,50 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmVideoRevisar",
-      "CONTROL DE CALIDAD de un .mp4 renderizado: saca cuadros y GPT los revisa contra el brief (subtítulos legibles, zona segura, texto sobre caras o producto, logo, ortografía, nada que el brief no permita). Complementa a `hyperframes check`.",
+      "CONTROL DE CALIDAD con GPT contra el brief: de un .mp4 (archivo; saca cuadros) o de las placas de un carrusel o post (imagenes, en orden). Texto legible, zona segura, texto sobre caras o producto, logo, ortografía, nada que el brief no permita. Complementa a `hyperframes check`.",
       z.object({
-        archivo: z.string().min(1),
-        brief: z.string().min(10).describe("Qué tiene que decir y mostrar el video y qué no."),
+        archivo: z.string().optional().describe("Video .mp4 bajo /tmp/videos/."),
+        imagenes: z.array(z.string()).max(12).optional().describe("PNG/JPG bajo /tmp/videos/, en orden."),
+        brief: z.string().min(10).describe("Qué tiene que decir y mostrar la pieza y qué no."),
         cuadros: z.number().int().min(4).max(12).optional(),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_revisar", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmBuscarMaterial",
+      "BUSCA en el Drive del cliente las fotos y videos que MUESTRAN un producto o escena: GPT mira las miniaturas, así que sirve aunque el archivo se llame DJI_….jpg o 1.jpg. Devuelve los mejores con qué se ve en cada uno y el link de descarga. Usala después de lmtmGuiaContenido cuando lo que trae por nombre no alcanza. Lo ya mirado queda guardado.",
+      z.object({
+        cliente: z.string().min(1).describe("Nombre (aunque sea parcial) o id."),
+        producto: z.string().min(3).describe("Qué tiene que verse: «placard blanco», «llantas de BMW», «frascos de OPI»."),
+        tipo: z.enum(["foto", "video", "todo"]).optional(),
+        cantidad: z.number().int().min(3).max(30).optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "buscar_material", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmContenidoImagen",
+      "GENERA una imagen con Magnific (Mystic) para fondo o ilustración de una placa o carrusel. GASTA CRÉDITOS. Sin texto ni logos (el texto va en HTML) y nunca haciéndola pasar por el producto o local real del cliente. Tarda hasta 2 min.",
+      z.object({
+        prompt: z.string().min(10).max(3000).describe("En inglés: sujeto, lugar, luz, estilo. Sin texto ni logos."),
+        archivo: z.string().min(1).describe("Ruta .jpg o .png bajo /tmp/videos/."),
+        formato: z.enum(["retrato", "vertical", "cuadrado"]).optional().describe("retrato 2:3 (feed, por defecto), vertical 9:16, cuadrado 1:1."),
+        clientId: z.string().optional(),
+        pieza: z.string().optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "contenido_imagen", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmContenidoEntregarImagenes",
+      "ENTREGA una placa o un carrusel (PNG en orden): sube a Super Redes/<cliente>/PLACAS en Drive, deja la portada en la tarea de ClickUp si viene de una y lo registra. No publica.",
+      z.object({
+        archivos: z.array(z.string()).min(1).max(20).describe("PNG bajo /tmp/videos/, en el orden del carrusel."),
+        clientId: z.string().min(1),
+        titulo: z.string().min(1).max(120),
+        textos: z.string().optional().describe("El texto de cada placa y el copy sugerido para el posteo."),
+        issueId: z.string().optional(),
+        clickupTaskId: z.string().optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "contenido_entregar_imagenes", parameters: p } }),
     ),
     makeTool(
       "lmtmVideoEntregar",

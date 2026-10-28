@@ -481,11 +481,22 @@ const etiquetaArchivo = (a: ArchivoDrive) => {
 
 const PRIORIDAD: Record<TipoMaterial, number> = { video: 0, foto: 1, logo: 2, documento: 3, diseño: 4, audio: 5, otro: 6 };
 
+/**
+ * El nombre y la ruta de un archivo SIN el nombre del cliente. Pura.
+ * 28/10: «llantas» empataba con todo el material de Distrillantas porque
+ * «Distrillantas» está en la ruta de cada archivo del cliente.
+ */
+export function textoSinCliente(texto: string, terminosCliente: string[]): string {
+  let t = norm(texto);
+  for (const term of terminosCliente.map(norm).filter((x) => x.length >= 3).sort((a, b) => b.length - a.length)) t = t.split(term).join(" ");
+  return t;
+}
+
 /** Elige qué archivos mostrar: lo que coincide con el pedido y lo más reciente de cada tipo. Pura. */
-export function elegirMaterial(archivos: ArchivoDrive[], pedido: string[], formato: Formato): { relevantes: ArchivoDrive[]; otros: ArchivoDrive[] } {
+export function elegirMaterial(archivos: ArchivoDrive[], pedido: string[], formato: Formato, terminosCliente: string[] = []): { relevantes: ArchivoDrive[]; otros: ArchivoDrive[] } {
   const relevantes = pedido.length
     ? archivos
-      .map((a) => ({ a, p: puntaje(`${a.n} ${a.ruta}`, pedido) }))
+      .map((a) => ({ a, p: puntaje(textoSinCliente(`${a.n} ${a.ruta}`, terminosCliente), pedido) }))
       .filter((x) => x.p > 0)
       .sort((x, y) => y.p - x.p || PRIORIDAD[x.a.tipo] - PRIORIDAD[y.a.tipo] || y.a.fecha.localeCompare(x.a.fecha))
       .slice(0, 14)
@@ -639,8 +650,9 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
     if (!ix.archivos.length) L.push(`Nada en Drive con el nombre del cliente (busqué: ${ix.terminos.join(", ")}). Si el material está con otro nombre, cargá clients.metadata.driveTerminos.`);
     else {
       L.push(`Carpetas: ${ix.carpetas.slice(0, 6).map((c) => `${recortar(c.ruta, 60)} (${c.id})`).join(" · ")}`);
-      const { relevantes, otros } = elegirMaterial(ix.archivos, pedido, formato);
-      if (pedido.length) L.push(relevantes.length ? `Coinciden con «${p.producto}»:` : `Ningún nombre de archivo menciona «${p.producto}»: mirá los de abajo.`);
+      const { relevantes, otros } = elegirMaterial(ix.archivos, pedido, formato, [...ix.terminos, cliente.name]);
+      if (pedido.length) L.push(relevantes.length ? `Coinciden con «${p.producto}» (por nombre de archivo o carpeta):` : `Ningún nombre de archivo menciona «${p.producto}»: mirá los de abajo.`);
+      if (pedido.length) L.push(`Para encontrarlo por lo que MUESTRA la foto o el video (aunque el archivo se llame DJI_….jpg): lmtmBuscarMaterial con el cliente y «${p.producto}».`);
       for (const a of relevantes) L.push(etiquetaArchivo(a));
       if (otros.length) L.push(relevantes.length ? "Otros recientes:" : "Más recientes por tipo:");
       for (const a of otros) L.push(etiquetaArchivo(a));
@@ -676,18 +688,14 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
       "1. Bajá el material con `curl -L -o archivo \"<link de descarga>\"`; armá una hoja de contacto (ffmpeg) y elegí 8–14 planos.",
       "2. 9:16: recortá cada plano a 608×1080 y escalá a 1080×1920 (lanczos). Evitá planos con logos o textos ajenos sobreimpresos.",
       "3. Guion de 25–40 s: gancho en los primeros 2 s, 3–4 frases con el diferencial, cierre con frase de marca y llamado (web o WhatsApp). Solo datos de esta guía.",
-      "4. Voz: Gemini TTS en castellano rioplatense, una línea por frase (plan gratis: 3 por minuto). Música baja, tallada debajo de la voz.",
-      "5. Subtítulos palabra por palabra (la mayoría mira sin sonido) y placa final con logo, frase y llamado. `npx hyperframes check` antes de renderizar.",
-      "Sin terminal (claude.ai):",
-      "- Clip de 8 s con IA: lmtmGenerarContenido (tipo video, prompt en inglés; imagenUrl = link de descarga de una FOTO de arriba). Gasta créditos: confirmá antes.",
-      "- Si la pieza ya es tarea de ClickUp: lmtmGenerarPieza (primero soloPrompt=true).",
-      "- Reel editado con el material real: dejá guion + lista de tomas (ids de arriba) como tarea con lmtmCreateClientTask para edición.",
+      "4. Voz: lmtmVideoVoz (español rioplatense), una frase por llamada; tiempos con lmtmVideoTranscribir. Música baja, tallada debajo de la voz.",
+      "5. Subtítulos palabra por palabra (la mayoría mira sin sonido) y placa final con logo, frase y llamado. `npx hyperframes check` antes de renderizar (skill lmtm-video).",
+      "Sin terminal (claude.ai): pedile la pieza al agente «Productor de contenido» (issue asignado o la etiqueta «generar contenido» en ClickUp). La arma con este mismo material.",
     );
   } else {
     L.push(
-      "- Placa o carrusel con IA: lmtmGenerarContenido (tipo imagen, formato placa 3:4 o vertical 9:16, prompt en inglés, sin texto en la imagen). Gasta créditos: confirmá antes.",
-      "- Con fotos reales: bajalas con el link de descarga y diseñá encima (paleta y tipografías de arriba); el texto lo pone el diseño, no la IA.",
-      "- Si la pieza ya es tarea de ClickUp: lmtmGenerarPieza (primero soloPrompt=true).",
+      "- Con terminal: placa o carrusel TERMINADO con HyperFrames (skill lmtm-placas): fotos reales de arriba, texto en HTML con la paleta y tipografías, logo. Fondos que falten: lmtmContenidoImagen (sin texto).",
+      "- Sin terminal (claude.ai): pedile la pieza al agente «Productor de contenido» (issue asignado o la etiqueta «generar contenido» en ClickUp).",
     );
   }
   L.push(
