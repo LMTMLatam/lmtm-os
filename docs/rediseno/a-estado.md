@@ -41,6 +41,31 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 28/10: Productor de contenido (577ecbf, 7c40add)
+
+Pedido del usuario:
+- Replicar en un agente el entorno local de los reels de Ferrol y El Hiper (HyperFrames).
+- Magnific en lugar de Higgsfield (dado de baja) y GPT en lugar de kimi.
+- Carruseles y posts terminados.
+- Que el agente encuentre en Drive las fotos de cada producto.
+
+Qué se hizo:
+- **Modelo:** GPT-6.1 Terra por LiteLLM (`lmtm-video`, con respaldo Sol). Se eligió con una prueba propia: el mismo reel a Astra, Sol, Terra y Luna, con check de HyperFrames, cuadros revisados a mano y costo medido.
+- **Imagen:** Node 22 aparte, HyperFrames 0.8.212 y Chrome fijado, más las skills de video de la máquina local, registradas como skills locales para que las cargue solo el agente que las pide. Render en el servicio `lmtm-render`, con la misma imagen.
+- **Herramientas `video_*`, `contenido_*` y `buscar_material`:**
+  - voz y tiempos (OpenAI);
+  - planos, música e imágenes (Magnific);
+  - render;
+  - revisión con GPT;
+  - entrega en Super Redes/<cliente>, con el enlace en la tarea de ClickUp.
+- **Búsqueda visual en Drive:** GPT describe las miniaturas y la descripción se guarda por cliente. Probado: RENO «placard» encontró videos llamados C9951.MP4.
+- **Sin Higgsfield:** la etiqueta «generar contenido» le pide la pieza al Productor con un issue. Las placas salen terminadas, con el texto en HTML.
+- **Guía de contenido:** el nombre del cliente ya no cuenta como coincidencia («llantas» empataba con todo Distrillantas).
+- **Flota:**
+  - Solo un núcleo de skills va a todos; antes las 122 eran obligatorias, unos 12.000 tokens por turno.
+  - Se sumaron `caveman` y `lmtm-ahorro-tokens` al núcleo.
+  - El tope diario de corridas ahora es por proveedor.
+
 ### 26/10: cerco a los agentes (8060187, deploy 276e1309)
 
 Auditoría: los agentes corrían con todo el entorno del servidor y Bash en el
