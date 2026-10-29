@@ -71,6 +71,9 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    - Un plano por corte, de 1,5 a 3 s, entre 8 y 14 planos distintos.
    - `--foco` elige la franja: 0 = izquierda, 1 = derecha. El centro casi nunca es el mejor.
    - Las fotos salen .jpg y la plantilla les pone movimiento.
+   - El plano sale más grande que la pantalla a propósito (el zoom de la
+     plantilla no lo agranda). Si `plano.mjs` avisa «OJO: … se va a ver blando»,
+     la fuente es chica: buscá otra toma del mismo producto.
 5. **Guion:** de 20 a 35 s.
    - Gancho en los primeros 2 s.
    - 3 o 4 frases cortas con el diferencial.

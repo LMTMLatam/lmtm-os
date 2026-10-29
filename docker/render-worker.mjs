@@ -21,6 +21,10 @@ const TOKEN = process.env.LMTM_RENDER_TOKEN || "";
 const NODE22 = "/opt/node22/bin";
 const ESPERA_MAX_MS = 20 * 60_000;
 const CALIDADES = new Set(["draft", "looks", "delivery"]);
+// HyperFrames calcula los Chrome y ffmpeg en paralelo con os.cpus(), que en
+// Railway da los CPU de la máquina, no los del servicio: abría decenas a la vez
+// y el render moría con «Resource temporarily unavailable» (29/10).
+const WORKERS = process.env.LMTM_RENDER_WORKERS || "2";
 
 let ocupado = Promise.resolve();
 
@@ -54,7 +58,7 @@ async function renderizar(req, calidad) {
     const x = await correr("tar", ["-xzf", tar, "-C", proyecto], dir);
     if (x.code !== 0) return { ok: false, error: `no se pudo abrir el proyecto: ${x.salida.slice(-500)}` };
     const salida = path.join(dir, `${randomUUID()}.mp4`);
-    const r = await correr("hyperframes", ["render", "--quality", calidad, "--output", salida], proyecto);
+    const r = await correr("hyperframes", ["render", "--quality", calidad, "--workers", WORKERS, "--output", salida], proyecto);
     if (r.code !== 0 || !fs.existsSync(salida) || fs.statSync(salida).size === 0) {
       return { ok: false, error: `el render falló:\n${r.salida.slice(-3000)}` };
     }

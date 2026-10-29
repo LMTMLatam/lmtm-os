@@ -182,7 +182,8 @@ async function renderizar(proyecto: string, calidad: string): Promise<string> {
     }
   } else {
     // Sin servicio de render configurado se renderiza acá (más lento y comparte memoria).
-    await run("hyperframes", ["render", "--quality", calidad, "--output", salida], {
+    // Workers fijos: HyperFrames los calcula con os.cpus(), que en Railway da los de la máquina.
+    await run("hyperframes", ["render", "--quality", calidad, "--workers", process.env.LMTM_RENDER_WORKERS || "2", "--output", salida], {
       cwd: proyecto, timeout: 25 * 60_000, maxBuffer: 1 << 24,
       env: { ...process.env, PATH: `${NODE22}:${process.env.PATH}`, HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1" },
     });
