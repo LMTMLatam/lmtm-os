@@ -27,9 +27,9 @@ interface Respuesta {
 
 /** El link de Drive no se puede usar como <img src>; se pasa por el proxy. */
 function srcDe(driveFileId: string | null, imageUrl: string | null): string | null {
-  if (driveFileId) return `/api/drive-img/${driveFileId}`;
+  if (driveFileId) return `/api/drive-img/${driveFileId}?s=600`;
   const m = imageUrl?.match(/\/file\/d\/([A-Za-z0-9_-]{20,})/);
-  if (m) return `/api/drive-img/${m[1]}`;
+  if (m) return `/api/drive-img/${m[1]}?s=600`;
   return imageUrl ?? null;
 }
 

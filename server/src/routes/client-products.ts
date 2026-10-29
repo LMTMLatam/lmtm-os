@@ -160,6 +160,9 @@ export function clientProductRoutes(db: Db): Router {
   // servidor las baja con su token. Solo sirve ids que estén referenciados por
   // un producto o un avatar: si no, sería un proxy abierto a todo el Drive.
   router.get("/drive-img/:fileId", async (req, res) => {
+    // Respondía sin sesión (29/10): con el catálogo cargado eran ~350 fotos de
+    // clientes a un id de distancia. El panel manda la cookie en el <img>.
+    assertMiembro(req);
     try {
       const fileId = req.params.fileId;
       const [prod] = await db.select({ id: clientProducts.id }).from(clientProducts)
@@ -171,8 +174,11 @@ export function clientProductRoutes(db: Db): Router {
         permitido = !!av;
       }
       if (!permitido) return res.status(404).json({ error: "no encontrado" });
-      const { bajarDeDrive } = await import("../services/contenido-drive.js");
-      const { bytes, mime } = await bajarDeDrive(fileId);
+      const { bajarDeDrive, miniaturaDeDrive } = await import("../services/contenido-drive.js");
+      // ?s=600 → miniatura de ese ancho. Las fotos originales pesan 4 MB en
+      // promedio (hasta 42): una grilla de 20 productos bajaba ~80 MB.
+      const ancho = Math.min(Math.max(Number(req.query.s) || 0, 0), 1600);
+      const { bytes, mime } = (ancho && (await miniaturaDeDrive(fileId, ancho).catch(() => null))) || (await bajarDeDrive(fileId));
       res.setHeader("Content-Type", mime);
       res.setHeader("Cache-Control", "private, max-age=3600");
       res.send(bytes);

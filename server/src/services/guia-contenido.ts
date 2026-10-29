@@ -593,7 +593,15 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
     L.push("", `## El producto: «${p.producto}»`);
     const enCatalogo = productos.filter((x) => puntaje(`${x.name} ${x.description ?? ""}`, pedido) > 0);
     for (const x of enCatalogo.slice(0, 3)) {
-      L.push(`- Catálogo: ${x.name}${x.description ? ` — ${recortar(x.description, 220)}` : ""}${x.driveFileId ? ` · foto \`${x.driveFileId}\`` : x.imageUrl ? ` · foto ${x.imageUrl}` : ""}`);
+      // El catálogo cargado desde Drive (29/10) trae las carpetas del producto:
+      // con el link el agente baja las fotos con lmtmDriveBajar, sin buscarlas.
+      const carpetas = ((x.metadata as { carpetas?: Array<{ id: string | null; fotos: number; videos: number }> } | null)?.carpetas ?? [])
+        .filter((c) => c.id).slice(0, 2)
+        .map((c) => ` · carpeta https://drive.google.com/drive/folders/${c.id} (${c.fotos} fotos, ${c.videos} videos)`).join("");
+      L.push(`- Catálogo: ${x.name}${x.description ? ` — ${recortar(x.description, 220)}` : ""}${x.driveFileId ? ` · foto \`${x.driveFileId}\`` : x.imageUrl ? ` · foto ${x.imageUrl}` : ""}${carpetas}`);
+    }
+    if (enCatalogo.some((x) => (x.metadata as { carpetas?: unknown[] } | null)?.carpetas?.length)) {
+      L.push("  → Bajá el material de esas carpetas con lmtmDriveBajar; lmtmBuscarMaterial solo si no alcanza.");
     }
     if (!enCatalogo.length) L.push(productos.length ? "No está en el catálogo de productos del cliente." : "El cliente no tiene catálogo de productos cargado.");
     const dichos = memoria.flatMap((m) => frasesCon(m.content, pedido, 2)).slice(0, 4);

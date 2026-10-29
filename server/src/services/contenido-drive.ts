@@ -187,6 +187,15 @@ export async function bajarDeDrive(fileId: string): Promise<{ bytes: Buffer; mim
   return { bytes: Buffer.from(await r.arrayBuffer()), mime: r.headers.get("content-type") ?? "application/octet-stream" };
 }
 
+/** La miniatura que arma Drive, del ancho pedido. null si el archivo no tiene. */
+export async function miniaturaDeDrive(fileId: string, ancho: number): Promise<{ bytes: Buffer; mime: string } | null> {
+  const { thumbnailLink } = await drive<{ thumbnailLink?: string }>(`files/${encodeURIComponent(fileId)}?fields=thumbnailLink&supportsAllDrives=true`);
+  if (!thumbnailLink) return null;
+  const r = await fetch(thumbnailLink.replace(/=s\d+$/, `=s${ancho}`), { headers: { Authorization: `Bearer ${await token()}` } });
+  if (!r.ok) return null;
+  return { bytes: Buffer.from(await r.arrayBuffer()), mime: r.headers.get("content-type") ?? "image/jpeg" };
+}
+
 /** Deja la imagen en un archivo temporal y devuelve la ruta: la CLI de
  *  Higgsfield sube los paths locales sola. */
 export async function referenciaLocal(fileId: string, nombre = "ref.png"): Promise<string> {

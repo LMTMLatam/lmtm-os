@@ -56,10 +56,14 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
 
 1. **Contexto:** `lmtmGuiaContenido` con el cliente y el producto (marca, paleta,
    logo, memoria, material, web).
-2. **Material:** `lmtmBuscarMaterial` con el cliente y el producto («placard»,
-   «frascos de OPI»). Devuelve lo que MUESTRA el producto. Elegí entre 8 y 14,
-   videos antes que fotos, sin texto ni logos encima. Bajalos con `curl -L` a
-   `assets/fuente/`.
+2. **Material:**
+   - Si la guía trae el producto en el **catálogo con su carpeta**, bajala con
+     `lmtmDriveBajar` (link de la carpeta, destino `assets/fuente/`). Es el camino
+     corto: no hace falta buscar.
+   - Si no está o no alcanza, `lmtmBuscarMaterial` con el cliente y el producto
+     («placard», «frascos de OPI»): devuelve lo que MUESTRA el producto. Bajalos
+     con `curl -L` a `assets/fuente/`.
+   - Elegí entre 8 y 14, videos antes que fotos, sin texto ni logos encima.
 3. **Mirar antes de cortar:** `node $P/plano.mjs hoja assets/fuente/X.mp4 hoja-X.jpg`
    y abrí la hoja. Elegí el segundo y la franja de cada plano.
 4. **Planos 9:16:**

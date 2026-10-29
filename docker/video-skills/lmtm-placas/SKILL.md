@@ -25,6 +25,8 @@ material real primero, no se publica ni se programa nada, y Magnific gasta créd
 
 1. **Contexto:** `lmtmGuiaContenido` con el cliente y el tema. Trae marca (paleta,
    tipografías, tono, logo), memoria, el material de Drive con links y la web.
+   Si el producto está en el catálogo con su carpeta, bajá las fotos con
+   `lmtmDriveBajar`; `lmtmBuscarMaterial` solo si no alcanza.
 2. **Textos primero:** escribí el texto de cada placa antes de diseñar.
    - Portada: un gancho de 4 a 9 palabras que haga frenar el dedo.
    - Placas del medio: una idea por placa, 25 palabras como mucho.
