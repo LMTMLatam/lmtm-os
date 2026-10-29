@@ -24,6 +24,7 @@ import {
 import { createClientTask } from "./client-tasks.js";
 import { configuracionDesdeClickUp, inyectarConfig } from "./apps-script-config.js";
 import { carpetasDe, type CarpetasCliente } from "./contenido-drive.js";
+import { crearEscenarioCliente, makeConfigured, type EscenarioCliente } from "./make.js";
 
 export const CLIENTES_SPACE_ID = "90131985551";
 
@@ -235,6 +236,7 @@ export interface ProvisionResult {
   videoSheet: { id: string; url: string | null } | null;
   videoScript: ScriptProvision | null;
   superRedes: CarpetasCliente | null;
+  make: EscenarioCliente | null;
   errors: string[];
 }
 
@@ -244,7 +246,7 @@ export async function provisionClientFromClickUp(
   input: { folderId: string; folderName: string },
 ): Promise<ProvisionResult> {
   const name = (input.folderName ?? "").trim();
-  const out: ProvisionResult = { client: null, redesSheet: null, script: null, videoSheet: null, videoScript: null, superRedes: null, errors: [] };
+  const out: ProvisionResult = { client: null, redesSheet: null, script: null, videoSheet: null, videoScript: null, superRedes: null, make: null, errors: [] };
   if (!name) {
     out.errors.push("folderName vacío");
     return out;
@@ -383,6 +385,19 @@ export async function provisionClientFromClickUp(
     out.errors.push("lista 'Produccion de video' no encontrada en el folder → script de video no creado");
   }
 
+  // 3c. Escenario de Make del cliente: copia de la plantilla, APAGADO. Cuentas,
+  // redes, prenderlo y el datastore del despachador quedan para el equipo.
+  if (makeConfigured()) {
+    try {
+      out.make = await crearEscenarioCliente(name);
+      const [row] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
+      const meta = { ...((row?.metadata as Record<string, unknown>) ?? {}), makeScenarioId: out.make.scenarioId };
+      await db.update(clients).set({ metadata: meta as never, updatedAt: new Date() }).where(eq(clients.id, clientId));
+    } catch (e) {
+      out.errors.push(`escenario Make: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // 4. File a task for the remaining manual/agent steps (trigger + Make).
   try {
     const fallbackCompanyId = (await defaultCompanyId(db)) ?? undefined;
@@ -403,10 +418,15 @@ export async function provisionClientFromClickUp(
         `• Carpeta de contenido (super redes): ${out.superRedes ? `https://drive.google.com/drive/folders/${out.superRedes.carpeta}` : "⚠️ no se pudo crear, se crea con la primera entrega"}\n` +
         scriptLine +
         videoLine +
+        (out.make
+          ? `• Escenario de Make ${out.make.creado ? "creado" : "ya existía"} (APAGADO): ${out.make.url}\n`
+          : `• Escenario de Make: ⚠️ no se pudo crear. Copiar a mano «AutoPoster: Plantilla Clientes» (1670709).\n`) +
         `Falta para terminar el pipeline (ver skill lmtm-pipeline):\n` +
         `1) Instalar los triggers de AMBOS scripts (1 clic cada uno, ver arriba).\n` +
-        `2) Probar una fila de punta a punta y guardar los IDs en el brain del cliente.\n` +
-        `(El scenario de Make se configura aparte — no se automatiza por ahora.)`,
+        `2) Make (equipo): cargar la página de Facebook, la cuenta de Instagram y la empresa de LinkedIn del cliente (vienen vacías), ` +
+        `sacar las redes que no use (un dato vacío hace que Make apague el escenario), probarlo, prenderlo y recién ahí anotarlo ` +
+        `en el datastore del despachador (19767) con el link de su webhook. Si se anota antes, los posts se apilan y salen todos juntos.\n` +
+        `3) Probar una fila de punta a punta y guardar los IDs en el brain del cliente.`,
       taskType: "internal",
       priority: "high",
       source: "clickup-webhook",

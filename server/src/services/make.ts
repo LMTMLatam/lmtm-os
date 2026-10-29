@@ -269,3 +269,110 @@ export async function runMakeHealthCheck(
   }
   return { configured: true, checked, issues, delivered };
 }
+
+// ── Alta: escenario del cliente (pedido 29/10) ───────────────────────────────
+//
+// Al crear la carpeta del cliente en ClickUp se copia la plantilla de AutoPoster
+// con un webhook propio y queda APAGADA. Las cuentas de cada red, las redes que
+// sobran, prenderlo y anotarlo en el datastore del despachador los hace el
+// equipo: si se anotara ahora, los posts se apilarían en la cola del webhook y
+// saldrían todos juntos al prenderlo (Clean Unity, 01-08/10).
+
+/** "AutoPoster: Plantilla Clientes" — arreglada el 29/10 (conexiones de LMTM,
+ *  sin cuentas de ningún cliente). La otra con el mismo nombre (3039102) no
+ *  guarda cambios: no usarla. */
+const PLANTILLA_AUTOPOSTER = Number(process.env.MAKE_PLANTILLA_AUTOPOSTER) || 1670709;
+const CARPETA_AUTOPOSTER = Number(process.env.MAKE_CARPETA_AUTOPOSTER) || 73595;
+/** Lo que identifica las cuentas de UN cliente. La copia nunca las hereda: un
+ *  escenario prendido sin completarlas publicaría en la página de otro. */
+const CUENTAS_DEL_CLIENTE = ["page_id", "accountId", "organization", "board_id"];
+
+interface ModuloMake {
+  id: number;
+  module: string;
+  parameters?: Record<string, unknown>;
+  mapper?: Record<string, unknown>;
+  onerror?: ModuloMake[];
+  routes?: Array<{ flow?: ModuloMake[] }>;
+}
+
+/** La plantilla, apuntada al webhook del cliente y sin cuentas cargadas. */
+export function blueprintParaCliente<T extends { flow?: ModuloMake[]; name?: string }>(plantilla: T, hookId: number, nombre: string): T {
+  const bp = structuredClone(plantilla);
+  const recorrer = (flow?: ModuloMake[]) => {
+    for (const m of flow ?? []) {
+      if (m.module === "gateway:CustomWebHook") m.parameters = { ...(m.parameters ?? {}), hook: hookId };
+      for (const lugar of [m.parameters, m.mapper]) {
+        if (!lugar) continue;
+        for (const k of CUENTAS_DEL_CLIENTE) {
+          const v = lugar[k];
+          if (typeof v === "string" && v && !v.includes("{{")) lugar[k] = "";
+        }
+      }
+      recorrer(m.onerror);
+      for (const r of m.routes ?? []) recorrer(r.flow);
+    }
+  };
+  recorrer(bp.flow);
+  bp.name = nombre;
+  return bp;
+}
+
+async function makeSend<T>(method: "POST" | "PATCH", path: string, body: unknown, query?: Record<string, string | number>): Promise<T> {
+  const token = process.env.MAKE_API_TOKEN?.trim();
+  if (!token) throw new Error("MAKE_API_TOKEN not set");
+  const url = new URL(`${MAKE_BASE}${path}`);
+  for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
+  const res = await fetch(url.toString(), {
+    method,
+    headers: { Authorization: `Token ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Make ${method} ${path} → ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()) as T;
+}
+
+export interface EscenarioCliente {
+  scenarioId: number;
+  /** false = ya había uno con ese nombre y no se tocó. */
+  creado: boolean;
+  url: string;
+}
+
+/** Copia la plantilla para un cliente nuevo y la deja apagada. Si ya existe un
+ *  escenario con su nombre, no crea otro. */
+export async function crearEscenarioCliente(nombre: string): Promise<EscenarioCliente> {
+  const enlace = (id: number) => `https://us2.make.com/${MAKE_TEAM_ID}/scenarios/${id}/edit`;
+  const buscado = norm(nombre);
+  const existente = (await makeListScenarios()).find((s) => {
+    const n = norm(s.name ?? "");
+    return n === buscado || n === norm(`AutoPoster: ${nombre}`);
+  });
+  if (existente) return { scenarioId: existente.id, creado: false, url: enlace(existente.id) };
+
+  const { response } = await makeGet<{ response: { blueprint: { flow?: ModuloMake[]; name?: string }; scheduling?: unknown } }>(
+    `/scenarios/${PLANTILLA_AUTOPOSTER}/blueprint`,
+  );
+  const { hook } = await makeSend<{ hook: { id: number } }>("POST", "/hooks", {
+    name: nombre,
+    teamId: Number(MAKE_TEAM_ID),
+    typeName: "gateway-webhook",
+    method: false,
+    headers: false,
+    stringify: false,
+  });
+  const { scenario } = await makeSend<{ scenario: { id: number; isActive?: boolean } }>(
+    "POST",
+    "/scenarios",
+    {
+      blueprint: JSON.stringify(blueprintParaCliente(response.blueprint, hook.id, nombre)),
+      teamId: Number(MAKE_TEAM_ID),
+      folderId: CARPETA_AUTOPOSTER,
+      scheduling: JSON.stringify(response.scheduling ?? { type: "immediately" }),
+    },
+    { confirmed: "true" },
+  );
+  // Make crea los escenarios apagados; si algún día cambia, se apaga acá.
+  if (scenario.isActive) await makeSend("POST", `/scenarios/${scenario.id}/stop`, {});
+  return { scenarioId: scenario.id, creado: true, url: enlace(scenario.id) };
+}
