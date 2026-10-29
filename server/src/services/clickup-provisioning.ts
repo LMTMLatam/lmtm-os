@@ -23,6 +23,7 @@ import {
 } from "@paperclipai/mcp-google";
 import { createClientTask } from "./client-tasks.js";
 import { configuracionDesdeClickUp, inyectarConfig } from "./apps-script-config.js";
+import { carpetasDe, type CarpetasCliente } from "./contenido-drive.js";
 
 export const CLIENTES_SPACE_ID = "90131985551";
 
@@ -233,6 +234,7 @@ export interface ProvisionResult {
   script: ScriptProvision | null;
   videoSheet: { id: string; url: string | null } | null;
   videoScript: ScriptProvision | null;
+  superRedes: CarpetasCliente | null;
   errors: string[];
 }
 
@@ -242,7 +244,7 @@ export async function provisionClientFromClickUp(
   input: { folderId: string; folderName: string },
 ): Promise<ProvisionResult> {
   const name = (input.folderName ?? "").trim();
-  const out: ProvisionResult = { client: null, redesSheet: null, script: null, videoSheet: null, videoScript: null, errors: [] };
+  const out: ProvisionResult = { client: null, redesSheet: null, script: null, videoSheet: null, videoScript: null, superRedes: null, errors: [] };
   if (!name) {
     out.errors.push("folderName vacío");
     return out;
@@ -325,6 +327,15 @@ export async function provisionClientFromClickUp(
     out.client = { id: clientId, slug, name, created: true };
   }
 
+  // 2b. Carpeta del cliente en "super redes" (PLACAS/VIDEOS/PRODUCTOS), donde
+  // los agentes guardan lo que generan. Antes aparecía recién con la primera
+  // entrega (pedido 29/10: que exista desde el alta).
+  try {
+    out.superRedes = await carpetasDe(db, clientId, name, ["PLACAS", "VIDEOS", "PRODUCTOS"]);
+  } catch (e) {
+    out.errors.push(`carpeta super redes: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   // 3. Auto-create the Cronopost→ClickUp Apps Script (pointed at the new Sheet
   //    + the client's "Redes Sociales" list). Best-effort: needs both the sheet
   //    and the list to exist. When a folder is created from a ClickUp template
@@ -389,6 +400,7 @@ export async function provisionClientFromClickUp(
       description:
         `Cliente nuevo detectado en ClickUp (folder ${input.folderId}). Provisión automática:\n` +
         `• Sheet de Redes: ${out.redesSheet?.url ?? "⚠️ no se pudo crear, revisar"}\n` +
+        `• Carpeta de contenido (super redes): ${out.superRedes ? `https://drive.google.com/drive/folders/${out.superRedes.carpeta}` : "⚠️ no se pudo crear, se crea con la primera entrega"}\n` +
         scriptLine +
         videoLine +
         `Falta para terminar el pipeline (ver skill lmtm-pipeline):\n` +
