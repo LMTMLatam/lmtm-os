@@ -41,6 +41,34 @@ suyo y lo de B). Canal con B: rama `rediseno/buzon`.
 
 ## Bitácora
 
+### 29/10: el alta de cliente crea su carpeta y su escenario de Make (cd4f237, fadb05a)
+
+Pedido del usuario: que al crear la carpeta del cliente en ClickUp también se
+creen su carpeta de contenido y su escenario de Make. El escenario queda
+apagado, sin cuentas ni redes: eso lo completa el equipo.
+- **Carpeta:** `super redes/<cliente>/{PLACAS,VIDEOS,PRODUCTOS}` (Drive
+  `1dlDPTGcskdVU8L35EMlC6pBBKSmQdaQx`) se crea en el alta. Antes aparecía
+  recién con la primera entrega. A Randstad le faltaba y se creó a mano.
+- **Escenario de Make:** `crearEscenarioCliente` copia «AutoPoster: Plantilla
+  Clientes» (1670709) con un webhook propio y lo deja apagado.
+  - No lo anota en el datastore 19767: si se anotara, los posts se apilarían y
+    saldrían todos juntos al prenderlo.
+  - La copia vacía page_id, accountId, organization y board_id.
+  - Si ya existe un escenario con el nombre del cliente, no crea otro.
+- **Plantilla 1670709 arreglada en Make:**
+  - Conexiones de LMTM, verificadas.
+  - Sin cuentas de ningún cliente.
+  - Los filtros del aviso de error del carrusel (284/285) apuntaban a otra
+    rama.
+- **Verificado:**
+  - Randstad: escenario 6829775, apagado, 85 módulos, webhook 3000072,
+    0 referencias rotas. La segunda llamada no duplicó.
+  - Tests de `blueprintParaCliente`.
+  - Deploy 82276f6c sano y webhook de ClickUp activo.
+- **Queda:** en el panel de Agentes, el rol «Contenido» no puede pasarle
+  pedidos de producción al Productor. Un pedido de logo sobre 5 fotos de RENO
+  terminó en «no puedo». Propuesto al usuario, sin respuesta todavía.
+
 ### 28/10: Productor de contenido (577ecbf, 7c40add)
 
 Pedido del usuario:
