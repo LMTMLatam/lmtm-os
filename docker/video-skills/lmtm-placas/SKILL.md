@@ -63,3 +63,37 @@ material real primero, no se publica ni se programa nada, y Magnific gasta créd
    cada placa y el copy sugerido en `textos`, y el `clickupTaskId` si el issue lo
    trae. En el issue dejá los links, los textos y de dónde salió cada imagen
    (cliente o generada). Después cerralo.
+
+## Fotos del cliente con su logo (sin diseñar una placa)
+
+Cuando piden «ponele el logo a estas fotos», la foto se queda como está: ni
+recorte, ni texto, ni filtro. Solo el logo, igual en todas.
+
+1. **Fotos:** si vienen por link de Drive, `lmtmDriveBajar` con el link y una
+   carpeta de trabajo (`/tmp/videos/<cliente>-logo/fuente`). Si dice que no tiene
+   acceso, contalo en el issue (hay que compartirla con grow@bylmtm.com) y frená.
+2. **Logo:** el de `lmtmGuiaContenido` (PNG con transparencia). Elegí la versión
+   que contraste con las fotos: la clara sobre fotos oscuras, la oscura sobre
+   claras. Si solo hay uno sin transparencia, decilo en el issue: no lo recortes
+   a mano.
+3. **Ponerlo, todas igual:** esquina inferior derecha salvo que el pedido diga
+   otra cosa, ancho del 18 % de la foto y margen del 4 % del lado más corto.
+   ```bash
+   mkdir -p entrega
+   for f in fuente/*; do
+     W=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$f")
+     H=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$f")
+     LW=$(( W * 18 / 100 )); M=$(( (W < H ? W : H) * 4 / 100 ))
+     ffmpeg -v error -y -i "$f" -i logo.png \
+       -filter_complex "[1:v]scale=${LW}:-1[l];[0:v][l]overlay=W-w-${M}:H-h-${M}" \
+       -q:v 2 "entrega/$(basename "${f%.*}").jpg"
+   done
+   ```
+   (Probado 29/10. `scale2ref` deforma el logo: no lo uses.) Si el logo cae sobre
+   algo importante (una cara, el producto), pasalo a otra esquina en esa foto y
+   anotalo.
+4. **Mirar:** abrí 2 o 3 resultados. El logo tiene que leerse y no tapar nada.
+   Si una foto sale de costado, venía rotada por el celular (EXIF): enderezala
+   con `-vf transpose=1` (o `2`) antes de ponerle el logo.
+5. **Entrega:** `lmtmContenidoEntregarImagenes` con los JPG (titulo «<Cliente>
+   con logo») y dejá los links en el issue.

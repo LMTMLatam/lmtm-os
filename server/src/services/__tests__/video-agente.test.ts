@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { NOMBRES_VIDEO, RAIZ, rutaSegura } from "../video-agente.js";
+import { NOMBRES_VIDEO, RAIZ, idDeDrive, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
 
 describe("video-agente: rutas", () => {
@@ -16,9 +16,19 @@ describe("video-agente: rutas", () => {
   });
 
   it("expone las herramientas que nombra la skill lmtm-video", () => {
-    for (const t of ["video_voz", "video_transcribir", "video_plano", "video_musica", "video_renderizar", "video_estado", "video_revisar", "video_entregar"]) {
+    for (const t of ["video_voz", "video_transcribir", "video_plano", "video_musica", "video_renderizar", "video_estado", "video_revisar", "video_entregar", "drive_bajar", "encargar_al_productor"]) {
       expect(NOMBRES_VIDEO.has(t)).toBe(true);
     }
+  });
+
+  it("saca el id de cualquier link de Drive", () => {
+    // El pedido de RENO del 29/10 traía un link de carpeta con ?usp=sharing.
+    expect(idDeDrive("https://drive.google.com/drive/folders/1CCIKDR6h-A4pe0fiLCGE4YWEtDnuBxSl?usp=sharing")).toBe("1CCIKDR6h-A4pe0fiLCGE4YWEtDnuBxSl");
+    expect(idDeDrive("https://drive.google.com/drive/u/2/folders/1dlDPTGcskdVU8L35EMlC6pBBKSmQdaQx")).toBe("1dlDPTGcskdVU8L35EMlC6pBBKSmQdaQx");
+    expect(idDeDrive("https://drive.google.com/file/d/1A9dKa_OcqvKPqh0z8r9mqCC1TCFAOUSq/view")).toBe("1A9dKa_OcqvKPqh0z8r9mqCC1TCFAOUSq");
+    expect(idDeDrive("https://drive.google.com/open?id=1A9dKa_OcqvKPqh0z8r9mqCC1TCFAOUSq")).toBe("1A9dKa_OcqvKPqh0z8r9mqCC1TCFAOUSq");
+    expect(idDeDrive("1A9dKa_OcqvKPqh0z8r9mqCC1TCFAOUSq")).toBe("1A9dKa_OcqvKPqh0z8r9mqCC1TCFAOUSq");
+    expect(idDeDrive("https://instagram.com/reno")).toBeNull();
   });
 });
 

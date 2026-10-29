@@ -1204,6 +1204,26 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "buscar_material", parameters: p } }),
     ),
     makeTool(
+      "lmtmDriveBajar",
+      "BAJA fotos y videos de una carpeta (o un archivo) de Drive que te pasaron por link, aunque no esté en el índice del cliente. Solo ve lo compartido con grow@bylmtm.com: si dice que no tiene acceso, contalo en la tarea. Devuelve las rutas locales.",
+      z.object({
+        link: z.string().min(10).describe("Link de Drive (carpeta o archivo) o su id."),
+        carpeta: z.string().min(1).describe("Carpeta de destino bajo /tmp/videos/."),
+        tipo: z.enum(["foto", "video", "todo"]).optional(),
+        cantidad: z.number().int().min(1).max(60).optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "drive_bajar", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmEncargarAlProductor",
+      "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo si no tenés terminal ni editor de imágenes.",
+      z.object({
+        cliente: z.string().min(1).describe("Nombre (aunque sea parcial) o id."),
+        pedido: z.string().min(5).describe("Lo que pidió la persona, completo, con los links que pasó."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "encargar_al_productor", parameters: p } }),
+    ),
+    makeTool(
       "lmtmContenidoImagen",
       "GENERA una imagen con Magnific (Mystic) para fondo o ilustración de una placa o carrusel. GASTA CRÉDITOS. Sin texto ni logos (el texto va en HTML) y nunca haciéndola pasar por el producto o local real del cliente. Tarda hasta 2 min.",
       z.object({

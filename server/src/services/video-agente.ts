@@ -55,6 +55,12 @@ export function rutaSegura(p: unknown): string | null {
   return abs.startsWith(RAIZ + path.sep) ? abs : null;
 }
 
+/** El id de un link de Drive (carpeta, archivo o ?id=), o el id suelto. */
+export function idDeDrive(link: string): string | null {
+  const s = link.trim();
+  return /\/folders\/([\w-]{10,})/.exec(s)?.[1] ?? /\/d\/([\w-]{10,})/.exec(s)?.[1] ?? /[?&]id=([\w-]{10,})/.exec(s)?.[1] ?? (/^[\w-]{10,}$/.test(s) ? s : null);
+}
+
 async function duracion(archivo: string): Promise<number | null> {
   try {
     const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", archivo]);
@@ -251,6 +257,16 @@ export const VIDEO_TOOLS: ToolDef[] = [
     issueId: { type: "string" },
     clickupTaskId: { type: "string", description: "Si el pedido vino de una tarea de ClickUp: ahí queda el link y la etiqueta «contenido generado»." },
   }, ["archivo", "clientId", "titulo"]),
+  def("drive_bajar", "BAJA fotos y videos de una carpeta (o un archivo) de Drive que te pasaron por link, aunque no esté en el índice del cliente. Solo ve lo compartido con grow@bylmtm.com. Devuelve las rutas locales.", {
+    link: { type: "string", description: "Link de Drive (carpeta o archivo) o su id." },
+    carpeta: { type: "string", description: `Carpeta de destino bajo ${RAIZ}/` },
+    tipo: { type: "string", enum: ["foto", "video", "todo"] },
+    cantidad: { type: "number", description: "Máximo de archivos (por defecto 30)." },
+  }, ["link", "carpeta"]),
+  def("encargar_al_productor", "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo: vos no tenés terminal ni editor de imágenes.", {
+    cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
+    pedido: { type: "string", description: "Lo que pidió la persona, completo, con los links que pasó." },
+  }, ["cliente", "pedido"]),
 ];
 
 export const NOMBRES_VIDEO = new Set(VIDEO_TOOLS.map((t) => t.function.name));
@@ -283,23 +299,17 @@ export async function pedirPiezaAlProductor(
     formato: "reel" | "clip" | "carrusel" | "placa"; piezas: number;
   },
 ): Promise<{ ok: boolean; mensaje: string }> {
-  const { agents, issues } = await import("@paperclipai/db");
-  const [agente] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.companyId, p.companyId), eq(agents.name, AGENTE_PRODUCTOR))).limit(1);
-  if (!agente) return { ok: false, mensaje: `no existe el agente «${AGENTE_PRODUCTOR}»` };
-  const marca = `clickup:${p.clickupTaskId}`;
-  const [ya] = await db.select({ identifier: issues.identifier }).from(issues)
-    .where(and(eq(issues.assigneeAgentId, agente.id), sql`${issues.status} <> 'cancelled'`, sql`${issues.description} like ${"%" + marca + "%"}`)).limit(1);
-  if (ya) return { ok: true, mensaje: `ya pedido al Productor (${ya.identifier ?? "s/n"})` };
-
   const esVideo = p.formato === "reel" || p.formato === "clip";
   const que = esVideo
     ? `el video con la skill **lmtm-video** (${p.formato === "clip" ? "clip o historia de 8 a 15 s" : "reel vertical de 15 a 35 s"})`
     : `${p.formato === "carrusel" ? `el carrusel (${p.piezas} placas)` : "la placa"} con la skill **lmtm-placas**`;
   const entrega = esVideo ? "lmtmVideoEntregar" : "lmtmContenidoEntregarImagenes";
-  const { issueService } = await import("./issues.js");
-  const creado = await issueService(db).create(p.companyId, {
-    title: `[${p.clienteNombre.toUpperCase()}] ${p.tipo ?? (esVideo ? "Reel" : "Placa")}: ${p.nombre}`.slice(0, 200),
-    description: [
+  const r = await crearTareaProductor(db, {
+    companyId: p.companyId,
+    clientId: p.clientId,
+    marca: `clickup:${p.clickupTaskId}`,
+    titulo: `[${p.clienteNombre.toUpperCase()}] ${p.tipo ?? (esVideo ? "Reel" : "Placa")}: ${p.nombre}`,
+    descripcion: [
       `Pedido del equipo desde ClickUp (etiqueta «generar contenido»). Armá ${que}.`,
       "",
       `- Cliente: ${p.clienteNombre} (clientId \`${p.clientId}\`)`,
@@ -310,8 +320,62 @@ export async function pedirPiezaAlProductor(
       p.clickupUrl ? `- Tarea: ${p.clickupUrl}` : null,
       "",
       `Al entregar: ${entrega} con clickupTaskId \`${p.clickupTaskId}\` (deja el link en la tarea y la marca «contenido generado»).`,
-      `<!-- ${marca} -->`,
     ].filter((l) => l !== null).join("\n"),
+  });
+  if (!r.ok) return { ok: false, mensaje: r.mensaje };
+  if (r.ya) return { ok: true, mensaje: `ya pedido al Productor (${r.identifier})` };
+  await avisarEnClickUp(p.clickupTaskId, `${esVideo ? "🎬" : "🖼️"} Pedido al Productor de contenido (${r.identifier}). Cuando esté listo, el link queda en esta tarea.`);
+  return { ok: true, mensaje: `pedido al Productor de contenido (${r.identifier})` };
+}
+
+/** Un pedido libre de producción (del panel de Agentes, por ejemplo «ponele el
+ *  logo a estas 5 fotos»). El rol que lo recibe no tiene terminal: se lo pasa
+ *  al Productor en vez de explorar y contestar que no puede. */
+export async function encargarAlProductor(
+  db: Db,
+  p: { companyId: string; clientId: string; clienteNombre: string; pedido: string },
+): Promise<{ ok: boolean; mensaje: string }> {
+  const { createHash } = await import("node:crypto");
+  const huella = createHash("sha1").update(`${p.clientId}|${p.pedido.replace(/\s+/g, " ").trim().toLowerCase()}`).digest("hex").slice(0, 12);
+  const r = await crearTareaProductor(db, {
+    companyId: p.companyId,
+    clientId: p.clientId,
+    marca: `pedido:${huella}`,
+    titulo: `[${p.clienteNombre.toUpperCase()}] Pedido: ${p.pedido.replace(/\s+/g, " ").slice(0, 120)}`,
+    descripcion: [
+      "Pedido de producción del equipo (llegó a otro agente, que te lo pasa).",
+      "",
+      `- Cliente: ${p.clienteNombre} (clientId \`${p.clientId}\`)`,
+      "- Pedido, tal cual:",
+      "",
+      p.pedido,
+      "",
+      "Cómo:",
+      "- Si trae un link de Drive, bajá el material con lmtmDriveBajar. Si dice que no tiene acceso, contalo acá: la carpeta tiene que estar compartida con grow@bylmtm.com.",
+      "- Fotos o placas: skill **lmtm-placas** (también la receta para ponerle el logo a fotos). Video: skill **lmtm-video**.",
+      "- Entregá con lmtmContenidoEntregarImagenes o lmtmVideoEntregar y dejá acá los links. No se publica nada.",
+    ].join("\n"),
+  });
+  if (!r.ok) return { ok: false, mensaje: r.mensaje };
+  return { ok: true, mensaje: r.ya ? `Ese mismo pedido ya lo tiene el Productor de contenido (${r.identifier}).` : `Se lo pasé al Productor de contenido: ${r.identifier}. Cuando esté, los links quedan en esa tarea.` };
+}
+
+/** Crea la tarea del Productor y lo despierta. Con la misma marca no crea otra. */
+async function crearTareaProductor(
+  db: Db,
+  p: { companyId: string; clientId: string; marca: string; titulo: string; descripcion: string },
+): Promise<{ ok: true; ya: boolean; identifier: string } | { ok: false; mensaje: string }> {
+  const { agents, issues } = await import("@paperclipai/db");
+  const [agente] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.companyId, p.companyId), eq(agents.name, AGENTE_PRODUCTOR))).limit(1);
+  if (!agente) return { ok: false, mensaje: `no existe el agente «${AGENTE_PRODUCTOR}»` };
+  const [ya] = await db.select({ identifier: issues.identifier }).from(issues)
+    .where(and(eq(issues.assigneeAgentId, agente.id), sql`${issues.status} <> 'cancelled'`, sql`${issues.description} like ${"%" + p.marca + "%"}`)).limit(1);
+  if (ya) return { ok: true, ya: true, identifier: ya.identifier ?? "s/n" };
+
+  const { issueService } = await import("./issues.js");
+  const creado = await issueService(db).create(p.companyId, {
+    title: p.titulo.slice(0, 200),
+    description: `${p.descripcion}\n<!-- ${p.marca} -->`,
     status: "todo",
     priority: "medium",
     clientId: p.clientId,
@@ -323,8 +387,7 @@ export async function pedirPiezaAlProductor(
   const identifier = String((creado as { identifier?: string }).identifier ?? issueId);
   const { heartbeatService } = await import("./heartbeat.js");
   await heartbeatService(db).wakeup(agente.id, { source: "assignment", triggerDetail: "system", reason: "pedido_contenido", payload: { issueId } }).catch(() => {});
-  await avisarEnClickUp(p.clickupTaskId, `${esVideo ? "🎬" : "🖼️"} Pedido al Productor de contenido (${identifier}). Cuando esté listo, el link queda en esta tarea.`);
-  return { ok: true, mensaje: `pedido al Productor de contenido (${identifier})` };
+  return { ok: true, ya: false, identifier };
 }
 
 // ── skills ───────────────────────────────────────────────────────────────────
@@ -361,6 +424,64 @@ export async function ejecutarHerramientaVideo(
       const { buscarMaterial } = await import("./material-visual.js");
       const tipo = ["foto", "video", "todo"].includes(txt(p.tipo)) ? (txt(p.tipo) as "foto" | "video" | "todo") : "todo";
       return ok(await buscarMaterial(db, { cliente: txt(p.cliente), producto: txt(p.producto), tipo, cantidad: Number(p.cantidad) || undefined }));
+    }
+
+    if (tool === "encargar_al_productor") {
+      const { resolverCliente } = await import("./guia-contenido.js");
+      const c = await resolverCliente(db, txt(p.cliente));
+      if ("error" in c) return mal(c.error);
+      if (!txt(p.pedido)) return mal("falta el pedido");
+      const r = await encargarAlProductor(db, { companyId: ctx.companyId, clientId: c.id, clienteNombre: c.name, pedido: txt(p.pedido).slice(0, 4000) });
+      return r.ok ? ok(r.mensaje) : mal(r.mensaje);
+    }
+
+    if (tool === "drive_bajar") {
+      const destino = rutaSegura(p.carpeta);
+      if (!destino) return mal(`carpeta tiene que estar bajo ${RAIZ}/`);
+      const link = txt(p.link);
+      const id = idDeDrive(link);
+      if (!id) return mal("no reconozco ese link de Drive");
+      const clave = /[?&]resourcekey=([\w-]+)/.exec(link)?.[1];
+      const { token } = await import("./contenido-drive.js");
+      const h = { Authorization: `Bearer ${await token()}`, ...(clave ? { "X-Goog-Drive-Resource-Keys": `${id}/${clave}` } : {}) };
+      const api = (q: string) => fetch(`https://www.googleapis.com/drive/v3/${q}`, { headers: h });
+      type F = { id: string; name: string; mimeType: string; size?: string };
+      const meta = await api(`files/${id}?fields=id,name,mimeType,size&supportsAllDrives=true`);
+      if (meta.status === 404) {
+        return mal("grow@bylmtm.com no tiene acceso a ese link (Drive dice que no existe). Hay que compartir la carpeta con grow@bylmtm.com, o subir el material a super redes/<cliente>/PRODUCTOS.");
+      }
+      if (!meta.ok) return mal(`Drive ${meta.status} al abrir el link`);
+      const m = (await meta.json()) as F;
+      const tipo = txt(p.tipo) || "todo";
+      const sirve = (mime: string) => (tipo !== "video" && mime.startsWith("image/")) || (tipo !== "foto" && mime.startsWith("video/"));
+      let archivos: F[] = [];
+      if (m.mimeType === "application/vnd.google-apps.folder") {
+        const q = encodeURIComponent(`'${id}' in parents and trashed = false`);
+        const l = await api(`files?q=${q}&fields=files(id,name,mimeType,size)&pageSize=200&orderBy=name&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+        if (!l.ok) return mal(`Drive ${l.status} al listar la carpeta`);
+        archivos = (((await l.json()) as { files?: F[] }).files ?? []).filter((f) => sirve(f.mimeType));
+      } else if (sirve(m.mimeType)) archivos = [m];
+      archivos = archivos.slice(0, Math.min(Math.max(1, Number(p.cantidad) || 30), 60));
+      if (archivos.length === 0) return mal(`«${m.name}»: no hay ${tipo === "todo" ? "fotos ni videos" : `${tipo}s`} ahí`);
+      fs.mkdirSync(destino, { recursive: true });
+      const { Readable } = await import("node:stream");
+      const { pipeline } = await import("node:stream/promises");
+      const bajados: string[] = [];
+      const salteados: string[] = [];
+      // ponytail: bajada en serie dentro del mismo pedido; muchos videos pesados pueden pasar los 5 min del MCP.
+      for (const f of archivos) {
+        if (Number(f.size ?? 0) > 500e6) { salteados.push(`${f.name} (más de 500 MB)`); continue; }
+        const r = await api(`files/${f.id}?alt=media&supportsAllDrives=true`);
+        if (!r.ok || !r.body) { salteados.push(`${f.name} (Drive ${r.status})`); continue; }
+        let ruta = path.join(destino, f.name.replace(/[\\/:*?"<>|]/g, "-"));
+        if (fs.existsSync(ruta)) ruta = path.join(destino, `${f.id.slice(0, 6)}-${path.basename(ruta)}`);
+        await pipeline(Readable.fromWeb(r.body as never), fs.createWriteStream(ruta));
+        bajados.push(ruta);
+      }
+      return ok(
+        `Bajados ${bajados.length} de «${m.name}» a ${destino}:\n${bajados.join("\n")}` +
+          (salteados.length ? `\nSin bajar: ${salteados.join("; ")}` : ""),
+      );
     }
 
     if (tool === "video_voz") {
