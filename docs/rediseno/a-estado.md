@@ -65,9 +65,14 @@ apagado, sin cuentas ni redes: eso lo completa el equipo.
     0 referencias rotas. La segunda llamada no duplicó.
   - Tests de `blueprintParaCliente`.
   - Deploy 82276f6c sano y webhook de ClickUp activo.
-- **Queda:** en el panel de Agentes, el rol «Contenido» no puede pasarle
-  pedidos de producción al Productor. Un pedido de logo sobre 5 fotos de RENO
-  terminó en «no puedo». Propuesto al usuario, sin respuesta todavía.
+- **Después, en el mismo día (fb472d6, deploy 1d27d78e):**
+  - El rol «Contenido» del panel le pasa los pedidos de producción al
+    Productor con `lmtmEncargarAlProductor`.
+  - El Productor baja carpetas de Drive por link con `lmtmDriveBajar`.
+  - `lmtm-placas` trae la receta para poner el logo sobre fotos.
+  - Disparador: un pedido de logo sobre 5 fotos de RENO había terminado en
+    «no puedo».
+  - El link de ese pedido no está compartido con grow@bylmtm.com.
 
 ### 28/10: Productor de contenido (577ecbf, 7c40add)
 
