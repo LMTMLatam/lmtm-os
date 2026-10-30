@@ -96,6 +96,24 @@ RUN npm install --omit=dev --no-audit --no-fund --loglevel=error
 COPY docker/wa-gateway/server.mjs ./
 
 # ─────────────────────────────────────────────────────────────────────────────
+# whisper-cli (whisper.cpp) para `hyperframes transcribe`, que usa vtool.
+# En Linux hyperframes lo compila la primera vez que transcribe (cmake + compilador)
+# y la imagen final no los tiene: fallaba. Se compila acá, en una versión fija,
+# estático, sin OpenMP (libgomp no está en la imagen) y sin las instrucciones de
+# la máquina que construye (GGML_NATIVE=OFF: el constructor de Railway no es la
+# máquina que corre; quedan AVX2/FMA, que tienen todas).
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-slim AS whisper-builder
+ARG WHISPER_CPP_VERSION=v1.7.6
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git cmake g++ make \
+  && git clone --depth 1 --branch "${WHISPER_CPP_VERSION}" https://github.com/ggml-org/whisper.cpp /w \
+  && cmake -S /w -B /w/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+     -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF \
+  && cmake --build /w/build --config Release -j --target whisper-cli \
+  && test -x /w/build/bin/whisper-cli
+
+# ─────────────────────────────────────────────────────────────────────────────
 # runtime stage
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -164,6 +182,19 @@ RUN apt-get update \
   && PATH=/opt/node22/bin:$PATH npm install -g "hyperframes@${HYPERFRAMES_VERSION}" --no-audit --no-fund --loglevel=error \
   && PATH=/opt/node22/bin:$PATH HYPERFRAMES_NO_TELEMETRY=1 hyperframes browser ensure \
   && PATH=/opt/node22/bin:$PATH hyperframes --version
+
+# vtool (skill video-local, 30/10): el kit de video del equipo, para material
+# filmado con gente hablando (tomas, reel, jornada, revisar). Corre con FFmpeg y el
+# whisper de arriba; OpenCV solo para no tapar caras con los subtítulos. Va en un
+# venv propio con OpenCV 4.x (la 5.0 ya no trae los detectores Haar); con numpy
+# suma ~235 MB. El comando `vtool` pone Node 22 primero para encontrar hyperframes.
+COPY --from=whisper-builder /w/build/bin/whisper-cli /usr/local/bin/whisper-cli
+RUN ! ldd /usr/local/bin/whisper-cli | grep -q 'not found' \
+  && python3 -m venv /opt/vtool \
+  && /opt/vtool/bin/pip install --no-cache-dir 'opencv-python-headless==4.14.0.94' \
+  && /opt/vtool/bin/python -c "import cv2, os; assert os.path.exists(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')" \
+  && printf '#!/bin/sh\nPATH=/opt/node22/bin:$PATH exec /opt/vtool/bin/python -I /app/video-skills/video-local/vtool.py "$@"\n' > /usr/local/bin/vtool \
+  && chmod +x /usr/local/bin/vtool
 COPY docker/video-skills/ /app/video-skills/
 COPY docker/render-worker.mjs /app/render-worker.mjs
 

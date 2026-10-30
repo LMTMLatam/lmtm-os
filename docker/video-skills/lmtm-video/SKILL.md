@@ -10,6 +10,20 @@ skill `lmtm-placas`). Cada video termina en un .mp4 vertical en la carpeta VIDEO
 del cliente en Drive y el link en la tarea. Nunca se publica solo: una persona lo
 mira y decide.
 
+## Qué camino según el material
+
+| Material | Camino |
+|---|---|
+| Filmado con la voz del cliente: alguien habla a cámara, recorrida, testimonio, entrevista | skill `video-local`: `vtool tomas` y `vtool reel` (un crudo) o `vtool jornada` (varios crudos + guion). Elige las tomas buenas y descarta las de rodaje sola. |
+| Voz en off generada + planos del material (fotos y videos sin nadie hablando) | la plantilla de esta skill (lo que sigue) |
+
+Mirá el material antes de elegir: si el audio del video es alguien hablando del producto, ese es el guion; no le
+pongas una voz en off encima.
+
+**Siempre, sea cual sea el camino:** antes de `lmtmVideoEntregar`, `vtool revisar <final.mp4>` (además de
+`lmtmVideoRevisar`). Si da el volumen fuera de -16 a -12 LUFS, `vtool normalizar <final.mp4>` y entregá el
+`__audio.mp4` que sale.
+
 ## El diseño NO lo inventás: usás la plantilla
 
 El equipo aprobó un estándar, y el diseño ya está resuelto en
@@ -117,7 +131,9 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
 11. **Render:** `lmtmVideoRenderizar` con el directorio del proyecto, y
     `lmtmVideoEstado` hasta que esté.
 12. **Revisión:** `lmtmVideoRevisar` con el .mp4 y el brief. Corregí lo que marque
-    de verdad, dos vueltas como mucho.
+    de verdad, dos vueltas como mucho. Después `vtool revisar` sobre el .mp4 (medidas,
+    códec, volumen, picos, cuadros negros o congelados): si el volumen está fuera de
+    -16 a -12 LUFS, `vtool normalizar` y seguí con el `__audio.mp4`.
 13. **Entrega:** `lmtmVideoEntregar`. Si el issue trae una tarea de ClickUp, pasá
     su `clickupTaskId`. En el issue dejá el link, el guion, de dónde salió cada
     plano y lo que no se pudo verificar. Después cerralo.

@@ -115,6 +115,22 @@ else
   echo "[wrapper] hermes agent config skipped (no hermes binary or MINIMAX_API_KEY)"
 fi
 
+# ── vtool (skill video-local del Productor de contenido) ──────────────────────
+# El modelo de whisper que usa `hyperframes transcribe` (small, ~470 MB) se baja la
+# primera vez que se transcribe: en el volumen /data no se vuelve a bajar en cada
+# deploy. El autotest queda en el log de cada arranque.
+if [ -d /data ]; then
+  W="${HOME:-/root}/.cache/hyperframes/whisper"
+  mkdir -p /data/whisper-models "$W"
+  if [ ! -L "$W/models" ]; then
+    rm -rf "$W/models"
+    ln -sfn /data/whisper-models "$W/models"
+  fi
+fi
+if command -v vtool >/dev/null 2>&1; then
+  echo "[wrapper] vtool: $(vtool autotest 2>&1 | tail -1)"
+fi
+
 # ── Daily Postgres self-backup to the /data volume ────────────────────────────
 # Railway's raw postgres image has no managed backups. Dump daily (compressed,
 # custom format) and keep the last 7. Survives redeploys on the volume; a real
