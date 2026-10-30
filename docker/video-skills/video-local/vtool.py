@@ -558,6 +558,8 @@ def producir(entradas, elegidas, a, final):
                 nota = f"subtitulos {posicion}" + (f" ({nota})" if nota else "")
         render(entradas, tramos, final, a.formato, a.modo, post_v, "dynaudnorm=f=250:g=15",
                "loudnorm=I=-14:TP=-1.5:LRA=11", DESTINOS["reels"], cwd=tmp, musica=a.musica, vol_musica=a.vol_musica)
+        nivelar(final, Path(tmp, "nivelado.mp4"))  # el loudnorm de arriba, en un reel corto, queda en -16/-17
+        shutil.move(str(Path(tmp, "nivelado.mp4")), str(final))
     extras = [x for x in (nota, f"{rehechas} frases reempezadas sacadas" if rehechas else "",
                           "con musica" if a.musica else "") if x]
     print(f"LISTO -> {final}  ({hms(sum(durs))} de crudo -> {hms(duracion(final))}; " + "; ".join(extras) + ")")
@@ -639,11 +641,29 @@ def c_vertical(a):
     return out
 
 
+def nivelar(video, destino, lufs=-14):
+    """Volumen para redes en dos pasadas: mide y despues aplica una ganancia fija (el video se copia). Con una sola
+    pasada (loudnorm dinamico) un reel de 13 s quedaba en -17 LUFS o con picos de -0,4 dBFS (30/10).
+    Devuelve los LUFS que tenia."""
+    objetivo = f"loudnorm=I={lufs}:TP=-1.5:LRA=11"
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(video), "-vn", "-af",
+                        objetivo + ":print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    bloque = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", r.stderr)
+    if not bloque:
+        sys.exit("ERROR: no se pudo medir el volumen. " + r.stderr.strip()[-300:])
+    m = json.loads(bloque.group())
+    medido = (f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
+              f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+    ffmpeg("-i", Path(video).resolve(), "-af", objetivo + medido, "-map", "0:v?", "-map", "0:a", "-c:v", "copy",
+           "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", Path(destino).resolve())
+    return m["input_i"]
+
+
 def c_normalizar(a):
     out = salida(a.video, "audio")
-    ffmpeg("-i", a.video, "-af", f"loudnorm=I={a.lufs}:TP=-1.5:LRA=11", "-c:v", "copy",
-           "-c:a", "aac", "-b:a", "192k", "-ar", "48000", out)
-    ok(out, f"audio a {a.lufs} LUFS")
+    antes = nivelar(a.video, out, a.lufs)
+    ok(out, f"audio de {antes} a {a.lufs} LUFS")
     return out
 
 
