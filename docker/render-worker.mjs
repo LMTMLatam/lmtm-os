@@ -25,6 +25,11 @@ const CALIDADES = new Set(["draft", "looks", "delivery"]);
 // Railway da los CPU de la máquina, no los del servicio: abría decenas a la vez
 // y el render moría con «Resource temporarily unavailable» (29/10).
 const WORKERS = process.env.LMTM_RENDER_WORKERS || "2";
+// Y no alcanzaba: ffmpeg extrae los cuadros de los videos (4 a la vez) con un hilo
+// por CPU de la máquina, se pasaba del límite del contenedor y fallaba con
+// «Resource temporarily unavailable» hasta el timeout de 300 s (30/10). Con
+// taskset, ffmpeg y Chrome ven solo estos CPU y arman los hilos en proporción.
+const CPUS = Math.max(1, Number(process.env.LMTM_RENDER_CPUS) || 4);
 
 let ocupado = Promise.resolve();
 
@@ -58,7 +63,7 @@ async function renderizar(req, calidad) {
     const x = await correr("tar", ["-xzf", tar, "-C", proyecto], dir);
     if (x.code !== 0) return { ok: false, error: `no se pudo abrir el proyecto: ${x.salida.slice(-500)}` };
     const salida = path.join(dir, `${randomUUID()}.mp4`);
-    const r = await correr("hyperframes", ["render", "--quality", calidad, "--workers", WORKERS, "--output", salida], proyecto);
+    const r = await correr("taskset", ["-c", `0-${CPUS - 1}`, "hyperframes", "render", "--quality", calidad, "--workers", WORKERS, "--output", salida], proyecto);
     if (r.code !== 0 || !fs.existsSync(salida) || fs.statSync(salida).size === 0) {
       return { ok: false, error: `el render falló:\n${r.salida.slice(-3000)}` };
     }
