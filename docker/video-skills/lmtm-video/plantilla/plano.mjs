@@ -54,7 +54,10 @@ const esFoto = /\.(jpe?g|png|webp)$/i.test(entrada);
 // Más grande que la pantalla, pero nunca más que la fuente (agrandar no suma nitidez).
 const escala = Math.max(1, Math.min(esFoto ? 1.5 : 1.25, cw / 1080));
 const [ow, oh] = [Math.round((1080 * escala) / 2) * 2, Math.round((1920 * escala) / 2) * 2];
-const recorte = `crop=${cw}:${ch}:${x}:${y},scale=${ow}:${oh}:flags=lanczos,unsharp=5:5:0.4`;
+// --realce: un poco más de contraste y color para tomas lavadas (fábrica en día
+// nublado). Suave a propósito: más fuerte oscurecía el cuadro (30/10).
+const realce = resto.includes("--realce") ? ",eq=contrast=1.1:saturation=1.2:brightness=0.02" : "";
+const recorte = `crop=${cw}:${ch}:${x}:${y},scale=${ow}:${oh}:flags=lanczos,unsharp=5:5:0.4${realce}`;
 const aviso = cw < 1080 ? ` · OJO: la fuente da ${cw}px de ancho, menos que la pantalla: se va a ver blando` : "";
 
 if (esFoto) {
