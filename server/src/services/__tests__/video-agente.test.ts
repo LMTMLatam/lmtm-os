@@ -39,3 +39,17 @@ describe("skills de todos los agentes", () => {
     expect(SKILLS_DE_TODOS.size).toBeLessThan(10);
   });
 });
+
+describe("video-agente: voz", () => {
+  it("pcmAWav arma un wav válido de 16 bits mono", async () => {
+    const { pcmAWav } = await import("../video-agente.js");
+    const pcm = Buffer.alloc(48000); // 1 s a 24 kHz
+    const wav = pcmAWav(pcm, 24000);
+    expect(wav.length).toBe(44 + 48000);
+    expect(wav.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(wav.toString("ascii", 8, 12)).toBe("WAVE");
+    expect(wav.readUInt32LE(24)).toBe(24000); // tasa
+    expect(wav.readUInt16LE(34)).toBe(16); // bits
+    expect(wav.readUInt32LE(40)).toBe(48000); // datos
+  });
+});

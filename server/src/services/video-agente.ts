@@ -35,7 +35,59 @@ const MODELO_REVISION = process.env.LMTM_VIDEO_MODELO_REVISION ?? "gpt-6.1-terra
 /** Generaciones de Magnific por mes que puede pedir el agente (planos + música). */
 const TOPE_MAGNIFIC_MES = Number(process.env.LMTM_VIDEO_TOPE_MAGNIFIC_MES) || 40;
 const VOCES = ["marin", "cedar", "coral", "sage", "ash", "ballad", "verse", "alloy", "echo", "fable", "nova", "onyx", "shimmer"] as const;
-const MODELO_VOZ_GEMINI = process.env.LMTM_VOZ_GEMINI_MODELO ?? "gemini-3.8-flash-tts";
+/** En orden. En el plan gratis cada modelo tiene su cupo diario (10 voces en
+ *  3.8 Flash); el usuario escuchó los cuatro con Sulafat y suenan igual (30/10). */
+const MODELOS_VOZ_GEMINI = (process.env.LMTM_VOZ_GEMINI_MODELOS ?? "gemini-3.8-flash-tts,gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
+/** Una frase con un modelo de Gemini. Los 3.8 aceptan el estilo como anotación
+ *  (interactions); los 3.1 y 2.5 no, y van por generateContent con el estilo en el
+ *  pedido (devuelve PCM 24 kHz, se pasa a wav). */
+async function vozGemini(clave: string, modelo: string, texto: string, estilo: string, voz: string): Promise<{ audio?: Buffer; sinCupo?: boolean; error?: string }> {
+  const h = { "content-type": "application/json", "x-goog-api-key": clave };
+  const limpio = async (r: Response) => (await r.text()).split(clave).join("[clave]").slice(0, 300);
+  if (modelo.startsWith("gemini-3.8")) {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      method: "POST", headers: h, signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({
+        model: modelo,
+        input: [{ type: "user_input", content: [{ type: "text", text: texto, annotations: [{ type: "speech_metadata", style: estilo }] }] }],
+        response_format: { type: "audio", mime_type: "audio/wav" },
+        generation_config: { speech_config: [{ voice: voz }] },
+        store: false,
+      }),
+    });
+    if (r.status === 429) return { sinCupo: true };
+    if (!r.ok) return { error: `${r.status}: ${await limpio(r)}` };
+    const j = (await r.json()) as { status?: string; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string }> }> };
+    const a = (j.steps ?? []).filter((s) => s.type === "model_output").flatMap((s) => s.content ?? []).find((c) => c.type === "audio" && c.data);
+    return a?.data ? { audio: Buffer.from(a.data, "base64") } : { error: "no devolvió audio; probá de nuevo" };
+  }
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+    method: "POST", headers: h, signal: AbortSignal.timeout(120_000),
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: `${estilo}\nDecí: ${texto}` }] }],
+      generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz } } } },
+    }),
+  });
+  if (r.status === 429) return { sinCupo: true };
+  if (!r.ok) return { error: `${r.status}: ${await limpio(r)}` };
+  const j = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }> };
+  const d = j.candidates?.[0]?.content?.parts?.find((x) => x.inlineData?.data)?.inlineData;
+  if (!d?.data) return { error: "no devolvió audio; probá de nuevo" };
+  const tasa = Number(/rate=(\d+)/.exec(d.mimeType ?? "")?.[1]) || 24000;
+  return { audio: pcmAWav(Buffer.from(d.data, "base64"), tasa) };
+}
+
+/** PCM 16 bits mono → WAV (cabecera de 44 bytes). */
+export function pcmAWav(pcm: Buffer, tasa: number): Buffer {
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0); h.writeUInt32LE(36 + pcm.length, 4); h.write("WAVE", 8);
+  h.write("fmt ", 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(tasa, 24); h.writeUInt32LE(tasa * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
+  h.write("data", 36); h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
 /** El estilo del reel aprobado de El Hiper (23/10). El agente lo adapta al cliente con `estilo`. */
 const ESTILO_GEMINI =
   "Mujer argentina con acento rioplatense natural. Voz cálida, segura y con energía, como alguien que le recomienda algo a una amiga. " +
@@ -203,7 +255,7 @@ const def = (name: string, description: string, properties: Record<string, unkno
 const ARCHIVO = { type: "string", description: `Ruta bajo ${RAIZ}/` };
 
 export const VIDEO_TOOLS: ToolDef[] = [
-  def("video_voz", "VOZ EN OFF en español rioplatense. Gemini (voz Sulafat, la de los reels aprobados) si está configurado; si no, OpenAI. Una frase por llamada; guarda un .wav y devuelve su duración.", {
+  def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados). Una frase por llamada; guarda un .wav y devuelve su duración. Usa el mismo modelo en todo el reel; si avisa que cambió de modelo, regenerá las frases anteriores. Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
     texto: { type: "string" }, archivo: ARCHIVO,
     estilo: { type: "string", description: "Gemini: cómo suena, adaptado al cliente («mujer argentina, cálida, como una asesora que recomienda a una amiga…»). Mismo estilo en todas las frases del video." },
     voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina)." },
@@ -495,26 +547,30 @@ export async function ejecutarHerramientaVideo(
       // es Gemini (gemini-3.8-flash-tts, voz Sulafat, con estilo por cliente).
       const gemini = process.env.GEMINI_API_KEY?.trim();
       if (gemini && txt(p.proveedor) !== "openai") {
-        const estilo = txt(p.estilo) || ESTILO_GEMINI;
-        const r = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": gemini },
-          signal: AbortSignal.timeout(120_000),
-          body: JSON.stringify({
-            model: MODELO_VOZ_GEMINI,
-            input: [{ type: "user_input", content: [{ type: "text", text: txt(p.texto), annotations: [{ type: "speech_metadata", style: estilo }] }] }],
-            response_format: { type: "audio", mime_type: "audio/wav" },
-            generation_config: { speech_config: [{ voice: txt(p.voz) && !(VOCES as readonly string[]).includes(txt(p.voz)) ? txt(p.voz) : "Sulafat" }] },
-            store: false,
-          }),
-        });
-        if (!r.ok) return mal(`Gemini voz ${r.status}: ${(await r.text()).split(gemini).join("[clave]").slice(0, 300)}`);
-        const j = (await r.json()) as { status?: string; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string }> }> };
-        const audio = (j.steps ?? []).filter((s) => s.type === "model_output").flatMap((s) => s.content ?? []).find((c) => c.type === "audio" && c.data);
-        if (j.status !== "completed" || !audio?.data) return mal("Gemini no devolvió audio; probá de nuevo o con proveedor=openai");
-        fs.mkdirSync(path.dirname(archivo), { recursive: true });
-        fs.writeFileSync(archivo, Buffer.from(audio.data, "base64"));
-        return ok(`Voz (Gemini, Sulafat) guardada en ${archivo} (${await duracion(archivo)} s). Sacale los tiempos con video_transcribir.`);
+        const voz = txt(p.voz) && !(VOCES as readonly string[]).includes(txt(p.voz)) ? txt(p.voz) : "Sulafat";
+        // Cada reel usa UN modelo para todas sus frases (si no, la voz cambia a mitad
+        // del video). Se guarda en <proyecto>/.voz-modelo y se arranca por ahí.
+        const partes = path.relative(RAIZ, archivo).split(path.sep);
+        const proyecto = partes.length > 1 ? path.join(RAIZ, partes[0]) : RAIZ;
+        const marcaModelo = path.join(proyecto, ".voz-modelo");
+        const elegido = fs.existsSync(marcaModelo) ? fs.readFileSync(marcaModelo, "utf8").trim() : "";
+        const orden = elegido && MODELOS_VOZ_GEMINI.includes(elegido)
+          ? MODELOS_VOZ_GEMINI.slice(MODELOS_VOZ_GEMINI.indexOf(elegido))
+          : MODELOS_VOZ_GEMINI;
+        for (const modelo of orden) {
+          const r = await vozGemini(gemini, modelo, txt(p.texto), txt(p.estilo) || ESTILO_GEMINI, voz);
+          if (r.sinCupo) continue;
+          if (!r.audio) return mal(`Gemini voz (${modelo}): ${r.error}`);
+          fs.mkdirSync(path.dirname(archivo), { recursive: true });
+          fs.writeFileSync(archivo, r.audio);
+          fs.writeFileSync(marcaModelo, modelo);
+          const cambio = elegido && elegido !== modelo
+            ? ` OJO: ${elegido} se quedó sin cupo y esta frase salió con ${modelo}. Regenerá TAMBIÉN las frases anteriores de este reel (mismos archivos) para que toda la voz sea del mismo modelo.`
+            : "";
+          return ok(`Voz (Gemini ${modelo}, ${voz}) guardada en ${archivo} (${await duracion(archivo)} s).${cambio} Sacale los tiempos con video_transcribir.`);
+        }
+        // Sin cupo en ningún modelo: no se cambia a OpenAI (al equipo no le gustó esa voz).
+        return mal("Sin cupo de voz de Gemini por hoy en ningún modelo. NO uses otra voz: dejá el pedido en espera, contalo en el issue («sin cupo de voz, se retoma mañana») y cerrá la corrida.");
       }
       const voz = (VOCES as readonly string[]).includes(txt(p.voz)) ? txt(p.voz) : "marin";
       const r = await fetch(`${OPENAI}/audio/speech`, {

@@ -83,6 +83,9 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    argentina con acento rioplatense natural. Voz cálida, segura, con una sonrisa en
    la voz, como alguien que le recomienda algo a una amiga. Sin tono de locutora».
    Después, `lmtmVideoTranscribir` de cada archivo para los tiempos de cada palabra.
+   - La voz es SIEMPRE Gemini (Sulafat). No pases `proveedor: openai`: al equipo no le gusta esa voz.
+   - Si la herramienta avisa que cambió de modelo, regenerá las frases anteriores con los mismos nombres de archivo.
+   - Si dice que no hay cupo, frená: contalo en el issue («sin cupo de voz, se retoma mañana») y cerrá la corrida.
 7. **Música:** siempre.
    - Si el material del cliente trae una cama instrumental, verificala con `lmtmVideoTranscribir`.
    - Si no hay, `lmtmVideoMusica` («cálida, acústica, moderna, sin voces, 90 bpm»).
