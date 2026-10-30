@@ -92,6 +92,9 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    - `planos`: archivo, `desde` y `dur`. Tienen que cubrir todo hasta el cierre, sin huecos.
    - `frases`: los subtítulos. Cada palabra con el segundo en que se dice (de la transcripción más el `desde` de su voz) y `1` en las 2 o 3 palabras clave. Texto del GUION, no de la transcripción. Ninguna frase termina después de `cierre.desde`.
    - `marca`: el logo real (PNG nítido; si el de la guía es chico, buscá otro con `lmtmBuscarMaterial «logo»`), `color` de la paleta del cliente y `colorTexto` (más oscuro, para el titular).
+     - Los colores salen SOLO de la paleta de la guía; leé sus notas («NO usar rojo» en RENO). Nunca un color que no esté ahí.
+     - Si la marca es oscura (negro o casi negro), poné `color` en ese tono, `claro` en el claro de la paleta y `oscuro` en el negro: la plantilla pasa el resaltado a claro con letra oscura sola.
+     - Si el logo es oscuro de una sola tinta y las tomas son oscuras, `logoBlanco: true` (arriba sale blanco; el cierre usa el original).
    - `cierre`:
      - `desde` (cuando arranca la última frase de voz);
      - `titulo` (palabras con su segundo, de la voz del cierre);

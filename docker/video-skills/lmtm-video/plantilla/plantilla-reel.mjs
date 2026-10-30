@@ -47,6 +47,20 @@ const oscuro = M.oscuro ?? "#1f1f1f";
 const claro = M.claro ?? "#f4f4f4";
 const tinta = M.tinta ?? "#404040";
 const fuente = M.fuente ?? "Montserrat";
+/** Luminancia relativa (0 negro, 1 blanco). */
+const luz = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+// Marca oscura (RENO es casi negro): el marcador del subtítulo, del mismo color,
+// desaparecía sobre las tomas oscuras. Pasa a claro con la palabra en oscuro.
+const marcaOscura = luz(color) < 0.05;
+const fondoMarcador = marcaOscura ? claro : color;
+const textoMarcador = marcaOscura ? oscuro : "#ffffff";
+// Logo oscuro de una sola tinta sobre tomas oscuras no se ve: marca.logoBlanco lo
+// pasa a blanco (como la versión «fondo negro» que tienen las marcas). Solo arriba;
+// el cierre (fondo claro) usa el logo original.
+const filtroLogo = M.logoBlanco ? "brightness(0) invert(1) " : "";
 const esImagen = (a) => /\.(jpe?g|png|webp)$/i.test(a);
 const CIERRE_DESDE = f(C.desde);
 
@@ -120,15 +134,15 @@ const html = `<!doctype html>
           linear-gradient(to top, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.3) 12%, rgba(0,0,0,0.62) 24%, rgba(0,0,0,0.42) 38%, rgba(0,0,0,0) 54%),
           radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.34) 100%); }
       #marca { position: absolute; left: 76px; top: 170px; width: ${Number(M.anchoLogo ?? 190)}px; }
-      #marca img { display: block; width: 100%; height: auto; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.35)); }
+      #marca img { display: block; width: 100%; height: auto; filter: ${filtroLogo}drop-shadow(0 6px 18px rgba(0,0,0,0.35)); }
       .frase { position: absolute; left: 80px; right: 80px; bottom: 420px; margin: 0;
         font-weight: 800; font-size: ${Number(spec.tamanoSubtitulo ?? 100)}px; line-height: 1.12; letter-spacing: -0.025em;
         color: var(--blanco); text-shadow: 0 2px 22px rgba(0,0,0,0.5); text-wrap: balance; }
       .frase .w { display: inline-block; }
-      .frase .dest { position: relative; text-shadow: none; }
+      .frase .dest { position: relative; text-shadow: none; color: ${textoMarcador}; }
       .frase .dest .t { position: relative; }
       .frase .dest .m { position: absolute; left: -0.1em; right: -0.1em; top: 0.12em; bottom: 0.04em;
-        background: var(--marca); border-radius: 14px; transform-origin: 0 50%; }
+        background: ${fondoMarcador}; border-radius: 14px; transform-origin: 0 50%; }
     </style>
   </head>
   <body>
