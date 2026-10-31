@@ -18,6 +18,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -287,7 +288,15 @@ export const VIDEO_TOOLS: ToolDef[] = [
     imagenes: { type: "array", items: { type: "string" }, description: `PNG o JPG bajo ${RAIZ}/ (para placas y carruseles, en orden).` },
     brief: { type: "string", description: "Qué tiene que decir y mostrar la pieza y qué no." },
     cuadros: { type: "number", description: "Video: cuántos cuadros mirar (4 a 12, por defecto 8)." },
+    momentos: { type: "array", items: { type: "object", properties: { segundo: { type: "number" }, dice: { type: "string" } } }, description: "Video: un cuadro por frase ({segundo, dice}); revisa que lo que se ve muestre lo que dice la voz. armar.mjs --render lo manda solo." },
   }, ["brief"]),
+  def("video_describir", "DESCRIBE el material bajado (videos y fotos de una carpeta): GPT mira una hoja de cada video y devuelve sus MOMENTOS con el segundo (qué se ve, si alguien habla a cámara, si sirve), y una línea por foto. Es TEXTO: no mires las hojas vos. Lo ya descripto queda en caché. Con eso elegís fuente y `desde` de cada plano del guion.", {
+    carpeta: { type: "string", description: `Carpeta del material bajo ${RAIZ}/ (assets/fuente del proyecto).` },
+    para: { type: "string", description: "De qué es el video (producto y qué tiene que verse), para describir lo que importa." },
+  }, ["carpeta"]),
+  def("video_retomar", "RETOMA un video ya entregado para hacerle CAMBIOS sin rehacerlo: restaura su proyecto (guion.json, voces, planos, material descripto) en /tmp/videos y devuelve el guion. Cambiás solo lo pedido en guion.json y corrés armar.mjs --render: lo que no cambió no se rehace.", {
+    deliverableId: { type: "string", description: "Id del video entregado (viene en el pedido de cambios)." },
+  }, ["deliverableId"]),
   def("buscar_material", "BUSCA en el Drive del cliente las fotos y videos que MUESTRAN un producto o escena (GPT mira las miniaturas; sirve aunque el archivo se llame DJI_….jpg). Devuelve los mejores con qué se ve en cada uno y el link de descarga. Lo ya mirado queda guardado: la segunda vez es instantáneo.", {
     cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
     producto: { type: "string", description: "Qué tiene que verse: «placard blanco», «llantas de BMW», «frascos de OPI»." },
@@ -311,6 +320,7 @@ export const VIDEO_TOOLS: ToolDef[] = [
     guion: { type: "string", description: "El guion y de dónde salió cada plano (cliente o generado)." },
     issueId: { type: "string" },
     clickupTaskId: { type: "string", description: "Si el pedido vino de una tarea de ClickUp: ahí queda el link y la etiqueta «contenido generado»." },
+    reemplaza: { type: "string", description: "Si es la versión corregida de un video entregado: su deliverableId (el del pedido de cambios)." },
   }, ["archivo", "clientId", "titulo"]),
   def("drive_bajar", "BAJA fotos y videos de una carpeta (o un archivo) de Drive que te pasaron por link, aunque no esté en el índice del cliente. Solo ve lo compartido con grow@bylmtm.com. Devuelve las rutas locales.", {
     link: { type: "string", description: "Link de Drive (carpeta o archivo) o su id." },
@@ -445,6 +455,181 @@ async function crearTareaProductor(
   return { ok: true, ya: false, identifier };
 }
 
+// ── material descripto (video_describir) ─────────────────────────────────────
+
+type Descripcion = { tam: number; linea: string };
+
+/** Ancho, alto (como se VE, con la rotación) y duración. */
+async function medidasDe(archivo: string): Promise<{ w: number; h: number; dur: number }> {
+  const { stdout } = await run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", archivo], { maxBuffer: 8 << 20 });
+  const j = JSON.parse(stdout) as { streams?: Array<{ codec_type?: string; width?: number; height?: number; side_data_list?: Array<{ rotation?: number }>; tags?: { rotate?: string } }>; format?: { duration?: string } };
+  const v = j.streams?.find((s) => s.codec_type === "video") ?? {};
+  const rot = Math.abs(Number(v.side_data_list?.find((s) => s.rotation != null)?.rotation ?? v.tags?.rotate ?? 0)) % 180;
+  const [w, h] = rot === 90 ? [v.height ?? 0, v.width ?? 0] : [v.width ?? 0, v.height ?? 0];
+  return { w, h, dur: Number(j.format?.duration) || 0 };
+}
+
+async function mirarConGPT(pedido: string, jpg: Buffer, detalle: "low" | "high"): Promise<Record<string, unknown>> {
+  const r = await fetch(`${OPENAI}/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${claveOpenAI()}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: MODELO_REVISION,
+      messages: [{ role: "user", content: [{ type: "text", text: pedido }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpg.toString("base64")}`, detail: detalle } }] }],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 3000,
+    }),
+  });
+  if (!r.ok) throw new Error(`OpenAI ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return JSON.parse(j.choices?.[0]?.message?.content ?? "{}");
+}
+
+/**
+ * Una línea de texto por archivo con lo que se ve (en los videos, por momento y
+ * con su segundo). El agente elige las tomas leyendo esto en vez de mirar hojas
+ * de contacto: cada imagen que mira se reenvía en todos los turnos que siguen.
+ * Lo ya descripto queda en <carpeta>/.material.json (también en el proyecto
+ * guardado, para los cambios).
+ */
+export async function describirMaterial(carpeta: string, para: string): Promise<string> {
+  const archivoCache = path.join(carpeta, ".material.json");
+  const cache: Record<string, Descripcion> = fs.existsSync(archivoCache) ? JSON.parse(fs.readFileSync(archivoCache, "utf8")) : {};
+  const archivos = fs.readdirSync(carpeta).filter((f) => /\.(mp4|mov|m4v|jpe?g|png|webp)$/i.test(f) && !f.includes("__")).sort();
+  const nuevos = archivos.filter((f) => cache[f]?.tam !== fs.statSync(path.join(carpeta, f)).size).slice(0, 40);
+  const foco = para ? `Es material para un reel sobre: ${para}. ` : "";
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "describir-"));
+  const fallas: string[] = [];
+  const describir = async (f: string) => {
+    const ruta = path.join(carpeta, f);
+    const { w, h, dur } = await medidasDe(ruta);
+    const esVideo = !/\.(jpe?g|png|webp)$/i.test(f);
+    // Recorte 9:16: una fuente horizontal de 1920x1080 deja 607 px de ancho y se ve blanda.
+    const anchoUtil = w / h > 9 / 16 ? Math.round((h * 9) / 16) : w;
+    const datos = `${esVideo ? `video ${dur.toFixed(1)} s` : "foto"} ${h >= w ? "vertical" : "horizontal"} ${w}x${h}${anchoUtil < 1080 ? ` (9:16 queda de ${anchoUtil} px: blanda)` : ""}`;
+    const jpg = path.join(tmp, `${f}.jpg`);
+    let linea: string;
+    if (esVideo) {
+      const cada = Math.max(0.25, dur / 12);
+      await run("ffmpeg", ["-v", "error", "-y", "-i", ruta, "-vf", `fps=1/${cada.toFixed(3)},scale=320:-2,drawtext=text='%{pts\\:hms}':x=8:y=8:fontsize=26:fontcolor=white:box=1:boxcolor=black@0.6,tile=4x3:padding=4:color=white`, "-frames:v", "1", "-q:v", "4", jpg]);
+      const j = await mirarConGPT(
+        `Hoja de 12 cuadros de un video de ${dur.toFixed(1)} s, en orden, con su segundo arriba a la izquierda. ${foco}` +
+          "Describí en español qué se ve, concreto (producto, lugar, personas, acción), sin adornos. Juntá los cuadros parecidos en un momento. " +
+          "sirve=false si está movido, oscuro, tapado o no muestra nada útil. foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " +
+          'Respondé SOLO JSON: {"momentos":[{"desde":s,"hasta":s,"muestra":"máx 12 palabras","foco":0.5,"sirve":true}],"habla_a_camara":false,"texto_encima":false}',
+        fs.readFileSync(jpg), "high",
+      );
+      const ms = (Array.isArray(j.momentos) ? j.momentos : []) as Array<{ desde?: number; hasta?: number; muestra?: string; foco?: number; sirve?: boolean }>;
+      const conFoco = (f?: number) => (h < w && typeof f === "number" ? ` [foco ${f}]` : "");
+      linea = ms.map((m) => `${Number(m.desde ?? 0).toFixed(1)}-${Number(m.hasta ?? dur).toFixed(1)} ${m.muestra ?? ""}${conFoco(m.foco)}${m.sirve === false ? " (no sirve)" : ""}`).join("; ")
+        + (j.habla_a_camara ? " · ALGUIEN HABLA A CÁMARA (material filmado: skill video-local)" : "") + (j.texto_encima ? " · tiene texto encima" : "");
+    } else {
+      await run("ffmpeg", ["-v", "error", "-y", "-i", ruta, "-vf", "scale=768:-2", "-frames:v", "1", "-q:v", "4", jpg]);
+      const j = await mirarConGPT(
+        `Foto del material de un cliente. ${foco}Qué se ve, concreto, en español y en 15 palabras como mucho. ` +
+          "foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " +
+          'Respondé SOLO JSON: {"muestra":"...","foco":0.5,"texto_encima":false,"sirve":true}',
+        fs.readFileSync(jpg), "low",
+      );
+      linea = `${j.muestra ?? ""}${h < w && typeof j.foco === "number" ? ` [foco ${j.foco}]` : ""}${j.texto_encima ? " · tiene texto encima" : ""}${j.sirve === false ? " (no sirve)" : ""}`;
+    }
+    cache[f] = { tam: fs.statSync(ruta).size, linea: `${datos} · ${linea}` };
+  };
+  try {
+    // De a 4 en paralelo: 15 videos tardan ~1 min, debajo de los 5 min del MCP.
+    for (let i = 0; i < nuevos.length; i += 4) {
+      await Promise.all(nuevos.slice(i, i + 4).map((f) => describir(f).catch((e) => { fallas.push(`${f}: ${e instanceof Error ? e.message : String(e)}`); })));
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.writeFileSync(archivoCache, JSON.stringify(cache));
+  }
+  const ids = fs.existsSync(path.join(carpeta, ".drive.json")) ? (JSON.parse(fs.readFileSync(path.join(carpeta, ".drive.json"), "utf8")) as Record<string, string>) : {};
+  const todos = [...new Set([...archivos, ...Object.keys(cache)])].sort();
+  const lineas = todos.map((f) => `${path.join(carpeta, f)} · ${cache[f]?.linea ?? "(sin describir)"}${archivos.includes(f) ? "" : ids[f] ? " · no está bajado: armar.mjs lo baja solo" : " · no está bajado"}`);
+  return `${todos.length} archivos en ${carpeta}${nuevos.length ? ` (${nuevos.length} descriptos ahora)` : ""}:\n${lineas.join("\n")}`
+    + (fallas.length ? `\nNo se pudieron describir: ${fallas.join("; ")}` : "")
+    + "\nEn guion.json: fuente = la ruta, desde = el segundo del momento elegido, muestra = qué se ve (para la revisión frase por frase).";
+}
+
+// ── proyecto guardado (cambios a un video entregado) ─────────────────────────
+
+const PROYECTOS = process.env.LMTM_VIDEO_PROYECTOS ?? "/data/videos/proyectos";
+const PROYECTOS_A_GUARDAR = 25;
+
+/**
+ * Guarda el proyecto LIVIANO de un video armado con armar.mjs (guion, voces,
+ * planos, música, material descripto; sin las fuentes pesadas) en el volumen,
+ * para que un pedido de cambios no rehaga el video entero. Sin volumen o sin
+ * guion.json no guarda nada (null).
+ */
+function guardarProyecto(archivo: string): string | null {
+  const nombre = path.relative(RAIZ, archivo).split(path.sep)[0];
+  const dir = path.join(RAIZ, nombre ?? "");
+  if (!nombre || !fs.existsSync(path.join(dir, "guion.json")) || !fs.existsSync(path.dirname(path.dirname(PROYECTOS)))) return null;
+  const destino = path.join(PROYECTOS, `${new Date().toISOString().slice(0, 10)}-${nombre}-${randomUUID().slice(0, 6)}`);
+  fs.cpSync(dir, destino, {
+    recursive: true,
+    filter: (src) => {
+      const r = path.relative(dir, src).split(path.sep).join("/");
+      if (r === "" || r === "assets" || r === "assets/fuente") return true;
+      if (r.startsWith("assets/fuente/")) return /\/\.(drive|material)\.json$/.test(r);
+      return !/^(capture|renders|node_modules|\.hyperframes)(\/|$)/.test(r) && !r.includes(".revision-") && !(/\.mp4$/i.test(r) && !r.includes("/"));
+    },
+  });
+  // Los más viejos se van: el volumen es chico (~50 MB por proyecto).
+  const todos = fs.readdirSync(PROYECTOS).sort();
+  for (const viejo of todos.slice(0, Math.max(0, todos.length - PROYECTOS_A_GUARDAR))) fs.rmSync(path.join(PROYECTOS, viejo), { recursive: true, force: true });
+  return destino;
+}
+
+/** Pedido de cambios del panel sobre un video entregado: tarea para el Productor con cómo retomarlo. */
+export async function pedirCambiosDeVideo(
+  db: Db,
+  p: { deliverableId: string; cambios: string },
+): Promise<{ ok: boolean; mensaje: string }> {
+  const [d] = await db.select({ id: agentDeliverables.id, companyId: agentDeliverables.companyId, clientId: agentDeliverables.clientId, title: agentDeliverables.title, url: agentDeliverables.url, kind: agentDeliverables.kind, metadata: agentDeliverables.metadata })
+    .from(agentDeliverables).where(eq(agentDeliverables.id, p.deliverableId)).limit(1);
+  if (!d || d.kind !== "video" || !d.clientId) return { ok: false, mensaje: "no encuentro ese video" };
+  const [c] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, d.clientId)).limit(1);
+  const conProyecto = !!(d.metadata as Record<string, unknown> | null)?.proyecto;
+  const { createHash } = await import("node:crypto");
+  const huella = createHash("sha1").update(`${d.id}|${p.cambios.replace(/\s+/g, " ").trim().toLowerCase()}`).digest("hex").slice(0, 12);
+  const titulo = d.title.replace(/^Video: /, "");
+  const r = await crearTareaProductor(db, {
+    companyId: d.companyId,
+    clientId: d.clientId,
+    marca: `cambios:${huella}`,
+    titulo: `[${(c?.name ?? "").toUpperCase()}] Cambios: ${titulo}`,
+    descripcion: [
+      "CAMBIOS a un video ya entregado, pedidos desde el panel. NO lo rehagas de cero.",
+      "",
+      `- Video: ${titulo} (${d.url})`,
+      `- deliverableId: \`${d.id}\``,
+      "- Cambios pedidos, tal cual:",
+      "",
+      p.cambios,
+      "",
+      conProyecto
+        ? `Cómo: lmtmVideoRetomar con deliverableId=${d.id} (restaura el proyecto y te da el guion), cambiá solo eso en guion.json, armar.mjs --render y lmtmVideoEntregar con reemplaza=${d.id}. Lo que no cambió no se rehace (ni voces ni planos).`
+        : "Este video es anterior al proyecto guardado: rehacelo con la skill lmtm-video aplicando los cambios, y entregalo con reemplaza=" + d.id + ".",
+    ].join("\n"),
+  });
+  if (!r.ok) return { ok: false, mensaje: r.mensaje };
+  return { ok: true, mensaje: r.ya ? `Ese mismo pedido ya lo tiene el Productor (${r.identifier}).` : `Pedido de cambios enviado al Productor: ${r.identifier}.` };
+}
+
+/** Lo que el Productor tiene entre manos (o terminó en los últimos 3 días), para el panel. */
+export async function pedidosDelProductor(db: Db): Promise<Array<{ id: string; identifier: string | null; titulo: string; estado: string; creado: Date; actualizado: Date }>> {
+  const { agents, issues } = await import("@paperclipai/db");
+  const [a] = await db.select({ id: agents.id }).from(agents).where(eq(agents.name, AGENTE_PRODUCTOR)).limit(1);
+  if (!a) return [];
+  return db.select({ id: issues.id, identifier: issues.identifier, titulo: issues.title, estado: issues.status, creado: issues.createdAt, actualizado: issues.updatedAt })
+    .from(issues)
+    .where(and(eq(issues.assigneeAgentId, a.id), sql`(${issues.status} not in ('done','cancelled') or ${issues.updatedAt} > now() - interval '3 days')`))
+    .orderBy(sql`${issues.createdAt} desc`).limit(30);
+}
+
 // ── skills ───────────────────────────────────────────────────────────────────
 
 /** Las skills de video viajan en la imagen (/app/video-skills). Se registran
@@ -524,15 +709,22 @@ export async function ejecutarHerramientaVideo(
       const bajados: string[] = [];
       const salteados: string[] = [];
       // ponytail: bajada en serie dentro del mismo pedido; muchos videos pesados pueden pasar los 5 min del MCP.
+      // Un archivo suelto puede ser un crudo 4K de cámara (1-2 GB); de una carpeta, solo hasta 500 MB cada uno.
+      const tope = archivos.length === 1 && m.mimeType !== "application/vnd.google-apps.folder" ? 3e9 : 500e6;
+      // Índice nombre → id de Drive: armar.mjs vuelve a bajar una fuente que falta (un cambio después de un deploy).
+      const indice = path.join(destino, ".drive.json");
+      const ids: Record<string, string> = fs.existsSync(indice) ? JSON.parse(fs.readFileSync(indice, "utf8")) : {};
       for (const f of archivos) {
-        if (Number(f.size ?? 0) > 500e6) { salteados.push(`${f.name} (más de 500 MB)`); continue; }
+        if (Number(f.size ?? 0) > tope) { salteados.push(`${f.name} (más de ${tope / 1e6} MB)`); continue; }
         const r = await api(`files/${f.id}?alt=media&supportsAllDrives=true`);
         if (!r.ok || !r.body) { salteados.push(`${f.name} (Drive ${r.status})`); continue; }
         let ruta = path.join(destino, f.name.replace(/[\\/:*?"<>|]/g, "-"));
-        if (fs.existsSync(ruta)) ruta = path.join(destino, `${f.id.slice(0, 6)}-${path.basename(ruta)}`);
+        if (fs.existsSync(ruta) && ids[path.basename(ruta)] !== f.id) ruta = path.join(destino, `${f.id.slice(0, 6)}-${path.basename(ruta)}`);
         await pipeline(Readable.fromWeb(r.body as never), fs.createWriteStream(ruta));
+        ids[path.basename(ruta)] = f.id;
         bajados.push(ruta);
       }
+      fs.writeFileSync(indice, JSON.stringify(ids));
       return ok(
         `Bajados ${bajados.length} de «${m.name}» a ${destino}:\n${bajados.join("\n")}` +
           (salteados.length ? `\nSin bajar: ${salteados.join("; ")}` : ""),
@@ -675,6 +867,34 @@ export async function ejecutarHerramientaVideo(
       return ok(`Render en curso (${calidad}). Consultá con video_estado id=${id}; un reel de 30 s tarda unos minutos.`);
     }
 
+    if (tool === "video_describir") {
+      const carpeta = rutaSegura(p.carpeta);
+      if (!carpeta || !fs.existsSync(carpeta) || !fs.statSync(carpeta).isDirectory()) return mal(`carpeta tiene que ser un directorio bajo ${RAIZ}/`);
+      return ok(await describirMaterial(carpeta, txt(p.para)));
+    }
+
+    if (tool === "video_retomar") {
+      const [d] = await db.select({ id: agentDeliverables.id, url: agentDeliverables.url, metadata: agentDeliverables.metadata })
+        .from(agentDeliverables).where(eq(agentDeliverables.id, txt(p.deliverableId))).limit(1);
+      if (!d) return mal("no encuentro ese video entregado");
+      const guardado = String((d.metadata as Record<string, unknown> | null)?.proyecto ?? "");
+      if (!guardado || !fs.existsSync(path.join(guardado, "guion.json"))) {
+        return mal("Ese video no tiene el proyecto guardado (se entregó antes del 30/10 o ya se borró por antiguo): hay que rehacerlo desde el pedido original con la skill lmtm-video.");
+      }
+      const destino = path.join(RAIZ, path.basename(guardado).replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/-[0-9a-f]{6}$/, ""));
+      fs.cpSync(guardado, destino, { recursive: true });
+      const guion = fs.readFileSync(path.join(destino, "guion.json"), "utf8");
+      return ok([
+        `Proyecto restaurado en ${destino} (video entregado: ${d.url}).`,
+        `guion.json:\n${guion.slice(0, 8000)}`,
+        "",
+        `1. Cambiá SOLO lo pedido en ${destino}/guion.json (el resto queda igual: sus voces y planos ya están hechos y no se rehacen).`,
+        `2. Si hace falta otra toma: lmtmVideoDescribir con carpeta=${destino}/assets/fuente tiene las descripciones del material (las fuentes que no están se bajan solas por su id de Drive).`,
+        `3. node /app/video-skills/lmtm-video/plantilla/armar.mjs ${destino}/guion.json --render`,
+        `4. lmtmVideoEntregar con reemplaza=${d.id}.`,
+      ].join("\n"));
+    }
+
     if (tool === "video_revisar") {
       const sueltas = Array.isArray(p.imagenes) ? (p.imagenes as unknown[]).slice(0, 12).map(rutaSegura) : [];
       const esVideo = sueltas.length === 0;
@@ -683,10 +903,18 @@ export async function ejecutarHerramientaVideo(
       if (!esVideo && sueltas.some((s) => !s || !fs.existsSync(s))) return mal(`todas las imágenes tienen que existir bajo ${RAIZ}/`);
       const d = esVideo ? await duracion(archivo) : 0;
       if (esVideo && !d) return mal("no es un video que se pueda leer");
-      const n = esVideo ? Math.min(12, Math.max(4, Math.round(Number(p.cuadros) || 8))) : sueltas.length;
+      // Frase por frase (armar.mjs): un cuadro en la mitad de cada frase y lo que la voz dice ahí.
+      const dichos = esVideo && Array.isArray(p.momentos)
+        ? (p.momentos as Array<{ segundo?: unknown; dice?: unknown }>)
+            .map((m) => ({ s: Number(m?.segundo), dice: txt(m?.dice) }))
+            .filter((m) => Number.isFinite(m.s) && m.s >= 0 && m.s < d! && m.dice)
+            .slice(0, 12)
+        : [];
+      const n = dichos.length ? dichos.length : esVideo ? Math.min(12, Math.max(4, Math.round(Number(p.cuadros) || 8))) : sueltas.length;
       const dir = fs.mkdtempSync(path.join(path.dirname(archivo), ".revision-"));
       try {
-        const momentos = esVideo ? Array.from({ length: n }, (_, i) => Number(((d! * (i + 0.5)) / n).toFixed(2))) : [];
+        const momentos = dichos.length ? dichos.map((m) => Number(m.s.toFixed(2)))
+          : esVideo ? Array.from({ length: n }, (_, i) => Number(((d! * (i + 0.5)) / n).toFixed(2))) : [];
         const imagenes: string[] = [];
         for (let i = 0; i < n; i++) {
           const jpg = path.join(dir, `c${i}.jpg`);
@@ -700,6 +928,10 @@ export async function ejecutarHerramientaVideo(
           ? "Sos el control de calidad de reels verticales 1080x1920 de una agencia. Te paso cuadros del video terminado en orden " +
             `(en los segundos ${momentos.join(", ")}) y el brief. Para cada cuadro revisá: subtítulos legibles (tamaño y contraste con lo de atrás), ` +
             "texto cortado o en los 250 px de arriba / 420 px de abajo, texto que tapa caras, carteles o el producto, " + comun +
+            (dichos.length
+              ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
+                `(si dice «los fabricamos» y se ve una mujer en un local, es un problema). Lo que dice la voz en cada cuadro: ${dichos.map((m, i) => `cuadro ${i + 1} (${m.s.toFixed(1)} s): «${m.dice}»`).join("; ")}. `
+              : "") +
             'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"segundo": n, "que": "...", "como_arreglarlo": "..."}]}'
           : `Sos el control de calidad de placas de Instagram de una agencia. Te paso ${n === 1 ? "una placa" : `las ${n} placas de un carrusel, en orden`} y el brief. ` +
             "Revisá: texto legible en el celular (tamaño y contraste), texto cortado o pegado al borde, jerarquía clara (se entiende en 2 segundos), " +
@@ -770,10 +1002,13 @@ export async function ejecutarHerramientaVideo(
       const { entregarVideo } = await import("./video-entrega.js");
       const e = await entregarVideo(db, { clientId: c.id, clienteNombre: c.name, nombrePieza: titulo, videoUrl: pathToFileURL(archivo).href, taskId: clickupTaskId });
       if (!e.driveLink) return mal(`no se pudo subir a Drive (${e.driveError ?? "sin detalle"}): el video quedó en ${archivo}.`);
+      // El proyecto queda guardado para que un pedido de cambios no rehaga todo (30/10).
+      let proyecto: string | null = null;
+      try { proyecto = guardarProyecto(archivo); } catch (err) { console.warn("[video] no se pudo guardar el proyecto:", err instanceof Error ? err.message : err); }
       await db.insert(agentDeliverables).values({
         companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "video",
         title: `Video: ${titulo}`.slice(0, 200), content: txt(p.guion) || titulo, url: e.driveLink,
-        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null },
+        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, proyecto, reemplaza: txt(p.reemplaza) || null },
       });
       if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${txt(p.guion).slice(0, 1500)}`, true);
       const enlace = e.enlace ? (e.enlace.ok ? " Quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.enlace.motivo}.`) : "";

@@ -111,7 +111,8 @@ FRASES.forEach((fr, i) => {
     const id = `#f${i + 1}w${j + 1}`;
     const at = f(Math.max(fr.desde, t - 0.06));
     textos.push(`tl.fromTo("${id}", { opacity: 0, y: 40, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.34, ease: "back.out(2)" }, ${at});`);
-    if (dest) textos.push(`tl.fromTo("${id}m", { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "expo.out" }, ${f(at + 0.08)});`);
+    // Marca oscura: la letra resaltada es oscura y sin su marcador claro no se lee; entra junto con la palabra.
+    if (dest) textos.push(`tl.fromTo("${id}m", { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "expo.out" }, ${f(marcaOscura ? at : at + 0.08)});`);
   });
   textos.push(`tl.fromTo("#frase-${i + 1}", { opacity: 1, y: 0 }, { opacity: 0, y: -16, duration: 0.2, ease: "power2.in", immediateRender: false }, ${f(fr.hasta - 0.22)});`);
 });
@@ -137,7 +138,9 @@ const html = `<!doctype html>
       #marca img { display: block; width: 100%; height: auto; filter: ${filtroLogo}drop-shadow(0 6px 18px rgba(0,0,0,0.35)); }
       .frase { position: absolute; left: 80px; right: 80px; bottom: 420px; margin: 0;
         font-weight: 800; font-size: ${Number(spec.tamanoSubtitulo ?? 100)}px; line-height: 1.12; letter-spacing: -0.025em;
-        color: var(--blanco); text-shadow: 0 2px 22px rgba(0,0,0,0.5); text-wrap: balance; }
+        color: var(--blanco); text-wrap: balance;
+        /* la capa corta da borde sobre fondos claros (vestidor iluminado de RENO, 30/10) sin oscurecer la toma */
+        text-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 2px 22px rgba(0,0,0,0.5); }
       .frase .w { display: inline-block; }
       .frase .dest { position: relative; text-shadow: none; color: ${textoMarcador}; }
       .frase .dest .t { position: relative; }

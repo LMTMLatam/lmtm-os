@@ -1,0 +1,33 @@
+{
+ "titulo": "RENO · Placares y vestidores",
+ "cliente": "RENO",
+ "brief": "Reel de placares y vestidores a medida de RENO. Diseño propio, fabricación en su planta argentina e instalación. Paleta negra y hueso, nada de rojo.",
+ "estilo": "Mujer argentina con acento rioplatense natural. Voz cálida, segura, con una sonrisa en la voz, como alguien que le recomienda algo a una amiga. Sin tono de locutora.",
+ "lineas": [
+  { "texto": "¿Tu *placard,* a tu *medida?*", "planos": [
+   { "fuente": "assets/fuente/C9951.MP4", "desde": 0.3, "muestra": "mujer abre un placard oscuro iluminado" } ] },
+  { "texto": "Diseñamos *placares* y *vestidores* pensados para tu *manera* de *vivir.*", "planos": [
+   { "fuente": "assets/fuente/RenoCatamarca-182.jpg", "muestra": "placard vidriado con LED" },
+   { "fuente": "assets/fuente/casafoa80.jpg", "muestra": "vestidor de Casa FOA" },
+   { "fuente": "assets/fuente/RenoCatamarca-190.jpg", "muestra": "interior de placard con ropa" },
+   { "fuente": "assets/fuente/C9821.MP4", "desde": 3.6, "muestra": "mujer frente a la puerta espejada" } ] },
+  { "texto": "Los *fabricamos* en nuestra *planta,* en *Argentina.*", "planos": [
+   { "fuente": "assets/fuente/C6170.MP4", "desde": 19.3, "foco": 0.65, "realce": true, "muestra": "operario de buzo RENO en la línea" },
+   { "fuente": "assets/fuente/C6114.MP4", "desde": 0.2, "foco": 0.3, "realce": true, "muestra": "canteadora pegando el filo" },
+   { "fuente": "assets/fuente/C6184.MP4", "desde": 7.1, "foco": 0.45, "realce": true, "muestra": "armado de herrajes" } ] },
+  { "texto": "Y los *instalamos* en tu *casa.*", "planos": [
+   { "fuente": "assets/fuente/silv0055.jpg", "muestra": "placard blanco instalado en una casa" },
+   { "fuente": "assets/fuente/casafoa84.jpg", "muestra": "vestidor instalado" } ] }
+ ],
+ "cierre": {
+  "texto": "Reno. Viví el diseño.",
+  "titulo": "Viví el *diseño.*",
+  "corte": 2,
+  "etiqueta": "FABRICACIÓN ARGENTINA · DESDE 1956",
+  "cta": "Conocé más",
+  "url": "amoblamientosreno.com",
+  "fantasma": "RENO"
+ },
+ "marca": { "logo": "assets/marca/logo.png", "logoBlanco": true, "color": "#141416", "colorTexto": "#141416", "oscuro": "#141416", "claro": "#f0efec", "tinta": "#5c5b5d", "fuente": "Montserrat", "anchoLogo": 200 },
+ "musica": { "prompt": "Elegant warm modern instrumental for an interior design brand: soft piano, light acoustic guitar, subtle warm pads, gentle steady beat, 96 bpm, premium, no vocals.", "volumen": 0.25 }
+}

@@ -4,10 +4,11 @@
 // suman entre herramientas: el plan, la API y Magnific son bolsas distintas.
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, FolderOpen, Loader2, OctagonAlert, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Clapperboard, ExternalLink, FolderOpen, Loader2, OctagonAlert, Search, Wand2 } from "lucide-react";
 import { Link } from "@/lib/router";
 import { api } from "../api/client";
+import { clientsApi } from "../api/clients";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 
@@ -32,6 +33,20 @@ interface PiezaGenerada {
   prompt: string | null;
   origen: string | null;
   gasto: TotalHerramienta[] | null;
+  delProductor?: boolean;
+  reemplaza?: string | null;
+}
+interface PedidoProductor {
+  id: string;
+  identifier: string | null;
+  titulo: string;
+  estado: string;
+  creado: string;
+  actualizado: string;
+}
+interface RespuestaPedido {
+  ok: boolean;
+  mensaje: string;
 }
 interface Respuesta {
   dias: number;
@@ -53,6 +68,10 @@ const HERRAMIENTAS: Record<string, { nombre: string; unidad: string }> = {
 };
 const nombreHerramienta = (h: string) => HERRAMIENTAS[h]?.nombre ?? h;
 const ORIGEN: Record<string, string> = { clickup: "Etiqueta de ClickUp", panel: "Panel", claude: "Claude" };
+const ESTADO: Record<string, string> = {
+  backlog: "En cola", todo: "En cola", in_progress: "Produciendo", in_review: "En revisión",
+  blocked: "Frenado: mirá la tarea", done: "Listo", cancelled: "Cancelado",
+};
 const TIPO: Record<string, string> = { video: "Video", placa: "Placa", carrusel: "Carrusel", imagen: "Imagen" };
 const PERIODOS = [7, 30, 90, 365];
 
@@ -97,7 +116,7 @@ export function ContenidoGeneradoApp() {
     <>
       <Encabezado
         titulo="Contenido generado"
-        bajada={<>Lo que generaron Higgsfield y Magnific, con su link de Drive y lo que gastó · <Link to="/contenido" className="hover:text-l-marca">volver a Contenido</Link></>}
+        bajada={<>Pedile videos al Productor de contenido, pedile cambios a lo que hizo y mirá lo generado con su link de Drive · <Link to="/contenido" className="hover:text-l-marca">volver a Contenido</Link></>}
         derecha={
           <div className="flex gap-1" role="group" aria-label="Período">
             {PERIODOS.map((n) => (
@@ -115,6 +134,7 @@ export function ContenidoGeneradoApp() {
         }
       />
       <div className="space-y-8 px-4 pb-10 md:px-8">
+        <PedirVideo />
         {q.isLoading && (
           <p className="flex items-center gap-2 text-[14px] text-l-tinta-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Cargando…</p>
         )}
@@ -204,6 +224,76 @@ export function ContenidoGeneradoApp() {
   );
 }
 
+/** Pedido de un video al Productor de contenido y lo que tiene en curso. */
+function PedirVideo() {
+  const qc = useQueryClient();
+  const [clientId, setClientId] = useState("");
+  const [pedido, setPedido] = useState("");
+  const clientes = useQuery({ queryKey: ["clients", "para-pedidos"], queryFn: () => clientsApi.list("active") });
+  const pedidos = useQuery({
+    queryKey: ["lmtm", "contenido", "productor"],
+    queryFn: () => api.get<{ pedidos: PedidoProductor[] }>("/contenido/productor/pedidos"),
+    refetchInterval: 60_000,
+  });
+  const pedir = useMutation({
+    mutationFn: () => api.post<RespuestaPedido>("/contenido/productor/pedido", { clientId, pedido }),
+    onSuccess: (r) => {
+      if (r.ok) setPedido("");
+      void qc.invalidateQueries({ queryKey: ["lmtm", "contenido", "productor"] });
+    },
+  });
+  const lista = [...(clientes.data?.clients ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <section>
+      <TituloFranja>Pedile un video al Productor</TituloFranja>
+      <Tarjeta>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => { e.preventDefault(); if (clientId && pedido.trim().length >= 10) pedir.mutate(); }}
+        >
+          <div className="flex flex-wrap gap-2">
+            <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-9 min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" aria-label="Cliente" required>
+              <option value="">Elegí el cliente</option>
+              {lista.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <label className="text-[13px] text-l-tinta-2" htmlFor="pedido-video">Qué video querés: producto, para qué, y si hay material (link de Drive)</label>
+          <textarea
+            id="pedido-video"
+            value={pedido}
+            onChange={(e) => setPedido(e.target.value)}
+            rows={3}
+            placeholder="Reel de 25 s de los placares a medida, para pauta. Material: https://drive.google.com/…"
+            className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={!clientId || pedido.trim().length < 10 || pedir.isPending}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-white disabled:opacity-50"
+            >
+              {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />} Pedir el video
+            </button>
+            {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}
+            {pedir.error && <span className="text-[13px] text-l-critico-texto" role="alert">{pedir.error instanceof Error ? pedir.error.message : "No se pudo pedir"}</span>}
+          </div>
+          <p className="text-[12px] text-l-tinta-3">Cada pedido es una corrida del agente: gasta OpenAI y voces de Gemini. Para corregir un video ya hecho, usá «Pedir cambios» en el video (sale mucho más barato que pedirlo de nuevo).</p>
+        </form>
+        {(pedidos.data?.pedidos.length ?? 0) > 0 && (
+          <ul className="mt-3 border-t border-l-linea pt-2">
+            {pedidos.data!.pedidos.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-[13px]">
+                <span className="min-w-0 flex-1 truncate" title={p.titulo}>{p.identifier ? `${p.identifier} · ` : ""}{p.titulo}</span>
+                <span className={`tabular-nums ${p.estado === "blocked" ? "text-l-atencion-texto" : "text-l-tinta-3"}`}>{ESTADO[p.estado] ?? p.estado} · {fecha(p.creado)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Tarjeta>
+    </section>
+  );
+}
+
 function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: Estado }) {
   const saldo = h === "higgsfield_plan" && e?.creditos != null ? `Le quedan ${num(e.creditos)} créditos al plan` : null;
   const sinConfigurar = h === "magnific" && e && !e.magnific;
@@ -228,11 +318,22 @@ function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: 
 
 function FilaPieza({ p }: { p: PiezaGenerada }) {
   const archivos = p.links.length > 1 ? p.links : p.driveLink ? [p.driveLink] : [];
+  const qc = useQueryClient();
+  const [abierto, setAbierto] = useState(false);
+  const [cambios, setCambios] = useState("");
+  const pedir = useMutation({
+    mutationFn: () => api.post<RespuestaPedido>("/contenido/productor/cambios", { deliverableId: p.id, cambios }),
+    onSuccess: (r) => {
+      if (r.ok) { setCambios(""); setAbierto(false); }
+      void qc.invalidateQueries({ queryKey: ["lmtm", "contenido", "productor"] });
+    },
+  });
   return (
     <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5 border-b border-l-linea px-3 py-3 last:border-0">
       <div className="min-w-0 flex-1">
         <div className="text-[12px] text-l-tinta-3">
           {fecha(p.createdAt)} · {p.cliente ?? "sin cliente"} · {TIPO[p.kind] ?? p.kind}{p.origen ? ` · ${ORIGEN[p.origen] ?? p.origen}` : ""}
+          {p.delProductor ? " · Productor" : ""}{p.reemplaza ? " · versión corregida" : ""}
         </div>
         <div className="truncate text-[14px]" title={p.titulo}>{p.titulo.replace(/^(Video|Placa|Carrusel|Imagen): /, "")}</div>
         <div className="text-[12px] tabular-nums text-l-tinta-2">
@@ -253,7 +354,41 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
             Tarea <ExternalLink className="h-3.5 w-3.5" aria-hidden />
           </a>
         )}
+        {p.delProductor && p.kind === "video" && (
+          <button
+            type="button"
+            onClick={() => setAbierto((v) => !v)}
+            aria-expanded={abierto}
+            className="inline-flex min-h-9 items-center gap-1 rounded-[8px] border border-l-linea-2 px-2.5 hover:border-l-tinta-3"
+          >
+            <Wand2 className="h-3.5 w-3.5" aria-hidden /> Pedir cambios
+          </button>
+        )}
       </div>
+      {abierto && (
+        <form
+          className="flex w-full flex-col gap-2"
+          onSubmit={(e) => { e.preventDefault(); if (cambios.trim().length >= 5) pedir.mutate(); }}
+        >
+          <label className="text-[13px] text-l-tinta-2" htmlFor={`cambios-${p.id}`}>Qué cambiar (el resto queda igual y no se rehace)</label>
+          <textarea
+            id={`cambios-${p.id}`}
+            value={cambios}
+            onChange={(e) => setCambios(e.target.value)}
+            rows={2}
+            placeholder="En «los fabricamos» mostrá la fábrica; el cierre con «Pedí tu presupuesto»."
+            className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={cambios.trim().length < 5 || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-white disabled:opacity-50">
+              {pedir.isPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Enviar al Productor
+            </button>
+            {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}
+            {pedir.error && <span className="text-[13px] text-l-critico-texto" role="alert">{pedir.error instanceof Error ? pedir.error.message : "No se pudo pedir"}</span>}
+          </div>
+        </form>
+      )}
+      {!abierto && pedir.data?.ok && <p className="w-full text-[13px] text-l-tinta-2" role="status">{pedir.data.mensaje}</p>}
     </li>
   );
 }

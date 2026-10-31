@@ -16,7 +16,7 @@ describe("video-agente: rutas", () => {
   });
 
   it("expone las herramientas que nombra la skill lmtm-video", () => {
-    for (const t of ["video_voz", "video_transcribir", "video_plano", "video_musica", "video_renderizar", "video_estado", "video_revisar", "video_entregar", "drive_bajar", "encargar_al_productor"]) {
+    for (const t of ["video_voz", "video_transcribir", "video_plano", "video_musica", "video_renderizar", "video_estado", "video_revisar", "video_entregar", "drive_bajar", "encargar_al_productor", "video_describir", "video_retomar"]) {
       expect(NOMBRES_VIDEO.has(t)).toBe(true);
     }
   });

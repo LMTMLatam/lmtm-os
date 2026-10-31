@@ -128,6 +128,43 @@ export function videoRoutes(db: Db): Router {
     }
   });
 
+  // ── Productor de contenido desde el panel (30/10: «que en generación de
+  // contenido se le pueda pedir un video y cambios al video hecho»). Lo piden
+  // personas del equipo; cada pedido es una corrida del Productor (gasta).
+
+  // GET /api/contenido/productor/pedidos — lo que tiene entre manos o terminó hace poco.
+  router.get("/contenido/productor/pedidos", async (req, res) => {
+    assertMiembro(req);
+    const { pedidosDelProductor } = await import("../services/video-agente.js");
+    res.json({ pedidos: await pedidosDelProductor(db) });
+  });
+
+  // POST /api/contenido/productor/pedido { clientId, pedido }
+  router.post("/contenido/productor/pedido", async (req, res) => {
+    assertBoard(req);
+    const b = (req.body ?? {}) as { clientId?: string; pedido?: string };
+    const pedido = typeof b.pedido === "string" ? b.pedido.trim() : "";
+    if (!b.clientId || pedido.length < 10) return res.status(422).json({ error: "Falta el cliente o el pedido (contá qué video querés, de qué producto y para qué)." });
+    const [c] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.id, b.clientId)).limit(1);
+    if (!c) return res.status(404).json({ error: "No encuentro ese cliente." });
+    const { encargarAlProductor, AGENTE_PRODUCTOR } = await import("../services/video-agente.js");
+    const [a] = await db.select({ companyId: agents.companyId }).from(agents).where(eq(agents.name, AGENTE_PRODUCTOR)).limit(1);
+    if (!a) return res.status(503).json({ error: "No está el agente Productor de contenido." });
+    const r = await encargarAlProductor(db, { companyId: a.companyId, clientId: c.id, clienteNombre: c.name, pedido: pedido.slice(0, 4000) });
+    res.status(r.ok ? 200 : 502).json(r);
+  });
+
+  // POST /api/contenido/productor/cambios { deliverableId, cambios }
+  router.post("/contenido/productor/cambios", async (req, res) => {
+    assertBoard(req);
+    const b = (req.body ?? {}) as { deliverableId?: string; cambios?: string };
+    const cambios = typeof b.cambios === "string" ? b.cambios.trim() : "";
+    if (!b.deliverableId || cambios.length < 5) return res.status(422).json({ error: "Contá qué cambiar del video." });
+    const { pedirCambiosDeVideo } = await import("../services/video-agente.js");
+    const r = await pedirCambiosDeVideo(db, { deliverableId: b.deliverableId, cambios: cambios.slice(0, 3000) });
+    res.status(r.ok ? 200 : 404).json(r);
+  });
+
   // POST /api/contenido/generar-libre { clientId, tipo, prompt, titulo?, imagenUrl?, formato?, herramienta?, origen? }
   // Genera sin tarea de ClickUp (Claude por el conector, o el panel), lo sube
   // al Drive de Super Redes del cliente y lo registra con su gasto. GASTA

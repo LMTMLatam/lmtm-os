@@ -1189,8 +1189,25 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         imagenes: z.array(z.string()).max(12).optional().describe("PNG/JPG bajo /tmp/videos/, en orden."),
         brief: z.string().min(10).describe("Qué tiene que decir y mostrar la pieza y qué no."),
         cuadros: z.number().int().min(4).max(12).optional(),
+        momentos: z.array(z.object({ segundo: z.number(), dice: z.string() })).max(12).optional()
+          .describe("Un cuadro por frase: revisa que lo que se ve muestre lo que dice la voz. armar.mjs --render ya lo hace."),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_revisar", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoDescribir",
+      "DESCRIBE el material bajado de una carpeta: los MOMENTOS de cada video con su segundo (qué se ve, si alguien habla a cámara, si sirve) y una línea por foto. Es TEXTO: no mires las hojas de contacto vos (cada imagen se reenvía en todos los turnos). Lo ya descripto queda en caché.",
+      z.object({
+        carpeta: z.string().min(1).describe("Carpeta del material bajo /tmp/videos/ (assets/fuente del proyecto)."),
+        para: z.string().optional().describe("De qué es el video y qué tiene que verse."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_describir", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoRetomar",
+      "RETOMA un video entregado para hacerle CAMBIOS sin rehacerlo: restaura su proyecto (guion.json, voces, planos, material descripto) y devuelve el guion y los pasos. Lo que no cambió no se rehace.",
+      z.object({ deliverableId: z.string().min(1).describe("Id del video entregado (viene en el pedido de cambios).") }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_retomar", parameters: p } }),
     ),
     makeTool(
       "lmtmBuscarMaterial",
@@ -1258,6 +1275,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         guion: z.string().optional().describe("El guion y de dónde salió cada plano (cliente o generado)."),
         issueId: z.string().optional(),
         clickupTaskId: z.string().optional().describe("Si el pedido vino de una tarea de ClickUp: ahí queda el link y la etiqueta «contenido generado»."),
+        reemplaza: z.string().optional().describe("Versión corregida de un video entregado: su deliverableId (viene en el pedido de cambios)."),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_entregar", parameters: p } }),
     ),
