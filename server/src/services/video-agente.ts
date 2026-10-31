@@ -53,9 +53,10 @@ const MODELOS_VOZ_GEMINI = (process.env.LMTM_VOZ_GEMINI_MODELOS ?? "gemini-3.8-f
 async function vozGemini(clave: string, modelo: string, texto: string, estilo: string, voz: string): Promise<{ audio?: Buffer; sinCupo?: boolean; error?: string }> {
   for (let intento = 0; ; intento++) {
     const r = await vozGeminiUnaVez(clave, modelo, texto, estilo, voz);
-    if (r.esperar == null) return r;
+    const espera = r.esperar;
+    if (espera == null) return r;
     if (intento >= 3) return { sinCupo: true };
-    await new Promise((ok) => setTimeout(ok, Math.min(65, r.esperar + 2) * 1000));
+    await new Promise((ok) => setTimeout(ok, Math.min(65, espera + 2) * 1000));
   }
 }
 
