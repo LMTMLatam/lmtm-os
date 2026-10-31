@@ -130,29 +130,38 @@ fs.writeFileSync(archivoGuion, JSON.stringify(G, null, 1));
 fs.mkdirSync("assets/voice", { recursive: true });
 const TEXTOS = [...LINEAS.map((l) => l.texto), C.texto];
 const ARCH_VOZ = TEXTOS.map((_, i) => path.resolve(`assets/voice/l${i + 1}.wav`));
+// La huella de cada voz es «texto+estilo|modelo». Todas tienen que ser del MISMO
+// modelo de Gemini o el reel suena a dos personas. Si video_voz cambia de modelo
+// (se terminó el cupo del anterior), se rehacen SOLO las de otro modelo. El 31/10
+// esto borraba todas las huellas y regeneraba dos rondas enteras (cupo gastado).
 const huellaVoz = (i) => huella([limpio(TEXTOS[i]), G.estilo, G.voz ?? "Sulafat"]);
-for (let vuelta = 0; vuelta < 2; vuelta++) {
-  let rehacerTodas = false;
-  for (const [i, archivo] of ARCH_VOZ.entries()) {
-    if (vigente(archivo, huellaVoz(i))) continue;
-    const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo, estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}) });
+const leerVoz = (a) => (fs.existsSync(a) && fs.existsSync(`${a}.huella`) ? fs.readFileSync(`${a}.huella`, "utf8").split("|") : []);
+const modeloDe = (a) => leerVoz(a)[1] ?? "";
+for (let vuelta = 0; ; vuelta++) {
+  const actual = ARCH_VOZ.map(modeloDe).filter(Boolean).at(-1) ?? "";
+  const pendientes = ARCH_VOZ.map((a, i) => i).filter((i) => leerVoz(ARCH_VOZ[i])[0] !== huellaVoz(i) || (actual && modeloDe(ARCH_VOZ[i]) !== actual));
+  if (pendientes.length === 0) break;
+  if (vuelta >= 2) {
+    console.error("voz: Gemini cambió de modelo dos veces en este reel (se está terminando el cupo del día). Contalo en el issue: se retoma mañana.");
+    process.exit(3);
+  }
+  for (const i of pendientes) {
+    const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo: ARCH_VOZ[i], estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}) });
     if (!r.ok) {
       console.error(`voz l${i + 1}: ${r.content}`);
       process.exit(/cupo/i.test(r.content) ? 3 : 1);
     }
-    sellar(archivo, huellaVoz(i));
-    console.log(`voz l${i + 1}: ${limpio(TEXTOS[i])}`);
-    if (/Regenerá TAMBIÉN/i.test(r.content)) rehacerTodas = true;
+    const modelo = /Gemini ([\w.-]+)/.exec(r.content)?.[1] ?? "?";
+    fs.writeFileSync(`${ARCH_VOZ[i]}.huella`, `${huellaVoz(i)}|${modelo}`);
+    console.log(`voz l${i + 1} (${modelo}): ${limpio(TEXTOS[i])}`);
   }
-  if (!rehacerTodas) break;
-  // Cambió el modelo de voz: todas con el mismo, o el reel suena a dos personas.
-  for (const a of ARCH_VOZ) fs.rmSync(`${a}.huella`, { force: true });
 }
 
 // ── 3. Tiempos de cada palabra (whisper local de hyperframes, sin OpenAI) ───
 function transcribir(wav) {
   const json = wav.replace(/\.wav$/, ".palabras.json");
-  const h = huella([fs.statSync(wav).size, fs.readFileSync(`${wav}.huella`, "utf8")]);
+  const st = fs.statSync(wav);
+  const h = huella([st.size, st.mtimeMs]);
   if (vigente(json, h)) return JSON.parse(fs.readFileSync(json, "utf8"));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "armar-"));
   const r = spawnSync(HF[0], [...HF.slice(1), "transcribe", wav, "--model", "small", "--language", "es", "--dir", tmp], { encoding: "utf8", env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: "1" }, ...enWindows });
@@ -289,15 +298,22 @@ function trozos(ws) {
   return res;
 }
 const frases = [];
+// Para la revisión, un segundo por frase con su subtítulo ENTERO en pantalla: un
+// cuadro en plena animación de entrada se veía «tenue» y frenaba la entrega (31/10).
+const momentoDe = [];
 for (const [i] of LINEAS.entries()) {
   const finVoz = INI[i] + DUR_VOZ[i];
   const tope = i === LINEAS.length - 1 ? CIERRE : INI[i + 1] - 0.05;
   const ts = trozos(abs(i));
+  let mejor = { ancho: -1, s: r2(INI[i] + DUR_VOZ[i] / 2) };
   for (const [k, tr] of ts.entries()) {
     const desde = r2(Math.max(frases.at(-1)?.hasta ?? 0, tr[0].ini - 0.1));
     const hasta = r2(Math.min(tope, k + 1 < ts.length ? ts[k + 1][0].ini - 0.1 : finVoz + 0.15));
     frases.push({ desde, hasta, palabras: tr.map((w) => (w.clave ? [w.t, r2(w.ini), 1] : [w.t, r2(w.ini)])) });
+    const [a, b] = [tr.at(-1).ini + 0.4, hasta - 0.3];
+    if (b - a > mejor.ancho) mejor = { ancho: b - a, s: r2(b - a > 0 ? (a + b) / 2 : a) };
   }
+  momentoDe[i] = mejor.s;
 }
 
 // ── 8. Cierre: el titular aparece cuando la voz lo dice ─────────────────────
@@ -367,7 +383,7 @@ if (/volumen .* LUFS|picos de/.test(qc)) {
 console.log(`\nFINAL ${mp4}`);
 console.log(qc.split("\n").filter((x) => /REVISION|ALERTA|sin alertas/.test(x)).join("\n"));
 // Una foto por frase, en la mitad de lo que dice: la hoja para mirar UNA vez.
-const momentos = [...LINEAS.map((_, i) => r2(INI[i] + DUR_VOZ[i] / 2)), r2(Math.min(FIN - 0.3, ultimaTit + 1.2))];
+const momentos = [...momentoDe, r2(Math.min(FIN - 0.3, ultimaTit + 1.2))];
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sincro-"));
 momentos.forEach((s, i) => execFileSync("ffmpeg", ["-v", "error", "-y", "-ss", String(s), "-i", mp4, "-frames:v", "1", "-vf", "scale=360:-2", path.join(tmp, `f${String(i).padStart(2, "0")}.jpg`)]));
 execFileSync("ffmpeg", ["-v", "error", "-y", "-framerate", "1", "-i", path.join(tmp, "f%02d.jpg"), "-vf", `tile=${Math.min(6, momentos.length)}x${Math.ceil(momentos.length / 6)}:padding=6:color=white`, "-frames:v", "1", "hoja-sincro.jpg"]);

@@ -245,6 +245,7 @@ async function renderizar(proyecto: string, calidad: string): Promise<string> {
   }
   const d = await duracion(salida);
   if (!d) throw new Error("el render no dejó un video válido");
+  try { guardarProyecto(salida, true); } catch (e) { console.warn("[video] no se pudo guardar el borrador:", e instanceof Error ? e.message : e); }
   return `Video: ${salida} (${d} s, ${(fs.statSync(salida).size / 1e6).toFixed(1)} MB). Revisalo con video_revisar antes de entregar.`;
 }
 
@@ -294,9 +295,10 @@ export const VIDEO_TOOLS: ToolDef[] = [
     carpeta: { type: "string", description: `Carpeta del material bajo ${RAIZ}/ (assets/fuente del proyecto).` },
     para: { type: "string", description: "De qué es el video (producto y qué tiene que verse), para describir lo que importa." },
   }, ["carpeta"]),
-  def("video_retomar", "RETOMA un video ya entregado para hacerle CAMBIOS sin rehacerlo: restaura su proyecto (guion.json, voces, planos, material descripto) en /tmp/videos y devuelve el guion. Cambiás solo lo pedido en guion.json y corrés armar.mjs --render: lo que no cambió no se rehace.", {
+  def("video_retomar", "RETOMA un video ya entregado para hacerle CAMBIOS sin rehacerlo: restaura su proyecto (guion.json, voces, planos, material descripto) en /tmp/videos y devuelve el guion. Cambiás solo lo pedido en guion.json y corrés armar.mjs --render: lo que no cambió no se rehace. Con `proyecto` (sin deliverableId) recupera el último render de un trabajo a medias que se perdió de /tmp por un deploy.", {
     deliverableId: { type: "string", description: "Id del video entregado (viene en el pedido de cambios)." },
-  }, ["deliverableId"]),
+    proyecto: { type: "string", description: "Nombre de la carpeta del proyecto (reno-placares) para recuperar un trabajo sin entregar." },
+  }, []),
   def("buscar_material", "BUSCA en el Drive del cliente las fotos y videos que MUESTRAN un producto o escena (GPT mira las miniaturas; sirve aunque el archivo se llame DJI_….jpg). Devuelve los mejores con qué se ve en cada uno y el link de descarga. Lo ya mirado queda guardado: la segunda vez es instantáneo.", {
     cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
     producto: { type: "string", description: "Qué tiene que verse: «placard blanco», «llantas de BMW», «frascos de OPI»." },
@@ -563,11 +565,16 @@ const PROYECTOS_A_GUARDAR = 25;
  * para que un pedido de cambios no rehaga el video entero. Sin volumen o sin
  * guion.json no guarda nada (null).
  */
-function guardarProyecto(archivo: string): string | null {
+function guardarProyecto(archivo: string, borrador = false): string | null {
   const nombre = path.relative(RAIZ, archivo).split(path.sep)[0];
   const dir = path.join(RAIZ, nombre ?? "");
   if (!nombre || !fs.existsSync(path.join(dir, "guion.json")) || !fs.existsSync(path.dirname(path.dirname(PROYECTOS)))) return null;
-  const destino = path.join(PROYECTOS, `${new Date().toISOString().slice(0, 10)}-${nombre}-${randomUUID().slice(0, 6)}`);
+  // Borrador: el último render de un proyecto, para que un deploy (borra /tmp) no
+  // tire un trabajo a medias o frenado. Se pisa en cada render.
+  const destino = borrador
+    ? path.join(PROYECTOS, `borrador-${nombre}`)
+    : path.join(PROYECTOS, `${new Date().toISOString().slice(0, 10)}-${nombre}-${randomUUID().slice(0, 6)}`);
+  if (borrador) fs.rmSync(destino, { recursive: true, force: true });
   fs.cpSync(dir, destino, {
     recursive: true,
     filter: (src) => {
@@ -577,9 +584,13 @@ function guardarProyecto(archivo: string): string | null {
       return !/^(capture|renders|node_modules|\.hyperframes)(\/|$)/.test(r) && !r.includes(".revision-") && !(/\.mp4$/i.test(r) && !r.includes("/"));
     },
   });
-  // Los más viejos se van: el volumen es chico (~50 MB por proyecto).
-  const todos = fs.readdirSync(PROYECTOS).sort();
-  for (const viejo of todos.slice(0, Math.max(0, todos.length - PROYECTOS_A_GUARDAR))) fs.rmSync(path.join(PROYECTOS, viejo), { recursive: true, force: true });
+  // Los más viejos se van: el volumen es chico (~50 MB por proyecto). Borradores, a la semana.
+  const todos = fs.readdirSync(PROYECTOS);
+  const entregados = todos.filter((n) => !n.startsWith("borrador-")).sort();
+  for (const viejo of entregados.slice(0, Math.max(0, entregados.length - PROYECTOS_A_GUARDAR))) fs.rmSync(path.join(PROYECTOS, viejo), { recursive: true, force: true });
+  for (const b of todos.filter((n) => n.startsWith("borrador-"))) {
+    if (Date.now() - fs.statSync(path.join(PROYECTOS, b)).mtimeMs > 7 * 86_400_000) fs.rmSync(path.join(PROYECTOS, b), { recursive: true, force: true });
+  }
   return destino;
 }
 
@@ -873,6 +884,16 @@ export async function ejecutarHerramientaVideo(
       return ok(await describirMaterial(carpeta, txt(p.para)));
     }
 
+    if (tool === "video_retomar" && txt(p.proyecto) && !txt(p.deliverableId)) {
+      // Un trabajo a medias o frenado que se perdió de /tmp con un deploy: vuelve su último render.
+      const nombre = path.basename(txt(p.proyecto));
+      const guardado = path.join(PROYECTOS, `borrador-${nombre}`);
+      if (!fs.existsSync(path.join(guardado, "guion.json"))) return mal(`No hay borrador guardado de «${nombre}» (se guarda en cada render de armar.mjs, una semana).`);
+      const destino = path.join(RAIZ, nombre);
+      fs.cpSync(guardado, destino, { recursive: true });
+      return ok(`Borrador restaurado en ${destino} (su último render). guion.json:\n${fs.readFileSync(path.join(destino, "guion.json"), "utf8").slice(0, 8000)}\n\nSeguí desde ahí: node /app/video-skills/lmtm-video/plantilla/armar.mjs ${destino}/guion.json --render (no rehace voces ni planos que no cambiaron).`);
+    }
+
     if (tool === "video_retomar") {
       const [d] = await db.select({ id: agentDeliverables.id, url: agentDeliverables.url, metadata: agentDeliverables.metadata })
         .from(agentDeliverables).where(eq(agentDeliverables.id, txt(p.deliverableId))).limit(1);
@@ -927,7 +948,8 @@ export async function ejecutarHerramientaVideo(
         const pedido = (esVideo
           ? "Sos el control de calidad de reels verticales 1080x1920 de una agencia. Te paso cuadros del video terminado en orden " +
             `(en los segundos ${momentos.join(", ")}) y el brief. Para cada cuadro revisá: subtítulos legibles (tamaño y contraste con lo de atrás), ` +
-            "texto cortado o en los 250 px de arriba / 420 px de abajo, texto que tapa caras, carteles o el producto, " + comun +
+            "texto o logo cortado o dentro de los 269 px de arriba / 672 px de abajo (zonas de la interfaz de Reels), texto que tapa caras, carteles o el producto, " +
+            "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
                 `(si dice «los fabricamos» y se ve una mujer en un local, es un problema). Lo que dice la voz en cada cuadro: ${dichos.map((m, i) => `cuadro ${i + 1} (${m.s.toFixed(1)} s): «${m.dice}»`).join("; ")}. `

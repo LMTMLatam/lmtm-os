@@ -132,11 +132,14 @@ const html = `<!doctype html>
       .toma video, .toma img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
       #velo { position: absolute; inset: 0; pointer-events: none;
         background:
-          linear-gradient(to top, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.3) 12%, rgba(0,0,0,0.62) 24%, rgba(0,0,0,0.42) 38%, rgba(0,0,0,0) 54%),
+          linear-gradient(to top, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.22) 22%, rgba(0,0,0,0.55) 38%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 64%),
           radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.34) 100%); }
-      #marca { position: absolute; left: 76px; top: 170px; width: ${Number(M.anchoLogo ?? 190)}px; }
-      #marca img { display: block; width: 100%; height: auto; filter: ${filtroLogo}drop-shadow(0 6px 18px rgba(0,0,0,0.35)); }
-      .frase { position: absolute; left: 80px; right: 80px; bottom: 420px; margin: 0;
+      /* Zonas seguras de Reels (31/10): nada importante en el 14 % de arriba (269 px)
+         ni en el 35 % de abajo (672 px); ahí van la interfaz y la descripción. El velo
+         sigue a los subtítulos. */
+      #marca { position: absolute; left: 76px; top: 280px; width: ${Number(M.anchoLogo ?? 190)}px; }
+      #marca img { display: block; width: 100%; height: auto; filter: ${filtroLogo}drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 6px 18px rgba(0,0,0,0.35)); }
+      .frase { position: absolute; left: 80px; right: 80px; bottom: 680px; margin: 0;
         font-weight: 800; font-size: ${Number(spec.tamanoSubtitulo ?? 100)}px; line-height: 1.12; letter-spacing: -0.025em;
         color: var(--blanco); text-wrap: balance;
         /* la capa corta da borde sobre fondos claros (vestidor iluminado de RENO, 30/10) sin oscurecer la toma */

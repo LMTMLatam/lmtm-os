@@ -1205,8 +1205,11 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmVideoRetomar",
-      "RETOMA un video entregado para hacerle CAMBIOS sin rehacerlo: restaura su proyecto (guion.json, voces, planos, material descripto) y devuelve el guion y los pasos. Lo que no cambió no se rehace.",
-      z.object({ deliverableId: z.string().min(1).describe("Id del video entregado (viene en el pedido de cambios).") }),
+      "RETOMA un video entregado para hacerle CAMBIOS sin rehacerlo: restaura su proyecto (guion.json, voces, planos, material descripto) y devuelve el guion y los pasos. Lo que no cambió no se rehace. Con `proyecto` (sin deliverableId) recupera el último render de un trabajo a medias que se perdió de /tmp por un deploy.",
+      z.object({
+        deliverableId: z.string().min(1).optional().describe("Id del video entregado (viene en el pedido de cambios)."),
+        proyecto: z.string().min(1).optional().describe("Nombre de la carpeta del proyecto, para un trabajo sin entregar."),
+      }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_retomar", parameters: p } }),
     ),
     makeTool(
