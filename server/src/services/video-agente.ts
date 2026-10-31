@@ -44,8 +44,29 @@ const MODELOS_VOZ_GEMINI = (process.env.LMTM_VOZ_GEMINI_MODELOS ?? "gemini-3.8-f
 /** Una frase con un modelo de Gemini. Los 3.8 aceptan el estilo como anotación
  *  (interactions); los 3.1 y 2.5 no, y van por generateContent con el estilo en el
  *  pedido (devuelve PCM 24 kHz, se pasa a wav). */
+/**
+ * El plan gratis de Gemini da 429 por DOS cosas: el cupo del día (cambiar de
+ * modelo) y el tope por minuto (esperar y reintentar con el MISMO). Antes todo
+ * 429 cambiaba de modelo: pedir 5 voces seguidas saltaba 3 modelos, mezclaba
+ * voces y quemaba el cupo de todos (LMTM-6518, 31/10).
+ */
 async function vozGemini(clave: string, modelo: string, texto: string, estilo: string, voz: string): Promise<{ audio?: Buffer; sinCupo?: boolean; error?: string }> {
+  for (let intento = 0; ; intento++) {
+    const r = await vozGeminiUnaVez(clave, modelo, texto, estilo, voz);
+    if (r.esperar == null) return r;
+    if (intento >= 3) return { sinCupo: true };
+    await new Promise((ok) => setTimeout(ok, Math.min(65, r.esperar + 2) * 1000));
+  }
+}
+
+async function vozGeminiUnaVez(clave: string, modelo: string, texto: string, estilo: string, voz: string): Promise<{ audio?: Buffer; sinCupo?: boolean; esperar?: number; error?: string }> {
   const h = { "content-type": "application/json", "x-goog-api-key": clave };
+  const cupo = async (r: Response) => {
+    const t = await r.text();
+    if (/per ?day|daily/i.test(t)) return { sinCupo: true };
+    const s = Number(/"retryDelay":\s*"(\d+(?:\.\d+)?)s"/.exec(t)?.[1]);
+    return { esperar: Number.isFinite(s) ? s : 30 };
+  };
   const limpio = async (r: Response) => (await r.text()).split(clave).join("[clave]").slice(0, 300);
   if (modelo.startsWith("gemini-3.8")) {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
@@ -58,7 +79,7 @@ async function vozGemini(clave: string, modelo: string, texto: string, estilo: s
         store: false,
       }),
     });
-    if (r.status === 429) return { sinCupo: true };
+    if (r.status === 429) return cupo(r);
     if (!r.ok) return { error: `${r.status}: ${await limpio(r)}` };
     const j = (await r.json()) as { status?: string; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string }> }> };
     const a = (j.steps ?? []).filter((s) => s.type === "model_output").flatMap((s) => s.content ?? []).find((c) => c.type === "audio" && c.data);
@@ -71,7 +92,7 @@ async function vozGemini(clave: string, modelo: string, texto: string, estilo: s
       generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz } } } },
     }),
   });
-  if (r.status === 429) return { sinCupo: true };
+  if (r.status === 429) return cupo(r);
   if (!r.ok) return { error: `${r.status}: ${await limpio(r)}` };
   const j = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }> };
   const d = j.candidates?.[0]?.content?.parts?.find((x) => x.inlineData?.data)?.inlineData;

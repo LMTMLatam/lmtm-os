@@ -141,8 +141,10 @@ for (let vuelta = 0; ; vuelta++) {
   const actual = ARCH_VOZ.map(modeloDe).filter(Boolean).at(-1) ?? "";
   const pendientes = ARCH_VOZ.map((a, i) => i).filter((i) => leerVoz(ARCH_VOZ[i])[0] !== huellaVoz(i) || (actual && modeloDe(ARCH_VOZ[i]) !== actual));
   if (pendientes.length === 0) break;
-  if (vuelta >= 2) {
-    console.error("voz: Gemini cambió de modelo dos veces en este reel (se está terminando el cupo del día). Contalo en el issue: se retoma mañana.");
+  // video_voz solo cambia de modelo cuando se acabó el cupo del DÍA del anterior
+  // (el tope por minuto lo espera): cada vuelta es un modelo nuevo; hay cuatro.
+  if (vuelta >= 4) {
+    console.error("voz: se terminó el cupo del día de los modelos de voz de Gemini. Contalo en el issue: se retoma mañana.");
     process.exit(3);
   }
   for (const i of pendientes) {
