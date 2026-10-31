@@ -38,7 +38,8 @@ const TOPE_MAGNIFIC_MES = Number(process.env.LMTM_VIDEO_TOPE_MAGNIFIC_MES) || 40
 const VOCES = ["marin", "cedar", "coral", "sage", "ash", "ballad", "verse", "alloy", "echo", "fable", "nova", "onyx", "shimmer"] as const;
 /** En orden. En el plan gratis cada modelo tiene su cupo diario (10 voces en
  *  3.8 Flash); el usuario escuchó los cuatro con Sulafat y suenan igual (30/10). */
-const MODELOS_VOZ_GEMINI = (process.env.LMTM_VOZ_GEMINI_MODELOS ?? "gemini-3.8-flash-tts,gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts")
+const VOCES_CACHE = process.env.LMTM_VOZ_CACHE ?? "/data/videos/voces";
+const MODELOS_VOZ_GEMINI = (process.env.LMTM_VOZ_GEMINI_MODELOS ??"gemini-3.8-flash-tts,gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 /** Una frase con un modelo de Gemini. Los 3.8 aceptan el estilo como anotación
@@ -279,7 +280,7 @@ const def = (name: string, description: string, properties: Record<string, unkno
 const ARCHIVO = { type: "string", description: `Ruta bajo ${RAIZ}/` };
 
 export const VIDEO_TOOLS: ToolDef[] = [
-  def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados). Una frase por llamada; guarda un .wav y devuelve su duración. Usa el mismo modelo en todo el reel; si avisa que cambió de modelo, regenerá las frases anteriores. Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
+  def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados). Una frase por llamada; guarda un .wav y devuelve su duración. La misma frase con el mismo estilo sale de la caché (no gasta cupo). Si un modelo se queda sin cupo sigue con otro (suenan igual: no rehagas las frases anteriores). Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
     texto: { type: "string" }, archivo: ARCHIVO,
     estilo: { type: "string", description: "Gemini: cómo suena, adaptado al cliente («mujer argentina, cálida, como una asesora que recomienda a una amiga…»). Mismo estilo en todas las frases del video." },
     voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina)." },
@@ -773,8 +774,19 @@ export async function ejecutarHerramientaVideo(
       const gemini = process.env.GEMINI_API_KEY?.trim();
       if (gemini && txt(p.proveedor) !== "openai") {
         const voz = txt(p.voz) && !(VOCES as readonly string[]).includes(txt(p.voz)) ? txt(p.voz) : "Sulafat";
-        // Cada reel usa UN modelo para todas sus frases (si no, la voz cambia a mitad
-        // del video). Se guarda en <proyecto>/.voz-modelo y se arranca por ahí.
+        const estilo = txt(p.estilo) || ESTILO_GEMINI;
+        // Caché en el volumen (31/10): la misma frase con el mismo estilo no se vuelve
+        // a pedir nunca, ni en un reintento ni después de un deploy (borra /tmp). El
+        // cupo gratis es de 10 voces por día y por modelo.
+        const { createHash } = await import("node:crypto");
+        const enCache = path.join(VOCES_CACHE, createHash("sha1").update(`${txt(p.texto)}|${estilo}|${voz}`).digest("hex").slice(0, 24));
+        if (fs.existsSync(`${enCache}.wav`)) {
+          fs.mkdirSync(path.dirname(archivo), { recursive: true });
+          fs.copyFileSync(`${enCache}.wav`, archivo);
+          const modelo = fs.existsSync(`${enCache}.modelo`) ? fs.readFileSync(`${enCache}.modelo`, "utf8") : "?";
+          return ok(`Voz (Gemini ${modelo}, ${voz}, de la caché: no gastó cupo) guardada en ${archivo} (${await duracion(archivo)} s).`);
+        }
+        // Se arranca por el último modelo que anduvo en este proyecto (<proyecto>/.voz-modelo).
         const partes = path.relative(RAIZ, archivo).split(path.sep);
         const proyecto = partes.length > 1 ? path.join(RAIZ, partes[0]) : RAIZ;
         const marcaModelo = path.join(proyecto, ".voz-modelo");
@@ -783,15 +795,20 @@ export async function ejecutarHerramientaVideo(
           ? MODELOS_VOZ_GEMINI.slice(MODELOS_VOZ_GEMINI.indexOf(elegido))
           : MODELOS_VOZ_GEMINI;
         for (const modelo of orden) {
-          const r = await vozGemini(gemini, modelo, txt(p.texto), txt(p.estilo) || ESTILO_GEMINI, voz);
+          const r = await vozGemini(gemini, modelo, txt(p.texto), estilo, voz);
           if (r.sinCupo) continue;
           if (!r.audio) return mal(`Gemini voz (${modelo}): ${r.error}`);
           fs.mkdirSync(path.dirname(archivo), { recursive: true });
           fs.writeFileSync(archivo, r.audio);
           fs.writeFileSync(marcaModelo, modelo);
-          const cambio = elegido && elegido !== modelo
-            ? ` OJO: ${elegido} se quedó sin cupo y esta frase salió con ${modelo}. Regenerá TAMBIÉN las frases anteriores de este reel (mismos archivos) para que toda la voz sea del mismo modelo.`
-            : "";
+          try {
+            fs.mkdirSync(VOCES_CACHE, { recursive: true });
+            fs.writeFileSync(`${enCache}.wav`, r.audio);
+            fs.writeFileSync(`${enCache}.modelo`, modelo);
+          } catch { /* sin volumen: sigue sin caché */ }
+          // Los cuatro modelos suenan igual (el usuario los comparó el 30/10): no se
+          // rehacen las frases anteriores cuando uno se queda sin cupo.
+          const cambio = elegido && elegido !== modelo ? ` (${elegido} se quedó sin cupo; suenan igual, no hace falta rehacer las otras frases)` : "";
           return ok(`Voz (Gemini ${modelo}, ${voz}) guardada en ${archivo} (${await duracion(archivo)} s).${cambio} Sacale los tiempos con video_transcribir.`);
         }
         // Sin cupo en ningún modelo: no se cambia a OpenAI (al equipo no le gustó esa voz).

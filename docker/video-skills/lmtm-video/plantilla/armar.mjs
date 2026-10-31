@@ -130,33 +130,22 @@ fs.writeFileSync(archivoGuion, JSON.stringify(G, null, 1));
 fs.mkdirSync("assets/voice", { recursive: true });
 const TEXTOS = [...LINEAS.map((l) => l.texto), C.texto];
 const ARCH_VOZ = TEXTOS.map((_, i) => path.resolve(`assets/voice/l${i + 1}.wav`));
-// La huella de cada voz es «texto+estilo|modelo». Todas tienen que ser del MISMO
-// modelo de Gemini o el reel suena a dos personas. Si video_voz cambia de modelo
-// (se terminó el cupo del anterior), se rehacen SOLO las de otro modelo. El 31/10
-// esto borraba todas las huellas y regeneraba dos rondas enteras (cupo gastado).
+// Se pide solo la voz de la frase cuyo texto o estilo cambió. Los cuatro modelos
+// de Gemini suenan igual (comparados por el usuario el 30/10): si uno se queda sin
+// cupo a mitad del reel, las frases ya hechas NO se rehacen. Rehacerlas quemó el
+// cupo del día en LMTM-6518 (31/10). video_voz además guarda cada voz en /data.
 const huellaVoz = (i) => huella([limpio(TEXTOS[i]), G.estilo, G.voz ?? "Sulafat"]);
-const leerVoz = (a) => (fs.existsSync(a) && fs.existsSync(`${a}.huella`) ? fs.readFileSync(`${a}.huella`, "utf8").split("|") : []);
-const modeloDe = (a) => leerVoz(a)[1] ?? "";
-for (let vuelta = 0; ; vuelta++) {
-  const actual = ARCH_VOZ.map(modeloDe).filter(Boolean).at(-1) ?? "";
-  const pendientes = ARCH_VOZ.map((a, i) => i).filter((i) => leerVoz(ARCH_VOZ[i])[0] !== huellaVoz(i) || (actual && modeloDe(ARCH_VOZ[i]) !== actual));
-  if (pendientes.length === 0) break;
-  // video_voz solo cambia de modelo cuando se acabó el cupo del DÍA del anterior
-  // (el tope por minuto lo espera): cada vuelta es un modelo nuevo; hay cuatro.
-  if (vuelta >= 4) {
-    console.error("voz: se terminó el cupo del día de los modelos de voz de Gemini. Contalo en el issue: se retoma mañana.");
-    process.exit(3);
+const huellaDe = (a) => (fs.existsSync(a) && fs.existsSync(`${a}.huella`) ? fs.readFileSync(`${a}.huella`, "utf8").split("|")[0] : "");
+for (const [i, archivo] of ARCH_VOZ.entries()) {
+  if (huellaDe(archivo) === huellaVoz(i)) continue;
+  const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo, estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}) });
+  if (!r.ok) {
+    console.error(`voz l${i + 1}: ${r.content}`);
+    process.exit(/cupo/i.test(r.content) ? 3 : 1);
   }
-  for (const i of pendientes) {
-    const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo: ARCH_VOZ[i], estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}) });
-    if (!r.ok) {
-      console.error(`voz l${i + 1}: ${r.content}`);
-      process.exit(/cupo/i.test(r.content) ? 3 : 1);
-    }
-    const modelo = /Gemini ([\w.-]+)/.exec(r.content)?.[1] ?? "?";
-    fs.writeFileSync(`${ARCH_VOZ[i]}.huella`, `${huellaVoz(i)}|${modelo}`);
-    console.log(`voz l${i + 1} (${modelo}): ${limpio(TEXTOS[i])}`);
-  }
+  const modelo = /Gemini ([\w.-]+)/.exec(r.content)?.[1] ?? "?";
+  fs.writeFileSync(`${archivo}.huella`, `${huellaVoz(i)}|${modelo}`);
+  console.log(`voz l${i + 1} (${modelo}${/caché/.test(r.content) ? ", de la caché" : ""}): ${limpio(TEXTOS[i])}`);
 }
 
 // ── 3. Tiempos de cada palabra (whisper local de hyperframes, sin OpenAI) ───
