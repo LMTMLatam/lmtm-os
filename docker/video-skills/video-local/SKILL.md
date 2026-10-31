@@ -41,7 +41,10 @@ devuelve una linea. Tu rol es elegir el comando, correrlo y leer la linea final.
   `vtool insertar` en el momento en que se nombra (los tiempos salen de `vtool tomas` o del .srt).
 - **Nada tapa caras, logos ni producto.** El reel mueve los subtitulos si hay una cara abajo; `insertar` en modo
   `ventana` usa la franja de arriba. Despues de cada entrega, `vtool revisar` y mirar la hoja.
-- Zonas seguras en 1080x1920: nada importante en el 14 % de arriba ni en el 35 % de abajo. vtool ya respeta eso.
+- Formato de reel viral (vtool ya lo hace): subtítulos de 1 a 3 palabras, grandes, con borde, en el tercio de abajo;
+  gancho con `--gancho "Frase con *clave*"`. Nada en los 269 px de arriba ni en los 400 px de abajo.
+- **Nada de carteles ni rótulos en recuadros** (ni con drawtext ni con HyperFrames): el texto en pantalla es el
+  subtítulo y el gancho.
 - Placas animadas (precios, listas) no son de vtool: se hacen con HyperFrames y se suman con `vtool insertar` o `vtool unir`.
 
 ## Comandos

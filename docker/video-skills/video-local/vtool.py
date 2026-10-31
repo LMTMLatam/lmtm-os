@@ -24,7 +24,7 @@ VERSION = "1.4-lmtm-os"
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm"}
 IMAGEN_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 FORMATOS = {"9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350), "16:9": (1920, 1080)}
-ANCHO_SUBS = {"9:16": 18, "4:5": 24, "1:1": 24, "16:9": 36}  # caracteres por linea en el reel
+ANCHO_SUBS = {"9:16": 16, "4:5": 22, "1:1": 22, "16:9": 36}  # caracteres por linea en el reel
 H264 = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-movflags", "+faststart"]
 # En el contenedor `hyperframes` esta instalado global (Node 22); en otra maquina se baja con npx.
@@ -298,13 +298,14 @@ def partir_lineas(texto, ancho=42):
     return " ".join(palabras[:mejor]) + "\n" + " ".join(palabras[mejor:])
 
 
-def armar_grupos(palabras, ancho=42, max_dur=3.5, pausa=0.7):
+def armar_grupos(palabras, ancho=42, max_dur=3.5, pausa=0.7, max_palabras=None):
     """palabras: [(inicio, fin, texto)] -> grupos de palabras que entran en un subtitulo de <=2 lineas."""
     grupos, cur = [], []
     for w in palabras:
         if cur:
             texto = " ".join(x[2] for x in cur)
             if (len(texto) + 1 + len(w[2]) > ancho * 2 or w[0] - cur[-1][1] > pausa or w[1] - cur[0][0] > max_dur
+                    or (max_palabras and len(cur) >= max_palabras)
                     or (texto[-1] in ".?!" and len(texto) >= 20) or (texto[-1] == "," and len(texto) >= 30)):
                 grupos.append(cur)
                 cur = []
@@ -341,22 +342,25 @@ def ass_tiempo(s):
 
 
 def tam_letra(w, h):
-    return round(min(w / 15, h / 20))
+    return round(min(w / 11, h / 15))
 
 
 def escribir_ass(palabras, destino, w, h, ancho, estilo, color, fuente, posicion, gancho, dur):
     """Subtitulos palabra por palabra: la palabra que se esta diciendo se pinta del color de la marca.
-    Abajo quedan arriba del 35% inferior (lo tapan la descripcion y los botones de Reels/TikTok)."""
+    Formato de reels virales (31/10): grandes, de 1 a 3 palabras, blancos con borde negro, en el tercio de abajo
+    (borde inferior al 23 %, encima del texto y los botones de Reels) y centrados lejos de la columna de botones.
+    Sin cajas ni rotulos: el gancho tambien va con borde, no en un recuadro."""
     tam = tam_letra(w, h)
     caja = estilo == "caja"
-    margen, alin = (round(h * 0.35), 2) if posicion == "abajo" else (round(h * 0.24), 8)
+    margen, alin = (round(h * 0.23), 2) if posicion == "abajo" else (round(h * 0.2), 8)
+    lado = round(w * 0.13)
     estilo_sub = (f"Sub,{fuente},{tam},&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,"
-                  f"{3 if caja else 1},{round(tam * (0.22 if caja else 0.09))},0,{alin},60,60,{margen},1")
-    estilo_gancho = (f"Gancho,{fuente},{round(tam * 1.3)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,"
-                     f"100,100,0,0,3,{round(tam * 0.25)},0,8,60,60,{round(h * 0.14)},1")
+                  f"{3 if caja else 1},{round(tam * (0.22 if caja else 0.12))},{0 if caja else 2},{alin},{lado},{lado},{margen},1")
+    estilo_gancho = (f"Gancho,{fuente},{tam},&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,"
+                     f"100,100,0,0,1,{round(tam * 0.12)},2,8,{lado},{lado},{round(h * 0.2)},1")
     activo, blanco = "{\\c" + ass_color(color) + "}", "{\\c&H00FFFFFF&}"
     eventos = []
-    for g in armar_grupos(palabras, ancho):
+    for g in armar_grupos(palabras, ancho, max_palabras=3):
         limpio = [re.sub(r"[{}\\]", "", x[2]) for x in g]
         n1 = len(partir_lineas(" ".join(limpio), ancho).split("\n")[0].split())
 
@@ -369,7 +373,8 @@ def escribir_ass(palabras, destino, w, h, ancho, estilo, color, fuente, posicion
             for k in range(len(g)):
                 eventos.append((g[k][0] if k else g[0][0], g[k + 1][0] if k + 1 < len(g) else g[-1][1], "Sub", linea(k)))
     if gancho:
-        eventos.append((0.0, min(3.0, dur), "Gancho", "{\\fad(150,300)}" + re.sub(r"[{}\\]", "", gancho)))
+        resaltado = re.sub(r"\*([^*]+)\*", lambda m: activo + m.group(1) + blanco, re.sub(r"[{}\\]", "", gancho))
+        eventos.append((0.0, min(3.0, dur), "Gancho", "{\\fad(150,300)}" + resaltado))
     Path(destino).write_text(
         "[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "

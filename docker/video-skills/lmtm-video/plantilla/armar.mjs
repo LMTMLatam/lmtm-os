@@ -15,7 +15,9 @@
 //   estilo, voz        cómo suena la voz (el mismo en todas las frases)
 //   lineas[]           { texto: "Diseñamos *placares* a medida.", planos: [{ fuente, desde, foco, lento, realce, muestra, drive }] }
 //                      *palabra* = resaltada. Cada línea, sus planos (en orden).
-//   cierre             { texto (lo que dice la voz), titulo, etiqueta, cta, url, fantasma, corte, cola }
+//   gancho             texto corto arriba en los primeros 2 s (opcional, *palabra* resaltada)
+//   cierre             { texto (lo que dice la voz), titulo, etiqueta, cta, url, corte, cola, plano }
+//                      (va SOBRE la última toma o sobre cierre.plano: sin placa)
 //   marca, musica      { archivo, volumen } o { prompt } para generarla con Magnific
 import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -230,6 +232,10 @@ for (const [i, l] of LINEAS.entries()) {
     planos.push({ ...l.planos[k], linea: i, en: r2(cortes[k]), dur });
   }
 }
+// El cierre va SOBRE video (los reels virales no terminan en una placa): su propia
+// toma (cierre.plano) o la última del reel, estirada hasta el final.
+if (C.plano) planos.push({ ...C.plano, linea: LINEAS.length - 1, en: CIERRE, dur: r2(FIN - CIERRE) });
+else planos.at(-1).dur = r2(FIN - planos.at(-1).en);
 frenar("tiempos");
 
 // ── 5. Planos 9:16 (solo los que cambiaron) ─────────────────────────────────
@@ -282,8 +288,8 @@ function trozos(ws) {
   for (const w of ws) {
     cur.push(w);
     const largo = cur.map((x) => x.t).join(" ").length;
-    // En la puntuación se corta con 3 palabras o más: «¿Tu placard,» sola duraba 0,6 s en pantalla.
-    if ((/[.,;:!?]$/.test(w.t) && cur.length >= 3) || cur.length >= 5 || largo >= 30) { res.push(cur); cur = []; }
+    // Formato viral (31/10): de 1 a 3 palabras por vez, cortando en la puntuación.
+    if ((/[.,;:!?]$/.test(w.t) && cur.length >= 2) || cur.length >= 3 || largo >= 16) { res.push(cur); cur = []; }
   }
   if (cur.length) { if (cur.length === 1 && res.length) res[res.length - 1].push(...cur); else res.push(cur); }
   return res;
@@ -327,11 +333,11 @@ const reel = {
   voz: ARCH_VOZ.map((a, i) => ({ archivo: path.relative(DIR, a).replace(/\\/g, "/"), desde: INI[i], dur: r2(DUR_VOZ[i]) })),
   planos: reelPlanos,
   frases,
+  ...(G.gancho ? { gancho: { texto: G.gancho, hasta: r2(Math.min(2.6, INI[1] ?? 2.6)) } } : {}),
   marca: M,
   cierre: {
     desde: CIERRE, etiqueta: C.etiqueta ?? "", titulo: titPal, ...(C.corte ? { corte: C.corte } : {}),
     cta: C.cta ?? "", ctaDesde: r2(Math.min(FIN - 1.2, ultimaTit + 0.6)), url: C.url ?? "", urlDesde: r2(Math.min(FIN - 0.8, ultimaTit + 1.1)),
-    ...(C.fantasma ? { fantasma: C.fantasma } : {}),
   },
   ...(musica ? { musica } : {}),
 };

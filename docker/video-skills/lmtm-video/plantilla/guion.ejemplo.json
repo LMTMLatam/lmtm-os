@@ -2,6 +2,7 @@
  "titulo": "RENO · Placares y vestidores",
  "cliente": "RENO",
  "brief": "Reel de placares y vestidores a medida de RENO. Diseño propio, fabricación en su planta argentina e instalación. Paleta negra y hueso, nada de rojo.",
+ "gancho": "Placares a *medida*",
  "estilo": "Mujer argentina con acento rioplatense natural. Voz cálida, segura, con una sonrisa en la voz, como alguien que le recomienda algo a una amiga. Sin tono de locutora.",
  "lineas": [
   { "texto": "¿Tu *placard,* a tu *medida?*", "planos": [
@@ -25,8 +26,7 @@
   "corte": 2,
   "etiqueta": "FABRICACIÓN ARGENTINA · DESDE 1956",
   "cta": "Conocé más",
-  "url": "amoblamientosreno.com",
-  "fantasma": "RENO"
+  "url": "amoblamientosreno.com"
  },
  "marca": { "logo": "assets/marca/logo.png", "logoBlanco": true, "color": "#141416", "colorTexto": "#141416", "oscuro": "#141416", "claro": "#f0efec", "tinta": "#5c5b5d", "fuente": "Montserrat", "anchoLogo": 200 },
  "musica": { "prompt": "Elegant warm modern instrumental for an interior design brand: soft piano, light acoustic guitar, subtle warm pads, gentle steady beat, 96 bpm, premium, no vocals.", "volumen": 0.25 }

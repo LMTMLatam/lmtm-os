@@ -33,7 +33,8 @@ exigir(Number(C.desde) > 0 && Number(C.desde) < FIN, "cierre.desde: tiene que ca
 exigir(Array.isArray(C.titulo) && C.titulo.length > 0, "cierre.titulo: las palabras del titular con su segundo");
 for (const [i, fr] of FRASES.entries()) exigir(Number(fr.hasta) <= Number(C.desde) + 0.01, `frases[${i}]: termina después de que empieza el cierre`);
 const tapados = PLANOS.reduce((fin, p) => Math.max(fin, Number(p.desde) + Number(p.dur)), 0);
-exigir(tapados >= Number(C.desde) - 0.05, `planos: terminan en ${tapados.toFixed(2)} s y el cierre empieza en ${C.desde} s (queda un hueco negro)`);
+// El cierre va sobre la última toma: los planos cubren hasta el final.
+exigir(tapados >= FIN - 0.05, `planos: terminan en ${tapados.toFixed(2)} s y el reel dura ${FIN} s (queda un hueco negro)`);
 if (errores.length) {
   console.error("reel.json no cumple el estándar:\n- " + errores.join("\n- "));
   process.exit(1);
@@ -42,26 +43,26 @@ if (errores.length) {
 const f = (n) => Number(Number(n).toFixed(3));
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 const color = M.color;
-const colorTexto = M.colorTexto ?? color;
 const oscuro = M.oscuro ?? "#1f1f1f";
-const claro = M.claro ?? "#f4f4f4";
-const tinta = M.tinta ?? "#404040";
 const fuente = M.fuente ?? "Montserrat";
 /** Luminancia relativa (0 negro, 1 blanco). */
 const luz = (hex) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
-// Marca oscura (RENO es casi negro): el marcador del subtítulo, del mismo color,
-// desaparecía sobre las tomas oscuras. Pasa a claro con la palabra en oscuro.
+// Formato de los reels virales (31/10, pedido del usuario: «los subtítulos en el
+// medio y los carteles no me gustan»): subtítulos grandes de 1 a 3 palabras,
+// blancos con borde, abajo, y la palabra clave en el color de la marca. Sin
+// recuadros ni rótulos. Si el color de la marca no se lee sobre video (casi negro
+// o casi blanco, como RENO), marca.acento; si no hay, la clave va un poco más grande.
 const marcaOscura = luz(color) < 0.05;
-const fondoMarcador = marcaOscura ? claro : color;
-const textoMarcador = marcaOscura ? oscuro : "#ffffff";
+const acento = M.acento ?? (luz(color) > 0.04 && luz(color) < 0.8 ? color : null);
 // Logo oscuro de una sola tinta sobre tomas oscuras no se ve: marca.logoBlanco lo
-// pasa a blanco (como la versión «fondo negro» que tienen las marcas). Solo arriba;
-// el cierre (fondo claro) usa el logo original.
+// pasa a blanco (como la versión «fondo negro» que tienen las marcas), arriba y en el cierre.
 const filtroLogo = M.logoBlanco ? "brightness(0) invert(1) " : "";
 const esImagen = (a) => /\.(jpe?g|png|webp)$/i.test(a);
+const BORDE = [[0, 5], [0, -5], [5, 0], [-5, 0], [4, 4], [-4, 4], [4, -4], [-4, -4]].map(([x, y]) => `${x}px ${y}px 0 #000`).join(", ");
+const G_ = spec.gancho && spec.gancho.texto ? spec.gancho : null;
 const CIERRE_DESDE = f(C.desde);
 
 const tomasHtml = PLANOS.map((p, i) => {
@@ -75,9 +76,7 @@ const tomasHtml = PLANOS.map((p, i) => {
       </div>`;
 }).join("");
 
-const palabra = (id, w, dest) => dest
-  ? `<span class="w dest" id="${id}"><span class="m" id="${id}m"></span><span class="t">${esc(w)}</span></span>`
-  : `<span class="w" id="${id}">${esc(w)}</span>`;
+const palabra = (id, w, dest) => `<span class="w${dest ? " dest" : ""}" id="${id}">${esc(w)}</span>`;
 
 const frasesHtml = FRASES.map((fr, i) => `
       <p class="frase clip" id="frase-${i + 1}" data-start="${f(fr.desde)}" data-duration="${f(fr.hasta - fr.desde)}" data-track-index="3">${fr.palabras
@@ -111,8 +110,6 @@ FRASES.forEach((fr, i) => {
     const id = `#f${i + 1}w${j + 1}`;
     const at = f(Math.max(fr.desde, t - 0.06));
     textos.push(`tl.fromTo("${id}", { opacity: 0, y: 40, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.34, ease: "back.out(2)" }, ${at});`);
-    // Marca oscura: la letra resaltada es oscura y sin su marcador claro no se lee; entra junto con la palabra.
-    if (dest) textos.push(`tl.fromTo("${id}m", { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "expo.out" }, ${f(marcaOscura ? at : at + 0.08)});`);
   });
   textos.push(`tl.fromTo("#frase-${i + 1}", { opacity: 1, y: 0 }, { opacity: 0, y: -16, duration: 0.2, ease: "power2.in", immediateRender: false }, ${f(fr.hasta - 0.22)});`);
 });
@@ -132,23 +129,21 @@ const html = `<!doctype html>
       .toma video, .toma img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
       #velo { position: absolute; inset: 0; pointer-events: none;
         background:
-          linear-gradient(to top, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.22) 22%, rgba(0,0,0,0.55) 38%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 64%),
+          linear-gradient(to top, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.22) 26%, rgba(0,0,0,0) 46%),
           radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.34) 100%); }
-      /* Zonas seguras de Reels (31/10): nada importante en el 14 % de arriba (269 px)
-         ni en el 35 % de abajo (672 px); ahí van la interfaz y la descripción. El velo
-         sigue a los subtítulos. */
-      #marca { position: absolute; left: 76px; top: 280px; width: ${Number(M.anchoLogo ?? 190)}px; }
+      /* Arriba, fuera de la interfaz de Reels (269 px). Chico, como una firma. */
+      #marca { position: absolute; left: 76px; top: 280px; width: ${Number(M.anchoLogo ?? 150)}px; }
       #marca img { display: block; width: 100%; height: auto; filter: ${filtroLogo}drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 6px 18px rgba(0,0,0,0.35)); }
-      .frase { position: absolute; left: 80px; right: 80px; bottom: 680px; margin: 0;
-        font-weight: 800; font-size: ${Number(spec.tamanoSubtitulo ?? 100)}px; line-height: 1.12; letter-spacing: -0.025em;
-        color: var(--blanco); text-wrap: balance;
-        /* la capa corta da borde sobre fondos claros (vestidor iluminado de RENO, 30/10) sin oscurecer la toma */
-        text-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 2px 22px rgba(0,0,0,0.5); }
-      .frase .w { display: inline-block; }
-      .frase .dest { position: relative; text-shadow: none; color: ${textoMarcador}; }
-      .frase .dest .t { position: relative; }
-      .frase .dest .m { position: absolute; left: -0.1em; right: -0.1em; top: 0.12em; bottom: 0.04em;
-        background: ${fondoMarcador}; border-radius: 14px; transform-origin: 0 50%; }
+      /* Subtítulo de reel viral: abajo (el borde de abajo a 440 px, encima del texto
+         y los botones de Reels), centrado y angosto para no chocar con la columna
+         de botones de la derecha, blanco con borde negro. */
+      .frase, #gancho { position: absolute; left: 150px; right: 150px; margin: 0; text-align: center;
+        font-weight: 900; line-height: 1.04; letter-spacing: -0.02em; color: var(--blanco); text-wrap: balance;
+        text-shadow: ${BORDE}, 0 8px 24px rgba(0,0,0,0.45); }
+      .frase { bottom: 440px; font-size: ${Number(spec.tamanoSubtitulo ?? 96)}px; }
+      #gancho { top: 420px; font-size: ${Number(spec.tamanoGancho ?? 84)}px; }
+      .frase .w, #gancho .w { display: inline-block; }
+      .dest { ${acento ? `color: ${acento};` : "font-size: 1.12em;"} }
     </style>
   </head>
   <body>
@@ -156,7 +151,7 @@ const html = `<!doctype html>
 
       <div id="velo"></div>
       <div id="marca"><img src="${esc(M.logo)}" alt="" /></div>
-${frasesHtml}
+${G_ ? `      <p id="gancho" class="clip" data-start="0" data-duration="${f(G_.hasta ?? 2.4)}" data-track-index="2">${String(G_.texto).split(/\s+/).map((w) => `<span class="w${/\*/.test(w) ? " dest" : ""}">${esc(w.replace(/\*/g, ""))}</span>`).join(" ")}</p>\n` : ""}${frasesHtml}
 
       <div id="cierre" data-composition-id="cierre" data-composition-src="compositions/cierre.html"
         data-start="${CIERRE_DESDE}" data-duration="${f(FIN - CIERRE_DESDE)}" data-track-index="4" data-width="1080" data-height="1920"></div>
@@ -165,6 +160,7 @@ ${voces}${musica}
     <script>
       const tl = gsap.timeline({ paused: true });
       ${tomas.join("\n      ")}
+      ${G_ ? `tl.fromTo("#gancho", { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.35, ease: "back.out(2)" }, 0.05);` : ""}
       tl.fromTo("#marca", { opacity: 0, y: -18, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.8)" }, 0.15);
       tl.fromTo("#marca", { opacity: 1 }, { opacity: 0, duration: 0.3, ease: "power2.in", immediateRender: false }, ${CIERRE_DESDE});
       ${textos.join("\n      ")}
@@ -185,31 +181,25 @@ const cierre = `<!doctype html>
     <template>
       <style>
         #root { position: absolute; inset: 0; overflow: hidden; font-family: ${fuente}, sans-serif; }
-        #cierre-fondo { position: absolute; inset: 0; background: ${claro}; }
-        #fantasma { position: absolute; left: -80px; right: -80px; top: 1180px; text-align: center;
-          font-weight: 900; font-size: ${Number(C.tamanoFantasma ?? 620)}px; line-height: 1; letter-spacing: -0.04em; color: rgba(0,0,0,0.06); white-space: nowrap; }
-        #mancha { position: absolute; width: 760px; height: 760px; right: -330px; bottom: -300px;
-          background: ${color}; border-radius: 46% 54% 42% 58% / 52% 44% 56% 48%; opacity: 0.9; }
-        #cierre-contenido { position: absolute; left: 80px; right: 80px; top: 300px; display: flex; flex-direction: column; align-items: center; text-align: center; }
-        #cierre-logo { width: ${Number(C.anchoLogo ?? 380)}px; height: auto; display: block; }
-        #cierre-etiqueta { margin-top: 56px; font-size: 28px; font-weight: 700; letter-spacing: 0.24em; color: ${tinta}; }
-        #cierre-titulo { margin: 30px 0 0; font-weight: 900; font-size: ${Number(C.tamanoTitulo ?? 150)}px; line-height: 1.0; letter-spacing: -0.035em; color: ${tinta}; text-wrap: balance; }
+        /* El cierre va SOBRE la última toma, como en los reels virales: una placa
+           estática al final corta la retención y el loop. */
+        #cierre-fondo { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.15) 70%, rgba(0,0,0,0) 85%); }
+        #cierre-contenido { position: absolute; left: 110px; right: 110px; bottom: 480px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+        #cierre-logo { width: ${Number(C.anchoLogo ?? 300)}px; height: auto; display: block; filter: ${M.logoBlanco ? "brightness(0) invert(1) " : ""}drop-shadow(0 2px 6px rgba(0,0,0,0.5)); }
+        #cierre-etiqueta { margin-top: 28px; font-size: 28px; font-weight: 700; letter-spacing: 0.22em; color: rgba(255,255,255,0.85); }
+        #cierre-titulo { margin: 22px 0 0; font-weight: 900; font-size: ${Number(C.tamanoTitulo ?? 120)}px; line-height: 1.0; letter-spacing: -0.03em; color: #fff; text-wrap: balance; text-shadow: ${BORDE}; }
         #cierre-titulo .linea { display: block; }
         #cierre-titulo .w { display: inline-block; }
-        #cierre-titulo .dest { color: ${colorTexto}; }
-        #cierre-regla { width: 460px; height: 8px; border-radius: 4px; margin-top: 56px; background: ${color}; transform-origin: 50% 50%; }
-        #cta { margin-top: 60px; display: inline-block; padding: 30px 70px; border-radius: 999px; background: ${color}; color: #ffffff; font-size: 46px; font-weight: 800; letter-spacing: 0.01em; }
-        #url { margin-top: 34px; font-size: 50px; font-weight: 800; color: ${tinta}; letter-spacing: -0.005em; }
+        #cierre-titulo .dest { ${acento ? `color: ${acento};` : ""} }
+        #cta { margin-top: 40px; display: inline-block; padding: 26px 64px; border-radius: 999px; background: ${acento ?? "#ffffff"}; color: ${acento && !marcaOscura && luz(acento) < 0.5 ? "#ffffff" : "#111111"}; font-size: 44px; font-weight: 800; }
+        #url { margin-top: 26px; font-size: 44px; font-weight: 800; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
       </style>
       <div id="root" data-composition-id="cierre" data-width="1080" data-height="1920">
         <div id="cierre-fondo"></div>
-        ${C.fantasma ? `<div id="fantasma" aria-hidden="true" data-layout-ignore>${esc(C.fantasma)}</div>` : ""}
-        <div id="mancha" aria-hidden="true" data-layout-ignore></div>
         <div id="cierre-contenido">
           <img id="cierre-logo" src="${esc(C.logo ?? M.logo)}" alt="" />
           ${C.etiqueta ? `<div id="cierre-etiqueta">${esc(C.etiqueta)}</div>` : ""}
           <h1 id="cierre-titulo">${titulo}</h1>
-          <div id="cierre-regla"></div>
           ${C.cta ? `<div id="cta">${esc(C.cta)}</div>` : ""}
           ${C.url ? `<div id="url">${esc(C.url)}</div>` : ""}
         </div>
@@ -217,12 +207,9 @@ const cierre = `<!doctype html>
       <script>
         const tl = gsap.timeline({ paused: true });
         tl.fromTo("#cierre-fondo", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.inOut" }, 0);
-        tl.fromTo("#mancha", { opacity: 0, scale: 0.6, rotation: -20 }, { opacity: 0.9, scale: 1, rotation: 8, duration: ${f(FIN - CIERRE_DESDE - 0.3)}, ease: "power2.out" }, 0.25);
-        ${C.fantasma ? `tl.fromTo("#fantasma", { opacity: 0, x: 110 }, { opacity: 1, x: -110, duration: ${f(FIN - CIERRE_DESDE - 0.2)}, ease: "none" }, 0.2);` : ""}
         tl.fromTo("#cierre-logo", { opacity: 0, scale: 0.7, rotation: -12 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.7, ease: "back.out(1.7)" }, 0.3);
         ${C.etiqueta ? `tl.fromTo("#cierre-etiqueta", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.55);` : ""}
         ${C.titulo.map(([, t], j) => `tl.fromTo("#tw${j + 1}", { opacity: 0, y: 46, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "back.out(2)" }, ${L(Math.max(t - 0.06, CIERRE_DESDE + 0.2))});`).join("\n        ")}
-        tl.fromTo("#cierre-regla", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "expo.inOut" }, ${L(ctaAt - 0.45)});
         ${C.cta ? `tl.fromTo("#cta", { opacity: 0, scale: 0.82, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.55, ease: "back.out(1.8)" }, ${L(ctaAt - 0.05)});` : ""}
         ${C.url ? `tl.fromTo("#url", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, ${L(urlAt)});` : ""}
         ${C.cta && urlAt + 1.0 < FIN ? `tl.fromTo("#cta", { scale: 1 }, { scale: 1.05, duration: 0.45, ease: "sine.inOut", yoyo: true, repeat: 3, immediateRender: false }, ${L(urlAt + 1.0)});` : ""}

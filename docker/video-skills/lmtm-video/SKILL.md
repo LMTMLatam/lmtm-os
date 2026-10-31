@@ -32,8 +32,13 @@ El equipo aprobó un estándar, y el diseño ya está resuelto en
 - planos a pantalla completa con empuje suave;
 - velo para leer;
 - logo fijo arriba;
-- subtítulos grandes palabra por palabra con marcador del color de la marca;
-- cierre con logo, titular, botón, web, palabra fantasma y mancha de color.
+- subtítulos de reel viral: de 1 a 3 palabras, grandes, blancos con borde, en el tercio de abajo, y las palabras
+  clave en el color de la marca (sin recuadros);
+- gancho opcional arriba en los primeros 2 s (`gancho` en guion.json, una frase corta del guion);
+- cierre SOBRE la última toma (o `cierre.plano`): logo, titular, botón y web. Sin placa de fondo.
+
+**Nada de carteles ni rótulos en recuadros** («JUJUY 3200 · EN VENTA», «Cocina integrada»): al usuario no le
+gustan y los virales no los usan. El texto en pantalla es el subtítulo y, como mucho, el gancho.
 
 **Mirá `ejemplos/estandar-hiper.jpg` antes de empezar: así tiene que verse.**
 
