@@ -987,7 +987,9 @@ export async function ejecutarHerramientaVideo(
         const pedido = (esVideo
           ? "Sos el control de calidad de reels verticales 1080x1920 de una agencia. Te paso cuadros del video terminado en orden " +
             `(en los segundos ${momentos.join(", ")}) y el brief. Para cada cuadro revisá: subtítulos legibles (tamaño y contraste con lo de atrás), ` +
-            "texto o logo cortado o dentro de los 269 px de arriba / 400 px de abajo (interfaz de Reels), texto que tapa caras, logos, carteles o precios, rótulos o carteles en recuadros sobre el video (el formato es subtítulo + gancho; un rótulo en caja es un problema), " +
+            "texto o logo cortado o dentro de los 269 px de arriba / 400 px de abajo (interfaz de Reels), texto que tapa caras, logos, carteles o precios " +
+            "(el subtítulo va SIEMPRE encima del video, como en los reels virales: que quede sobre una parte de una toma a pantalla completa —estantes, paredes, piso— NO es un problema; " +
+            "sí lo es si tapa justo el detalle que nombra la frase), rótulos o carteles en recuadros sobre el video (el formato es subtítulo + gancho; un rótulo en caja es un problema), " +
             "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
