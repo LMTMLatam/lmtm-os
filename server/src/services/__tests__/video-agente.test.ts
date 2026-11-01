@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, idDeDrive, rutaSegura } from "../video-agente.js";
+import { NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, elegirVozElevenLabs, idDeDrive, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
 import { proveedorDelProxy } from "@paperclipai/adapter-claude-local/server";
 
@@ -14,6 +14,22 @@ describe("costo de las corridas", () => {
 });
 
 describe("video-agente: ElevenLabs", () => {
+  it("elige la voz por nombre o id y si no existe lista las propias", () => {
+    const voces = [
+      { voice_id: "a1", name: "RENO", category: "cloned" },
+      { voice_id: "b2", name: "Agustina - Young, Professional & Warm", category: "professional", labels: { accent: "argentine" } },
+      { voice_id: "c3", name: "Roger - Laid-Back", category: "premade", labels: { accent: "american" } },
+    ];
+    expect(elegirVozElevenLabs(voces, "reno")).toEqual({ id: "a1" });
+    expect(elegirVozElevenLabs(voces, "b2")).toEqual({ id: "b2" });
+    expect(elegirVozElevenLabs(voces, "Agustina")).toEqual({ id: "b2" });
+    const no = elegirVozElevenLabs(voces, "Otra") as { opciones: string };
+    expect(no.opciones).toContain("RENO (clonada)");
+    expect(no.opciones).toContain("Agustina");
+    expect(no.opciones).not.toContain("Roger");
+    expect(elegirVozElevenLabs(voces, "")).toHaveProperty("opciones");
+  });
+
   it("sin clave avisa y no gasta nada, en voz y en música", async () => {
     const antes = process.env.ELEVENLABS_API_KEY;
     delete process.env.ELEVENLABS_API_KEY;

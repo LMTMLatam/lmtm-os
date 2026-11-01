@@ -234,6 +234,18 @@ async function audioElevenLabs(ruta: string, cuerpo: unknown): Promise<Buffer> {
 }
 
 /**
+ * La voz por su id o por su nombre («RENO»). La cuenta tiene voces clonadas de clientes y voces argentinas: sin una
+ * voz que exista, la respuesta las lista para elegir, sin gastar nada.
+ */
+export function elegirVozElevenLabs(voces: Array<{ voice_id: string; name: string; category?: string; labels?: { accent?: string } }>, pedida: string): { id: string } | { opciones: string } {
+  const n = pedida.trim().toLowerCase();
+  const hallada = n && voces.find((v) => v.voice_id === pedida.trim() || v.name.trim().toLowerCase() === n || v.name.trim().toLowerCase().split(" - ")[0] === n);
+  if (hallada) return { id: hallada.voice_id };
+  const propias = voces.filter((v) => v.category === "cloned" || /argentin/i.test(v.labels?.accent ?? ""));
+  return { opciones: propias.map((v) => `${v.name} (${v.category === "cloned" ? "clonada" : "argentina"})`).join("; ") };
+}
+
+/**
  * Créditos de una generación según la tarifa de Magnific (simulate_cost del conector, 01/11; misma unidad que el
  * saldo). La API no devuelve el costo de cada pedido ni tiene un endpoint de saldo: es una estimación y el panel lo
  * dice. Sin tarifa, null: nunca un número inventado.
@@ -322,7 +334,7 @@ export const VIDEO_TOOLS: ToolDef[] = [
   def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados) o ElevenLabs si el guion lo pide (gasta créditos, requiere el id de la voz). Una frase por llamada; guarda un .wav y devuelve su duración. La misma frase con el mismo estilo sale de la caché (no gasta cupo). Si un modelo se queda sin cupo sigue con otro (suenan igual: no rehagas las frases anteriores). Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
     texto: { type: "string" }, archivo: ARCHIVO,
     estilo: { type: "string", description: "Gemini: cómo suena, adaptado al cliente («mujer argentina, cálida, como una asesora que recomienda a una amiga…»). Mismo estilo en todas las frases del video." },
-    voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina). ElevenLabs: el voice_id." },
+    voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina). ElevenLabs: el nombre («RENO») o el id; si no existe, devuelve las disponibles sin gastar." },
     proveedor: { type: "string", enum: ["gemini", "openai", "elevenlabs"], description: "Por defecto Gemini. elevenlabs: solo si el pedido o el guion lo indican." },
     instrucciones: { type: "string", description: "OpenAI: tono extra." },
   }, ["texto", "archivo"]),
@@ -813,8 +825,11 @@ export async function ejecutarHerramientaVideo(
       if (!txt(p.texto)) return mal("falta el texto");
       if (txt(p.proveedor) === "elevenlabs") {
         if (!claveElevenLabs()) return mal("ElevenLabs no está configurado en el servidor (ELEVENLABS_API_KEY).");
-        const voz = txt(p.voz) || process.env.ELEVENLABS_VOZ?.trim() || "";
-        if (!voz) return mal("ElevenLabs necesita el id de la voz (voz o ELEVENLABS_VOZ).");
+        const lista = await fetch(`${ELEVENLABS}/voices`, { headers: { "xi-api-key": claveElevenLabs() }, signal: AbortSignal.timeout(30_000) });
+        if (!lista.ok) return mal(`ElevenLabs voces ${lista.status}: ${(await lista.text()).slice(0, 200)}`);
+        const elegida = elegirVozElevenLabs(((await lista.json()) as { voces?: never; voices: Parameters<typeof elegirVozElevenLabs>[0] }).voices ?? [], txt(p.voz) || process.env.ELEVENLABS_VOZ?.trim() || "");
+        if ("opciones" in elegida) return mal(`Voz de ElevenLabs no encontrada: «${txt(p.voz)}». No se gastó nada. Disponibles: ${elegida.opciones}.`);
+        const voz = elegida.id;
         const { createHash } = await import("node:crypto");
         const enCache = path.join(VOCES_CACHE, `el-${createHash("sha1").update(`${txt(p.texto)}|${voz}`).digest("hex").slice(0, 24)}.wav`);
         fs.mkdirSync(path.dirname(archivo), { recursive: true });

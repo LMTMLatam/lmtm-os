@@ -111,8 +111,10 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    - `musica`: `{ "prompt": … }` para generarla (cálida, sin voces) o
      `{ "archivo": … }` si el cliente tiene una cama instrumental. Con
      `"proveedor": "elevenlabs"` y `"duracion"` la genera ElevenLabs.
-   - ElevenLabs para la voz, solo si el pedido lo indica: `"proveedorVoz": "elevenlabs"`
-     y `voz` = su voice_id. Todo el reel con la misma voz.
+   - ElevenLabs para la voz, solo si el pedido lo indica: `"proveedorVoz": "elevenlabs"` y `voz` = el nombre
+     («Agustina», «Tomas») o el id. Si no existe, la respuesta lista las disponibles sin gastar. Las clonadas de
+     clientes (RENO, MAERS) no andan con el plan actual: responde 401. Todo el reel con la misma voz. Cuesta un
+     crédito por carácter.
 5. **Armar:** `node $P/armar.mjs guion.json`. Frena con lo que no cumple (fuentes
    repetidas, frase con más planos de los que entran, toma que no alcanza, logo
    que falta): corregí `guion.json` y volvé a correrlo. Lo que no cambió no se

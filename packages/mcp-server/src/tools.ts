@@ -1129,7 +1129,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         texto: z.string().min(1).max(600),
         archivo: z.string().min(1).describe("Ruta .wav bajo /tmp/videos/."),
         estilo: z.string().optional().describe("Cómo suena, adaptado al cliente («mujer argentina con acento rioplatense, cálida, como una asesora que recomienda a una amiga, sin tono de locutora»)."),
-        voz: z.string().optional().describe("Gemini: Sulafat por defecto. OpenAI: marin o cedar. ElevenLabs: el voice_id."),
+        voz: z.string().optional().describe("Gemini: Sulafat por defecto. OpenAI: marin o cedar. ElevenLabs: el nombre («RENO») o el id; si no existe, devuelve las disponibles sin gastar."),
         proveedor: z.enum(["gemini", "openai", "elevenlabs"]).optional().describe("Por defecto Gemini. elevenlabs: solo si el pedido o el guion lo indican."),
         instrucciones: z.string().optional().describe("OpenAI: tono extra."),
       }),
