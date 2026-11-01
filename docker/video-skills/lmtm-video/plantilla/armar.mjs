@@ -61,6 +61,10 @@ exigir(typeof C.texto === "string" && C.texto.trim(), "cierre.texto: lo que dice
 exigir(typeof C.titulo === "string" && C.titulo.trim(), "cierre.titulo: el titular del cierre");
 exigir(/^#[0-9a-f]{6}$/i.test(M.color ?? ""), "marca.color: #rrggbb de la paleta del cliente (de su guía)");
 exigir(!!M.logo && fs.existsSync(M.logo), `marca.logo: no existe ${M.logo ?? "(falta)"}`);
+if (M.fuenteArchivo) {
+  exigir(fs.existsSync(M.fuenteArchivo) && !path.relative(DIR, path.resolve(M.fuenteArchivo)).startsWith(".."), `marca.fuenteArchivo: ${M.fuenteArchivo} tiene que estar dentro del proyecto (assets/marca/)`);
+  exigir(!!M.fuente, "marca.fuente: el nombre de la tipografía que trae fuenteArchivo");
+}
 const PLANOS = LINEAS.flatMap((l, i) => (Array.isArray(l.planos) ? l.planos : []).map((p) => ({ ...p, linea: i })));
 for (const [i, l] of LINEAS.entries()) {
   exigir(typeof l.texto === "string" && l.texto.trim(), `lineas[${i}].texto: falta`);

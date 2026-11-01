@@ -45,6 +45,9 @@ const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const color = M.color;
 const oscuro = M.oscuro ?? "#1f1f1f";
 const fuente = M.fuente ?? "Montserrat";
+// La tipografía del cliente (marca.fuenteArchivo, un .woff2 dentro del proyecto). Con un solo peso, el rango evita la
+// negrita falsa del navegador: pedido de RENO, LMTM-6543.
+const caraFuente = (url) => (M.fuenteArchivo ? `@font-face { font-family: "${fuente}"; src: url("${esc(url)}"); font-weight: 100 900; font-display: block; }` : "");
 /** Luminancia relativa (0 negro, 1 blanco). */
 const luz = (hex) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -122,6 +125,7 @@ const html = `<!doctype html>
     <title>${esc(spec.titulo ?? "Reel")}</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
+      ${caraFuente(M.fuenteArchivo)}
       :root { --marca: ${color}; --sombra: ${oscuro}; --blanco: #ffffff; }
       html, body { margin: 0; background: var(--sombra); }
       #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--sombra); font-family: ${fuente}, sans-serif; }
@@ -180,6 +184,7 @@ const cierre = `<!doctype html>
   <body>
     <template>
       <style>
+        ${caraFuente(`../${M.fuenteArchivo}`)}
         #root { position: absolute; inset: 0; overflow: hidden; font-family: ${fuente}, sans-serif; }
         /* El cierre va SOBRE la última toma, como en los reels virales: una placa
            estática al final corta la retención y el loop. */

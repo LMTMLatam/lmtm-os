@@ -23,7 +23,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Db } from "@paperclipai/db";
-import { agentDeliverables, clients, contenidoGastos } from "@paperclipai/db";
+import { agentDeliverables, clients, contenidoGastos, heartbeatRuns, issues } from "@paperclipai/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 
 const run = promisify(execFile);
@@ -216,12 +216,34 @@ async function esperarMagnific(ruta: string, taskId: string, maxMs: number): Pro
   throw new Error(`Magnific no terminó en ${Math.round(maxMs / 60_000)} min`);
 }
 
-async function anotarGasto(db: Db, g: { clientId: string | null; pieza: string | null; modelo: string; tipo: string; url: string; jobId?: string }) {
+/**
+ * Créditos de una generación según la tarifa de Magnific (simulate_cost del conector, 01/11; misma unidad que el
+ * saldo). La API no devuelve el costo de cada pedido ni tiene un endpoint de saldo: es una estimación y el panel lo
+ * dice. Sin tarifa, null: nunca un número inventado.
+ */
+export function creditosMagnific(modelo: string, segundos = 0): number | null {
+  if (modelo.startsWith("mystic-")) return 50;
+  if (modelo === "lyria-3-clip") return 80;
+  const porSegundo = { "seedance-2.5-pro-1080p": 790, "seedance-2.5-pro-720p": 440 }[modelo];
+  return porSegundo && segundos > 0 ? porSegundo * segundos : null;
+}
+
+async function anotarGasto(db: Db, g: { clientId: string | null; pieza: string | null; modelo: string; tipo: string; url: string; jobId?: string; segundos?: number }) {
   await db.insert(contenidoGastos).values({
     clientId: g.clientId, pieza: g.pieza, origen: "agente", herramienta: "magnific", modelo: g.modelo,
-    // Magnific no informa el costo por pedido: null, se cuentan generaciones.
-    tipo: g.tipo, creditos: null, usd: null, url: g.url, jobId: g.jobId ?? null,
+    tipo: g.tipo, creditos: creditosMagnific(g.modelo, g.segundos), usd: null, url: g.url, jobId: g.jobId ?? null,
   }).catch((e) => console.warn("[video-agente] no se pudo anotar el gasto:", e instanceof Error ? e.message : e));
+}
+
+/** La tarea y el cliente de la corrida: el gasto y la entrega quedan atados aunque el agente no los pase. */
+async function tareaDeCorrida(db: Db, runId: string | undefined): Promise<{ pieza: string | null; clientId: string | null }> {
+  if (!runId) return { pieza: null, clientId: null };
+  const [f] = await db.select({ identifier: issues.identifier, clientId: issues.clientId })
+    .from(heartbeatRuns)
+    .innerJoin(issues, sql`${issues.id}::text = ${heartbeatRuns.contextSnapshot}->>'issueId'`)
+    .where(eq(heartbeatRuns.id, runId))
+    .limit(1);
+  return { pieza: f?.identifier ?? null, clientId: f?.clientId ?? null };
 }
 
 // ── render ───────────────────────────────────────────────────────────────────
@@ -686,7 +708,7 @@ export async function registrarSkillsDeVideo(db: Db): Promise<void> {
 
 export async function ejecutarHerramientaVideo(
   db: Db,
-  ctx: { agentId: string; companyId: string },
+  ctx: { agentId: string; companyId: string; runId?: string },
   tool: string,
   p: Record<string, unknown>,
 ): Promise<Resultado | null> {
@@ -853,8 +875,9 @@ export async function ejecutarHerramientaVideo(
       if (!hayMagnific()) return mal("Magnific no está configurado en el servidor (MAGNIFIC_API_KEY).");
       const quedan = await cupoMagnific(db);
       if (quedan <= 0) return mal(`Se llegó al tope de ${TOPE_MAGNIFIC_MES} generaciones de Magnific de este mes. Usá material del cliente o pedí que lo suban.`);
-      const clientId = txt(p.clientId) || null;
-      const pieza = txt(p.pieza) || null;
+      const corrida = await tareaDeCorrida(db, ctx.runId);
+      const clientId = txt(p.clientId) || corrida.clientId;
+      const pieza = txt(p.pieza) || corrida.pieza;
 
       if (tool === "contenido_imagen") {
         // Mystic no tiene 4:5: retrato 2:3 y la composición lo recorta con cover.
@@ -864,8 +887,8 @@ export async function ejecutarHerramientaVideo(
         const taskId = creado.data?.task_id;
         if (!taskId) return mal("Magnific no devolvió task_id");
         const url = await esperarMagnific("/mystic", taskId, 4 * 60_000);
-        await bajar(url, archivo);
         await anotarGasto(db, { clientId, pieza, modelo: `mystic-${MODELO_MAGNIFIC}`, tipo: "imagen", url, jobId: taskId });
+        await bajar(url, archivo);
         return ok(`Imagen en ${archivo} (${aspecto}). Es GENERADA: decilo en la entrega. Quedan ${quedan - 1} generaciones este mes.`);
       }
 
@@ -890,8 +913,8 @@ export async function ejecutarHerramientaVideo(
         if (!taskId) return mal("Magnific no devolvió task_id");
         const id = lanzar("plano", async () => {
           const url = await esperarMagnific(ruta, taskId, 15 * 60_000);
+          await anotarGasto(db, { clientId, pieza, modelo: `seedance-2.5-pro-${res}`, tipo: "video", url, jobId: taskId, segundos: dur });
           await bajar(url, archivo);
-          await anotarGasto(db, { clientId, pieza, modelo: `seedance-2.5-pro-${res}`, tipo: "video", url, jobId: taskId });
           return `Plano en ${archivo} (${await duracion(archivo)} s). Es GENERADO: decilo en la entrega.`;
         });
         return ok(`Plano pedido a Magnific (${dur} s, ${res}). Consultá con video_estado id=${id}. Quedan ${quedan - 1} generaciones este mes.`);
@@ -903,8 +926,8 @@ export async function ejecutarHerramientaVideo(
       if (!taskId) return mal("Magnific no devolvió task_id");
       const id = lanzar("musica", async () => {
         const url = await esperarMagnific(ruta, taskId, 10 * 60_000);
-        await bajar(url, archivo);
         await anotarGasto(db, { clientId, pieza, modelo: "lyria-3-clip", tipo: "audio", url, jobId: taskId });
+        await bajar(url, archivo);
         return `Música en ${archivo} (${await duracion(archivo)} s).`;
       });
       return ok(`Música pedida a Magnific. Consultá con video_estado id=${id}. Quedan ${quedan - 1} generaciones este mes.`);
@@ -1073,10 +1096,11 @@ export async function ejecutarHerramientaVideo(
       // El proyecto queda guardado para que un pedido de cambios no rehaga todo (30/10).
       let proyecto: string | null = null;
       try { proyecto = guardarProyecto(archivo); } catch (err) { console.warn("[video] no se pudo guardar el proyecto:", err instanceof Error ? err.message : err); }
+      const { pieza: piezaCorrida } = await tareaDeCorrida(db, ctx.runId);
       await db.insert(agentDeliverables).values({
         companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "video",
         title: `Video: ${titulo}`.slice(0, 200), content: txt(p.guion) || titulo, url: e.driveLink,
-        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, proyecto, reemplaza: txt(p.reemplaza) || null },
+        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null },
       });
       if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${txt(p.guion).slice(0, 1500)}`, true);
       const enlace = e.enlace ? (e.enlace.ok ? " Quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.enlace.motivo}.`) : "";

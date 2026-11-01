@@ -64,6 +64,11 @@ exigir(!!M.logo && fs.existsSync(M.logo), `marca.logo: no existe ${M.logo ?? "(f
 // Lo que usa la página tiene que viajar con el proyecto al render.
 const adentro = (a, q) => exigir(!path.relative(DIR, path.resolve(a)).startsWith(".."), `${q}: ${a} está fuera del proyecto (copialo a assets/marca/)`);
 if (M.logo) adentro(M.logo, "marca.logo");
+if (M.fuenteArchivo) {
+  exigir(fs.existsSync(M.fuenteArchivo), `marca.fuenteArchivo: no existe ${M.fuenteArchivo}`);
+  adentro(M.fuenteArchivo, "marca.fuenteArchivo");
+  exigir(!!M.fuente, "marca.fuente: el nombre de la tipografía que trae fuenteArchivo");
+}
 exigir(!!G.base !== !!G.tramos, "base o tramos: uno de los dos (base = reel de vtool; tramos = voz en off grabada + tomas)");
 const palabrasBase = G.base ? String(G.base).replace(/\.\w+$/, ".palabras.json") : null;
 if (G.base) {

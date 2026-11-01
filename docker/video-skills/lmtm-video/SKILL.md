@@ -102,6 +102,8 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    - `*palabra*` resalta: 2 o 3 por frase, las que importan.
    - `estilo` de la voz adaptado al cliente (el mismo para todo el reel). La voz es
      SIEMPRE Gemini (Sulafat); no pases `proveedor: openai`.
+   - **Tipografía de la marca:** si la web usa una propia, bajá su `.woff2` a `assets/marca/` y cargá
+     `marca.fuente` (el nombre) y `marca.fuenteArchivo` (la ruta); vale para los dos armadores. Sin esto va Montserrat.
    - `marca`: los colores salen SOLO de la paleta de la guía (leé sus notas: «NO
      usar rojo» en RENO). Marca oscura (negro): `color` y `oscuro` en ese negro,
      `claro` en el claro de la paleta. Logo oscuro de una tinta sobre tomas oscuras:

@@ -303,7 +303,7 @@ function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: 
       {t ? (
         <>
           <div className="mt-1 text-[22px] font-semibold tabular-nums">{t.generaciones} <span className="text-[13px] font-normal text-l-tinta-3">generaciones</span></div>
-          <div className="text-[13px] tabular-nums text-l-tinta-2">{h === "magnific" && t.creditos == null && t.usd == null ? "Magnific no informa el costo por pedido" : costo(t)}</div>
+          <div className="text-[13px] tabular-nums text-l-tinta-2">{h === "magnific" && t.creditos != null ? `≈ ${costo(t)}, a tarifa` : costo(t)}</div>
           {t.noEntregadas > 0 && (
             <div className="mt-1 text-[12px] text-l-atencion-texto">{t.noEntregadas} pagadas que no terminaron en una pieza</div>
           )}
@@ -312,6 +312,12 @@ function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: 
         <div className="mt-1 text-[13px] text-l-tinta-3">{sinConfigurar ? "Sin configurar" : "Sin uso en el período"}</div>
       )}
       {saldo && <div className="mt-2 border-t border-l-linea pt-2 text-[12px] text-l-tinta-3">{saldo}</div>}
+      {h === "magnific" && (
+        <div className="mt-2 border-t border-l-linea pt-2 text-[12px] text-l-tinta-3">
+          Solo lo que generan los agentes. Lo que se genera en la web de Magnific no está acá:{" "}
+          <a className="underline" href="https://www.magnific.com/developers/dashboard" target="_blank" rel="noreferrer">ver el saldo real</a>
+        </div>
+      )}
     </Tarjeta>
   );
 }

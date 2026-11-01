@@ -15,6 +15,9 @@ const f = (n) => Number(Number(n).toFixed(3));
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 const esFoto = (a) => /\.(jpe?g|png|webp)$/i.test(a);
 const fuente = M.fuente ?? "Montserrat";
+// La tipografía del cliente (marca.fuenteArchivo, un .woff2 dentro del proyecto). Con un solo peso, el rango evita la
+// negrita falsa del navegador: pedido de RENO, LMTM-6543.
+const caraFuente = (url) => (M.fuenteArchivo ? `@font-face { font-family: "${fuente}"; src: url("${esc(url)}"); font-weight: 100 900; font-display: block; }` : "");
 const fondo = S.fondo; // oscuro de la marca para tarjetas e insertos
 const acento = S.acento;
 const filtroLogo = M.logoBlanco ? "brightness(0) invert(1) " : "";
@@ -151,6 +154,7 @@ const html = `<!doctype html>
     <title>${esc(S.titulo ?? "Reel")}</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
+      ${caraFuente(M.fuenteArchivo)}
       :root { --acento: ${acento}; --fondo: ${fondo}; }
       html, body { margin: 0; background: #000; }
       #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: ${fuente}, sans-serif; }

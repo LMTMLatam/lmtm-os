@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { resumirGastos, type FilaGasto } from "../contenido-generado.js";
+import { creditosMagnific } from "../video-agente.js";
+
+describe("creditosMagnific", () => {
+  it("cotiza con la tarifa y no inventa lo que no conoce", () => {
+    expect(creditosMagnific("lyria-3-clip")).toBe(80);
+    expect(creditosMagnific("mystic-realism")).toBe(50);
+    expect(creditosMagnific("seedance-2.5-pro-1080p", 5)).toBe(3950);
+    expect(creditosMagnific("seedance-2.5-pro-720p", 5)).toBe(2200);
+    expect(creditosMagnific("seedance-2.5-pro-720p")).toBeNull();
+    expect(creditosMagnific("otro-modelo", 5)).toBeNull();
+  });
+});
 
 const f = (o: Partial<FilaGasto>): FilaGasto => ({ clientId: "c1", pieza: "t1", herramienta: "higgsfield_plan", origen: "clickup", creditos: null, usd: null, ...o });
 
