@@ -26,7 +26,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chequear, duracion, esFoto, herramienta, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, transcribir, vigente } from "./comun.mjs";
+import { chequear, duracion, esFoto, herramienta, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
 const archivoGuion = path.resolve(process.argv[2] ?? "guion.json");
@@ -114,16 +114,22 @@ const ARCH_VOZ = TEXTOS.map((_, i) => path.resolve(`assets/voice/l${i + 1}.wav`)
 // de Gemini suenan igual (comparados por el usuario el 30/10): si uno se queda sin
 // cupo a mitad del reel, las frases ya hechas NO se rehacen. Rehacerlas quemó el
 // cupo del día en LMTM-6518 (31/10). video_voz además guarda cada voz en /data.
-const huellaVoz = (i) => huella([limpio(TEXTOS[i]), G.estilo, G.voz ?? "Sulafat", ...(G.proveedorVoz ? [G.proveedorVoz] : [])]);
+// Un reel no cambia de voz a mitad: el que ya tiene voces hechas sigue con Gemini; los nuevos, ElevenLabs.
+if (!G.proveedorVoz) {
+  G.proveedorVoz = ARCH_VOZ.some((a) => fs.existsSync(a)) ? "gemini" : "elevenlabs";
+  fs.writeFileSync(archivoGuion, JSON.stringify(G, null, 1));
+}
+const textoVoz = (i) => textoParaVoz(limpio(TEXTOS[i]), G.pronunciacion);
+const huellaVoz = (i) => huella(G.proveedorVoz === "gemini" ? [limpio(TEXTOS[i]), G.estilo, G.voz ?? "Sulafat"] : [textoVoz(i), G.voz ?? "", G.proveedorVoz]);
 const huellaDe = (a) => (fs.existsSync(a) && fs.existsSync(`${a}.huella`) ? fs.readFileSync(`${a}.huella`, "utf8").split("|")[0] : "");
 for (const [i, archivo] of ARCH_VOZ.entries()) {
   if (huellaDe(archivo) === huellaVoz(i)) continue;
-  const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo, estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}), ...(G.proveedorVoz ? { proveedor: G.proveedorVoz } : {}) });
+  const r = await herramienta("video_voz", { texto: textoVoz(i), archivo, estilo: G.estilo, proveedor: G.proveedorVoz, ...(G.voz ? { voz: G.voz } : {}), ...(G.clientId ? { clientId: G.clientId } : {}), ...(G.pieza ? { pieza: G.pieza } : {}) });
   if (!r.ok) {
     console.error(`voz l${i + 1}: ${r.content}`);
     process.exit(/cupo/i.test(r.content) ? 3 : 1);
   }
-  const modelo = /Gemini ([\w.-]+)/.exec(r.content)?.[1] ?? "?";
+  const modelo = /Gemini ([\w.-]+)/.exec(r.content)?.[1] ?? G.proveedorVoz;
   fs.writeFileSync(`${archivo}.huella`, `${huellaVoz(i)}|${modelo}`);
   console.log(`voz l${i + 1} (${modelo}${/caché/.test(r.content) ? ", de la caché" : ""}): ${limpio(TEXTOS[i])}`);
 }

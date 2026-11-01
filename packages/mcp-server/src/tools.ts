@@ -1124,13 +1124,13 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     // La composición la escribe el agente con HyperFrames; ver la skill lmtm-video.
     makeTool(
       "lmtmVideoVoz",
-      "VOZ EN OFF en español rioplatense: Gemini (voz Sulafat, la de los reels aprobados) si está configurado; si no, OpenAI. Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Usá el MISMO estilo en todas las frases. Después sacale los tiempos con lmtmVideoTranscribir.",
+      "VOZ EN OFF en español rioplatense con ElevenLabs (voz Agustina por defecto; gasta un crédito por carácter). Gemini solo para los proyectos que ya la usan. Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Usá el MISMO estilo en todas las frases. Después sacale los tiempos con lmtmVideoTranscribir.",
       z.object({
         texto: z.string().min(1).max(600),
         archivo: z.string().min(1).describe("Ruta .wav bajo /tmp/videos/."),
         estilo: z.string().optional().describe("Cómo suena, adaptado al cliente («mujer argentina con acento rioplatense, cálida, como una asesora que recomienda a una amiga, sin tono de locutora»)."),
         voz: z.string().optional().describe("Gemini: Sulafat por defecto. OpenAI: marin o cedar. ElevenLabs: el nombre («RENO») o el id; si no existe, devuelve las disponibles sin gastar."),
-        proveedor: z.enum(["gemini", "openai", "elevenlabs"]).optional().describe("Por defecto Gemini. elevenlabs: solo si el pedido o el guion lo indican."),
+        proveedor: z.enum(["gemini", "openai", "elevenlabs"]).optional().describe("Por defecto elevenlabs. gemini: solo para un proyecto que ya tiene sus voces con Gemini."),
         instrucciones: z.string().optional().describe("OpenAI: tono extra."),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_voz", parameters: p } }),

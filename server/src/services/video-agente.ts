@@ -219,6 +219,7 @@ async function esperarMagnific(ruta: string, taskId: string, maxMs: number): Pro
 // ── ElevenLabs ───────────────────────────────────────────────────────────────
 
 const ELEVENLABS = "https://api.elevenlabs.io/v1";
+const VOZ_ELEVENLABS = "Agustina"; // la elegida por el usuario el 01/11
 const USD_POR_MINUTO_MUSICA_ELEVENLABS = 0.3; // elevenlabs.io/pricing/api, 01/11
 const claveElevenLabs = () => process.env.ELEVENLABS_API_KEY?.trim() ?? "";
 
@@ -331,11 +332,11 @@ const def = (name: string, description: string, properties: Record<string, unkno
 const ARCHIVO = { type: "string", description: `Ruta bajo ${RAIZ}/` };
 
 export const VIDEO_TOOLS: ToolDef[] = [
-  def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados) o ElevenLabs si el guion lo pide (gasta créditos, requiere el id de la voz). Una frase por llamada; guarda un .wav y devuelve su duración. La misma frase con el mismo estilo sale de la caché (no gasta cupo). Si un modelo se queda sin cupo sigue con otro (suenan igual: no rehagas las frases anteriores). Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
+  def("video_voz", "VOZ EN OFF en español rioplatense con ElevenLabs (voz Agustina por defecto; gasta un crédito por carácter). Gemini solo para los proyectos que ya la usan. Una frase por llamada; guarda un .wav y devuelve su duración. La misma frase con el mismo estilo sale de la caché (no gasta cupo). Si un modelo se queda sin cupo sigue con otro (suenan igual: no rehagas las frases anteriores). Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
     texto: { type: "string" }, archivo: ARCHIVO,
     estilo: { type: "string", description: "Gemini: cómo suena, adaptado al cliente («mujer argentina, cálida, como una asesora que recomienda a una amiga…»). Mismo estilo en todas las frases del video." },
     voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina). ElevenLabs: el nombre («RENO») o el id; si no existe, devuelve las disponibles sin gastar." },
-    proveedor: { type: "string", enum: ["gemini", "openai", "elevenlabs"], description: "Por defecto Gemini. elevenlabs: solo si el pedido o el guion lo indican." },
+    proveedor: { type: "string", enum: ["gemini", "openai", "elevenlabs"], description: "Por defecto elevenlabs. gemini: solo para un proyecto que ya tiene sus voces con Gemini." },
     instrucciones: { type: "string", description: "OpenAI: tono extra." },
   }, ["texto", "archivo"]),
   def("video_transcribir", "TIEMPOS de cada palabra de un audio o video (Whisper). Guarda <archivo>.words.json (formato OpenAI, el que leen las skills de subtítulos) y devuelve las palabras con sus segundos. El texto puede salir mal escrito: usá los tiempos y escribí los subtítulos del guion.", {
@@ -823,11 +824,12 @@ export async function ejecutarHerramientaVideo(
       const archivo = rutaSegura(p.archivo);
       if (!archivo || !/\.wav$/i.test(archivo)) return mal(`archivo tiene que ser un .wav bajo ${RAIZ}/`);
       if (!txt(p.texto)) return mal("falta el texto");
-      if (txt(p.proveedor) === "elevenlabs") {
+      // 01/11, pedido del usuario: ElevenLabs es la voz por defecto. Gemini queda para los proyectos que ya la usan.
+      if (txt(p.proveedor) === "elevenlabs" || (!txt(p.proveedor) && claveElevenLabs())) {
         if (!claveElevenLabs()) return mal("ElevenLabs no está configurado en el servidor (ELEVENLABS_API_KEY).");
         const lista = await fetch(`${ELEVENLABS}/voices`, { headers: { "xi-api-key": claveElevenLabs() }, signal: AbortSignal.timeout(30_000) });
         if (!lista.ok) return mal(`ElevenLabs voces ${lista.status}: ${(await lista.text()).slice(0, 200)}`);
-        const elegida = elegirVozElevenLabs(((await lista.json()) as { voces?: never; voices: Parameters<typeof elegirVozElevenLabs>[0] }).voices ?? [], txt(p.voz) || process.env.ELEVENLABS_VOZ?.trim() || "");
+        const elegida = elegirVozElevenLabs(((await lista.json()) as { voces?: never; voices: Parameters<typeof elegirVozElevenLabs>[0] }).voices ?? [], (/^sulafat$/i.test(txt(p.voz)) ? "" : txt(p.voz)) || process.env.ELEVENLABS_VOZ?.trim() || VOZ_ELEVENLABS);
         if ("opciones" in elegida) return mal(`Voz de ElevenLabs no encontrada: «${txt(p.voz)}». No se gastó nada. Disponibles: ${elegida.opciones}.`);
         const voz = elegida.id;
         const { createHash } = await import("node:crypto");

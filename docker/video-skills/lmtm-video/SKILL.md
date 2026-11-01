@@ -100,8 +100,13 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
      8 a 14 planos de fuentes distintas; entra un plano por cada ~1,2 s de frase.
      `realce: true` en tomas lavadas (fábrica en día nublado).
    - `*palabra*` resalta: 2 o 3 por frase, las que importan.
-   - `estilo` de la voz adaptado al cliente (el mismo para todo el reel). La voz es
-     SIEMPRE Gemini (Sulafat); no pases `proveedor: openai`.
+   - **La voz es ElevenLabs, Agustina**, y `armar.mjs` ya la usa. `voz` solo si el pedido pide otra: el nombre
+     («Tomas», «Melisa») o el id; si no existe, la respuesta lista las disponibles sin gastar. Las clonadas de clientes
+     (RENO, MAERS) no andan con el plan actual: responden 401. Todo el reel con la misma voz. Cuesta un crédito por
+     carácter. Un proyecto que ya tiene voces hechas sigue con Gemini: no le cambies la voz salvo que lo pidan.
+   - **`pronunciacion`** si la voz dice mal una marca o una palabra: `{ "Reno": "Réno" }`. Cambia solo lo que lee la
+     voz; los subtítulos siguen con el texto del guion. Si la memoria del cliente trae cómo se dice, cargalo.
+   - `estilo`: cómo suena, adaptado al cliente (lo exige `armar.mjs`; ElevenLabs no lo usa).
    - **Tipografía de la marca:** si la web usa una propia, bajá su `.woff2` a `assets/marca/` y cargá
      `marca.fuente` (el nombre) y `marca.fuenteArchivo` (la ruta); vale para los dos armadores. Sin esto va Montserrat.
    - `marca`: los colores salen SOLO de la paleta de la guía (leé sus notas: «NO
@@ -111,10 +116,6 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    - `musica`: `{ "prompt": … }` para generarla (cálida, sin voces) o
      `{ "archivo": … }` si el cliente tiene una cama instrumental. Con
      `"proveedor": "elevenlabs"` y `"duracion"` la genera ElevenLabs.
-   - ElevenLabs para la voz, solo si el pedido lo indica: `"proveedorVoz": "elevenlabs"` y `voz` = el nombre
-     («Agustina», «Tomas») o el id. Si no existe, la respuesta lista las disponibles sin gastar. Las clonadas de
-     clientes (RENO, MAERS) no andan con el plan actual: responde 401. Todo el reel con la misma voz. Cuesta un
-     crédito por carácter.
 5. **Armar:** `node $P/armar.mjs guion.json`. Frena con lo que no cumple (fuentes
    repetidas, frase con más planos de los que entran, toma que no alcanza, logo
    que falta): corregí `guion.json` y volvé a correrlo. Lo que no cambió no se

@@ -18,6 +18,11 @@ export const HF = spawnSync("hyperframes", ["--version"]).status === 0 ? ["hyper
 export const enWindows = { shell: process.platform === "win32" }; // npx es un .cmd en Windows (solo para probar en una PC)
 const envHF = { ...process.env, HYPERFRAMES_NO_TELEMETRY: "1" };
 
+/** El texto que LEE la voz con las palabras que pronuncia mal respelladas. Los subtítulos siguen con el del guion. */
+export function textoParaVoz(texto, pronunciacion = {}) {
+  return Object.entries(pronunciacion).reduce((t, [palabra, como]) => t.replace(new RegExp(`(?<!\\p{L})${palabra.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\p{L})`, "giu"), como), texto);
+}
+
 /** Herramientas del servidor (voz, música, render, revisión) con la clave del agente. */
 export async function herramienta(tool, parameters) {
   const url = process.env.PAPERCLIP_API_URL?.replace(/\/+$/, "");
