@@ -65,6 +65,7 @@ const HERRAMIENTAS: Record<string, { nombre: string; unidad: string }> = {
   higgsfield_plan: { nombre: "Higgsfield · plan", unidad: "créditos del plan" },
   higgsfield_api: { nombre: "Higgsfield · API", unidad: "créditos de la API" },
   magnific: { nombre: "Magnific", unidad: "" },
+  elevenlabs: { nombre: "ElevenLabs", unidad: "créditos" },
 };
 const nombreHerramienta = (h: string) => HERRAMIENTAS[h]?.nombre ?? h;
 const ORIGEN: Record<string, string> = { clickup: "Etiqueta de ClickUp", panel: "Panel", claude: "Claude" };

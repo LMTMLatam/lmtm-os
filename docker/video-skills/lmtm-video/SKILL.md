@@ -109,7 +109,10 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
      `claro` en el claro de la paleta. Logo oscuro de una tinta sobre tomas oscuras:
      `logoBlanco: true`.
    - `musica`: `{ "prompt": … }` para generarla (cálida, sin voces) o
-     `{ "archivo": … }` si el cliente tiene una cama instrumental.
+     `{ "archivo": … }` si el cliente tiene una cama instrumental. Con
+     `"proveedor": "elevenlabs"` y `"duracion"` la genera ElevenLabs.
+   - ElevenLabs para la voz, solo si el pedido lo indica: `"proveedorVoz": "elevenlabs"`
+     y `voz` = su voice_id. Todo el reel con la misma voz.
 5. **Armar:** `node $P/armar.mjs guion.json`. Frena con lo que no cumple (fuentes
    repetidas, frase con más planos de los que entran, toma que no alcanza, logo
    que falta): corregí `guion.json` y volvé a correrlo. Lo que no cambió no se

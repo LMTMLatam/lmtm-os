@@ -1,7 +1,31 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { NOMBRES_VIDEO, RAIZ, idDeDrive, rutaSegura } from "../video-agente.js";
+import { NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, idDeDrive, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
+import { proveedorDelProxy } from "../../../../packages/adapters/claude-local/src/server/execute.js";
+
+describe("costo de las corridas", () => {
+  it("por un proxy no se usa el total de la CLI", () => {
+    expect(proveedorDelProxy({ ANTHROPIC_BASE_URL: "http://127.0.0.1:4000" })).toBe("litellm");
+    expect(proveedorDelProxy({ ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic" })).toBe("minimax");
+    expect(proveedorDelProxy({ ANTHROPIC_BASE_URL: "https://api.anthropic.com" })).toBeNull();
+    expect(proveedorDelProxy({})).toBeNull();
+  });
+});
+
+describe("video-agente: ElevenLabs", () => {
+  it("sin clave avisa y no gasta nada, en voz y en música", async () => {
+    const antes = process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_API_KEY;
+    const db = {} as never;
+    const ctx = { agentId: "a", companyId: "c" };
+    const voz = await ejecutarHerramientaVideo(db, ctx, "video_voz", { texto: "Hola", archivo: `${RAIZ}/x/l1.wav`, proveedor: "elevenlabs" });
+    const musica = await ejecutarHerramientaVideo(db, ctx, "video_musica", { prompt: "música cálida sin voces", archivo: `${RAIZ}/x/m.mp3`, proveedor: "elevenlabs" });
+    if (antes) process.env.ELEVENLABS_API_KEY = antes;
+    expect(voz).toMatchObject({ ok: false, content: expect.stringContaining("ELEVENLABS_API_KEY") });
+    expect(musica).toMatchObject({ ok: false, content: expect.stringContaining("ELEVENLABS_API_KEY") });
+  });
+});
 
 describe("video-agente: rutas", () => {
   it("acepta solo rutas bajo la raíz de videos", () => {

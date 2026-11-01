@@ -64,12 +64,13 @@ export async function pistaDe(G, dir) {
   if (!MU.prompt) return null;
   const archivo = path.resolve(dir, "assets/audio/cama.mp3");
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
-  if (!vigente(archivo, huella([MU.prompt]))) {
-    const r = await herramienta("video_musica", { prompt: MU.prompt, archivo, ...(G.clientId ? { clientId: G.clientId } : {}), ...(G.pieza ? { pieza: G.pieza } : {}) });
+  const h = huella(MU.proveedor ? [MU.prompt, MU.proveedor, MU.duracion] : [MU.prompt]);
+  if (!vigente(archivo, h)) {
+    const r = await herramienta("video_musica", { prompt: MU.prompt, archivo, ...(MU.proveedor ? { proveedor: MU.proveedor } : {}), ...(MU.duracion ? { duracion: MU.duracion } : {}), ...(G.clientId ? { clientId: G.clientId } : {}), ...(G.pieza ? { pieza: G.pieza } : {}) });
     const id = /id=([\w-]+)/.exec(r.content ?? "")?.[1];
     if (!r.ok || !id) { console.error(`música: ${r.content}`); process.exit(1); }
     await esperar(id);
-    sellar(archivo, huella([MU.prompt]));
+    sellar(archivo, h);
   }
   return archivo;
 }

@@ -216,6 +216,23 @@ async function esperarMagnific(ruta: string, taskId: string, maxMs: number): Pro
   throw new Error(`Magnific no terminó en ${Math.round(maxMs / 60_000)} min`);
 }
 
+// ── ElevenLabs ───────────────────────────────────────────────────────────────
+
+const ELEVENLABS = "https://api.elevenlabs.io/v1";
+const USD_POR_MINUTO_MUSICA_ELEVENLABS = 0.3; // elevenlabs.io/pricing/api, 01/11
+const claveElevenLabs = () => process.env.ELEVENLABS_API_KEY?.trim() ?? "";
+
+/** POST a ElevenLabs que devuelve audio. Los errores llegan sin la clave. */
+async function audioElevenLabs(ruta: string, cuerpo: unknown): Promise<Buffer> {
+  const clave = claveElevenLabs();
+  const r = await fetch(`${ELEVENLABS}${ruta}`, {
+    method: "POST", headers: { "xi-api-key": clave, "content-type": "application/json" },
+    body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(5 * 60_000),
+  });
+  if (!r.ok) throw new Error(`ElevenLabs ${r.status}: ${(await r.text()).split(clave).join("[clave]").slice(0, 300)}`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
 /**
  * Créditos de una generación según la tarifa de Magnific (simulate_cost del conector, 01/11; misma unidad que el
  * saldo). La API no devuelve el costo de cada pedido ni tiene un endpoint de saldo: es una estimación y el panel lo
@@ -228,10 +245,10 @@ export function creditosMagnific(modelo: string, segundos = 0): number | null {
   return porSegundo && segundos > 0 ? porSegundo * segundos : null;
 }
 
-async function anotarGasto(db: Db, g: { clientId: string | null; pieza: string | null; modelo: string; tipo: string; url: string; jobId?: string; segundos?: number }) {
+async function anotarGasto(db: Db, g: { clientId: string | null; pieza: string | null; modelo: string; tipo: string; url: string; jobId?: string; segundos?: number; herramienta?: string; creditos?: number; usd?: number }) {
   await db.insert(contenidoGastos).values({
-    clientId: g.clientId, pieza: g.pieza, origen: "agente", herramienta: "magnific", modelo: g.modelo,
-    tipo: g.tipo, creditos: creditosMagnific(g.modelo, g.segundos), usd: null, url: g.url, jobId: g.jobId ?? null,
+    clientId: g.clientId, pieza: g.pieza, origen: "agente", herramienta: g.herramienta ?? "magnific", modelo: g.modelo,
+    tipo: g.tipo, creditos: g.creditos ?? creditosMagnific(g.modelo, g.segundos), usd: g.usd ?? null, url: g.url, jobId: g.jobId ?? null,
   }).catch((e) => console.warn("[video-agente] no se pudo anotar el gasto:", e instanceof Error ? e.message : e));
 }
 
@@ -302,11 +319,11 @@ const def = (name: string, description: string, properties: Record<string, unkno
 const ARCHIVO = { type: "string", description: `Ruta bajo ${RAIZ}/` };
 
 export const VIDEO_TOOLS: ToolDef[] = [
-  def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados). Una frase por llamada; guarda un .wav y devuelve su duración. La misma frase con el mismo estilo sale de la caché (no gasta cupo). Si un modelo se queda sin cupo sigue con otro (suenan igual: no rehagas las frases anteriores). Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
+  def("video_voz", "VOZ EN OFF en español rioplatense con Gemini (voz Sulafat, la de los reels aprobados) o ElevenLabs si el guion lo pide (gasta créditos, requiere el id de la voz). Una frase por llamada; guarda un .wav y devuelve su duración. La misma frase con el mismo estilo sale de la caché (no gasta cupo). Si un modelo se queda sin cupo sigue con otro (suenan igual: no rehagas las frases anteriores). Si dice que no hay cupo, frená y avisá: no uses otra voz.", {
     texto: { type: "string" }, archivo: ARCHIVO,
     estilo: { type: "string", description: "Gemini: cómo suena, adaptado al cliente («mujer argentina, cálida, como una asesora que recomienda a una amiga…»). Mismo estilo en todas las frases del video." },
-    voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina)." },
-    proveedor: { type: "string", enum: ["gemini", "openai"], description: "Solo para forzar OpenAI." },
+    voz: { type: "string", description: "Gemini: Sulafat por defecto. OpenAI: marin (femenina) o cedar (masculina). ElevenLabs: el voice_id." },
+    proveedor: { type: "string", enum: ["gemini", "openai", "elevenlabs"], description: "Por defecto Gemini. elevenlabs: solo si el pedido o el guion lo indican." },
     instrucciones: { type: "string", description: "OpenAI: tono extra." },
   }, ["texto", "archivo"]),
   def("video_transcribir", "TIEMPOS de cada palabra de un audio o video (Whisper). Guarda <archivo>.words.json (formato OpenAI, el que leen las skills de subtítulos) y devuelve las palabras con sus segundos. El texto puede salir mal escrito: usá los tiempos y escribí los subtítulos del guion.", {
@@ -319,8 +336,10 @@ export const VIDEO_TOOLS: ToolDef[] = [
     resolucion: { type: "string", enum: ["720p", "1080p"], description: "Por defecto 1080p." },
     clientId: { type: "string" }, pieza: { type: "string", description: "Id de la tarea de ClickUp o del issue." },
   }, ["prompt", "archivo"]),
-  def("video_musica", "GENERA música de fondo con Magnific (Lyria 3). GASTA CRÉDITOS. Corre en segundo plano: devuelve un id para video_estado.", {
+  def("video_musica", "GENERA música de fondo con Magnific (Lyria 3) o ElevenLabs. GASTA CRÉDITOS. Corre en segundo plano: devuelve un id para video_estado.", {
     prompt: { type: "string", description: "Género, ánimo, instrumentos y tempo, sin voces." }, archivo: ARCHIVO,
+    proveedor: { type: "string", enum: ["magnific", "elevenlabs"], description: "Por defecto Magnific." },
+    duracion: { type: "number", description: "ElevenLabs: segundos (por defecto 30)." },
     clientId: { type: "string" }, pieza: { type: "string" },
   }, ["prompt", "archivo"]),
   def("video_renderizar", "RENDERIZA un proyecto de HyperFrames (el directorio con index.html) a .mp4 en el servicio de render. Corre en segundo plano: devuelve un id para video_estado. Antes: `npx hyperframes check --json` sin errores.", {
@@ -792,6 +811,26 @@ export async function ejecutarHerramientaVideo(
       const archivo = rutaSegura(p.archivo);
       if (!archivo || !/\.wav$/i.test(archivo)) return mal(`archivo tiene que ser un .wav bajo ${RAIZ}/`);
       if (!txt(p.texto)) return mal("falta el texto");
+      if (txt(p.proveedor) === "elevenlabs") {
+        if (!claveElevenLabs()) return mal("ElevenLabs no está configurado en el servidor (ELEVENLABS_API_KEY).");
+        const voz = txt(p.voz) || process.env.ELEVENLABS_VOZ?.trim() || "";
+        if (!voz) return mal("ElevenLabs necesita el id de la voz (voz o ELEVENLABS_VOZ).");
+        const { createHash } = await import("node:crypto");
+        const enCache = path.join(VOCES_CACHE, `el-${createHash("sha1").update(`${txt(p.texto)}|${voz}`).digest("hex").slice(0, 24)}.wav`);
+        fs.mkdirSync(path.dirname(archivo), { recursive: true });
+        if (fs.existsSync(enCache)) {
+          fs.copyFileSync(enCache, archivo);
+          return ok(`Voz (ElevenLabs, de la caché: no gastó créditos) guardada en ${archivo} (${await duracion(archivo)} s).`);
+        }
+        const pcm = await audioElevenLabs(`/text-to-speech/${encodeURIComponent(voz)}?output_format=pcm_24000`, { text: txt(p.texto), model_id: "eleven_multilingual_v2" });
+        fs.writeFileSync(archivo, pcmAWav(pcm, 24000));
+        fs.mkdirSync(VOCES_CACHE, { recursive: true });
+        fs.copyFileSync(archivo, enCache);
+        // Un crédito por carácter (elevenlabs.io/pricing/api).
+        const corrida = await tareaDeCorrida(db, ctx.runId);
+        await anotarGasto(db, { clientId: txt(p.clientId) || corrida.clientId, pieza: txt(p.pieza) || corrida.pieza, herramienta: "elevenlabs", modelo: "eleven_multilingual_v2", tipo: "audio", url: archivo, creditos: txt(p.texto).length });
+        return ok(`Voz (ElevenLabs ${voz}) guardada en ${archivo} (${await duracion(archivo)} s).`);
+      }
       // 28/10: la voz de OpenAI sonó «rara» al equipo. La de los reels aprobados
       // es Gemini (gemini-3.8-flash-tts, voz Sulafat, con estilo por cliente).
       const gemini = process.env.GEMINI_API_KEY?.trim();
@@ -871,6 +910,19 @@ export async function ejecutarHerramientaVideo(
       const ext = tool === "video_plano" ? /\.mp4$/i : tool === "video_musica" ? /\.(mp3|wav)$/i : /\.(png|jpe?g)$/i;
       if (!archivo || !ext.test(archivo)) return mal(`archivo tiene que ser ${tool === "video_plano" ? ".mp4" : tool === "video_musica" ? ".mp3 o .wav" : ".png o .jpg"} bajo ${RAIZ}/`);
       if (txt(p.prompt).length < 10) return mal("el prompt es muy corto");
+      if (tool === "video_musica" && txt(p.proveedor) === "elevenlabs") {
+        if (!claveElevenLabs()) return mal("ElevenLabs no está configurado en el servidor (ELEVENLABS_API_KEY).");
+        const segundos = Math.min(300, Math.max(3, Math.round(Number(p.duracion) || 30)));
+        const corrida = await tareaDeCorrida(db, ctx.runId);
+        const id = lanzar("musica", async () => {
+          const audio = await audioElevenLabs("/music", { prompt: txt(p.prompt), music_length_ms: segundos * 1000, force_instrumental: true });
+          await anotarGasto(db, { clientId: txt(p.clientId) || corrida.clientId, pieza: txt(p.pieza) || corrida.pieza, herramienta: "elevenlabs", modelo: "music", tipo: "audio", url: archivo, usd: Number(((USD_POR_MINUTO_MUSICA_ELEVENLABS * segundos) / 60).toFixed(4)) });
+          fs.mkdirSync(path.dirname(archivo), { recursive: true });
+          fs.writeFileSync(archivo, audio);
+          return `Música (ElevenLabs) en ${archivo} (${await duracion(archivo)} s).`;
+        });
+        return ok(`Música pedida a ElevenLabs (${segundos} s). Consultá con video_estado id=${id}.`);
+      }
       const { hayMagnific, pedir } = await import("./magnific.js");
       if (!hayMagnific()) return mal("Magnific no está configurado en el servidor (MAGNIFIC_API_KEY).");
       const quedan = await cupoMagnific(db);

@@ -114,11 +114,11 @@ const ARCH_VOZ = TEXTOS.map((_, i) => path.resolve(`assets/voice/l${i + 1}.wav`)
 // de Gemini suenan igual (comparados por el usuario el 30/10): si uno se queda sin
 // cupo a mitad del reel, las frases ya hechas NO se rehacen. Rehacerlas quemó el
 // cupo del día en LMTM-6518 (31/10). video_voz además guarda cada voz en /data.
-const huellaVoz = (i) => huella([limpio(TEXTOS[i]), G.estilo, G.voz ?? "Sulafat"]);
+const huellaVoz = (i) => huella([limpio(TEXTOS[i]), G.estilo, G.voz ?? "Sulafat", ...(G.proveedorVoz ? [G.proveedorVoz] : [])]);
 const huellaDe = (a) => (fs.existsSync(a) && fs.existsSync(`${a}.huella`) ? fs.readFileSync(`${a}.huella`, "utf8").split("|")[0] : "");
 for (const [i, archivo] of ARCH_VOZ.entries()) {
   if (huellaDe(archivo) === huellaVoz(i)) continue;
-  const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo, estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}) });
+  const r = await herramienta("video_voz", { texto: limpio(TEXTOS[i]), archivo, estilo: G.estilo, ...(G.voz ? { voz: G.voz } : {}), ...(G.proveedorVoz ? { proveedor: G.proveedorVoz } : {}) });
   if (!r.ok) {
     console.error(`voz l${i + 1}: ${r.content}`);
     process.exit(/cupo/i.test(r.content) ? 3 : 1);

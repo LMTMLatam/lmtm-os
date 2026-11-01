@@ -118,6 +118,17 @@ function isBedrockAuth(env: Record<string, string>): boolean {
   );
 }
 
+/**
+ * Con ANTHROPIC_BASE_URL propio (LiteLLM → OpenAI o NVIDIA, MiniMax) la CLI calcula total_cost_usd con su tabla de
+ * precios, sin saber qué modelo atendió ni lo que se cobró con caché: el Productor figuraba en USD 5,72 por corrida
+ * con 0 tokens en caché (01/11). Por eso no se guarda: los tokens sí son reales, el costo sale del proveedor.
+ */
+export function proveedorDelProxy(env: Record<string, string>): string | null {
+  const base = env.ANTHROPIC_BASE_URL?.trim();
+  if (!base || /anthropic\.com/i.test(base)) return null;
+  return /minimax/i.test(base) ? "minimax" : "litellm";
+}
+
 function resolveClaudeBillingType(env: Record<string, string>): "api" | "subscription" | "metered_api" {
   if (isBedrockAuth(env)) return "metered_api";
   return hasNonEmptyEnvValue(env, "ANTHROPIC_API_KEY") ? "api" : "subscription";
@@ -925,8 +936,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       : transientUpstream
       ? "claude_transient_upstream"
       : null;
+    const proxy = proveedorDelProxy(effectiveEnv);
     const mergedResultJson: Record<string, unknown> = {
       ...parsed,
+      ...(proxy ? { total_cost_usd: null } : {}),
       ...(failed && clearSessionForMaxTurns ? { stopReason: "max_turns_exhausted" } : {}),
       ...(quotaExhausted ? { errorFamily: "quota_exhausted" } : {}),
       ...(transientUpstream ? { errorFamily: "transient_upstream" } : {}),
@@ -947,11 +960,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       sessionId: resolvedSessionId,
       sessionParams: resolvedSessionParams,
       sessionDisplayId: resolvedSessionId,
-      provider: "anthropic",
-      biller: isBedrockAuth(effectiveEnv) ? "aws_bedrock" : "anthropic",
+      provider: proxy ?? "anthropic",
+      biller: proxy ?? (isBedrockAuth(effectiveEnv) ? "aws_bedrock" : "anthropic"),
       model: parsedStream.model || asString(parsed.model, model),
-      billingType,
-      costUsd: parsedStream.costUsd ?? asNumber(parsed.total_cost_usd, 0),
+      billingType: proxy ? "unknown" : billingType,
+      costUsd: proxy ? null : parsedStream.costUsd ?? asNumber(parsed.total_cost_usd, 0),
       resultJson: mergedResultJson,
       summary: parsedStream.summary || asString(parsed.result, ""),
       clearSession: clearSessionForMaxTurns || Boolean(opts.clearSessionOnMissingSession && !resolvedSessionId),

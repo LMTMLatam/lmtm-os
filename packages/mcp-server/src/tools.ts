@@ -1129,8 +1129,8 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         texto: z.string().min(1).max(600),
         archivo: z.string().min(1).describe("Ruta .wav bajo /tmp/videos/."),
         estilo: z.string().optional().describe("Cómo suena, adaptado al cliente («mujer argentina con acento rioplatense, cálida, como una asesora que recomienda a una amiga, sin tono de locutora»)."),
-        voz: z.string().optional().describe("Gemini: Sulafat por defecto. OpenAI: marin o cedar."),
-        proveedor: z.enum(["gemini", "openai"]).optional().describe("Solo para forzar OpenAI."),
+        voz: z.string().optional().describe("Gemini: Sulafat por defecto. OpenAI: marin o cedar. ElevenLabs: el voice_id."),
+        proveedor: z.enum(["gemini", "openai", "elevenlabs"]).optional().describe("Por defecto Gemini. elevenlabs: solo si el pedido o el guion lo indican."),
         instrucciones: z.string().optional().describe("OpenAI: tono extra."),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_voz", parameters: p } }),
@@ -1157,8 +1157,10 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmVideoMusica",
-      "GENERA música de fondo sin voces con Magnific (Lyria 3). GASTA CRÉDITOS. En segundo plano: devuelve un id para lmtmVideoEstado.",
+      "GENERA música de fondo sin voces con Magnific (Lyria 3) o ElevenLabs. GASTA CRÉDITOS. En segundo plano: devuelve un id para lmtmVideoEstado.",
       z.object({
+        proveedor: z.enum(["magnific", "elevenlabs"]).optional().describe("Por defecto Magnific."),
+        duracion: z.number().int().min(3).max(300).optional().describe("ElevenLabs: segundos (por defecto 30)."),
         prompt: z.string().min(10).max(2000).describe("Género, ánimo, instrumentos, tempo."),
         archivo: z.string().min(1).describe("Ruta .mp3 o .wav bajo /tmp/videos/."),
         clientId: z.string().optional(),
