@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, idDeDrive, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
-import { proveedorDelProxy } from "../../../../packages/adapters/claude-local/src/server/execute.js";
+import { proveedorDelProxy } from "@paperclipai/adapter-claude-local/server";
 
 describe("costo de las corridas", () => {
   it("por un proxy no se usa el total de la CLI", () => {
