@@ -20,7 +20,7 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
-VERSION = "1.4-lmtm-os"
+VERSION = "1.5-lmtm-os"
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm"}
 IMAGEN_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 FORMATOS = {"9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350), "16:9": (1920, 1080)}
@@ -37,6 +37,11 @@ DESTINOS = {
     "whatsapp": ["-vf", "scale='min(720,iw)':-2", "-crf", "28", "-preset", "medium", "-b:a", "96k"],
     "preview":  ["-vf", "scale=-2:'min(540,ih)'", "-crf", "30", "-preset", "veryfast", "-b:a", "96k"],
 }
+# Voz limpia: saca el rumble y el ruido de fondo parejo (aire, heladera, calle lejana) ANTES de nivelar, porque
+# dynaudnorm sube el ruido en las pausas. No hace milagros con otra gente hablando atras.
+LIMPIEZA = "highpass=f=80,afftdn=nr=14:nf=-38:tn=1"
+# Zonas de texto en 1080x1920 (x 110-970): fuera de la interfaz de Reels y lejos de los botones de la derecha.
+ZONAS = {"arriba": (380, 760), "abajo": (1040, 1480)}
 
 
 # ---------- utilidades ----------
@@ -279,6 +284,24 @@ def elegir_por_guion(lineas, tomas):
     return res
 
 
+def bloques_guion(texto):
+    """guion.txt -> [{"nombre", "gancho", "lineas"}], un reel por bloque. Los bloques se separan con una linea ---.
+    Opcionales al principio de cada bloque: "# nombre" y "gancho: Frase con *clave*"."""
+    bloques = []
+    for crudo in re.split(r"^\s*-{3,}\s*$", texto, flags=re.M):
+        b = {"nombre": None, "gancho": None, "lineas": []}
+        for x in (y.strip() for y in crudo.splitlines()):
+            if x.startswith("#"):
+                b["nombre"] = x.lstrip("# ").strip()
+            elif x.lower().startswith("gancho:"):
+                b["gancho"] = x.split(":", 1)[1].strip()
+            elif x:
+                b["lineas"].append(x)
+        if b["lineas"]:
+            bloques.append(b)
+    return bloques
+
+
 # ---------- subtitulos (logica pura, testeada en autotest) ----------
 
 def srt_tiempo(s):
@@ -478,6 +501,31 @@ def cadena_formato(formato, modo, s=""):
             f"[bg{s}][fg{s}]overlay=(W-w)/2:(H-h)/2,setsar=1")
 
 
+def niveles_canales(video, segundos=60):
+    """RMS en dB de cada canal de audio (los primeros `segundos`)."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-t", str(segundos), "-i", str(video), "-vn",
+                        "-af", "astats=metadata=0:measure_overall=none:measure_perchannel=RMS_level", "-f", "null", "-"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return [float("-inf" if x == "-inf" else x) for x in re.findall(r"RMS level dB: (-?[\d.]+|-inf)", r.stderr)]
+
+
+def canal_de_voz(niveles):
+    """Camaras con un solo microfono graban la voz en un canal y el otro casi mudo (crudo C9864 de RENO: -28 y -70 dB):
+    sin esto el reel se escucha de un solo lado. Devuelve el indice del canal bueno, o None si estan parejos."""
+    if len(niveles) != 2 or abs(niveles[0] - niveles[1]) < 20:
+        return None
+    return 0 if niveles[0] > niveles[1] else 1
+
+
+def cadena_musica(m, d, vol, voz="anull", cola=""):
+    """[ac] = la voz, [m:a] = la pista: la musica queda por debajo y baja sola cuando se habla."""
+    return (f"[ac]{voz},asplit[voz][guia];"
+            f"[{m}:a]atrim=0:{d:.3f},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
+            f"volume={vol}dB,afade=t=in:d=1,afade=t=out:st={max(0.0, d - 2):.3f}:d=2[mus];"
+            f"[mus][guia]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[musb];"
+            f"[voz][musb]amix=inputs=2:duration=first:normalize=0{cola}[a]")
+
+
 def render(entradas, tramos, out, formato=None, modo="fondo", post_v="", voz="", final_a="", extra=(), cwd=None,
            musica=None, vol_musica=-18):
     """Una sola pasada de FFmpeg: corta los tramos [(k, ini, fin)] de entradas[k], los lleva al formato, los une,
@@ -487,10 +535,13 @@ def render(entradas, tramos, out, formato=None, modo="fondo", post_v="", voz="",
     for e in entradas:
         args += ["-i", Path(e).resolve()]
     fps = f",fps={fps_de(entradas[0])}" if len(entradas) > 1 else ""  # clips de distinto fps no se pueden unir
+    canales = [canal_de_voz(niveles_canales(e)) for e in entradas]
     for i, (k, a, b) in enumerate(tramos):
         fv = "," + cadena_formato(formato, modo, i) if formato else ""
         g += (f"[{k}:v]trim={a:.3f}:{b:.3f},setpts=PTS-STARTPTS{fps}{fv}[v{i}];"
-              f"[{k}:a]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo[a{i}];")
+              f"[{k}:a]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS,"
+              + (f"pan=stereo|c0=c{canales[k]}|c1=c{canales[k]}," if canales[k] is not None else "")
+              + f"aformat=sample_rates=48000:channel_layouts=stereo[a{i}];")
     g += "".join(f"[v{i}][a{i}]" for i in range(len(tramos))) + f"concat=n={len(tramos)}:v=1:a=1[vc][ac];"
     g += f"[vc]{post_v or 'null'}[v];"
     cola = "," + final_a if final_a else ""
@@ -498,11 +549,7 @@ def render(entradas, tramos, out, formato=None, modo="fondo", post_v="", voz="",
         m = len(entradas)
         args += ["-stream_loop", "-1", "-i", Path(musica).resolve()]
         d = sum(b - a for _, a, b in tramos)
-        g += (f"[ac]{voz or 'anull'},asplit[voz][guia];"
-              f"[{m}:a]atrim=0:{d:.3f},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
-              f"volume={vol_musica}dB,afade=t=in:d=1,afade=t=out:st={max(0.0, d - 2):.3f}:d=2[mus];"
-              f"[mus][guia]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[musb];"
-              f"[voz][musb]amix=inputs=2:duration=first:normalize=0{cola}[a]")
+        g += cadena_musica(m, d, vol_musica, voz or "anull", cola)
     else:
         g += f"[ac]{voz or 'anull'}{cola}[a]"
     ffmpeg(*args, "-filter_complex", g, "-map", "[v]", "-map", "[a]", *H264, *extra, Path(out).resolve(), cwd=cwd)
@@ -532,7 +579,7 @@ def posicion_sin_caras(muestras, formato, modo, tmp):
 def producir(entradas, elegidas, a, final):
     """Arma el video final con las tomas elegidas [(k, toma)], en ese orden."""
     durs = [duracion(e) for e in entradas]
-    tramos, palabras_out, offset, rehechas = [], [], 0.0, 0
+    tramos, palabras_out, cortes, offset, rehechas = [], [], [], 0.0, 0
     for k, t in elegidas:
         quedan, quitar = (t["palabras"], []) if a.con_repeticiones else limpiar_repeticiones(t["palabras"])
         rehechas += len(quitar)
@@ -544,6 +591,7 @@ def producir(entradas, elegidas, a, final):
             tramos.append((k, ini, fin))
             palabras_out += [(w[0] - ini + offset, w[1] - ini + offset, w[2]) for w in quedan if ini <= w[0] and w[1] <= fin]
             offset += fin - ini
+            cortes.append(round(offset, 3))
     if not tramos:
         sys.exit("ERROR: no quedo nada para usar.")
     w, h = FORMATOS[a.formato]
@@ -561,10 +609,15 @@ def producir(entradas, elegidas, a, final):
             if not a.sin_subtitulos:
                 escribir_srt(armar_cues(palabras_out, ANCHO_SUBS[a.formato]), Path(final).with_suffix(".srt"))
                 nota = f"subtitulos {posicion}" + (f" ({nota})" if nota else "")
-        render(entradas, tramos, final, a.formato, a.modo, post_v, "dynaudnorm=f=250:g=15",
+        voz = ("" if a.sin_limpiar else LIMPIEZA + ",") + "dynaudnorm=f=250:g=15"
+        render(entradas, tramos, final, a.formato, a.modo, post_v, voz,
                "loudnorm=I=-14:TP=-1.5:LRA=11", DESTINOS["reels"], cwd=tmp, musica=a.musica, vol_musica=a.vol_musica)
         nivelar(final, Path(tmp, "nivelado.mp4"))  # el loudnorm de arriba, en un reel corto, queda en -16/-17
         shutil.move(str(Path(tmp, "nivelado.mp4")), str(final))
+    # Las palabras en el tiempo del video FINAL y sus cortes: de aca salen los titulos y las tarjetas sincronizadas.
+    Path(final).with_suffix(".palabras.json").write_text(json.dumps({
+        "words": [{"word": t, "start": round(x, 3), "end": round(y, 3)} for x, y, t in palabras_out],
+        "cortes": cortes[:-1], "duracion": round(offset, 3)}, ensure_ascii=False), encoding="utf-8")
     extras = [x for x in (nota, f"{rehechas} frases reempezadas sacadas" if rehechas else "",
                           "con musica" if a.musica else "") if x]
     print(f"LISTO -> {final}  ({hms(sum(durs))} de crudo -> {hms(duracion(final))}; " + "; ".join(extras) + ")")
@@ -672,6 +725,56 @@ def c_normalizar(a):
     return out
 
 
+def c_limpiar(a):
+    out = salida(a.video, "limpio")
+    ffmpeg("-i", Path(a.video).resolve(), "-af", LIMPIEZA, "-map", "0:v?", "-map", "0:a", "-c:v", "copy",
+           "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", Path(out).resolve())
+    ok(out, "voz limpia, sin nivelar: despues va vtool normalizar")
+    return out
+
+
+def c_musica(a):
+    """Suma la pista a un video ya cortado sin recomprimir la imagen."""
+    out = salida(a.video, "musica")
+    d = duracion(a.video)
+    with tempfile.TemporaryDirectory() as tmp:
+        ffmpeg("-i", Path(a.video).resolve(), "-stream_loop", "-1", "-i", Path(a.musica).resolve(), "-filter_complex",
+               "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[ac];" + cadena_musica(1, d, a.vol_musica),
+               "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", f"{d:.3f}",
+               Path(tmp, "m.mp4"))
+        nivelar(Path(tmp, "m.mp4"), Path(out).resolve())
+    ok(out, f"musica a {a.vol_musica} dB, por debajo de la voz")
+    return out
+
+
+def medir_zonas(gris, caras, escala=1.0):
+    """Cuanta luz hay en cada zona de texto y si hay una cara ahi. gris: cuadro 1080x1920 (a `escala`) en grises."""
+    res = {}
+    for z, (a, b) in ZONAS.items():
+        recorte = gris[int(a * escala):int(b * escala), int(110 * escala):int(970 * escala)]
+        res[z] = {"luz": round(float(recorte.mean()) / 255, 3), "dispersion": round(float(recorte.std()) / 255, 3),
+                  "cara": any(y < b and y + alto > a for y, alto in caras)}
+    return res
+
+
+def c_zonas(a):
+    """Por cada segundo: luz de las zonas de texto y caras. armar.mjs lo usa para poner los titulos donde no tapan
+    a nadie y con la tinta que se lee."""
+    import cv2
+    out = Path(a.video).with_suffix(".zonas.json")
+    det = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    filas = []
+    with tempfile.TemporaryDirectory() as tmp:
+        ffmpeg("-i", Path(a.video).resolve(), "-vf", "fps=1,scale=540:960", Path(tmp, "c%04d.png"))
+        for i, png in enumerate(sorted(Path(tmp).glob("c*.png"))):
+            gris = cv2.imread(str(png), cv2.IMREAD_GRAYSCALE)
+            caras = [(int(y) * 2, int(h * 1.2) * 2) for (_, y, _, h) in det.detectMultiScale(gris, 1.1, 6, minSize=(40, 40))]
+            filas.append({"t": i, **medir_zonas(gris, caras, 0.5)})
+    out.write_text(json.dumps(filas), encoding="utf-8")
+    ok(out, f"{len(filas)} s, cara en {sum(1 for f in filas if f['arriba']['cara'] or f['abajo']['cara'])}")
+    return out
+
+
 def c_cortar(a):
     rangos = [tuple(map(seg, r.split("-"))) for r in a.rangos]
     out = salida(a.video, "corte", ".mp4")
@@ -747,6 +850,8 @@ def c_revisar(a):
         alertas.append(f"dura {hms(dur)}: en Reels conviene 90 s o menos")
     if not au:
         alertas.append("no tiene audio")
+    elif canal_de_voz(niveles_canales(a.video, 600)) is not None:
+        alertas.append("la voz esta en un solo canal: se escucha de un lado (rearmar con vtool reel o jornada)")
     r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(a.video),
                         "-vf", "blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-60dB:d=2",
                         *(["-af", "ebur128=peak=true,silencedetect=n=-40dB:d=1"] if au else []), "-f", "null", "-"],
@@ -810,7 +915,8 @@ def c_reel(a):
 
 
 def c_jornada(a):
-    """Varios crudos de una jornada -> un solo video. Con --guion, una toma por linea del guion y en ese orden."""
+    """Varios crudos de una jornada -> un video, o VARIOS si el guion tiene bloques separados con ---.
+    Con --guion, una toma por linea del guion y en ese orden."""
     videos = videos_de(a.carpeta)
     if not videos:
         sys.exit(f"ERROR: no hay videos en {a.carpeta}")
@@ -819,21 +925,41 @@ def c_jornada(a):
         palabras, _ = palabras_de(v, a)
         todas += [(k, t) for t in armar_tomas(palabras)]
     guion = a.guion or (Path(a.carpeta, "guion.txt") if Path(a.carpeta, "guion.txt").is_file() else None)
-    if guion:
-        lineas = [x.strip() for x in Path(guion).read_text(encoding="utf-8").splitlines() if x.strip()]
-        elegidas = []
-        for linea, par in zip(lineas, elegir_por_guion(lineas, todas)):
-            if par:
-                elegidas.append(par)
-                print(f"  {linea[:50]:<50} <- {videos[par[0]].name} toma {par[1]['n']}")
-            else:
-                print(f"  {linea[:50]:<50} <- FALTA (ninguna toma se parece)")
-    else:
+    base = Path(a.carpeta).resolve().name
+    if not guion:
         elegidas = [(k, t) for k, t in todas if not t["marcas"]]
         print(f"  {len(elegidas)} tomas OK de {len(todas)} en {len(videos)} videos")
-    if not elegidas:
+        if not elegidas:
+            sys.exit("ERROR: no hay tomas para usar.")
+        producir(videos, elegidas, a, Path(a.carpeta, base + "__JORNADA.mp4"))
+        return
+    bloques = bloques_guion(Path(guion).read_text(encoding="utf-8"))
+    if not bloques:
+        sys.exit(f"ERROR: {guion} no tiene lineas")
+    usadas, hechos = {}, 0
+    for i, b in enumerate(bloques, 1):
+        titulo = b["nombre"] or f"REEL{i}"
+        if len(bloques) > 1:
+            print(f"== {titulo}")
+        elegidas = []
+        for linea, par in zip(b["lineas"], elegir_por_guion(b["lineas"], todas)):
+            if not par:
+                print(f"  {linea[:50]:<50} <- FALTA (ninguna toma se parece)")
+                continue
+            clave = (par[0], par[1]["n"])
+            repetida = f" (ALERTA: ya usada en {usadas[clave]})" if clave in usadas else ""
+            usadas.setdefault(clave, titulo)
+            elegidas.append(par)
+            print(f"  {linea[:50]:<50} <- {videos[par[0]].name} toma {par[1]['n']}{repetida}")
+        if not elegidas:
+            print(f"  ALERTA {titulo}: ninguna linea tiene toma, no se armo")
+            continue
+        nombre = re.sub(r"[^\w-]+", "-", titulo)
+        final = Path(a.carpeta, f"{base}__{nombre}.mp4" if len(bloques) > 1 else f"{base}__JORNADA.mp4")
+        producir(videos, elegidas, argparse.Namespace(**{**vars(a), "gancho": b["gancho"] or a.gancho}), final)
+        hechos += 1
+    if not hechos:
         sys.exit("ERROR: no hay tomas para usar.")
-    producir(videos, elegidas, a, Path(a.carpeta, Path(a.carpeta).resolve().name + "__JORNADA.mp4"))
 
 
 def c_lote(a):
@@ -920,11 +1046,22 @@ def c_autotest(_):
                               encoding="utf-8")
         p1, _ = transcribir(Path(tmp, "no-existe.mp4"), "es", "small", crudo_json)
         assert [t["marcas"] for t in armar_tomas(p1)] == [[], ["insulto"], ["rodaje"], ["rodaje"]]
+    guiones = bloques_guion("# Placares\ngancho: Tu *placar*\nHola\nChau\n---\n\n# Vestidores\nOtra\n--- \n\n")
+    assert [(b["nombre"], b["gancho"], b["lineas"]) for b in guiones] == [
+        ("Placares", "Tu *placar*", ["Hola", "Chau"]), ("Vestidores", None, ["Otra"])], guiones
+    assert [b["lineas"] for b in bloques_guion("una\ndos\n")] == [["una", "dos"]]
+    assert canal_de_voz([-28.4, -70.0]) == 0 and canal_de_voz([-70.0, -28.4]) == 1
+    assert canal_de_voz([-20, -22]) is None and canal_de_voz([-20]) is None
+    import numpy
+    z = medir_zonas(numpy.full((1920, 1080), 255, dtype=numpy.uint8), [(500, 200)])
+    assert z["arriba"] == {"luz": 1.0, "dispersion": 0.0, "cara": True} and not z["abajo"]["cara"], z
     for prog in ("ffmpeg", "ffprobe"):
         assert shutil.which(prog), f"falta {prog} en el PATH"
     assert HYPERFRAMES[0] and shutil.which(HYPERFRAMES[0]), "falta hyperframes (o npx) en el PATH"
     # en Linux hyperframes compilaria whisper.cpp la primera vez (cmake + compilador): tiene que estar ya
     assert os.name == "nt" or shutil.which("whisper-cli"), "falta whisper-cli en el PATH"
+    filtros = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+    assert " afftdn " in filtros, "este ffmpeg no trae afftdn (limpieza de voz)"
     import cv2
     assert Path(cv2.data.haarcascades, "haarcascade_frontalface_default.xml").exists(), "OpenCV sin detector de caras"
     print(f"autotest OK (kit {VERSION})")
@@ -972,6 +1109,7 @@ def main():
         s.add_argument("--pausa", type=float, default=0.75,
                        help="corta pausas mas largas que esto, en s (0.75). Menos = mas cortes, pero chicos se ven como saltos")
         s.add_argument("--sin-subtitulos", action="store_true")
+        s.add_argument("--sin-limpiar", action="store_true", help="no limpiar el ruido de la voz (audio ya limpio)")
         s.add_argument("--con-silencios", action="store_true", help="no cortar pausas dentro de cada toma")
         s.add_argument("--con-repeticiones", action="store_true", help="no sacar frases reempezadas")
 
@@ -996,11 +1134,13 @@ def main():
     palabras(s)
     produccion(s)
 
-    s = cmd("jornada", c_jornada, "Una carpeta de crudos -> UN video. Con --guion elige la mejor toma de cada linea.",
+    s = cmd("jornada", c_jornada, "Una carpeta de crudos -> un video, o varios si el guion tiene bloques separados "
+            "con ---. Con --guion elige la mejor toma de cada linea.",
             video=False)
     s.add_argument("carpeta")
     s.add_argument("--guion", help="archivo .txt con una frase por linea, en el orden del video "
-                   "(si no se indica, usa guion.txt de la carpeta si existe)")
+                   "(si no se indica, usa guion.txt de la carpeta si existe). Una linea --- separa un reel del "
+                   "siguiente; opcional al principio de cada uno: \"# nombre\" y \"gancho: Frase\"")
     produccion(s)
 
     s = cmd("subtitulos", c_subtitulos, "Genera .srt con Whisper (42 caracteres x 2 lineas).")
@@ -1027,6 +1167,15 @@ def main():
 
     s = cmd("normalizar", c_normalizar, "Nivela el volumen para redes (-14 LUFS).")
     s.add_argument("--lufs", type=float, default=-14)
+
+    cmd("limpiar", c_limpiar, "Saca rumble y ruido de fondo de la voz, sin tocar la imagen.")
+
+    s = cmd("musica", c_musica, "Suma una pista a un video ya cortado: queda por debajo de la voz y baja sola cuando "
+            "se habla. No recomprime la imagen.")
+    s.add_argument("musica")
+    s.add_argument("--vol-musica", type=float, default=-18, help="volumen de la musica en dB (-18)")
+
+    cmd("zonas", c_zonas, "Luz y caras en las zonas de texto, por segundo (lo usa armar.mjs).")
 
     s = cmd("cortar", c_cortar, "Se queda con los tramos indicados y los une. Ej: 0:05-0:12 1:00-1:20")
     s.add_argument("rangos", nargs="+")

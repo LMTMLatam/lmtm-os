@@ -12,7 +12,7 @@ devuelve una linea. Tu rol es elegir el comando, correrlo y leer la linea final.
 ## Cuando se usa
 | Material | Camino |
 |---|---|
-| Filmado con la voz del cliente (alguien habla a camara, recorrida, testimonio) | `vtool tomas` -> `vtool reel` (un crudo) o `vtool jornada` (varios crudos + guion) |
+| Filmado con la voz del cliente (alguien habla a camara, recorrida, testimonio) | `vtool tomas` -> `vtool reel` o `vtool jornada` con `--sin-subtitulos`, y se termina con "Reel filmado con motion graficos" de la skill `lmtm-video` (titulos, tarjetas, insertos, musica y cierre). Solo sin motion: `vtool reel` tal cual, con subtitulos |
 | Voz en off generada + planos del material | la plantilla de `lmtm-video` (no vtool) |
 | Cualquier MP4 final, antes de `lmtmVideoEntregar` | `vtool revisar` siempre; si el volumen esta fuera de -16 a -12 LUFS, `vtool normalizar` y se entrega ese |
 
@@ -43,16 +43,20 @@ devuelve una linea. Tu rol es elegir el comando, correrlo y leer la linea final.
   `ventana` usa la franja de arriba. Despues de cada entrega, `vtool revisar` y mirar la hoja.
 - Formato de reel viral (vtool ya lo hace): subtítulos de 1 a 3 palabras, grandes, con borde, en el tercio de abajo;
   gancho con `--gancho "Frase con *clave*"`. Nada en los 269 px de arriba ni en los 400 px de abajo.
-- **Nada de carteles ni rótulos en recuadros** (ni con drawtext ni con HyperFrames): el texto en pantalla es el
-  subtítulo y el gancho.
-- Placas animadas (precios, listas) no son de vtool: se hacen con HyperFrames y se suman con `vtool insertar` o `vtool unir`.
+- **Tarjetas, titulos e insertos solo con `armar.mjs` del reel filmado**, nunca a mano con drawtext ni con
+  `vtool insertar`. Sin motion, el texto en pantalla es el subtitulo y el gancho.
+- Voz limpia y parejo en los dos oidos: `reel` y `jornada` ya lo hacen (camaras con un solo microfono graban en un canal).
+  `--sin-limpiar` solo si el audio ya viene limpio. `vtool revisar` avisa si la voz quedo de un solo lado.
 
 ## Comandos
 | Pedido | Comando |
 |---|---|
 | Ver las tomas de un crudo | `vtool tomas VIDEO` (lista numerada con texto y marcas: insulto, rodaje, repetida, suelta) |
 | Reel listo desde un crudo | `vtool reel VIDEO` |
-| Un video desde toda una jornada | `vtool jornada CARPETA [--guion guion.txt]` (usa `guion.txt` de la carpeta si existe) |
+| Uno o VARIOS videos desde una jornada | `vtool jornada CARPETA [--guion guion.txt]` (usa `guion.txt` de la carpeta si existe; `---` separa un reel del siguiente) |
+| Ver las tomas de toda una carpeta | `vtool lote CARPETA tomas` |
+| Limpiar la voz de un video ya cortado | `vtool limpiar VIDEO` (despues `vtool normalizar`) |
+| Sumar musica a un video ya cortado | `vtool musica VIDEO pista.mp3 [--vol-musica -18]` (baja sola cuando se habla) |
 | Opciones de reel y jornada | `--tomas 1,3` (solo reel) · `--palabras X.words.json` (solo reel) · `--color "#HEX"` · `--fuente "Liberation Sans"` · `--estilo reel/caja/simple` · `--gancho "texto"` · `--musica pista.mp3 [--vol-musica -18]` · `--posicion auto/abajo/arriba` · `--formato 9:16/4:5/1:1/16:9` · `--modo fondo/recorte` · `--pausa 1` (corta menos) · `--umbral -30` · `--sin-subtitulos` · `--con-silencios` · `--con-repeticiones` |
 | Insertar foto o clip | `vtool insertar VIDEO foto.jpg 0:03-0:06 [--modo ventana/completa]` |
 | Control de calidad | `vtool revisar VIDEO` (medidas, codec, volumen, picos, negros, congelados, silencios + hoja) |
@@ -84,3 +88,15 @@ Los crudos de camara (4K, rotados 90°, HEVC o 10 bits, audio PCM) se leen bien:
 ## Jornada con guion
 `guion.txt`: una frase por linea, en el orden del video. La salida dice que toma uso para cada linea y marca `FALTA`
 las que no encontro: contalo en el issue, no las inventes.
+
+Para sacar varios reels de la misma jornada, separalos con una linea `---`. Opcional al principio de cada uno:
+`# Nombre` y `gancho: Frase con *clave*` (el gancho no va si despues lleva motion). Si una toma se usa en dos reels, la
+salida dice `ALERTA: ya usada en ...`: cambiala o contalo en el issue.
+```
+# Placares
+Diseñamos placares a medida.
+Los fabricamos en nuestra planta.
+---
+# Vestidores
+Un vestidor pensado para tu casa.
+```

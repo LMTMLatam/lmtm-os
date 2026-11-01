@@ -14,7 +14,8 @@ mira y decide.
 
 | Material | Camino |
 |---|---|
-| Filmado con la voz del cliente: alguien habla a cámara, recorrida, testimonio, entrevista | skill `video-local`: `vtool tomas` y `vtool reel` (un crudo) o `vtool jornada` (varios crudos + guion). Elige las tomas buenas y descarta las de rodaje sola. |
+| Filmado con la voz del cliente: alguien habla a cámara, recorrida, testimonio, entrevista | skill `video-local` para sacar la base (`vtool reel` o `vtool jornada`) y **Reel filmado con motion gráficos** (más abajo) para terminarlo. |
+| Voz en off GRABADA + tomas | **Reel filmado con motion gráficos** con `tramos` |
 | Voz en off generada + planos del material (fotos y videos sin nadie hablando) | la plantilla de esta skill (lo que sigue) |
 
 Mirá el material antes de elegir: si el audio del video es alguien hablando del producto, ese es el guion; no le
@@ -37,8 +38,8 @@ El equipo aprobó un estándar, y el diseño ya está resuelto en
 - gancho opcional arriba en los primeros 2 s (`gancho` en guion.json, una frase corta del guion);
 - cierre SOBRE la última toma (o `cierre.plano`): logo, titular, botón y web. Sin placa de fondo.
 
-**Nada de carteles ni rótulos en recuadros** («JUJUY 3200 · EN VENTA», «Cocina integrada»): al usuario no le
-gustan y los virales no los usan. El texto en pantalla es el subtítulo y, como mucho, el gancho.
+**Con voz generada, nada de carteles ni rótulos en recuadros** («JUJUY 3200 · EN VENTA», «Cocina integrada»). El
+texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son sólo del reel filmado.
 
 **Mirá `ejemplos/estandar-hiper.jpg` antes de empezar: así tiene que verse.**
 
@@ -121,6 +122,36 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    issue trae una tarea de ClickUp, pasá su `clickupTaskId`. En el issue dejá el
    link, las líneas de SINCRONÍA que imprimió `armar.mjs` (qué se dice → qué se ve)
    y lo que no se pudo verificar. Después cerralo.
+
+## Reel filmado con motion gráficos (crudos → reels terminados)
+
+Una grabación con varias tomas sale en VARIOS reels: voz limpia, títulos que entran con la voz, tarjetas, insertos a
+pantalla completa, música y cierre. Es el estándar para lo filmado desde el 01/11. Lo mecánico lo hace `armar.mjs`.
+
+1. **Base, sin subtítulos ni gancho** (los pone la plantilla). Crudos en `/tmp/videos/<cliente>-<jornada>/fuente/`.
+   Mirá qué se dijo con `vtool lote fuente tomas`. Escribí `fuente/guion.txt`: las frases tal como se dijeron, una por
+   línea, y `---` entre un reel y el siguiente, con `# Nombre` al principio de cada uno. Después:
+   `vtool jornada fuente --sin-subtitulos --color "#HEX"`. Cada reel sale como `fuente/fuente__Nombre.mp4` con su
+   `.palabras.json`. Las líneas `FALTA` y `ALERTA` van al issue: no inventes la frase.
+2. **Un proyecto por reel**: `/tmp/videos/<cliente>-<jornada>-<nombre>/guion.json` (copiá
+   `$P/guion-filmado.ejemplo.json`) con `"tipo": "filmado"` y `base` apuntando al reel del paso 1. El logo, en
+   `assets/marca/` de ese proyecto.
+3. **Qué cargar** (sólo lo que aporta; la mayoría de los reels lleva 1 o 2 tarjetas o insertos, no todos):
+   - `claves`: las palabras que van GRANDES y en color. Si no, usa la más larga de cada título.
+   - `correcciones`: lo que whisper escribe mal, sobre todo la marca.
+   - `tarjetas`: dato o precio en una tarjeta. `dice` = la frase TAL COMO SE ESCUCHA; ahí aparece.
+   - `insertos` a pantalla completa, también con `dice`: `numero` (cuenta hasta `valor`, con `barras`), `antes-despues`,
+     `grilla` (3, 6 o 9 medios) o `media`. La voz sigue sonando debajo.
+   - `cierre`: `titulo`, `cta`, `url`. Entra cuando termina de hablar, sobre la última imagen.
+   - `musica`, igual que en la plantilla; `volDb` en vez de `volumen`.
+   - **Con voz en off grabada**, en lugar de `base`: `tramos` = `[{ voz, planos: [{ fuente, desde, foco }] }]`.
+4. `node $P/armar.mjs guion.json` frena con lo que no cumple: una frase que no se dice, elementos que se pisan, un logo
+   fuera del proyecto. Corregí y repetí; lo que no cambió no se rehace. Elige solo la zona (donde no haya una cara) y la
+   tinta (la que se lee sobre esa toma).
+5. `node $P/armar.mjs guion.json --render` y entregá el `FINAL` con `lmtmVideoEntregar`, una entrega por reel. Para
+   varios, en un solo comando: `for d in /tmp/videos/<cliente>-<jornada>-*/; do node $P/armar.mjs "$d/guion.json" --render; done`.
+
+**Nada inventado:** cada número, precio o dato de una tarjeta o inserto sale de la guía o del pedido. Si no está, no va.
 
 ## Cambios a un video ya entregado (pedidos desde el panel)
 

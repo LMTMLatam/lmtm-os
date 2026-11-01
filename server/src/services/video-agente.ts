@@ -235,7 +235,7 @@ async function renderizar(proyecto: string, calidad: string): Promise<string> {
     const tar = path.join(path.dirname(proyecto), `.${path.basename(proyecto)}-${Date.now()}.tar.gz`);
     try {
       // Sin los originales (assets/fuente: videos 4K de cientos de MB): el render usa los planos ya cortados.
-      await run("tar", ["-czf", tar, "--exclude=./node_modules", "--exclude=./renders", "--exclude=./.hyperframes", "--exclude=./assets/fuente", "--exclude=./capture", "-C", proyecto, "."], { maxBuffer: 1 << 24 });
+      await run("tar", ["-czf", tar, "--exclude=./node_modules", "--exclude=./renders", "--exclude=./.hyperframes", "--exclude=./assets/fuente", "--exclude=./assets/base/origen.mp4", "--exclude=./capture", "-C", proyecto, "."], { maxBuffer: 1 << 24 });
       const mb = fs.statSync(tar).size / 1e6;
       let r: Response;
       try {
@@ -313,6 +313,7 @@ export const VIDEO_TOOLS: ToolDef[] = [
     brief: { type: "string", description: "Qué tiene que decir y mostrar la pieza y qué no." },
     cuadros: { type: "number", description: "Video: cuántos cuadros mirar (4 a 12, por defecto 8)." },
     momentos: { type: "array", items: { type: "object", properties: { segundo: { type: "number" }, dice: { type: "string" } } }, description: "Video: un cuadro por frase ({segundo, dice}); revisa que lo que se ve muestre lo que dice la voz. armar.mjs --render lo manda solo." },
+    formato: { type: "string", enum: ["filmado"], description: "Video: «filmado» = reel filmado con títulos sincronizados, tarjetas e insertos (armar.mjs lo manda solo)." },
   }, ["brief"]),
   def("video_describir", "DESCRIBE el material bajado (videos y fotos de una carpeta): GPT mira una hoja de cada video y devuelve sus MOMENTOS con el segundo (qué se ve, si alguien habla a cámara, si sirve), y una línea por foto. Es TEXTO: no mires las hojas vos. Lo ya descripto queda en caché. Con eso elegís fuente y `desde` de cada plano del guion.", {
     carpeta: { type: "string", description: `Carpeta del material bajo ${RAIZ}/ (assets/fuente del proyecto).` },
@@ -982,6 +983,7 @@ export async function ejecutarHerramientaVideo(
           await run("ffmpeg", ["-v", "error", "-y", ...entrada, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", jpg]);
           imagenes.push(fs.readFileSync(jpg).toString("base64"));
         }
+        const filmado = esVideo && p.formato === "filmado";
         const comun =
           "logo deformado o pixelado, faltas de ortografía, y que no se diga ni muestre nada que el brief no permite. No inventes problemas: si está bien, decilo. ";
         const pedido = (esVideo
@@ -989,7 +991,10 @@ export async function ejecutarHerramientaVideo(
             `(en los segundos ${momentos.join(", ")}) y el brief. Para cada cuadro revisá: subtítulos legibles (tamaño y contraste con lo de atrás), ` +
             "texto o logo cortado o dentro de los 269 px de arriba / 400 px de abajo (interfaz de Reels), texto que tapa caras, logos, carteles o precios " +
             "(el subtítulo va SIEMPRE encima del video, como en los reels virales: que quede sobre una parte de una toma a pantalla completa —estantes, paredes, piso— NO es un problema; " +
-            "sí lo es si tapa justo el detalle que nombra la frase), rótulos o carteles en recuadros sobre el video (el formato es subtítulo + gancho; un rótulo en caja es un problema), " +
+            "sí lo es si tapa justo el detalle que nombra la frase), " +
+            (filmado
+              ? "Este reel usa títulos grandes en jerarquía (chica + GRANDE + media), arriba o abajo según dónde esté la cara, tarjetas con datos e insertos a pantalla completa: son parte del formato, no son un problema, y en un inserto la persona no se ve aunque siga hablando. Sí es un problema una tarjeta o título que tape una cara o el producto. Si alguien habla a cámara, eso ya muestra lo que dice. Un cuadro con un título que todavía se está armando, palabra por palabra, está bien. "
+              : "rótulos o carteles en recuadros sobre el video (el formato es subtítulo + gancho; un rótulo en caja es un problema), ") +
             "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
