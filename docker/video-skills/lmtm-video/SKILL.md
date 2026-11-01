@@ -104,7 +104,7 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
      («Tomas», «Melisa») o el id; si no existe, la respuesta lista las disponibles sin gastar. Las clonadas de clientes
      (RENO, MAERS) no andan con el plan actual: responden 401. Todo el reel con la misma voz. Cuesta un crédito por
      carácter. Un proyecto que ya tiene voces hechas sigue con Gemini: no le cambies la voz salvo que lo pidan.
-   - **`pronunciacion`** si la voz dice mal una marca o una palabra: `{ "Reno": "Réno" }`. Cambia solo lo que lee la
+   - **`pronunciacion`** si la voz dice mal una marca o una palabra: `{ "Reno": "Rréno" }`. Cambia solo lo que lee la
      voz; los subtítulos siguen con el texto del guion. Si la memoria del cliente trae cómo se dice, cargalo.
    - `estilo`: cómo suena, adaptado al cliente (lo exige `armar.mjs`; ElevenLabs no lo usa).
    - **Tipografía de la marca:** si la web usa una propia, bajá su `.woff2` a `assets/marca/` y cargá
