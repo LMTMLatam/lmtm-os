@@ -120,7 +120,8 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    `vtool revisar` (y `normalizar` si hace falta) y pide la revisión, que mira cada frase y la hoja del reel entero:
    no abras las hojas vos, cada imagen se reenvía en todos los turnos.
    Si la revisión dice que una frase no muestra lo que dice, cambiá ESE plano en
-   `guion.json` y repetí el paso; dos vueltas como mucho.
+   `guion.json` y repetí el paso; dos vueltas como mucho. Si objeta el diseño de la plantilla (tamaños, botón del cierre),
+   no es tuyo: no lo saques ni te bloquees. Entregá y anotalo en el issue; una persona lo mira antes de publicar.
 7. **Entrega:** `lmtmVideoEntregar` con el `FINAL` que imprimió el paso 6. Si el
    issue trae una tarea de ClickUp, pasá su `clickupTaskId`. En el issue dejá el
    link, las líneas de SINCRONÍA que imprimió `armar.mjs` (qué se dice → qué se ve)

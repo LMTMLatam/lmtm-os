@@ -234,7 +234,7 @@ const cierre = `<!doctype html>
         #cierre-titulo .w { display: inline-block; }
         #cierre-titulo .dest { ${acento ? `color: ${acento};` : ""} }
         #cta { margin-top: 40px; display: inline-block; padding: 26px 64px; border-radius: 999px; background: ${acento ?? "#ffffff"}; color: ${acento && !marcaOscura && luz(acento) < 0.5 ? "#ffffff" : "#111111"}; font-size: 44px; font-weight: 800; }
-        #url { margin-top: 26px; font-size: 44px; font-weight: 800; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+        #url { margin-top: 26px; font-size: ${MV ? 54 : 44}px; font-weight: 800; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
       </style>
       <div id="root" data-composition-id="cierre" data-width="1080" data-height="1920">
         <div id="cierre-fondo"></div>

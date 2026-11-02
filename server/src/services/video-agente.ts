@@ -1103,7 +1103,7 @@ export async function ejecutarHerramientaVideo(
             "sí lo es si tapa justo el detalle que nombra la frase), " +
             (filmado
               ? "Este reel usa títulos grandes en jerarquía (chica + GRANDE + media), arriba o abajo según dónde esté la cara, tarjetas con datos e insertos a pantalla completa: son parte del formato, no son un problema, y en un inserto la persona no se ve aunque siga hablando. Sí es un problema una tarjeta o título que tape una cara o el producto. Si alguien habla a cámara, eso ya muestra lo que dice. Un cuadro con un título que todavía se está armando, palabra por palabra, está bien. "
-              : "rótulos o carteles en recuadros sobre el video (el formato es subtítulo + gancho; un rótulo en caja es un problema), ") +
+              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón y la web del cierre y los paneles animados son parte del formato y no lo son), ") +
             "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
