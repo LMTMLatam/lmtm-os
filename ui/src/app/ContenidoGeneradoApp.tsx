@@ -35,6 +35,7 @@ interface PiezaGenerada {
   gasto: TotalHerramienta[] | null;
   delProductor?: boolean;
   reemplaza?: string | null;
+  movimiento?: string | null;
 }
 interface PedidoProductor {
   id: string;
@@ -329,7 +330,7 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
   const [abierto, setAbierto] = useState(false);
   const [cambios, setCambios] = useState("");
   const pedir = useMutation({
-    mutationFn: () => api.post<RespuestaPedido>("/contenido/productor/cambios", { deliverableId: p.id, cambios }),
+    mutationFn: (texto?: string) => api.post<RespuestaPedido>("/contenido/productor/cambios", { deliverableId: p.id, cambios: texto ?? cambios }),
     onSuccess: (r) => {
       if (r.ok) { setCambios(""); setAbierto(false); }
       void qc.invalidateQueries({ queryKey: ["lmtm", "contenido", "productor"] });
@@ -340,7 +341,7 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
       <div className="min-w-0 flex-1">
         <div className="text-[12px] text-l-tinta-3">
           {fecha(p.createdAt)} · {p.cliente ?? "sin cliente"} · {TIPO[p.kind] ?? p.kind}{p.origen ? ` · ${ORIGEN[p.origen] ?? p.origen}` : ""}
-          {p.delProductor ? " · Productor" : ""}{p.reemplaza ? " · versión corregida" : ""}
+          {p.delProductor ? " · Productor" : ""}{p.reemplaza ? " · versión corregida" : ""}{p.movimiento ? ` · estilo ${p.movimiento}` : ""}
         </div>
         <div className="truncate text-[14px]" title={p.titulo}>{p.titulo.replace(/^(Video|Placa|Carrusel|Imagen): /, "")}</div>
         <div className="text-[12px] tabular-nums text-l-tinta-2">
@@ -371,11 +372,21 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
             <Wand2 className="h-3.5 w-3.5" aria-hidden /> Pedir cambios
           </button>
         )}
+        {p.delProductor && p.kind === "video" && p.movimiento && (
+          <button
+            type="button"
+            disabled={pedir.isPending}
+            onClick={() => pedir.mutate(`Otro estilo de movimiento: que no sea «${p.movimiento}». Mismo guion, mismas tomas y mismas voces; cambiá solo "movimiento" en guion.json.`)}
+            className="inline-flex min-h-9 items-center gap-1 rounded-[8px] border border-l-linea-2 px-2.5 hover:border-l-tinta-3 disabled:opacity-50"
+          >
+            Otro estilo
+          </button>
+        )}
       </div>
       {abierto && (
         <form
           className="flex w-full flex-col gap-2"
-          onSubmit={(e) => { e.preventDefault(); if (cambios.trim().length >= 5) pedir.mutate(); }}
+          onSubmit={(e) => { e.preventDefault(); if (cambios.trim().length >= 5) pedir.mutate(undefined); }}
         >
           <label className="text-[13px] text-l-tinta-2" htmlFor={`cambios-${p.id}`}>Qué cambiar (el resto queda igual y no se rehace)</label>
           <textarea

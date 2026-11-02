@@ -1,8 +1,44 @@
+import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { MOVIMIENTOS, chequearVariedad } from "../video-variedad.js";
 import { NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, elegirVozElevenLabs, idDeDrive, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
 import { proveedorDelProxy } from "@paperclipai/adapter-claude-local/server";
+
+describe("variedad de las piezas", () => {
+  const yo = { idPieza: "a", movimiento: "pulso", ganchoTipo: "dato", pilar: "vitrina", insertos: ["numero", "lista"] };
+  const otra = (x: object) => ({ titulo: "otra", idPieza: "b", movimiento: "relato", ganchoTipo: "pregunta", pilar: "educativo", insertos: [], ...x });
+
+  it("no repite el estilo en las últimas piezas del cliente y dice cuáles quedan libres", () => {
+    const r = chequearVariedad(yo, [otra({ movimiento: "ficha" }), otra({ movimiento: "pulso" })], []);
+    expect(r.problemas.join()).toContain("«pulso»");
+    expect(r.libres).toEqual(["directo", "relato", "vitrina"]);
+    expect(chequearVariedad(yo, [otra({}), otra({}), otra({}), otra({ movimiento: "pulso" })], []).problemas).toEqual([]);
+  });
+  it("no repite la secuencia de insertos, pero el orden cuenta y sin insertos no hay secuencia", () => {
+    expect(chequearVariedad(yo, [otra({ insertos: ["numero", "lista"] })], []).problemas.join()).toContain("secuencia");
+    expect(chequearVariedad(yo, [otra({ insertos: ["lista", "numero"] })], []).problemas).toEqual([]);
+    expect(chequearVariedad({ ...yo, insertos: [] }, [otra({ insertos: [] })], []).problemas).toEqual([]);
+  });
+  it("un pedido de cambios no se compara contra sí mismo y lo viejo sin ficha no cuenta", () => {
+    expect(chequearVariedad(yo, [otra({ idPieza: "a", movimiento: "pulso", insertos: ["numero", "lista"] })], []).problemas).toEqual([]);
+    expect(chequearVariedad(yo, [{ titulo: "vieja" }], []).problemas).toEqual([]);
+  });
+  it("entre clientes del mismo rubro solo avisa", () => {
+    const r = chequearVariedad(yo, [], [{ titulo: "x", cliente: "Otro", movimiento: "pulso", insertos: ["numero", "lista"] }]);
+    expect(r.problemas).toEqual([]);
+    expect(r.avisos.join()).toContain("Otro");
+  });
+  it("rechaza lo que no es de la lista", () => {
+    expect(chequearVariedad({ ...yo, movimiento: "x", ganchoTipo: "y", pilar: "z" }, [], []).problemas).toHaveLength(3);
+  });
+  it("los estilos del servidor son los de la plantilla", () => {
+    const motion = fs.readFileSync(path.resolve(__dirname, "../../../../docker/video-skills/lmtm-video/plantilla/motion.mjs"), "utf8");
+    const bloque = motion.slice(motion.indexOf("export const MOVIMIENTOS"), motion.indexOf("export const TIPOS_INSERTO"));
+    expect([...bloque.matchAll(/^  (\w+): \{/gm)].map((m) => m[1])).toEqual(MOVIMIENTOS);
+  });
+});
 
 describe("costo de las corridas", () => {
   it("por un proxy no se usa el total de la CLI", () => {

@@ -98,8 +98,11 @@ const tomasHtml = PLANOS.map((p, i) => {
 
 const palabra = (id, w, dest) => `<span class="w${dest ? " dest" : ""}" id="${id}">${MV?.subs === "caja" && dest ? '<i class="mo-barrido"></i>' : ""}${esc(w)}</span>`;
 
+// Blanco con borde se lee sobre video; sobre un panel claro va en tinta oscura.
+const panelClaro = TEMA.tinta !== "#ffffff";
+const sobrePanel = (fr) => panelClaro && PLANOS.some((p) => p.inserto && Number(fr.desde) >= Number(p.desde) - 0.05 && Number(fr.desde) < Number(p.desde) + Number(p.dur));
 const frasesHtml = FRASES.map((fr, i) => `
-      <p class="frase clip" id="frase-${i + 1}" data-start="${f(fr.desde)}" data-duration="${f(fr.hasta - fr.desde)}" data-track-index="3">${fr.palabras
+      <p class="frase clip${sobrePanel(fr) ? " sobre-claro" : ""}" id="frase-${i + 1}" data-start="${f(fr.desde)}" data-duration="${f(fr.hasta - fr.desde)}" data-track-index="3">${fr.palabras
         .map(([w, , dest], j) => palabra(`f${i + 1}w${j + 1}`, w, dest))
         .join(" ")}</p>`).join("");
 
@@ -170,14 +173,16 @@ const html = `<!doctype html>
       #gancho { top: 420px; font-size: ${Number(spec.tamanoGancho ?? 84)}px; }
       .frase .w, #gancho .w { display: inline-block; }
       .dest { ${acento ? `color: ${acento};` : "font-size: 1.12em;"} }
-${hayInserto ? CSS_MOTION : ""}${GV ? `
+${hayInserto ? `${CSS_MOTION}      .frase.sobre-claro { color: ${TEMA.tinta}; text-shadow: none; }
+      .frase.sobre-claro .dest { color: ${TEMA.acento}; }
+` : ""}${GV ? `
       #mo-gancho { position: absolute; left: 90px; right: 90px; top: 430px; margin: 0; text-align: center; font-weight: 900; line-height: 1.02; letter-spacing: -0.03em; color: #fff; text-wrap: balance; font-size: ${Number(spec.tamanoGancho ?? 128)}px; text-shadow: ${BORDE}, 0 8px 24px rgba(0,0,0,0.45); }
       #mo-gancho .mo-gw { display: inline-block; }
       #mo-gancho .mo-clave { ${acento ? `color: ${acento};` : "font-size: 1.1em;"} }
       /* El cursor no ocupa lugar: si no, los apagados corren las palabras. */
       .mo-caret { display: inline-block; position: relative; width: 0; opacity: 0; }
       .mo-caret::after { content: ""; position: absolute; left: 0.08em; bottom: -0.08em; width: 0.08em; height: 0.92em; background: currentColor; }` : ""}${MV?.subs === "caja" ? `
-      .frase .dest { position: relative; isolation: isolate; color: ${TEMA.sobreAcento === "#ffffff" ? "#fff" : "#111"}; text-shadow: none; padding: 0 0.1em; }
+      .frase .dest, .frase.sobre-claro .dest { position: relative; isolation: isolate; color: ${TEMA.sobreAcento}; text-shadow: none; padding: 0 0.1em; }
       .mo-barrido { position: absolute; left: 0; right: 0; top: 0.04em; bottom: 0; z-index: -1; border-radius: 0.1em; transform-origin: 0 50%; background: ${TEMA.acento}; }` : ""}
     </style>
   </head>
@@ -246,7 +251,12 @@ const cierre = `<!doctype html>
         tl.fromTo("#cierre-fondo", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.inOut" }, 0);
         tl.fromTo("#cierre-logo", { opacity: 0, scale: 0.7, rotation: -12 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.7, ease: "back.out(1.7)" }, 0.3);
         ${C.etiqueta ? `tl.fromTo("#cierre-etiqueta", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.55);` : ""}
-        ${C.titulo.map(([, t], j) => `tl.fromTo("#tw${j + 1}", { opacity: 0, y: 46, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "back.out(2)" }, ${L(Math.max(t - 0.06, CIERRE_DESDE + 0.2))});`).join("\n        ")}
+        ${C.titulo.map(([, t], j) => {
+          const en = L(Math.max(t - 0.06, CIERRE_DESDE + 0.2));
+          if (MV?.cierre === "golpe") return `tl.fromTo("#tw${j + 1}", { opacity: 0, scale: 1.6, filter: "blur(10px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, ${en});`;
+          if (MV?.cierre === "tipeo") return `tl.fromTo("#tw${j + 1}", { opacity: 0 }, { opacity: 1, duration: 0.01 }, ${en});`;
+          return `tl.fromTo("#tw${j + 1}", { opacity: 0, y: 46, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "back.out(2)" }, ${en});`;
+        }).join("\n        ")}
         ${C.cta ? `tl.fromTo("#cta", { opacity: 0, scale: 0.82, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.55, ease: "back.out(1.8)" }, ${L(ctaAt - 0.05)});` : ""}
         ${C.url ? `tl.fromTo("#url", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, ${L(urlAt)});` : ""}
         ${C.cta && urlAt + 1.0 < FIN ? `tl.fromTo("#cta", { scale: 1 }, { scale: 1.05, duration: 0.45, ease: "sine.inOut", yoyo: true, repeat: 3, immediateRender: false }, ${L(urlAt + 1.0)});` : ""}

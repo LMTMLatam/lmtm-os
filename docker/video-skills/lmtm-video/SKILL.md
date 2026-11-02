@@ -27,16 +27,8 @@ pongas una voz en off encima.
 
 ## El diseño NO lo inventás: usás la plantilla
 
-El equipo aprobó un estándar, y el diseño ya está resuelto en
-`plantilla/plantilla-reel.mjs`, en la carpeta de esta skill
-(`/app/video-skills/lmtm-video/plantilla/`):
-- planos a pantalla completa con empuje suave;
-- velo para leer;
-- logo fijo arriba;
-- subtítulos de reel viral: de 1 a 3 palabras, grandes, blancos con borde, en el tercio de abajo, y las palabras
-  clave en el color de la marca (sin recuadros);
-- gancho opcional arriba en los primeros 2 s (`gancho` en guion.json, una frase corta del guion);
-- cierre SOBRE la última toma (o `cierre.plano`): logo, titular, botón y web. Sin placa de fondo.
+El diseño ya está resuelto en `/app/video-skills/lmtm-video/plantilla/`: planos a pantalla completa, logo, subtítulos
+de reel viral y cierre SOBRE la última toma (o `cierre.plano`), sin placa de fondo.
 
 **Con voz generada, nada de carteles ni rótulos en recuadros** («JUJUY 3200 · EN VENTA», «Cocina integrada»). El
 texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son sólo del reel filmado.
@@ -52,7 +44,13 @@ de una frase puede ser `{ "inserto": { "tipo": … } }` en vez de una toma; el m
 - Si necesita más tiempo, dejalo solo en una frase larga: `armar.mjs` te dice cuánto le falta.
 En el filmado van en `insertos` con `dice`, igual que los demás.
 
-**Mirá `ejemplos/estandar-hiper.jpg` antes de empezar: así tiene que verse.**
+**Que no salgan todos iguales:** cada reel nuevo lleva en `guion.json` `movimiento` (`directo`, `pulso`, `relato`,
+`vitrina` o `ficha`: ritmo, gancho, transiciones, subtítulos y cierre, combinados con la marca), `ganchoTipo` (`hora`,
+`pregunta`, `dato`, `mito`, `confesion`, `lista`, `contraste` o `historia`) y `pilar` (el ángulo: `vitrina`, `educativo`,
+`detras-de-escena`, `dolor`…). Con `movimiento`, la primera frase ES el gancho, grande y al ritmo de la voz; no cargues
+`gancho`. Elegí uno distinto a los últimos del cliente: `armar.mjs` frena antes de gastar si repite y te dice cuáles
+quedan libres. `--forzar` lo saltea solo si el pedido lo exige, y lo aclarás en el issue. Un proyecto de antes sin
+`movimiento` sigue con su diseño: no se lo agregues salvo que lo pidan.
 
 Tu trabajo es decidir; lo mecánico lo hace `armar.mjs`:
 - elegir el material correcto (leyendo `lmtmVideoDescribir`, no mirando hojas);
@@ -63,12 +61,6 @@ Tu trabajo es decidir; lo mecánico lo hace `armar.mjs`:
 arma los subtítulos y `reel.json`, chequea, renderiza y revisa. No escribas
 `reel.json` ni `index.html` a mano y no cambies el CSS de la plantilla. Si algo
 del diseño no sirve para un cliente, decilo en el issue.
-
-La primera prueba sin plantilla (28/10) salió mal en todo eso: fotos como tarjetas
-repetidas, subtítulos chicos arriba con cajitas, sin música, cierre pobre y tomas
-de fábrica con papeles para un reel de placares. La v3 de RENO (30/10) repitió 4
-videos en 8 cortes y mostraba otra cosa que lo que decía: `armar.mjs` ya no deja
-repetir fuentes y la revisión mira frase por frase.
 
 ## Reglas que no se negocian
 
@@ -185,6 +177,3 @@ tiene las descripciones guardadas, y las fuentes que no están se bajan solas.
 
 - Sin material del producto: decilo en la tarea y proponé qué filmar o pedir.
 - Una herramienta falla dos veces igual: contalo en la tarea y seguí o cerrá.
-- `ejemplos/hiper-build.mjs` y `ejemplos/ferrol-build.mjs` son los scripts
-  originales de los reels aprobados. Sirven de referencia; la plantilla los
-  reemplaza.

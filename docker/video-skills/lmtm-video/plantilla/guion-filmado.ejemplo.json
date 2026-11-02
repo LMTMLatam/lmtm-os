@@ -5,6 +5,9 @@
   "brief": "De qué es el reel y qué datos están permitidos en pantalla.",
   "clientId": "id del cliente",
   "pieza": "nombre de la pieza",
+  "movimiento": "directo",
+  "ganchoTipo": "dato",
+  "pilar": "vitrina",
   "base": "../cliente-jornada/fuente/fuente__Placares.mp4",
   "claves": ["placar", "medida"],
   "correcciones": { "Tuplacar": "Tu placar" },
@@ -23,7 +26,7 @@
     { "dice": "la cuota queda en", "dur": 3.2, "etiqueta": "Financiación", "tachado": "Precio anterior", "titulo": "Producto", "antes": "$", "valor": "47.000", "nota": "En 6 cuotas" }
   ],
   "insertos": [
-    { "dice": "más de cuatro mil", "dur": 3, "tipo": "numero", "etiqueta": "Clientes", "prefijo": "", "valor": 4000, "sufijo": "instalaciones", "barras": [1000, 2000, 3000, 4000] },
+    { "dice": "más de cuatro mil", "dur": 3, "tipo": "numero", "etiqueta": "Clientes", "valor": 4000, "texto": "instalaciones", "origen": "de dónde salió: guía, web o pedido", "barras": [1000, 2000, 3000, 4000] },
     { "dice": "antes era así", "dur": 3, "tipo": "antes-despues", "antes": { "fuente": "assets/fuente/antes.mp4", "desde": 4 }, "despues": "assets/fuente/despues.jpg", "titulo": "tu *placar*", "pie": "*a medida*" },
     { "dice": "hicimos muchos", "dur": 2.6, "tipo": "grilla", "titulo": "y muchos *trabajos más*", "medios": ["assets/fuente/a.jpg", "assets/fuente/b.jpg", "assets/fuente/c.jpg"] },
     { "dice": "la fábrica", "dur": 2, "tipo": "media", "archivo": { "fuente": "assets/fuente/fabrica.mp4", "desde": 12, "foco": 0.4 } }

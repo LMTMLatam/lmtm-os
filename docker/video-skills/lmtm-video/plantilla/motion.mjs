@@ -87,6 +87,19 @@ export function momentosDe(textos, voz, t0, dur) {
   return textos.map((_, i) => r3(Math.min(Math.max(t0 + 0.05, al.find((w) => w.de === i).ini - 0.05), t0 + dur - 0.4)));
 }
 
+/**
+ * Estilos de movimiento: ritmo, gancho, transiciones, subtítulos, panel y cierre. Se combinan con la marca
+ * de cada cliente (paleta, tipografía y logo salen de ella): no son looks. Los nombres también están en
+ * server/src/services/video-variedad.ts (lo controla un test).
+ */
+export const MOVIMIENTOS = {
+  directo: { gancho: "golpe", transiciones: [], subs: "pop", empuje: 1.07, panel: "oscuro", cierre: "sube" },
+  pulso: { gancho: "golpe", transiciones: ["desenfoque", "zoom"], subs: "caja", empuje: 1.1, panel: "color", cierre: "golpe" },
+  relato: { gancho: "tipeo", transiciones: ["fundido"], subs: "karaoke", empuje: 1.035, panel: "claro", cierre: "tipeo" },
+  vitrina: { gancho: "sube", transiciones: ["empuje", "zoom", "desenfoque"], subs: "pop", empuje: 1.05, panel: "oscuro", cierre: "sube" },
+  ficha: { gancho: "tipeo", transiciones: ["empuje"], subs: "caja", empuje: 1.035, panel: "claro", cierre: "golpe" },
+};
+
 export const TIPOS_INSERTO = ["numero", "lista", "pasos", "chat", "pantalla"];
 /** Lo mínimo para que se entienda: el chat necesita ver llegar los mensajes; la pantalla, el resultado quieto ≥1 s. */
 export const DUR_MINIMA = { numero: 1.8, lista: 2.5, pasos: 2.8, chat: 4, pantalla: 3.4 };

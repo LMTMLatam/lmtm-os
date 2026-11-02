@@ -395,6 +395,10 @@ export const VIDEO_TOOLS: ToolDef[] = [
     textos: { type: "string", description: "El texto de cada slide y el copy sugerido para el posteo." },
     issueId: { type: "string" }, clickupTaskId: { type: "string" },
   }, ["archivos", "clientId", "titulo"]),
+  def("video_variedad", "CONTROL DE VARIEDAD de una pieza contra lo reciente de su cliente y de su rubro, antes de gastar. armar.mjs lo llama solo.", {
+    idPieza: { type: "string" }, movimiento: { type: "string" }, ganchoTipo: { type: "string" }, pilar: { type: "string" },
+    insertos: { type: "array", items: { type: "string" } }, clientId: { type: "string" },
+  }, ["idPieza", "movimiento", "ganchoTipo", "pilar"]),
   def("video_entregar", "ENTREGA el video: lo sube a la carpeta VIDEOS del cliente en Drive y lo registra. No publica ni toca el calendario. Devuelve el link para dejar en la tarea.", {
     archivo: ARCHIVO, clientId: { type: "string" }, titulo: { type: "string" },
     guion: { type: "string", description: "El guion y de dónde salió cada plano (cliente o generado)." },
@@ -643,6 +647,16 @@ const PROYECTOS_A_GUARDAR = 25;
  * para que un pedido de cambios no rehaga el video entero. Sin volumen o sin
  * guion.json no guarda nada (null).
  */
+/** Lo que armar.mjs anotó de la pieza (movimiento, gancho, pilar, insertos): de ahí sale la variedad y la medición. */
+export function fichaDeProyecto(archivo: string): Record<string, unknown> {
+  const nombre = path.relative(RAIZ, archivo).split(path.sep)[0];
+  try {
+    return JSON.parse(fs.readFileSync(path.join(RAIZ, nombre ?? "", "pieza.json"), "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 function guardarProyecto(archivo: string, borrador = false): string | null {
   const nombre = path.relative(RAIZ, archivo).split(path.sep)[0];
   const dir = path.join(RAIZ, nombre ?? "");
@@ -1150,6 +1164,15 @@ export async function ejecutarHerramientaVideo(
       return ok(`Entregado en Drive (Super Redes/${c.name}/PLACAS): ${links.join(" ")}.${enlace} Dejá los links y los textos en el issue. No se publicó nada.`);
     }
 
+    if (tool === "video_variedad") {
+      const clientId = txt(p.clientId) || (await tareaDeCorrida(db, ctx.runId)).clientId;
+      if (!clientId) return mal("no sé de qué cliente es: pasá clientId en guion.json");
+      const { variedadDeCliente } = await import("./video-variedad.js");
+      const v = await variedadDeCliente(db, clientId, { idPieza: txt(p.idPieza), movimiento: txt(p.movimiento), ganchoTipo: txt(p.ganchoTipo), pilar: txt(p.pilar), insertos: Array.isArray(p.insertos) ? p.insertos.map(String) : [] });
+      if (v.problemas.length) return mal(v.problemas.map((x) => `- ${x}`).join("\n"));
+      return ok(v.avisos.length ? v.avisos.join(" · ") : "");
+    }
+
     if (tool === "video_entregar") {
       const archivo = rutaSegura(p.archivo);
       if (!archivo || !fs.existsSync(archivo) || !/\.mp4$/i.test(archivo)) return mal(`archivo tiene que ser un .mp4 bajo ${RAIZ}/`);
@@ -1169,7 +1192,7 @@ export async function ejecutarHerramientaVideo(
       await db.insert(agentDeliverables).values({
         companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "video",
         title: `Video: ${titulo}`.slice(0, 200), content: txt(p.guion) || titulo, url: e.driveLink,
-        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null },
+        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null, ...fichaDeProyecto(archivo) },
       });
       if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${txt(p.guion).slice(0, 1500)}`, true);
       const enlace = e.enlace ? (e.enlace.ok ? " Quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.enlace.motivo}.`) : "";

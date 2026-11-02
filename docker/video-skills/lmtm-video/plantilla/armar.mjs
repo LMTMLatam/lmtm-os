@@ -19,6 +19,8 @@
 //   cierre             { texto (lo que dice la voz), titulo, etiqueta, cta, url, corte, cola, plano }
 //                      (va SOBRE la última toma o sobre cierre.plano: sin placa)
 //   marca, musica      { archivo, volumen } o { prompt } para generarla con Magnific
+//   movimiento         directo|pulso|relato|vitrina|ficha: ritmo, gancho, transiciones, subtítulos y cierre (obligatorio en un reel nuevo)
+//   ganchoTipo, pilar  para la ficha de la pieza: de eso sale el control de variedad y la medición
 //   un plano puede ser { inserto: { tipo: numero|lista|pasos|chat|pantalla, … } } en vez de una toma (guion-motion.ejemplo.json)
 //
 // Con "tipo": "filmado" en el guion, el reel sale de filmado.mjs (material con voz
@@ -27,8 +29,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chequear, duracion, esFoto, herramienta, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
-import { DUR_MINIMA, SOLAPE, alinear, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
+import { chequear, duracion, esFoto, fichaYVariedad, herramienta, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
+import { DUR_MINIMA, MOVIMIENTOS, SOLAPE, alinear, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
 const archivoGuion = path.resolve(process.argv[2] ?? "guion.json");
@@ -67,6 +69,15 @@ if (M.fuenteArchivo) {
   exigir(fs.existsSync(M.fuenteArchivo) && !path.relative(DIR, path.resolve(M.fuenteArchivo)).startsWith(".."), `marca.fuenteArchivo: ${M.fuenteArchivo} tiene que estar dentro del proyecto (assets/marca/)`);
   exigir(!!M.fuente, "marca.fuente: el nombre de la tipografía que trae fuenteArchivo");
 }
+// Un reel que ya tiene voces hechas es de antes: sigue con su diseño, así pedir cambios no le cambia la cara.
+const esNuevo = !fs.existsSync("assets/voice/l1.wav");
+const MOV = G.movimiento ? MOVIMIENTOS[G.movimiento] : null;
+exigir(!esNuevo || G.movimiento, `movimiento: elegí uno (${Object.keys(MOVIMIENTOS).join(", ")})`);
+if (G.movimiento) {
+  exigir(MOV, `movimiento: «${G.movimiento}» no existe (${Object.keys(MOVIMIENTOS).join(", ")})`);
+  exigir(typeof G.ganchoTipo === "string" && G.ganchoTipo, "ganchoTipo: hora, pregunta, dato, mito, confesion, lista, contraste o historia");
+  exigir(typeof G.pilar === "string" && G.pilar, "pilar: el ángulo de la pieza (vitrina, educativo, detras-de-escena, dolor…)");
+}
 const PLANOS = LINEAS.flatMap((l, i) => (Array.isArray(l.planos) ? l.planos : []).map((p) => ({ ...p, linea: i })));
 for (const [i, l] of LINEAS.entries()) {
   exigir(typeof l.texto === "string" && l.texto.trim(), `lineas[${i}].texto: falta`);
@@ -101,6 +112,7 @@ if (/\$|%|\bcuotas?\b|\bdescuento|\boff\b|\bgratis\b/i.test(textoTodo)) {
   avisos.push("el guion nombra un precio, promo o descuento: tiene que estar en la guía o en el pedido (si no, se pregunta)");
 }
 frenar("guion.json no cumple");
+await fichaYVariedad(G, archivoGuion, INSERTOS.map((p) => p.inserto.tipo), flags);
 
 for (const p of TOMAS.filter((p) => !fs.existsSync(String(p.fuente)))) {
   const r = await herramienta("drive_bajar", { link: p.drive, carpeta: path.resolve(path.dirname(String(p.fuente))) });
@@ -149,7 +161,6 @@ const DUR_VOZ = ARCH_VOZ.map(duracion);
 const PAL = TEXTOS.map((txt, i) => alinear(palabrasDe(txt), transcribir(ARCH_VOZ[i])));
 
 // ── 4. Línea de tiempo: voces encadenadas, planos repartidos en cada frase ──
-const MOV = G.movimiento ? (typeof G.movimiento === "object" ? G.movimiento : null) : null;
 const AIRE = Number(G.aire ?? 0.25);
 const INI = [];
 let t = 0.15;

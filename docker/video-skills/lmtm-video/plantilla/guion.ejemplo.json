@@ -2,7 +2,9 @@
  "titulo": "RENO · Placares y vestidores",
  "cliente": "RENO",
  "brief": "Reel de placares y vestidores a medida de RENO. Diseño propio, fabricación en su planta argentina e instalación. Paleta negra y hueso, nada de rojo.",
- "gancho": "Placares a *medida*",
+ "movimiento": "vitrina",
+ "ganchoTipo": "pregunta",
+ "pilar": "vitrina",
  "estilo": "Mujer argentina con acento rioplatense natural. Voz cálida, segura, con una sonrisa en la voz, como alguien que le recomienda algo a una amiga. Sin tono de locutora.",
  "lineas": [
   { "texto": "¿Tu *placard,* a tu *medida?*", "planos": [

@@ -14,6 +14,8 @@
 //   tarjetas[]         { dice, dur, etiqueta, tachado, titulo, antes, valor, nota, imagen }
 //   insertos[]         { dice, dur, tipo: numero|lista|pasos|chat|pantalla|antes-despues|grilla|media, … } (ver guion-filmado.ejemplo.json)
 //   cierre             { titulo, cta, url, dice, cola }
+//   movimiento         directo|pulso|relato|vitrina|ficha: acá cambia el panel de los insertos (obligatorio en un reel nuevo)
+//   ganchoTipo, pilar  para la ficha de la pieza: de eso sale el control de variedad y la medición
 //   marca, musica      { color, acento, oscuro, logo, logoBlanco, fuente } · { archivo, volDb } o { prompt, volDb }
 //
 // `dice`: la frase tal como se escucha; ahí aparece el elemento. Nada se ubica a ojo:
@@ -22,8 +24,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chequear, duracion, enWindows, esFoto, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, transcribir, vigente } from "./comun.mjs";
-import { DUR_MINIMA, TIPOS_INSERTO, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
+import { chequear, duracion, enWindows, esFoto, fichaYVariedad, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, transcribir, vigente } from "./comun.mjs";
+import { DUR_MINIMA, MOVIMIENTOS, TIPOS_INSERTO, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
 const archivoGuion = path.resolve(process.argv[2] ?? "guion.json");
@@ -105,7 +107,14 @@ const textoTodo = JSON.stringify([TARJETAS, INSERTOS.map((I) => [textoDeInserto(
 if (/\$|%|USD|ARS|\bcuotas?\b|\bdescuento|\boff\b|\bgratis\b/i.test(textoTodo) || TARJETAS.some((K) => K.valor || K.tachado) || INSERTOS.some((I) => I.tipo === "numero")) {
   avisos.push("hay precios o números en pantalla: tienen que estar en la guía o en el pedido (si no, se pregunta)");
 }
+exigir(fs.existsSync("assets/base/origen.mp4") || G.movimiento, `movimiento: elegí uno (${Object.keys(MOVIMIENTOS).join(", ")})`);
+if (G.movimiento) {
+  exigir(MOVIMIENTOS[G.movimiento], `movimiento: «${G.movimiento}» no existe (${Object.keys(MOVIMIENTOS).join(", ")})`);
+  exigir(typeof G.ganchoTipo === "string" && G.ganchoTipo, "ganchoTipo: hora, pregunta, dato, mito, confesion, lista, contraste o historia");
+  exigir(typeof G.pilar === "string" && G.pilar, "pilar: el ángulo de la pieza (vitrina, educativo, detras-de-escena, dolor…)");
+}
 frenar("guion.json no cumple");
+await fichaYVariedad(G, archivoGuion, INSERTOS.map((I) => I.tipo), flags);
 
 // ── 2. La base: reel filmado, o voces en off + tomas ────────────────────────
 fs.mkdirSync("assets/base", { recursive: true });
@@ -332,7 +341,7 @@ const spec = {
   titulo: G.titulo ?? PAL.slice(0, 6).map((p) => p.w).join(" "), duracion: FIN, video: BASE, audio: "assets/base/audio.m4a",
   cortes: (datos.cortes ?? []).filter((c) => c > 0.5 && c < FIN), marca: M,
   acento: hayAcento ? acentoCrudo : (M.claro && hexOk(M.claro) ? M.claro : "#ffffff"), acentoLegible: hayAcento, tintaCta, fondo: fondoInserto,
-  titulos, tarjetas, insertos: insertosListos, cierre,
+  titulos, tarjetas, insertos: insertosListos, cierre, panel: MOVIMIENTOS[G.movimiento]?.panel,
 };
 fs.writeFileSync("filmado.json", JSON.stringify(spec, null, 1));
 const pl = spawnSync("node", [path.join(P, "plantilla-filmado.mjs"), "filmado.json"], { encoding: "utf8" });

@@ -134,6 +134,7 @@ export async function contenidoGenerado(db: Db, opts: { dias: number; clientId?:
         // Video del Productor: se le pueden pedir cambios desde el panel.
         delProductor: m.via === "productor-video",
         reemplaza: typeof m.reemplaza === "string" ? m.reemplaza : null,
+        movimiento: typeof m.movimiento === "string" ? m.movimiento : null,
       };
     }),
   };

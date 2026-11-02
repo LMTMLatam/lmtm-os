@@ -80,6 +80,28 @@ export async function pistaDe(G, dir) {
   return archivo;
 }
 
+/**
+ * La ficha de la pieza (queda en pieza.json y video_entregar la guarda en el entregable) y el control de
+ * variedad, ANTES de gastar nada. `--forzar` lo saltea, solo con motivo y lo deja anotado.
+ */
+export async function fichaYVariedad(G, archivoGuion, insertos, flags) {
+  if (!G.movimiento) return;
+  if (!G.idPieza) {
+    G.idPieza = crypto.randomUUID();
+    fs.writeFileSync(archivoGuion, JSON.stringify(G, null, 1));
+  }
+  const ficha = { idPieza: G.idPieza, movimiento: G.movimiento, ganchoTipo: G.ganchoTipo, pilar: G.pilar, insertos, ...(flags.has("--forzar") ? { forzado: true } : {}) };
+  fs.writeFileSync("pieza.json", JSON.stringify(ficha, null, 1));
+  if (flags.has("--forzar")) { console.log("AVISO variedad: salteada con --forzar; decí el motivo en el issue"); return; }
+  if (!process.env.PAPERCLIP_API_URL) { console.log("AVISO variedad: prueba local sin servidor, no se chequeó"); return; }
+  const r = await herramienta("video_variedad", { ...ficha, ...(G.clientId ? { clientId: G.clientId } : {}) });
+  if (!r.ok) {
+    console.error(`NO se arma, repite lo reciente de este cliente:\n${r.content}\n(Cambiá movimiento, insertos, gancho o pilar. --forzar lo saltea, solo con motivo.)`);
+    process.exit(1);
+  }
+  if (r.content) console.log(`VARIEDAD ${r.content}`);
+}
+
 export function chequear() {
   const ch = spawnSync(HF[0], [...HF.slice(1), "check", "--json"], { encoding: "utf8", env: envHF, ...enWindows });
   if (ch.status === 0) return;
