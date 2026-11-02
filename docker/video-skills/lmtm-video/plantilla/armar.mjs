@@ -106,7 +106,9 @@ for (const [f, ps] of usos) {
 exigir(usos.size >= Math.ceil(TOMAS.length * 0.75), `solo ${usos.size} fuentes distintas para ${TOMAS.length} planos`);
 // Fuentes que faltan: si el guion trae su id de Drive, se bajan solas (la del índice de drive_bajar también).
 const indiceDrive = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, ".drive.json"), "utf8")); } catch { return {}; } };
-for (const p of TOMAS) {
+// La toma del cierre también: al retomar un proyecto, las fuentes no están y hay que volver a bajarlas.
+const A_BAJAR = [...TOMAS, ...(C.plano?.fuente ? [C.plano] : [])];
+for (const p of A_BAJAR) {
   p.drive ??= indiceDrive(path.dirname(String(p.fuente)))[path.basename(String(p.fuente))];
   if (!fs.existsSync(String(p.fuente)) && !p.drive) errores.push(`${p.fuente}: no existe y no tiene id de Drive para bajarla`);
 }
@@ -130,7 +132,7 @@ if (G.ganchos?.length) {
 }
 await fichaYVariedad(G, archivoGuion, INSERTOS.map((p) => p.inserto.tipo), flags);
 
-for (const p of TOMAS.filter((p) => !fs.existsSync(String(p.fuente)))) {
+for (const p of A_BAJAR.filter((p) => !fs.existsSync(String(p.fuente)))) {
   const r = await herramienta("drive_bajar", { link: p.drive, carpeta: path.resolve(path.dirname(String(p.fuente))) });
   if (!r.ok || !fs.existsSync(String(p.fuente))) errores.push(`${p.fuente}: no se pudo bajar de Drive (${String(r.content).slice(0, 160)})`);
 }
