@@ -19,6 +19,7 @@
 //   cierre             { texto (lo que dice la voz), titulo, etiqueta, cta, url, corte, cola, plano }
 //                      (va SOBRE la última toma o sobre cierre.plano: sin placa)
 //   marca, musica      { archivo, volumen } o { prompt } para generarla con Magnific
+//   un plano puede ser { inserto: { tipo: numero|lista|pasos|chat|pantalla, … } } en vez de una toma (guion-motion.ejemplo.json)
 //
 // Con "tipo": "filmado" en el guion, el reel sale de filmado.mjs (material con voz
 // propia, títulos y tarjetas): mismo comando, así retomar y pedir cambios son iguales.
@@ -27,6 +28,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chequear, duracion, esFoto, herramienta, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
+import { DUR_MINIMA, SOLAPE, alinear, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
 const archivoGuion = path.resolve(process.argv[2] ?? "guion.json");
@@ -71,28 +73,36 @@ for (const [i, l] of LINEAS.entries()) {
   exigir(Array.isArray(l.planos) && l.planos.length > 0, `lineas[${i}]: cada frase muestra lo que dice, con al menos un plano`);
 }
 exigir(PLANOS.length >= 6, `planos: ${PLANOS.length}; el estándar es 8 a 14 distintos (6 como mínimo)`);
+// Insertos: para lo que falta material o un dato que se cuenta mejor animado. El reel sigue siendo del material del cliente.
+const INSERTOS = PLANOS.filter((p) => p.inserto);
+const TOMAS = PLANOS.filter((p) => !p.inserto);
+exigir(INSERTOS.length <= 3, `insertos: ${INSERTOS.length}; 3 como mucho`);
+for (const [n, p] of INSERTOS.entries()) {
+  for (const e of validarInserto(p.inserto, `lineas[${p.linea}] inserto ${n + 1}`, LINEAS[p.linea].texto)) errores.push(e);
+  if (p.inserto.imagen) exigir(fs.existsSync(p.inserto.imagen) && !path.relative(DIR, path.resolve(p.inserto.imagen)).startsWith(".."), `inserto pantalla: ${p.inserto.imagen} no existe o está fuera del proyecto`);
+}
 // Sin repetir tomas: el reel v3 de RENO usó 4 videos en 8 cortes y "repitió muchas veces la misma toma".
 const usos = new Map();
-for (const p of PLANOS) usos.set(p.fuente, [...(usos.get(p.fuente) ?? []), p]);
+for (const p of TOMAS) usos.set(p.fuente, [...(usos.get(p.fuente) ?? []), p]);
 for (const [f, ps] of usos) {
   const momentos = ps.map((p) => Number(p.desde) || 0).sort((a, b) => a - b);
   const separados = momentos.every((m, i) => i === 0 || m - momentos[i - 1] >= 3);
   exigir(ps.length === 1 || (!esFoto(f) && ps.length === 2 && separados), `${path.basename(String(f))}: usada ${ps.length} veces (una vez; un video, dos como mucho y en momentos distintos)`);
 }
-exigir(usos.size >= Math.ceil(PLANOS.length * 0.75), `solo ${usos.size} fuentes distintas para ${PLANOS.length} planos`);
+exigir(usos.size >= Math.ceil(TOMAS.length * 0.75), `solo ${usos.size} fuentes distintas para ${TOMAS.length} planos`);
 // Fuentes que faltan: si el guion trae su id de Drive, se bajan solas (la del índice de drive_bajar también).
 const indiceDrive = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, ".drive.json"), "utf8")); } catch { return {}; } };
-for (const p of PLANOS) {
+for (const p of TOMAS) {
   p.drive ??= indiceDrive(path.dirname(String(p.fuente)))[path.basename(String(p.fuente))];
   if (!fs.existsSync(String(p.fuente)) && !p.drive) errores.push(`${p.fuente}: no existe y no tiene id de Drive para bajarla`);
 }
-const textoTodo = [...LINEAS.map((l) => l.texto), C.texto, C.titulo, C.etiqueta ?? ""].join(" ");
+const textoTodo = [...LINEAS.map((l) => l.texto), C.texto, C.titulo, C.etiqueta ?? "", ...INSERTOS.map((p) => textoDeInserto(p.inserto))].join(" ");
 if (/\$|%|\bcuotas?\b|\bdescuento|\boff\b|\bgratis\b/i.test(textoTodo)) {
   avisos.push("el guion nombra un precio, promo o descuento: tiene que estar en la guía o en el pedido (si no, se pregunta)");
 }
 frenar("guion.json no cumple");
 
-for (const p of PLANOS.filter((p) => !fs.existsSync(String(p.fuente)))) {
+for (const p of TOMAS.filter((p) => !fs.existsSync(String(p.fuente)))) {
   const r = await herramienta("drive_bajar", { link: p.drive, carpeta: path.resolve(path.dirname(String(p.fuente))) });
   if (!r.ok || !fs.existsSync(String(p.fuente))) errores.push(`${p.fuente}: no se pudo bajar de Drive (${String(r.content).slice(0, 160)})`);
 }
@@ -135,35 +145,11 @@ for (const [i, archivo] of ARCH_VOZ.entries()) {
 }
 
 // ── 3. Tiempos de cada palabra ──────────────────────────────────────────────
-/** El texto es el del GUION (whisper escribe mal las marcas: «Tuplacar»); de whisper salen solo los tiempos. */
-function alinear(guion, rec) {
-  const a = guion.map((w) => norm(w.t));
-  const b = rec.map((w) => norm(w.text));
-  const igual = (x, y) => x && y && (x === y || (x.length >= 4 && y.length >= 4 && (x.startsWith(y) || y.startsWith(x))));
-  const L = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = igual(a[i], b[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
-  const t = new Array(a.length).fill(null);
-  for (let i = 0, j = 0; i < a.length && j < b.length;) {
-    if (igual(a[i], b[j])) { t[i] = rec[j].start; i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++;
-  }
-  // Las que whisper no reconoció, repartidas entre sus vecinas.
-  const fin = rec.length ? rec[rec.length - 1].end : 1;
-  for (let i = 0; i < t.length; i++) {
-    if (t[i] != null) continue;
-    let k = i;
-    while (k < t.length && t[k] == null) k++;
-    const desde = i > 0 ? t[i - 1] : (rec[0]?.start ?? 0);
-    const hasta = k < t.length ? t[k] : fin;
-    for (let x = i; x < k; x++) t[x] = desde + ((hasta - desde) * (x - i + (i > 0 ? 1 : 0))) / (k - i + 1);
-    i = k - 1;
-  }
-  return guion.map((w, i) => ({ ...w, ini: Math.max(0, t[i]) }));
-}
-
 const DUR_VOZ = ARCH_VOZ.map(duracion);
 const PAL = TEXTOS.map((txt, i) => alinear(palabrasDe(txt), transcribir(ARCH_VOZ[i])));
 
 // ── 4. Línea de tiempo: voces encadenadas, planos repartidos en cada frase ──
+const MOV = G.movimiento ? (typeof G.movimiento === "object" ? G.movimiento : null) : null;
 const AIRE = Number(G.aire ?? 0.25);
 const INI = [];
 let t = 0.15;
@@ -198,6 +184,8 @@ for (const [i, l] of LINEAS.entries()) {
   for (let k = 0; k < n; k++) {
     const dur = r2(cortes[k + 1] - cortes[k]);
     exigir(dur >= 0.9, `frase ${i + 1} («${limpio(l.texto).slice(0, 40)}»): dura ${r2(segFin - segIni)} s y tiene ${n} planos; entran ${Math.max(1, Math.floor((segFin - segIni) / 0.9))} (o sumale "pausa" a la frase)`);
+    const ins = l.planos[k].inserto;
+    if (ins) exigir(dur >= (DUR_MINIMA[ins.tipo] ?? 0), `frase ${i + 1}: el inserto ${ins.tipo} tiene ${dur} s y necesita ${DUR_MINIMA[ins.tipo]} (dejalo solo en una frase más larga o sumale "pausa")`);
     planos.push({ ...l.planos[k], linea: i, en: r2(cortes[k]), dur });
   }
 }
@@ -211,10 +199,19 @@ frenar("tiempos");
 fs.mkdirSync("assets/planos", { recursive: true });
 const reelPlanos = [];
 for (const [k, p] of planos.entries()) {
+  if (p.inserto) {
+    // Cada ítem entra cuando la voz lo nombra.
+    const delTramo = abs(p.linea).filter((w) => w.ini >= p.en - 0.05 && w.ini < p.en + p.dur);
+    const textos = textosDeInserto(p.inserto);
+    reelPlanos.push({ inserto: { ...p.inserto, ...(textos.length ? { momentos: momentosDe(textos, delTramo, p.en + 0.1, p.dur - 0.2) } : {}) }, desde: p.en, dur: p.dur });
+    continue;
+  }
   const base = `assets/planos/p${String(k + 1).padStart(2, "0")}`;
   const foto = esFoto(String(p.fuente));
   const salida = `${base}.${foto ? "jpg" : "mp4"}`;
-  const params = { fuente: p.fuente, tam: fs.statSync(String(p.fuente)).size, desde: Number(p.desde ?? 0), foco: p.foco ?? 0.5, lento: p.lento ?? 1, realce: !!p.realce, dur: foto ? 0 : r2(p.dur + 0.15) };
+  // Con transición, la toma sigue andando debajo de la que entra.
+  const extra = MOV?.transiciones?.length ? SOLAPE : 0;
+  const params = { fuente: p.fuente, tam: fs.statSync(String(p.fuente)).size, desde: Number(p.desde ?? 0), foco: p.foco ?? 0.5, lento: p.lento ?? 1, realce: !!p.realce, dur: foto ? 0 : r2(p.dur + 0.15 + extra) };
   if (!vigente(salida, huella(params))) {
     for (const viejo of [`${base}.jpg`, `${base}.mp4`]) fs.rmSync(viejo, { force: true });
     const args = [path.join(P, "plano.mjs"), "corte", String(p.fuente), salida, "--foco", String(params.foco)];
@@ -227,7 +224,7 @@ for (const [k, p] of planos.entries()) {
   }
   if (!foto) {
     const real = duracion(salida);
-    exigir(real >= p.dur - 0.05, `${path.basename(String(p.fuente))} desde ${params.desde} s: la toma dura ${r2(real)} s y hacen falta ${p.dur} (elegí otro momento)`);
+    exigir(real >= p.dur + extra - 0.05, `${path.basename(String(p.fuente))} desde ${params.desde} s: la toma dura ${r2(real)} s y hacen falta ${r2(p.dur + extra)} (elegí otro momento)`);
   }
   reelPlanos.push({ archivo: salida, desde: p.en, dur: p.dur });
 }
@@ -252,6 +249,8 @@ function trozos(ws) {
   if (cur.length) { if (cur.length === 1 && res.length) res[res.length - 1].push(...cur); else res.push(cur); }
   return res;
 }
+// Con gancho por palabra, la primera frase se ve GRANDE arriba mientras la voz la dice: lo que se lee es lo que se dice.
+const ganchoVoz = MOV?.gancho ? { modo: MOV.gancho, hasta: r2(Math.max(INI[1] - 0.05, 1.2)), palabras: abs(0).map((w) => (w.clave ? [w.t, r2(w.ini), 1] : [w.t, r2(w.ini)])) } : null;
 const frases = [];
 // Para la revisión, un segundo por frase con su subtítulo ENTERO en pantalla: un
 // cuadro en plena animación de entrada se veía «tenue» y frenaba la entrega (31/10).
@@ -259,8 +258,8 @@ const momentoDe = [];
 for (const [i] of LINEAS.entries()) {
   const finVoz = INI[i] + DUR_VOZ[i];
   const tope = i === LINEAS.length - 1 ? CIERRE : INI[i + 1] - 0.05;
-  const ts = trozos(abs(i));
-  let mejor = { ancho: -1, s: r2(INI[i] + DUR_VOZ[i] / 2) };
+  const ts = ganchoVoz && i === 0 ? [] : trozos(abs(i));
+  let mejor = { ancho: -1, s: r2(INI[i] + DUR_VOZ[i] * 0.8) };
   for (const [k, tr] of ts.entries()) {
     const desde = r2(Math.max(frases.at(-1)?.hasta ?? 0, tr[0].ini - 0.1));
     const hasta = r2(Math.min(tope, k + 1 < ts.length ? ts[k + 1][0].ini - 0.1 : finVoz + 0.15));
@@ -291,7 +290,9 @@ const reel = {
   voz: ARCH_VOZ.map((a, i) => ({ archivo: path.relative(DIR, a).replace(/\\/g, "/"), desde: INI[i], dur: r2(DUR_VOZ[i]) })),
   planos: reelPlanos,
   frases,
-  ...(G.gancho ? { gancho: { texto: G.gancho, hasta: r2(Math.min(2.6, INI[1] ?? 2.6)) } } : {}),
+  ...(G.gancho && !ganchoVoz ? { gancho: { texto: G.gancho, hasta: r2(Math.min(2.6, INI[1] ?? 2.6)) } } : {}),
+  ...(ganchoVoz ? { ganchoVoz } : {}),
+  ...(MOV ? { movimiento: MOV } : {}),
   marca: M,
   cierre: {
     desde: CIERRE, etiqueta: C.etiqueta ?? "", titulo: titPal, ...(C.corte ? { corte: C.corte } : {}),
@@ -306,9 +307,9 @@ if (pl.status !== 0) { console.error(pl.stderr || pl.stdout); process.exit(1); }
 chequear();
 
 // ── 9. Lo que se dice → lo que se ve (para leer de un vistazo) ──────────────
-console.log(`\nREEL ${FIN} s · ${reelPlanos.length} planos de ${usos.size} fuentes · ${ARCH_VOZ.length} voces · check sin errores`);
+console.log(`\nREEL ${FIN} s · ${reelPlanos.length} planos de ${usos.size} fuentes${INSERTOS.length ? ` · insertos: ${INSERTOS.map((p) => p.inserto.tipo).join(", ")}` : ""} · ${ARCH_VOZ.length} voces · check sin errores`);
 for (const [i, l] of LINEAS.entries()) {
-  const ps = planos.filter((p) => p.linea === i).map((p) => `${path.basename(String(p.fuente))}${esFoto(String(p.fuente)) ? "" : `@${p.desde ?? 0}s`}${p.muestra ? ` (${p.muestra})` : ""}`);
+  const ps = planos.filter((p) => p.linea === i).map((p) => (p.inserto ? `INSERTO ${p.inserto.tipo}${p.inserto.origen ? ` (dato: ${p.inserto.origen})` : ""}` : `${path.basename(String(p.fuente))}${esFoto(String(p.fuente)) ? "" : `@${p.desde ?? 0}s`}${p.muestra ? ` (${p.muestra})` : ""}`));
   console.log(`${INI[i].toFixed(2)}-${(INI[i] + DUR_VOZ[i]).toFixed(2)} «${limpio(l.texto)}» → ${ps.join(" + ")}`);
 }
 console.log(`${CIERRE.toFixed(2)}-${FIN} cierre «${limpio(C.texto)}» · ${limpio(C.titulo)} · ${C.cta ?? ""} ${C.url ?? ""}`);
@@ -323,7 +324,7 @@ if (!flags.has("--render")) {
 const momentos = [...momentoDe, r2(Math.min(FIN - 0.3, ultimaTit + 1.2))];
 await renderizarYRevisar({
   dir: DIR,
-  brief: G.brief ?? `Reel de ${G.cliente ?? "un cliente"}. Que cada cuadro muestre lo que dice la voz en ese momento.`,
+  brief: `${G.brief ?? `Reel de ${G.cliente ?? "un cliente"}. Que cada cuadro muestre lo que dice la voz en ese momento.`}${INSERTOS.length ? " Los paneles animados (número, lista, pasos, chat de EJEMPLO, captura de la web) son gráficos pedidos: valen si cuentan lo que dice la voz." : ""}`,
   fotos: momentos,
   momentos: LINEAS.map((l, i) => ({ segundo: momentos[i], dice: limpio(l.texto) })),
   sinRevision: flags.has("--sin-revision"),

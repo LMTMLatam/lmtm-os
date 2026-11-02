@@ -7,6 +7,7 @@
 // El diseño está acá y no se toca. Los datos los calcula filmado.mjs desde guion.json:
 //   node plantilla-filmado.mjs filmado.json   → index.html
 import fs from "node:fs";
+import { CSS_MOTION, TIPOS_INSERTO, inserto, temaDe } from "./motion.mjs";
 
 const S = JSON.parse(fs.readFileSync(process.argv[2] || "filmado.json", "utf8"));
 const FIN = Number(S.duracion);
@@ -78,28 +79,10 @@ const insertos = (S.insertos ?? []).map((I, i) => {
     tl.push(`tl.fromTo("#${id}-m", { scale: 1 }, { scale: 1.08, duration: ${f(h - d)}, ease: "none" }, ${f(d)});`);
     return panel(id, "inserto", medio(`${id}-m`, I.archivo, d, h, pistaMedio++));
   }
-  if (I.tipo === "numero") {
-    // El número cuenta con pasos fijos (sin callbacks: el render salta de cuadro en cuadro).
-    const durConteo = f(Math.min(h - d - 0.4, 2.2));
-    const PASOS = 24;
-    const paso = (k) => { const x = k / PASOS; return Math.round(Number(I.valor) * (1 - (1 - x) ** 3)); };
-    const pasos = Array.from({ length: PASOS + 1 }, (_, k) => `<span class="paso" id="${id}-p${k}" style="opacity:${k === 0 ? 1 : 0}">${paso(k).toLocaleString("es-AR")}</span>`).join("");
-    for (let k = 1; k <= PASOS; k++) {
-      const t = f(d + 0.2 + (durConteo * k) / PASOS);
-      tl.push(`tl.set("#${id}-p${k - 1}", { opacity: 0 }, ${t}); tl.set("#${id}-p${k}", { opacity: 1 }, ${t});`);
-    }
-    const barras = Array.isArray(I.barras) ? I.barras.map(Number) : [];
-    const max = Math.max(...barras, 1);
-    const barrasHtml = barras.map((b, k) => {
-      tl.push(`tl.fromTo("#${id}-b${k}", { scaleY: 0, opacity: 0 }, { scaleY: 1, opacity: 1, duration: 0.42, ease: "back.out(1.4)" }, ${f(d + 0.25 + (durConteo * k) / Math.max(barras.length, 1))});`);
-      return `<div class="col" id="${id}-b${k}"><span>${b.toLocaleString("es-AR")}</span><div class="barra" style="height:${Math.round(90 + (430 * b) / max)}px"></div></div>`;
-    }).join("");
-    tl.push(`tl.fromTo("#${id}-chip", { opacity: 0, y: -14 }, { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, ${f(d + 0.05)});`);
-    return panel(id, "inserto panel", `
-        ${I.etiqueta ? `<div class="chip" id="${id}-chip"><i></i>${esc(I.etiqueta)}</div>` : `<div id="${id}-chip"></div>`}
-        <div class="cifra">${I.prefijo ? `<span class="prefijo">${esc(I.prefijo)}</span>` : ""}<span class="pasos">${pasos}</span></div>
-        ${I.sufijo ? `<div class="sufijo">${esc(I.sufijo)}</div>` : ""}
-        ${barras.length ? `<div class="barras">${barrasHtml}</div>` : ""}`);
+  if (TIPOS_INSERTO.includes(I.tipo)) {
+    const r = inserto(I, { id, t0: d, dur: h - d, tema: temaDe(M, S.panel ?? "oscuro"), momentos: I.momentos, sinSubs: true });
+    tl.push(...r.js);
+    return `<div id="${id}" class="inserto ${r.clase}" style="opacity:0;${r.estilo}">${r.html}</div>`;
   }
   if (I.tipo === "antes-despues") {
     tl.push(`tl.fromTo("#${id}-a", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, ${f(d + 0.1)});`);
@@ -184,16 +167,6 @@ const html = `<!doctype html>
       .inserto { position: absolute; inset: 0; overflow: hidden; }
       .inserto.panel { background: radial-gradient(ellipse at 50% 34%, color-mix(in srgb, var(--acento) 26%, var(--fondo)) 0%, var(--fondo) 68%); color: #fff; display: flex; flex-direction: column; align-items: center; padding: 300px 70px 420px; box-sizing: border-box; }
       .medio { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      .chip { display: flex; align-items: center; gap: 14px; padding: 14px 28px; border-radius: 999px; background: rgba(255,255,255,0.1); font-size: 28px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
-      .chip i { width: 14px; height: 14px; border-radius: 50%; background: var(--acento); }
-      .cifra { display: flex; align-items: baseline; gap: 22px; margin-top: 54px; }
-      .prefijo { font-size: 84px; font-weight: 800; color: color-mix(in srgb, var(--acento) 70%, #fff); }
-      .pasos { display: inline-grid; font-size: 196px; font-weight: 900; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
-      .paso { grid-area: 1 / 1; text-align: left; }
-      .sufijo { margin-top: 14px; font-size: 58px; font-weight: 500; color: rgba(255,255,255,0.8); }
-      .barras { display: flex; align-items: flex-end; justify-content: center; gap: 34px; margin-top: auto; width: 100%; }
-      .col { display: flex; flex-direction: column; align-items: center; gap: 14px; transform-origin: 50% 100%; font-size: 38px; font-weight: 800; }
-      .barra { width: 170px; border-radius: 24px; background: linear-gradient(to bottom, var(--acento), color-mix(in srgb, var(--acento) 55%, #000)); box-shadow: 0 0 44px color-mix(in srgb, var(--acento) 50%, transparent); }
       .i-titulo, .i-pie { text-align: center; font-size: 72px; font-weight: 500; line-height: 1.06; }
       .i-titulo .w, .i-pie .w { display: inline-block; }
       .clave { font-weight: 900; font-size: 1.28em; color: color-mix(in srgb, var(--acento) 80%, #fff); letter-spacing: -0.02em; }
@@ -204,6 +177,7 @@ const html = `<!doctype html>
       .flecha { position: relative; z-index: 2; flex: none; width: 92px; height: 92px; margin: 0 -24px; border-radius: 50%; background: #fff; color: #000; font-size: 52px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
       .grilla { display: grid; grid-template-columns: repeat(3, 284px); gap: 22px; margin-top: 70px; transform: rotate(-5deg); }
       .celda { position: relative; height: 480px; border-radius: 28px; overflow: hidden; background: #000; }
+${(S.insertos ?? []).some((I) => TIPOS_INSERTO.includes(I.tipo)) ? CSS_MOTION : ""}
       #cierre { position: absolute; inset: 0; }
       #cierre-velo { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.56) 42%, rgba(0,0,0,0.12) 72%, rgba(0,0,0,0) 86%); }
       #cierre-contenido { position: absolute; left: 110px; right: 110px; bottom: 460px; display: flex; flex-direction: column; align-items: center; text-align: center; color: #fff; }

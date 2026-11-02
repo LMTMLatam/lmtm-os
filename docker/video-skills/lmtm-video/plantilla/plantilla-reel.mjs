@@ -9,6 +9,7 @@
 // Uso (desde la raíz del proyecto):  node <ruta>/plantilla-reel.mjs reel.json
 // Escribe index.html y compositions/cierre.html. Después: npx hyperframes check.
 import fs from "node:fs";
+import { CSS_MOTION, SOLAPE, ganchoPorPalabra, inserto, luz, subtitulosJs, temaDe, transicionJs } from "./motion.mjs";
 
 const spec = JSON.parse(fs.readFileSync(process.argv[2] || "reel.json", "utf8"));
 const errores = [];
@@ -24,7 +25,8 @@ const C = spec.cierre ?? {};
 const MUS = spec.musica ?? null;
 
 exigir(PLANOS.length >= 6, "planos: 6 como mínimo (el estándar es 8 o más)");
-exigir(new Set(PLANOS.map((p) => p.archivo)).size === PLANOS.length, "planos: hay archivos repetidos");
+const conArchivo = PLANOS.filter((p) => !p.inserto);
+exigir(new Set(conArchivo.map((p) => p.archivo)).size === conArchivo.length, "planos: hay archivos repetidos");
 exigir(FRASES.length > 0, "frases: faltan los subtítulos");
 exigir(VOZ.length > 0, "voz: faltan los archivos de voz");
 exigir(!!M.logo, "marca.logo: falta el logo");
@@ -48,11 +50,6 @@ const fuente = M.fuente ?? "Montserrat";
 // La tipografía del cliente (marca.fuenteArchivo, un .woff2 dentro del proyecto). Con un solo peso, el rango evita la
 // negrita falsa del navegador: pedido de RENO, LMTM-6543.
 const caraFuente = (url) => (M.fuenteArchivo ? `@font-face { font-family: "${fuente}"; src: url("${esc(url)}"); font-weight: 100 900; font-display: block; }` : "");
-/** Luminancia relativa (0 negro, 1 blanco). */
-const luz = (hex) => {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
 // Formato de los reels virales (31/10, pedido del usuario: «los subtítulos en el
 // medio y los carteles no me gustan»): subtítulos grandes de 1 a 3 palabras,
 // blancos con borde, abajo, y la palabra clave en el color de la marca. Sin
@@ -67,19 +64,39 @@ const esImagen = (a) => /\.(jpe?g|png|webp)$/i.test(a);
 const BORDE = [[0, 5], [0, -5], [5, 0], [-5, 0], [4, 4], [-4, 4], [4, -4], [-4, -4]].map(([x, y]) => `${x}px ${y}px 0 #000`).join(", ");
 const G_ = spec.gancho && spec.gancho.texto ? spec.gancho : null;
 const CIERRE_DESDE = f(C.desde);
+// Sin spec.movimiento el reel sale tal cual el diseño de El Hiper: los videos ya entregados no cambian al pedirles cambios.
+const MV = spec.movimiento ?? null;
+const TRANS = MV?.transiciones ?? [];
+const GV = spec.ganchoVoz ?? null;
+const hayInserto = PLANOS.some((p) => p.inserto);
+const TEMA = temaDe(M, MV?.panel ?? "oscuro");
+const insertos = new Map();
+PLANOS.forEach((p, i) => {
+  if (!p.inserto) return;
+  insertos.set(i, inserto(p.inserto, { id: `mo${i + 1}`, t0: Number(p.desde), dur: Number(p.dur), tema: TEMA, momentos: p.inserto.momentos }));
+});
 
 const tomasHtml = PLANOS.map((p, i) => {
   const id = `p${i + 1}`;
-  const media = esImagen(p.archivo)
-    ? `<img id="v-${id}" class="clip" src="${esc(p.archivo)}" alt="" data-start="${f(p.desde)}" data-duration="${f(p.dur)}" data-track-index="0" />`
-    : `<video id="v-${id}" class="clip" src="${esc(p.archivo)}" muted playsinline data-start="${f(p.desde)}" data-duration="${f(p.dur)}" data-media-start="${f(p.desdeEnArchivo ?? 0)}" data-track-index="0"></video>`;
+  // Con transición, la toma sigue andando debajo de la que entra: va en otra pista para que no se pisen.
+  const pista = TRANS.length ? i % 2 : 0;
+  const dur = f(Number(p.dur) + (TRANS.length && i < PLANOS.length - 1 ? SOLAPE : 0));
+  const ins = insertos.get(i);
+  const media = ins
+    ? `<div id="v-${id}" class="clip ${ins.clase}" style="${ins.estilo}" data-start="${f(p.desde)}" data-duration="${dur}" data-track-index="${pista}">${ins.html}</div>`
+    : esImagen(p.archivo)
+    ? `<img id="v-${id}" class="clip" src="${esc(p.archivo)}" alt="" data-start="${f(p.desde)}" data-duration="${dur}" data-track-index="${pista}" />`
+    : `<video id="v-${id}" class="clip" src="${esc(p.archivo)}" muted playsinline data-start="${f(p.desde)}" data-duration="${dur}" data-media-start="${f(p.desdeEnArchivo ?? 0)}" data-track-index="${pista}"></video>`;
+  // Con insertos, el velo va con cada toma: es para leer sobre video y no tiene que tapar un panel.
+  const velo = hayInserto && !ins ? `
+        <div class="clip velo-toma" data-start="${f(p.desde)}" data-duration="${dur}" data-track-index="7"></div>` : "";
   return `
       <div class="toma" id="toma-${id}">
-        ${media}
+        ${media}${velo}
       </div>`;
 }).join("");
 
-const palabra = (id, w, dest) => `<span class="w${dest ? " dest" : ""}" id="${id}">${esc(w)}</span>`;
+const palabra = (id, w, dest) => `<span class="w${dest ? " dest" : ""}" id="${id}">${MV?.subs === "caja" && dest ? '<i class="mo-barrido"></i>' : ""}${esc(w)}</span>`;
 
 const frasesHtml = FRASES.map((fr, i) => `
       <p class="frase clip" id="frase-${i + 1}" data-start="${f(fr.desde)}" data-duration="${f(fr.hasta - fr.desde)}" data-track-index="3">${fr.palabras
@@ -102,20 +119,25 @@ const corte = Number.isInteger(C.corte) ? C.corte : Math.ceil(C.titulo.length / 
 const titulo = [[0, corte], [corte, C.titulo.length]].filter(([a, b]) => b > a)
   .map(([a, b]) => `<span class="linea">${C.titulo.slice(a, b).map(([w, , dest], k) => `<span class="w${dest ? " dest" : ""}" id="tw${a + k + 1}">${esc(w)}</span>`).join(" ")}</span>`).join("");
 
-const tomas = PLANOS.map((p, i) => {
-  const [a, b] = i % 2 === 0 ? [1.0, 1.07] : [1.07, 1.0];
+const EMPUJE = Number(MV?.empuje ?? 1.07);
+const tomas = PLANOS.flatMap((p, i) => {
+  const out = [];
+  const [a, b] = i % 2 === 0 ? [1.0, EMPUJE] : [EMPUJE, 1.0];
   const dx = i % 2 ? -16 : 16;
-  return `tl.fromTo("#toma-p${i + 1}", { scale: ${a}, x: 0 }, { scale: ${b}, x: ${dx}, duration: ${f(p.dur)}, ease: "none" }, ${f(p.desde)});`;
+  // El panel de un inserto ya tiene su cámara lenta.
+  if (!p.inserto) out.push(`tl.fromTo("#toma-p${i + 1}", { scale: ${a}, x: 0 }, { scale: ${b}, x: ${dx}, duration: ${f(p.dur)}, ease: "none" }, ${f(p.desde)});`);
+  if (TRANS.length && i > 0) out.push(transicionJs(TRANS[(i - 1) % TRANS.length], `#toma-p${i + 1}`, `#v-p${i + 1}`, p.desde));
+  return out;
 });
-const textos = [];
-FRASES.forEach((fr, i) => {
-  fr.palabras.forEach(([, t, dest], j) => {
-    const id = `#f${i + 1}w${j + 1}`;
-    const at = f(Math.max(fr.desde, t - 0.06));
-    textos.push(`tl.fromTo("${id}", { opacity: 0, y: 40, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.34, ease: "back.out(2)" }, ${at});`);
-  });
-  textos.push(`tl.fromTo("#frase-${i + 1}", { opacity: 1, y: 0 }, { opacity: 0, y: -16, duration: 0.2, ease: "power2.in", immediateRender: false }, ${f(fr.hasta - 0.22)});`);
+// El logo no se lee sobre cualquier panel (una marca negra sobre su fondo negro): se va mientras dura el inserto.
+const logoEnInsertos = PLANOS.flatMap((p) => {
+  if (!p.inserto) return [];
+  const fin = f(Number(p.desde) + Number(p.dur));
+  return [`tl.set("#marca", { opacity: 0 }, ${f(p.desde)});`, ...(fin < CIERRE_DESDE ? [`tl.set("#marca", { opacity: 1 }, ${fin});`] : [])];
 });
+const insertosJs = [...insertos.values()].flatMap((x) => x.js);
+const textos = subtitulosJs(FRASES, MV?.subs ?? "pop");
+const ganchoVoz = GV ? ganchoPorPalabra(GV.palabras, GV.modo, GV.hasta) : null;
 
 const html = `<!doctype html>
 <html lang="es">
@@ -130,8 +152,8 @@ const html = `<!doctype html>
       html, body { margin: 0; background: var(--sombra); }
       #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--sombra); font-family: ${fuente}, sans-serif; }
       .toma { position: absolute; inset: 0; transform-origin: 50% 45%; }
-      .toma video, .toma img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      #velo { position: absolute; inset: 0; pointer-events: none;
+      .toma > video, .toma > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #velo, .velo-toma { position: absolute; inset: 0; pointer-events: none;
         background:
           linear-gradient(to top, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.22) 26%, rgba(0,0,0,0) 46%),
           radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.34) 100%); }
@@ -148,14 +170,23 @@ const html = `<!doctype html>
       #gancho { top: 420px; font-size: ${Number(spec.tamanoGancho ?? 84)}px; }
       .frase .w, #gancho .w { display: inline-block; }
       .dest { ${acento ? `color: ${acento};` : "font-size: 1.12em;"} }
+${hayInserto ? CSS_MOTION : ""}${GV ? `
+      #mo-gancho { position: absolute; left: 90px; right: 90px; top: 430px; margin: 0; text-align: center; font-weight: 900; line-height: 1.02; letter-spacing: -0.03em; color: #fff; text-wrap: balance; font-size: ${Number(spec.tamanoGancho ?? 128)}px; text-shadow: ${BORDE}, 0 8px 24px rgba(0,0,0,0.45); }
+      #mo-gancho .mo-gw { display: inline-block; }
+      #mo-gancho .mo-clave { ${acento ? `color: ${acento};` : "font-size: 1.1em;"} }
+      /* El cursor no ocupa lugar: si no, los apagados corren las palabras. */
+      .mo-caret { display: inline-block; position: relative; width: 0; opacity: 0; }
+      .mo-caret::after { content: ""; position: absolute; left: 0.08em; bottom: -0.08em; width: 0.08em; height: 0.92em; background: currentColor; }` : ""}${MV?.subs === "caja" ? `
+      .frase .dest { position: relative; isolation: isolate; color: ${TEMA.sobreAcento === "#ffffff" ? "#fff" : "#111"}; text-shadow: none; padding: 0 0.1em; }
+      .mo-barrido { position: absolute; left: 0; right: 0; top: 0.04em; bottom: 0; z-index: -1; border-radius: 0.1em; transform-origin: 0 50%; background: ${TEMA.acento}; }` : ""}
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="main" data-start="0" data-width="1080" data-height="1920" data-duration="${FIN}">${tomasHtml}
 
-      <div id="velo"></div>
-      <div id="marca"><img src="${esc(M.logo)}" alt="" /></div>
-${G_ ? `      <p id="gancho" class="clip" data-start="0" data-duration="${f(G_.hasta ?? 2.4)}" data-track-index="2">${String(G_.texto).split(/\s+/).map((w) => `<span class="w${/\*/.test(w) ? " dest" : ""}">${esc(w.replace(/\*/g, ""))}</span>`).join(" ")}</p>\n` : ""}${frasesHtml}
+${hayInserto ? "" : `      <div id="velo"></div>
+`}      <div id="marca"><img src="${esc(M.logo)}" alt="" /></div>
+${ganchoVoz ? `      <p id="mo-gancho" class="clip" data-start="0" data-duration="${f(GV.hasta)}" data-track-index="2">${ganchoVoz.html}</p>\n` : ""}${G_ ? `      <p id="gancho" class="clip" data-start="0" data-duration="${f(G_.hasta ?? 2.4)}" data-track-index="2">${String(G_.texto).split(/\s+/).map((w) => `<span class="w${/\*/.test(w) ? " dest" : ""}">${esc(w.replace(/\*/g, ""))}</span>`).join(" ")}</p>\n` : ""}${frasesHtml}
 
       <div id="cierre" data-composition-id="cierre" data-composition-src="compositions/cierre.html"
         data-start="${CIERRE_DESDE}" data-duration="${f(FIN - CIERRE_DESDE)}" data-track-index="4" data-width="1080" data-height="1920"></div>
@@ -168,6 +199,7 @@ ${voces}${musica}
       tl.fromTo("#marca", { opacity: 0, y: -18, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.8)" }, 0.15);
       tl.fromTo("#marca", { opacity: 1 }, { opacity: 0, duration: 0.3, ease: "power2.in", immediateRender: false }, ${CIERRE_DESDE});
       ${textos.join("\n      ")}
+      ${[...insertosJs, ...logoEnInsertos, ...(ganchoVoz?.js ?? [])].join("\n      ")}
       window.__timelines["main"] = tl;
     </script>
   </body>

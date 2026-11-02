@@ -41,6 +41,17 @@ El equipo aprobó un estándar, y el diseño ya está resuelto en
 **Con voz generada, nada de carteles ni rótulos en recuadros** («JUJUY 3200 · EN VENTA», «Cocina integrada»). El
 texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son sólo del reel filmado.
 
+**Insertos de motion:** para lo que falta material (se repetirían tomas) o un dato que se cuenta mejor animado. Un plano
+de una frase puede ser `{ "inserto": { "tipo": … } }` en vez de una toma; el movimiento lo hace el script. Tipos:
+`numero`, `lista`, `pasos`, `chat`, `pantalla`. Campos en `$P/guion-motion.ejemplo.json` (leelo SOLO si vas a usar uno).
+- 3 por reel como mucho. El reel sigue siendo del material del cliente.
+- `numero`: en cifras en el texto de la frase y con `origen` (de dónde salió). Sin fuente no va.
+- `chat`: cómo se pide o se reserva. Siempre sale con la etiqueta EJEMPLO; nunca como testimonio ni con un cliente real.
+- `pantalla`: captura REAL de la web del cliente (`npx hyperframes capture <url> --skip-assets`, de `capture/screenshots/`
+  a `assets/marca/`).
+- Si necesita más tiempo, dejalo solo en una frase larga: `armar.mjs` te dice cuánto le falta.
+En el filmado van en `insertos` con `dice`, igual que los demás.
+
 **Mirá `ejemplos/estandar-hiper.jpg` antes de empezar: así tiene que verse.**
 
 Tu trabajo es decidir; lo mecánico lo hace `armar.mjs`:

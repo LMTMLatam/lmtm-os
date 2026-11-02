@@ -11,7 +11,7 @@ export const huella = (o) => crypto.createHash("sha1").update(JSON.stringify(o))
 export const vigente = (archivo, h) => fs.existsSync(archivo) && fs.existsSync(`${archivo}.huella`) && fs.readFileSync(`${archivo}.huella`, "utf8") === h;
 export const sellar = (archivo, h) => fs.writeFileSync(`${archivo}.huella`, h);
 export const r2 = (n) => Math.round(n * 100) / 100;
-export const norm = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+export { norm } from "./motion.mjs";
 export const esFoto = (f) => /\.(jpe?g|png|webp)$/i.test(f);
 export const duracion = (f) => Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f]).toString().trim()) || 0;
 export const HF = spawnSync("hyperframes", ["--version"]).status === 0 ? ["hyperframes"] : ["npx", "-y", "hyperframes@0.8.212"];

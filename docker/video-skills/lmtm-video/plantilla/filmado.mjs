@@ -12,7 +12,7 @@
 //   claves[]           palabras que van GRANDES y en color (si no, la más larga de cada título)
 //   correcciones       { "Tuplacar": "Tu placar" } lo que whisper escribe mal
 //   tarjetas[]         { dice, dur, etiqueta, tachado, titulo, antes, valor, nota, imagen }
-//   insertos[]         { dice, dur, tipo: numero|antes-despues|grilla|media, … } (ver guion-filmado.ejemplo.json)
+//   insertos[]         { dice, dur, tipo: numero|lista|pasos|chat|pantalla|antes-despues|grilla|media, … } (ver guion-filmado.ejemplo.json)
 //   cierre             { titulo, cta, url, dice, cola }
 //   marca, musica      { color, acento, oscuro, logo, logoBlanco, fuente } · { archivo, volDb } o { prompt, volDb }
 //
@@ -23,6 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chequear, duracion, enWindows, esFoto, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, transcribir, vigente } from "./comun.mjs";
+import { DUR_MINIMA, TIPOS_INSERTO, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
 const archivoGuion = path.resolve(process.argv[2] ?? "guion.json");
@@ -90,15 +91,17 @@ for (const [i, K] of TARJETAS.entries()) {
 }
 for (const [i, I] of INSERTOS.entries()) {
   exigir(typeof I.dice === "string" && I.dice.trim(), `insertos[${i}].dice: la frase que lo dispara`);
-  if (I.tipo === "numero") exigir(Number.isFinite(Number(I.valor)), `insertos[${i}].valor: el número`);
-  else if (I.tipo === "media") faltaMedio(I.archivo, `insertos[${i}].archivo`);
+  if (TIPOS_INSERTO.includes(I.tipo)) {
+    for (const e of validarInserto(I, `insertos[${i}]`)) errores.push(e);
+    if (I.imagen) adentro(I.imagen, `insertos[${i}].imagen`);
+  } else if (I.tipo === "media") faltaMedio(I.archivo, `insertos[${i}].archivo`);
   else if (I.tipo === "antes-despues") { faltaMedio(I.antes, `insertos[${i}].antes`); faltaMedio(I.despues, `insertos[${i}].despues`); }
   else if (I.tipo === "grilla") {
     exigir(Array.isArray(I.medios) && I.medios.length >= 3 && I.medios.length <= 9 && I.medios.length % 3 === 0, `insertos[${i}].medios: 3, 6 o 9`);
     for (const m of I.medios ?? []) faltaMedio(m, `insertos[${i}].medios`);
-  } else errores.push(`insertos[${i}].tipo: numero, antes-despues, grilla o media`);
+  } else errores.push(`insertos[${i}].tipo: ${[...TIPOS_INSERTO, "antes-despues", "grilla", "media"].join(", ")}`);
 }
-const textoTodo = JSON.stringify([TARJETAS, INSERTOS.map((I) => [I.etiqueta, I.prefijo, I.valor, I.sufijo, I.barras, I.titulo, I.pie]), C?.titulo]);
+const textoTodo = JSON.stringify([TARJETAS, INSERTOS.map((I) => [textoDeInserto(I), I.barras, I.pie]), C?.titulo]);
 if (/\$|%|USD|ARS|\bcuotas?\b|\bdescuento|\boff\b|\bgratis\b/i.test(textoTodo) || TARJETAS.some((K) => K.valor || K.tachado) || INSERTOS.some((I) => I.tipo === "numero")) {
   avisos.push("hay precios o números en pantalla: tienen que estar en la guía o en el pedido (si no, se pregunta)");
 }
@@ -216,7 +219,8 @@ frenar("anclas");
 const seCruzan = (a, b) => a.desde < b.hasta && b.desde < a.hasta;
 const tapan = insertos.filter((I) => I.tipo !== "media");
 for (const [i, I] of insertos.entries()) {
-  exigir(I.hasta - I.desde >= 1.5, `insertos[${i}]: dura ${r2(I.hasta - I.desde)} s (1,5 s como mínimo para que se lea)`);
+  const minimo = DUR_MINIMA[I.tipo] ?? 1.5;
+  exigir(I.hasta - I.desde >= minimo, `insertos[${i}]: dura ${r2(I.hasta - I.desde)} s (${minimo} s como mínimo para que se lea)`);
   for (const [j, K] of tarjetas.entries()) exigir(!seCruzan(I, K), `insertos[${i}] y tarjetas[${j}] se pisan`);
   for (const [j, O] of insertos.entries()) exigir(j <= i || !seCruzan(I, O), `insertos[${i}] e insertos[${j}] se pisan`);
   if (cierre) exigir(I.hasta <= cierre.desde, `insertos[${i}] se pisa con el cierre`);
@@ -249,6 +253,11 @@ const insertosListos = insertos.map((I, i) => {
   if (I.tipo === "media") return { ...I, archivo: cortar(I.archivo, d, `i${i}`) };
   if (I.tipo === "antes-despues") return { ...I, antes: cortar(I.antes, d, `i${i}-a`), despues: cortar(I.despues, d, `i${i}-d`) };
   if (I.tipo === "grilla") return { ...I, medios: I.medios.map((m, k) => cortar(m, d, `i${i}-g${k}`)) };
+  const textos = TIPOS_INSERTO.includes(I.tipo) ? textosDeInserto(I) : [];
+  if (textos.length) {
+    const voz = PAL.filter((p) => p.ini >= I.desde - 0.05 && p.ini < I.hasta).map((p) => ({ t: p.w, ini: p.ini }));
+    return { ...I, momentos: momentosDe(textos, voz, I.desde + 0.1, d - 0.2) };
+  }
   return I;
 });
 
