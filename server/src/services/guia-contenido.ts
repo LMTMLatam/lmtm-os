@@ -648,7 +648,7 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
     if (repetir.length) L.push("", "## Qué repetir y qué probar", ...repetir);
     const { getRedesCalendar } = await import("./clickup-sync.js");
     const cal = await getRedesCalendar(db, r.id, Date.now() - 60 * 86_400_000, Date.now()).catch(() => null);
-    if (cal?.some((t) => t.networks.some((n) => /youtube/i.test(n)))) L.push("", "Publica en YouTube: cargá `youtube` en guion.json (skills yt-package y yt-seo).");
+    if (cal?.some((t) => t.networks.some((n) => /youtube/i.test(n)))) L.push("", "Publica en YouTube: cargá en guion.json `youtube` { titulo (hasta 60 letras), descripcion, consultas }: título y descripción aparte, pensados para lo que la gente busca.");
   }
 
   // Material de Drive
