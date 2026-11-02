@@ -16,7 +16,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
-import { agentDeliverables, clients, contenidoGastos } from "@paperclipai/db";
+import { agentDeliverables, clients, contenidoGastos, piezaMetricas } from "@paperclipai/db";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { conGasto, generarImagen, generarVideo, type ContextoGasto, type Generado } from "./higgsfield.js";
 
@@ -112,6 +112,11 @@ export async function contenidoGenerado(db: Db, opts: { dias: number; clientId?:
   const origenDe = new Map(gastos.filter((g) => g.pieza).map((g) => [g.pieza!, g.origen]));
 
   const nombres = new Map((await db.select({ id: clients.id, name: clients.name }).from(clients)).map((c) => [c.id, c.name]));
+  const conPosteo = piezas.filter((p) => (p.metadata as { postId?: unknown } | null)?.postId).map((p) => p.id);
+  const medidas = conPosteo.length
+    ? await db.select({ deliverableId: piezaMetricas.deliverableId, momento: piezaMetricas.momento, horas: piezaMetricas.horas, alcance: piezaMetricas.alcance, guardados: piezaMetricas.guardados, compartidos: piezaMetricas.compartidos, comentarios: piezaMetricas.comentarios, reacciones: piezaMetricas.reacciones })
+      .from(piezaMetricas).where(inArray(piezaMetricas.deliverableId, conPosteo))
+    : [];
   return {
     dias: opts.dias,
     totales: r.porHerramienta,
@@ -135,6 +140,8 @@ export async function contenidoGenerado(db: Db, opts: { dias: number; clientId?:
         delProductor: m.via === "productor-video",
         reemplaza: typeof m.reemplaza === "string" ? m.reemplaza : null,
         movimiento: typeof m.movimiento === "string" ? m.movimiento : null,
+        postLink: typeof m.postLink === "string" ? m.postLink : null,
+        medidas: medidas.filter((x) => x.deliverableId === p.id),
       };
     }),
   };

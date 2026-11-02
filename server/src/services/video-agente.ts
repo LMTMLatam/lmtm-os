@@ -367,6 +367,7 @@ export const VIDEO_TOOLS: ToolDef[] = [
     brief: { type: "string", description: "Qué tiene que decir y mostrar la pieza y qué no." },
     cuadros: { type: "number", description: "Video: cuántos cuadros mirar (4 a 12, por defecto 8)." },
     momentos: { type: "array", items: { type: "object", properties: { segundo: { type: "number" }, dice: { type: "string" } } }, description: "Video: un cuadro por frase ({segundo, dice}); revisa que lo que se ve muestre lo que dice la voz. armar.mjs --render lo manda solo." },
+    hoja: { type: "string", description: "Hoja de cuadros del render entero (armar.mjs --render la manda sola)." },
     formato: { type: "string", enum: ["filmado"], description: "Video: «filmado» = reel filmado con títulos sincronizados, tarjetas e insertos (armar.mjs lo manda solo)." },
   }, ["brief"]),
   def("video_describir", "DESCRIBE el material bajado (videos y fotos de una carpeta): GPT mira una hoja de cada video y devuelve sus MOMENTOS con el segundo (qué se ve, si alguien habla a cámara, si sirve), y una línea por foto. Es TEXTO: no mires las hojas vos. Lo ya descripto queda en caché. Con eso elegís fuente y `desde` de cada plano del guion.", {
@@ -1089,6 +1090,8 @@ export async function ejecutarHerramientaVideo(
           await run("ffmpeg", ["-v", "error", "-y", ...entrada, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", jpg]);
           imagenes.push(fs.readFileSync(jpg).toString("base64"));
         }
+        const hoja = esVideo && txt(p.hoja) ? rutaSegura(p.hoja) : null;
+        if (hoja && fs.existsSync(hoja)) imagenes.push(fs.readFileSync(hoja).toString("base64"));
         const filmado = esVideo && p.formato === "filmado";
         const comun =
           "logo deformado o pixelado, faltas de ortografía, y que no se diga ni muestre nada que el brief no permite. No inventes problemas: si está bien, decilo. ";
@@ -1106,6 +1109,7 @@ export async function ejecutarHerramientaVideo(
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
                 `(si dice «los fabricamos» y se ve una mujer en un local, es un problema). Lo que dice la voz en cada cuadro: ${dichos.map((m, i) => `cuadro ${i + 1} (${m.s.toFixed(1)} s): «${m.dice}»`).join("; ")}. `
               : "") +
+            (hoja ? "La ÚLTIMA imagen es la hoja del reel entero, 2 cuadros por segundo, de izquierda a derecha y de arriba abajo: miralo como movimiento. Marcá texto cortado, un cuadro en negro o un fogonazo, un panel vacío más de 2 s, o la misma toma demasiado tiempo. Una palabra a medio entrar no es un problema. " : "") +
             'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"segundo": n, "que": "...", "como_arreglarlo": "..."}]}'
           : `Sos el control de calidad de placas de Instagram de una agencia. Te paso ${n === 1 ? "una placa" : `las ${n} placas de un carrusel, en orden`} y el brief. ` +
             "Revisá: texto legible en el celular (tamaño y contraste), texto cortado o pegado al borde, jerarquía clara (se entiende en 2 segundos), " +

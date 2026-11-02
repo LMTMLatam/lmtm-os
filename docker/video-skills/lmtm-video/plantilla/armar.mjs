@@ -21,6 +21,9 @@
 //   marca, musica      { archivo, volumen } o { prompt } para generarla con Magnific
 //   movimiento         directo|pulso|relato|vitrina|ficha: ritmo, gancho, transiciones, subtítulos y cierre (obligatorio en un reel nuevo)
 //   ganchoTipo, pilar  para la ficha de la pieza: de eso sale el control de variedad y la medición
+//   ganchos[5]         se puntúan con hookscore: el mejor pasa a ser la primera frase y los 2 mejores van al entregable
+//                      (ganchoElegido: "por qué" deja la primera frase como está)
+//   youtube            { titulo, descripcion, consultas } solo si el cliente publica en YouTube
 //   un plano puede ser { inserto: { tipo: numero|lista|pasos|chat|pantalla, … } } en vez de una toma (guion-motion.ejemplo.json)
 //
 // Con "tipo": "filmado" en el guion, el reel sale de filmado.mjs (material con voz
@@ -29,7 +32,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chequear, duracion, esFoto, fichaYVariedad, herramienta, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
+import { chequear, duracion, esFoto, fichaYVariedad, herramienta, huella, norm, pistaDe, puntuarGanchos, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
 import { DUR_MINIMA, MOVIMIENTOS, SOLAPE, alinear, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
@@ -111,7 +114,20 @@ const textoTodo = [...LINEAS.map((l) => l.texto), C.texto, C.titulo, C.etiqueta 
 if (/\$|%|\bcuotas?\b|\bdescuento|\boff\b|\bgratis\b/i.test(textoTodo)) {
   avisos.push("el guion nombra un precio, promo o descuento: tiene que estar en la guía o en el pedido (si no, se pregunta)");
 }
+if (G.movimiento && esNuevo) exigir(Array.isArray(G.ganchos) && G.ganchos.length === 5, "ganchos: 5 opciones para la primera frase, con la voz del cliente");
+if (G.youtube) exigir(String(G.youtube.titulo ?? "").length > 0 && String(G.youtube.titulo).length <= 60 && String(G.youtube.descripcion ?? "").length > 0, "youtube: titulo (hasta 60 letras) y descripcion");
 frenar("guion.json no cumple");
+if (G.ganchos?.length) {
+  const puntuados = puntuarGanchos(G.ganchos);
+  G.ganchosMejores = puntuados.slice(0, 2);
+  // Antes de la primera voz: una vez hecha, cambiar el gancho la gastaría de nuevo.
+  if (esNuevo && !G.ganchoElegido && limpio(LINEAS[0].texto) !== limpio(puntuados[0].texto)) {
+    G.lineas[0].texto = puntuados[0].texto;
+    LINEAS[0].texto = puntuados[0].texto;
+  }
+  fs.writeFileSync(archivoGuion, JSON.stringify(G, null, 1));
+  console.log(`GANCHOS ${G.ganchosMejores.map((x) => `${x.puntaje} «${limpio(x.texto)}»`).join(" · ")}`);
+}
 await fichaYVariedad(G, archivoGuion, INSERTOS.map((p) => p.inserto.tipo), flags);
 
 for (const p of TOMAS.filter((p) => !fs.existsSync(String(p.fuente)))) {

@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const huella = (o) => crypto.createHash("sha1").update(JSON.stringify(o)).digest("hex").slice(0, 16);
 export const vigente = (archivo, h) => fs.existsSync(archivo) && fs.existsSync(`${archivo}.huella`) && fs.readFileSync(`${archivo}.huella`, "utf8") === h;
@@ -81,6 +82,21 @@ export async function pistaDe(G, dir) {
 }
 
 /**
+ * Puntúa los ganchos con hookscore.py (skill yt-script). Sirve para ordenar opciones, no es una nota: el gancho de
+ * la hora sale sin clasificar y fue el que más llegó en la cuenta donde se probó. Devuelve de mejor a peor.
+ */
+export function puntuarGanchos(ganchos) {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "yt-script", "hookscore.py");
+  const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ganchos-")), "g.txt");
+  const limpio = (t) => String(t).replace(/\*/g, "").trim();
+  fs.writeFileSync(tmp, ganchos.map(limpio).join("\n"));
+  const r = spawnSync(process.platform === "win32" ? "python" : "python3", ["-I", script, "--json", tmp], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
+  if (r.status !== 0) throw new Error(`hookscore: ${(r.stderr || r.stdout || r.error?.message || "").slice(-300)}`);
+  return JSON.parse(r.stdout).map((x) => ({ texto: ganchos.find((g) => limpio(g) === x.hook) ?? x.hook, puntaje: x.verdict, nivel: x.band, formula: x.formula }));
+}
+
+/**
  * La ficha de la pieza (queda en pieza.json y video_entregar la guarda en el entregable) y el control de
  * variedad, ANTES de gastar nada. `--forzar` lo saltea, solo con motivo y lo deja anotado.
  */
@@ -90,7 +106,7 @@ export async function fichaYVariedad(G, archivoGuion, insertos, flags) {
     G.idPieza = crypto.randomUUID();
     fs.writeFileSync(archivoGuion, JSON.stringify(G, null, 1));
   }
-  const ficha = { idPieza: G.idPieza, movimiento: G.movimiento, ganchoTipo: G.ganchoTipo, pilar: G.pilar, insertos, ...(flags.has("--forzar") ? { forzado: true } : {}) };
+  const ficha = { idPieza: G.idPieza, movimiento: G.movimiento, ganchoTipo: G.ganchoTipo, pilar: G.pilar, insertos, ...(G.ganchosMejores ? { ganchos: G.ganchosMejores } : {}), ...(G.youtube ? { youtube: G.youtube } : {}), ...(flags.has("--forzar") ? { forzado: true } : {}) };
   fs.writeFileSync("pieza.json", JSON.stringify(ficha, null, 1));
   if (flags.has("--forzar")) { console.log("AVISO variedad: salteada con --forzar; decí el motivo en el issue"); return; }
   if (!process.env.PAPERCLIP_API_URL) { console.log("AVISO variedad: prueba local sin servidor, no se chequeó"); return; }
@@ -132,12 +148,20 @@ export async function renderizarYRevisar({ dir, brief, fotos, momentos, formato,
   console.log(`\nFINAL ${mp4}`);
   console.log(qc.split("\n").filter((x) => /REVISION|ALERTA|sin alertas/.test(x)).join("\n"));
   hojaDeMomentos(mp4, fotos, path.join(dir, "hoja-sincro.jpg"));
+  const hojaRender = path.join(dir, "hoja-render.jpg");
+  hojaDelRender(mp4, hojaRender);
   console.log(`HOJA ${path.join(dir, "hoja-sincro.jpg")} (una foto por momento, en orden)`);
   if (!sinRevision) {
-    const rev = await herramienta("video_revisar", { archivo: mp4, brief, momentos, ...(formato ? { formato } : {}) });
+    const rev = await herramienta("video_revisar", { archivo: mp4, brief, momentos, hoja: hojaRender, ...(formato ? { formato } : {}) });
     console.log(`REVISION GPT: ${String(rev.content).slice(0, 1500)}`);
   }
   return mp4;
+}
+
+/** El reel entero, 2 cuadros por segundo: para ver el movimiento, no un momento. */
+export function hojaDelRender(mp4, salida) {
+  const filas = Math.ceil((duracion(mp4) * 2) / 14);
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", mp4, "-vf", `fps=2,scale=150:-2,tile=14x${filas}:padding=2:color=white`, "-frames:v", "1", salida]);
 }
 
 export function hojaDeMomentos(mp4, fotos, salida) {

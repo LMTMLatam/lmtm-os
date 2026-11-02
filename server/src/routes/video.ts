@@ -165,6 +165,15 @@ export function videoRoutes(db: Db): Router {
     res.status(r.ok ? 200 : 404).json(r);
   });
 
+  // POST /api/contenido/productor/vincular { deliverableId, permalink } — ya se publicó: de acá salen sus métricas.
+  router.post("/contenido/productor/vincular", async (req, res) => {
+    assertBoard(req);
+    const b = (req.body ?? {}) as { deliverableId?: string; permalink?: string };
+    if (!b.deliverableId || !/^https?:\/\//.test(b.permalink ?? "")) return res.status(422).json({ ok: false, motivo: "Pegá el link del posteo." });
+    const { vincularPieza } = await import("../services/pieza-metricas.js");
+    res.json(await vincularPieza(db, b.deliverableId, b.permalink as string));
+  });
+
   // POST /api/contenido/generar-libre { clientId, tipo, prompt, titulo?, imagenUrl?, formato?, herramienta?, origen? }
   // Genera sin tarea de ClickUp (Claude por el conector, o el panel), lo sube
   // al Drive de Super Redes del cliente y lo registra con su gasto. GASTA

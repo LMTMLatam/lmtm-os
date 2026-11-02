@@ -5,6 +5,7 @@
  "movimiento": "vitrina",
  "ganchoTipo": "pregunta",
  "pilar": "vitrina",
+ "ganchos": ["¿Tu *placard,* a tu *medida?*", "Tu placard no entra porque no se hizo para tu casa", "Lo que perdés con un placard de medida estándar", "Desde 1956 hacemos placares a medida", "Cuánto espacio tirás con un placard común"],
  "estilo": "Mujer argentina con acento rioplatense natural. Voz cálida, segura, con una sonrisa en la voz, como alguien que le recomienda algo a una amiga. Sin tono de locutora.",
  "lineas": [
   { "texto": "¿Tu *placard,* a tu *medida?*", "planos": [

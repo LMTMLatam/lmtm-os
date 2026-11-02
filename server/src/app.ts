@@ -316,6 +316,8 @@ export async function createApp(
   void import("./services/salud-posteos.js").then(({ initSaludPosteos }) => initSaludPosteos(db))
     .catch((e) => console.warn("[salud-posteos] init failed:", e instanceof Error ? e.message : e));
   // Índice del material de Drive de cada cliente, para la guía de contenido de Claude (21/10).
+  void import("./services/pieza-metricas.js").then(({ initMedirPiezas }) => initMedirPiezas(db))
+    .catch((e) => console.warn("[piezas] no arrancó:", e));
   void import("./services/guia-contenido.js").then(({ initIndiceDrive }) => initIndiceDrive(db))
     .catch((e) => console.warn("[guia] init failed:", e instanceof Error ? e.message : e));
   // Stories de Instagram: Meta solo muestra las de las últimas 24 h, se leen cada 6 h.

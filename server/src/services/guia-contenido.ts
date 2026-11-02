@@ -642,6 +642,14 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
     for (const x of mejores) L.push(`- ${x.red} ${x.fecha} · ${x.total} interacciones: "${recortar(x.texto, 120)}"${x.permalink ? ` ${x.permalink}` : ""}`);
     for (const g of ganchos) L.push(`- Gancho probado: "${recortar(g.text, 140)}"`);
   }
+  if (formato === "reel" || formato === "video") {
+    const { queRepetir } = await import("./pieza-metricas.js");
+    const repetir = await queRepetir(db, r.id, cliente.rubro ?? null).catch(() => []);
+    if (repetir.length) L.push("", "## Qué repetir y qué probar", ...repetir);
+    const { getRedesCalendar } = await import("./clickup-sync.js");
+    const cal = await getRedesCalendar(db, r.id, Date.now() - 60 * 86_400_000, Date.now()).catch(() => null);
+    if (cal?.some((t) => t.networks.some((n) => /youtube/i.test(n)))) L.push("", "Publica en YouTube: cargá `youtube` en guion.json (skills yt-package y yt-seo).");
+  }
 
   // Material de Drive
   L.push("");

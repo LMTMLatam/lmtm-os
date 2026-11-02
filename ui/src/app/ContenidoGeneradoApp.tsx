@@ -36,6 +36,8 @@ interface PiezaGenerada {
   delProductor?: boolean;
   reemplaza?: string | null;
   movimiento?: string | null;
+  postLink?: string | null;
+  medidas?: Array<{ momento: string; horas: number; alcance: number | null; guardados: number | null; compartidos: number | null; comentarios: number | null; reacciones: number | null }>;
 }
 interface PedidoProductor {
   id: string;
@@ -329,6 +331,11 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
   const qc = useQueryClient();
   const [abierto, setAbierto] = useState(false);
   const [cambios, setCambios] = useState("");
+  const [link, setLink] = useState("");
+  const vincular = useMutation({
+    mutationFn: () => api.post<{ ok: boolean; motivo?: string }>("/contenido/productor/vincular", { deliverableId: p.id, permalink: link.trim() }),
+    onSuccess: (r) => { if (r.ok) { setLink(""); void qc.invalidateQueries({ queryKey: ["lmtm", "contenido"] }); } },
+  });
   const pedir = useMutation({
     mutationFn: (texto?: string) => api.post<RespuestaPedido>("/contenido/productor/cambios", { deliverableId: p.id, cambios: texto ?? cambios }),
     onSuccess: (r) => {
@@ -349,6 +356,21 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
             ? "Gasto sin registrar (generado antes del 11/10)"
             : p.gasto.map((g) => `${nombreHerramienta(g.herramienta)}: ${g.generaciones > 1 ? `${g.generaciones} generaciones, ` : ""}${costo(g)}`).join(" · ")}
         </div>
+        {p.medidas?.map((m) => (
+          <div key={m.momento} className="text-[12px] tabular-nums text-l-tinta-2">
+            A {m.momento === "7d" ? "7 días" : "24 h"}: {[["alcance", m.alcance], ["guardados", m.guardados], ["compartidos", m.compartidos], ["comentarios", m.comentarios], ["reacciones", m.reacciones]].map(([n, v]) => `${v ?? "s/d"} ${n}`).join(" · ")}
+          </div>
+        ))}
+        {p.delProductor && p.kind === "video" && (p.postLink ? (
+          <a href={p.postLink} target="_blank" rel="noreferrer noopener" className="text-[12px] text-l-tinta-2 hover:text-l-tinta">Ver el posteo</a>
+        ) : (
+          <form className="mt-1 flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (link.trim()) vincular.mutate(); }}>
+            <label className="text-[12px] text-l-tinta-3" htmlFor={`post-${p.id}`}>¿Ya se publicó?</label>
+            <input id={`post-${p.id}`} value={link} onChange={(e) => setLink(e.target.value)} placeholder="Link del posteo, para medirlo" className="min-h-8 min-w-0 flex-1 rounded-[8px] border border-l-linea-2 bg-transparent px-2 text-[12px]" />
+            <button type="submit" disabled={!link.trim() || vincular.isPending} className="min-h-8 rounded-[8px] border border-l-linea-2 px-2 text-[12px] disabled:opacity-50">Vincular</button>
+            {vincular.data && !vincular.data.ok && <span className="w-full text-[12px] text-l-atencion-texto">{vincular.data.motivo}</span>}
+          </form>
+        ))}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         {archivos.map((l, i) => (

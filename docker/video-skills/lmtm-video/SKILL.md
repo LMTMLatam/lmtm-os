@@ -1,6 +1,6 @@
 ---
 name: lmtm-video
-description: Cómo arma LMTM un video para un cliente (reel, historia, clip) con HyperFrames de punta a punta, con la PLANTILLA del reel aprobado. Material real del cliente, guion con su voz, voz en off, subtítulos, cierre con marca, render, control y entrega en Drive. Leela ANTES que /hyperframes cuando el pedido es un video de un cliente de LMTM; manda sobre las partes de las otras skills que hablan de iniciar sesión en HeyGen, preview o esperar a una persona.
+description: Cómo arma LMTM un video para un cliente (reel, historia, clip) con HyperFrames, de punta a punta, con la plantilla, insertos de motion y estilos. Leela ANTES que /hyperframes cuando el pedido es un video de un cliente de LMTM; manda sobre las partes de las otras skills que hablan de iniciar sesión en HeyGen, preview o esperar a una persona.
 ---
 
 # Video de un cliente de LMTM
@@ -33,34 +33,26 @@ de reel viral y cierre SOBRE la última toma (o `cierre.plano`), sin placa de fo
 **Con voz generada, nada de carteles ni rótulos en recuadros** («JUJUY 3200 · EN VENTA», «Cocina integrada»). El
 texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son sólo del reel filmado.
 
-**Insertos de motion:** para lo que falta material (se repetirían tomas) o un dato que se cuenta mejor animado. Un plano
-de una frase puede ser `{ "inserto": { "tipo": … } }` en vez de una toma; el movimiento lo hace el script. Tipos:
-`numero`, `lista`, `pasos`, `chat`, `pantalla`. Campos en `$P/guion-motion.ejemplo.json` (leelo SOLO si vas a usar uno).
-- 3 por reel como mucho. El reel sigue siendo del material del cliente.
-- `numero`: en cifras en el texto de la frase y con `origen` (de dónde salió). Sin fuente no va.
-- `chat`: cómo se pide o se reserva. Siempre sale con la etiqueta EJEMPLO; nunca como testimonio ni con un cliente real.
-- `pantalla`: captura REAL de la web del cliente (`npx hyperframes capture <url> --skip-assets`, de `capture/screenshots/`
-  a `assets/marca/`).
-- Si necesita más tiempo, dejalo solo en una frase larga: `armar.mjs` te dice cuánto le falta.
-En el filmado van en `insertos` con `dice`, igual que los demás.
+**Insertos de motion** (cuando se repetirían tomas o un dato se cuenta mejor animado): un plano puede ser
+`{ "inserto": { "tipo": … } }`: `numero`, `lista`, `pasos`, `chat` o `pantalla`. Campos en `$P/guion-motion.ejemplo.json`
+(leelo SOLO si usás uno). 3 por reel como mucho. En el filmado van en `insertos` con `dice`.
+- `numero`: en cifras en el texto de la frase y con `origen`. Sin fuente no va.
+- `chat`: cómo se pide o se reserva. Sale con la etiqueta EJEMPLO; nunca testimonios ni clientes reales.
+- `pantalla`: captura REAL de su web (`npx hyperframes capture <url> --skip-assets`; de `capture/screenshots/` a `assets/marca/`).
 
-**Que no salgan todos iguales:** cada reel nuevo lleva en `guion.json` `movimiento` (`directo`, `pulso`, `relato`,
-`vitrina` o `ficha`: ritmo, gancho, transiciones, subtítulos y cierre, combinados con la marca), `ganchoTipo` (`hora`,
-`pregunta`, `dato`, `mito`, `confesion`, `lista`, `contraste` o `historia`) y `pilar` (el ángulo: `vitrina`, `educativo`,
-`detras-de-escena`, `dolor`…). Con `movimiento`, la primera frase ES el gancho, grande y al ritmo de la voz; no cargues
-`gancho`. Elegí uno distinto a los últimos del cliente: `armar.mjs` frena antes de gastar si repite y te dice cuáles
-quedan libres. `--forzar` lo saltea solo si el pedido lo exige, y lo aclarás en el issue. Un proyecto de antes sin
-`movimiento` sigue con su diseño: no se lo agregues salvo que lo pidan.
+**Cada reel nuevo** lleva en `guion.json`:
+- `movimiento`: `directo`, `pulso`, `relato`, `vitrina` o `ficha`. Distinto a los últimos del cliente: `armar.mjs` frena
+  antes de gastar si repite y dice cuáles quedan libres. `--forzar` solo si el pedido lo exige, aclarado en el issue.
+- `ganchoTipo`: `hora`, `pregunta`, `dato`, `mito`, `confesion`, `lista`, `contraste` o `historia`.
+- `pilar`: el ángulo (`vitrina`, `educativo`, `detras-de-escena`, `dolor`…).
+- `ganchos`: 5 opciones para la primera frase, con su voz y lo de «Qué repetir y qué probar» de la guía. `armar.mjs` las
+  puntúa y pone la mejor; las líneas `GANCHOS` van al issue. Con motivo para otra, `ganchoElegido`: el puntaje ordena, no
+  decide. La primera frase es el gancho grande: no cargues `gancho`.
+Un proyecto de antes sin `movimiento` sigue con su diseño: no se lo agregues salvo que lo pidan.
 
-Tu trabajo es decidir; lo mecánico lo hace `armar.mjs`:
-- elegir el material correcto (leyendo `lmtmVideoDescribir`, no mirando hojas);
-- escribir el guion con la voz del cliente, frase por frase, con lo que se VE en cada una;
-- cargar todo eso en `guion.json`.
-
-`armar.mjs` corta los planos, pide las voces, saca los tiempos de cada palabra,
-arma los subtítulos y `reel.json`, chequea, renderiza y revisa. No escribas
-`reel.json` ni `index.html` a mano y no cambies el CSS de la plantilla. Si algo
-del diseño no sirve para un cliente, decilo en el issue.
+Vos decidís el material (con `lmtmVideoDescribir`, no mirando hojas) y el guion, frase por frase, con lo que se VE en
+cada una. Lo demás lo hace `armar.mjs`: no escribas `reel.json` ni `index.html` a mano ni cambies el CSS. Si algo del
+diseño no sirve para un cliente, decilo en el issue.
 
 ## Reglas que no se negocian
 
