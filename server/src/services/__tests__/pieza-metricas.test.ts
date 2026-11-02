@@ -40,5 +40,6 @@ describe("el lazo de medición de las piezas", () => {
     expect(TENSION_POR_RUBRO["turismo-hoteleria"]?.cerrado).toBe(true);
     expect(TENSION_POR_RUBRO["industria-b2b"]?.cerrado).toBe(false);
     expect(TENSION_POR_RUBRO["construccion-materiales"]?.cerrado).toBe(false);
+    expect(TENSION_POR_RUBRO["muebles-amoblamientos"]?.cerrado).toBe(false);
   });
 });

@@ -39,6 +39,7 @@ export const TENSION_POR_RUBRO: Record<string, { cerrado: boolean; tension: stri
   "entretenimiento-eventos": { cerrado: false, tension: "la fecha que se llena" },
   "finanzas-servicios": { cerrado: false, tension: "el vencimiento y lo que cuesta esperar" },
   "servicios-profesionales": { cerrado: false, tension: "lo que se posterga hasta que sale más caro" },
+  "muebles-amoblamientos": { cerrado: false, tension: "el espacio que se desperdicia y el mueble que no entra" },
 };
 
 export interface PiezaMedida {
