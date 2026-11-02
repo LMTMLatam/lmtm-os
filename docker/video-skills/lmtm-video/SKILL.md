@@ -117,8 +117,8 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    rehace, así que repetir es barato. Si dice que no hay cupo de voz, frená:
    contalo en el issue («sin cupo de voz, se retoma mañana») y cerrá la corrida.
 6. **Render y control:** `node $P/armar.mjs guion.json --render`. Renderiza, pasa
-   `vtool revisar` (y `normalizar` si hace falta), arma `hoja-sincro.jpg` (una foto
-   por frase) y pide la revisión frase por frase. Mirá `hoja-sincro.jpg` UNA vez.
+   `vtool revisar` (y `normalizar` si hace falta) y pide la revisión, que mira cada frase y la hoja del reel entero:
+   no abras las hojas vos, cada imagen se reenvía en todos los turnos.
    Si la revisión dice que una frase no muestra lo que dice, cambiá ESE plano en
    `guion.json` y repetí el paso; dos vueltas como mucho.
 7. **Entrega:** `lmtmVideoEntregar` con el `FINAL` que imprimió el paso 6. Si el
