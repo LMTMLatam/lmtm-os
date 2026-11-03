@@ -235,6 +235,7 @@ const cierre = `<!doctype html>
         #cierre-titulo .dest { ${acento ? `color: ${acento};` : ""} }
         #cta { margin-top: 40px; display: inline-block; padding: 26px 64px; border-radius: 999px; background: ${acento ?? "#ffffff"}; color: ${acento && !marcaOscura && luz(acento) < 0.5 ? "#ffffff" : "#111111"}; font-size: 44px; font-weight: 800; }
         #url { margin-top: 26px; font-size: ${MV ? 54 : 44}px; font-weight: 800; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+        #legal { margin-top: 24px; font-size: 26px; font-weight: 500; line-height: 1.25; color: rgba(255,255,255,0.9); text-shadow: 0 1px 6px rgba(0,0,0,0.7); }
       </style>
       <div id="root" data-composition-id="cierre" data-width="1080" data-height="1920">
         <div id="cierre-fondo"></div>
@@ -244,6 +245,7 @@ const cierre = `<!doctype html>
           <h1 id="cierre-titulo">${titulo}</h1>
           ${C.cta ? `<div id="cta">${esc(C.cta)}</div>` : ""}
           ${C.url ? `<div id="url">${esc(C.url)}</div>` : ""}
+          ${C.legal ? `<div id="legal">${esc(C.legal)}</div>` : ""}
         </div>
       </div>
       <script>
@@ -259,6 +261,7 @@ const cierre = `<!doctype html>
         }).join("\n        ")}
         ${C.cta ? `tl.fromTo("#cta", { opacity: 0, scale: 0.82, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.55, ease: "back.out(1.8)" }, ${L(ctaAt - 0.05)});` : ""}
         ${C.url ? `tl.fromTo("#url", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, ${L(urlAt)});` : ""}
+        ${C.legal ? `tl.fromTo("#legal", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, ${L(CIERRE_DESDE + 0.2)});` : ""}
         ${C.cta && urlAt + 1.0 < FIN ? `tl.fromTo("#cta", { scale: 1 }, { scale: 1.05, duration: 0.45, ease: "sine.inOut", yoyo: true, repeat: 3, immediateRender: false }, ${L(urlAt + 1.0)});` : ""}
         window.__timelines["cierre"] = tl;
       </script>

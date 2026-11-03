@@ -526,7 +526,17 @@ export function frasesCon(texto: string, pedido: string[], max = 3): string[] {
 }
 
 /** ¿Una fila de memoria sirve para producir contenido? Las de pauta y operación (saldo, campañas, Make) no. Pura. */
+/** La memoria con esta key es el texto legal literal que lleva cada pieza del cliente. */
+export const KEY_AVISO_LEGAL = "obligatorio-aviso-legal";
+/** Lo que el cliente exige en cada pieza (key obligatorio-*): va entero, sin competir por lugar con el resto de la memoria. Pura. */
+export function reglasObligatorias(memoria: Array<{ key: string; content: string }>): string[] {
+  const reglas = memoria.filter((m) => m.key.startsWith("obligatorio-"));
+  if (!reglas.length) return [];
+  return ["", "## Obligatorio en cada pieza", ...reglas.map((m) => (m.key === KEY_AVISO_LEGAL ? `- Aviso legal, tal cual (en un reel: cierre.legal): ${m.content}` : `- ${m.content}`))];
+}
+
 export function esDeContenido(m: { kind: string; key: string; content: string }): boolean {
+  if (m.key.startsWith("obligatorio-")) return false;
   // "event" son bitácoras (corridas, resúmenes de WhatsApp): no son hechos del cliente.
   if (m.kind === "context" || m.kind === "event" || m.key === "decisor" || m.key === "identity") return false;
   if (m.kind === "preference" || m.kind === "decision") return true;
@@ -589,6 +599,7 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
   }
 
   // El producto
+  L.push(...reglasObligatorias(memoria));
   if (p.producto) {
     L.push("", `## El producto: «${p.producto}»`);
     const enCatalogo = productos.filter((x) => puntaje(`${x.name} ${x.description ?? ""}`, pedido) > 0);

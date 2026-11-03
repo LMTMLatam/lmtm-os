@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { MOVIMIENTOS, chequearVariedad } from "../video-variedad.js";
+import { MOVIMIENTOS, chequearVariedad, faltaAvisoLegal } from "../video-variedad.js";
 import { AVISO_TERCEROS, NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, elegirVozElevenLabs, idDeDrive, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
 import { proveedorDelProxy } from "@paperclipai/adapter-claude-local/server";
@@ -37,6 +37,13 @@ describe("variedad de las piezas", () => {
     const motion = fs.readFileSync(path.resolve(__dirname, "../../../../docker/video-skills/lmtm-video/plantilla/motion.mjs"), "utf8");
     const bloque = motion.slice(motion.indexOf("export const MOVIMIENTOS"), motion.indexOf("export const TIPOS_INSERTO"));
     expect([...bloque.matchAll(/^  (\w+): \{/gm)].map((m) => m[1])).toEqual(MOVIMIENTOS);
+  });
+  it("el aviso legal va tal cual; solo perdona mayúsculas, acentos y espacios", () => {
+    const aviso = "Agente de Negociación CNV Matrícula N° 2700.";
+    expect(faltaAvisoLegal(aviso, "")).toBe(true);
+    expect(faltaAvisoLegal(aviso, undefined)).toBe(true);
+    expect(faltaAvisoLegal(aviso, "Agente CNV 2700")).toBe(true);
+    expect(faltaAvisoLegal(aviso, "agente de negociacion  CNV matricula N° 2700.")).toBe(false);
   });
   it("armar.mjs reconoce la marca de terceros que pone video_describir", () => {
     const armar = fs.readFileSync(path.resolve(__dirname, "../../../../docker/video-skills/lmtm-video/plantilla/armar.mjs"), "utf8");

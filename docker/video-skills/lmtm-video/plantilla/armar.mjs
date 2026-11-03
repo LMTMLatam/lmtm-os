@@ -16,7 +16,7 @@
 //   lineas[]           { texto: "Diseñamos *placares* a medida.", planos: [{ fuente, desde, foco, lento, realce, muestra, drive }] }
 //                      *palabra* = resaltada. Cada línea, sus planos (en orden).
 //   gancho             texto corto arriba en los primeros 2 s (opcional, *palabra* resaltada)
-//   cierre             { texto (lo que dice la voz), titulo, etiqueta, cta, url, corte, cola, plano }
+//   cierre             { texto (lo que dice la voz), titulo, etiqueta, cta, url, legal, corte, cola, plano }
 //                      (va SOBRE la última toma o sobre cierre.plano: sin placa)
 //   marca, musica      { archivo, volumen } o { prompt } para generarla con Magnific
 //   movimiento         directo|pulso|relato|vitrina|ficha: ritmo, gancho, transiciones, subtítulos y cierre (obligatorio en un reel nuevo)
@@ -33,7 +33,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chequear, duracion, esFoto, fichaYVariedad, herramienta, huella, norm, pistaDe, puntuarGanchos, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
+import { chequear, duracion, esFoto, fichaYVariedad, herramienta, huella, medirCaptura, norm, pistaDe, puntuarGanchos, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
 import { DUR_MINIMA, MOVIMIENTOS, SOLAPE, TIPOS_INSERTO, alinear, momentosDe, textoDeInserto, textosDeInserto, tiposRepetidos, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
@@ -95,7 +95,11 @@ exigir(INSERTOS.length <= 3, `insertos: ${INSERTOS.length}; 3 como mucho`);
 for (const t of tiposRepetidos(INSERTOS.map((p) => p.inserto))) errores.push(`insertos: más de uno de tipo ${t}; uno de cada tipo por reel (${TIPOS_INSERTO.join(", ")}) o una toma`);
 for (const [n, p] of INSERTOS.entries()) {
   for (const e of validarInserto(p.inserto, `lineas[${p.linea}] inserto ${n + 1}`, LINEAS[p.linea].texto)) errores.push(e);
-  if (p.inserto.imagen) exigir(fs.existsSync(p.inserto.imagen) && !path.relative(DIR, path.resolve(p.inserto.imagen)).startsWith(".."), `inserto pantalla: ${p.inserto.imagen} no existe o está fuera del proyecto`);
+  if (p.inserto.imagen) {
+    exigir(fs.existsSync(p.inserto.imagen) && !path.relative(DIR, path.resolve(p.inserto.imagen)).startsWith(".."), `inserto pantalla: ${p.inserto.imagen} no existe o está fuera del proyecto`);
+    const mal = fs.existsSync(p.inserto.imagen) ? medirCaptura(p.inserto, "inserto pantalla") : null;
+    if (mal) errores.push(mal);
+  }
 }
 // Sin repetir tomas: el reel v3 de RENO usó 4 videos en 8 cortes y "repitió muchas veces la misma toma".
 const usos = new Map();
@@ -330,7 +334,7 @@ const reel = {
   marca: M,
   cierre: {
     desde: CIERRE, etiqueta: C.etiqueta ?? "", titulo: titPal, ...(C.corte ? { corte: C.corte } : {}),
-    cta: C.cta ?? "", ctaDesde: r2(Math.min(FIN - 1.2, ultimaTit + 0.6)), url: C.url ?? "", urlDesde: r2(Math.min(FIN - 0.8, ultimaTit + 1.1)),
+    cta: C.cta ?? "", ctaDesde: r2(Math.min(FIN - 1.2, ultimaTit + 0.6)), url: C.url ?? "", urlDesde: r2(Math.min(FIN - 0.8, ultimaTit + 1.1)), legal: C.legal ?? "",
   },
   ...(musica ? { musica } : {}),
 };

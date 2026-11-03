@@ -399,6 +399,7 @@ export const VIDEO_TOOLS: ToolDef[] = [
   def("video_variedad", "CONTROL DE VARIEDAD de una pieza contra lo reciente de su cliente y de su rubro, antes de gastar. armar.mjs lo llama solo.", {
     idPieza: { type: "string" }, movimiento: { type: "string" }, ganchoTipo: { type: "string" }, pilar: { type: "string" },
     insertos: { type: "array", items: { type: "string" } }, clientId: { type: "string" },
+    legal: { type: "string" }, forzado: { type: "boolean" },
   }, ["idPieza", "movimiento", "ganchoTipo", "pilar"]),
   def("video_entregar", "ENTREGA el video: lo sube a la carpeta VIDEOS del cliente en Drive y lo registra. No publica ni toca el calendario. Devuelve el link para dejar en la tarea.", {
     archivo: ARCHIVO, clientId: { type: "string" }, titulo: { type: "string" },
@@ -1106,7 +1107,7 @@ export async function ejecutarHerramientaVideo(
             "sí lo es si tapa justo el detalle que nombra la frase), " +
             (filmado
               ? "Este reel usa títulos grandes en jerarquía (chica + GRANDE + media), arriba o abajo según dónde esté la cara, tarjetas con datos e insertos a pantalla completa: son parte del formato, no son un problema, y en un inserto la persona no se ve aunque siga hablando. Sí es un problema una tarjeta o título que tape una cara o el producto. Si alguien habla a cámara, eso ya muestra lo que dice. Un cuadro con un título que todavía se está armando, palabra por palabra, está bien. "
-              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón y la web del cierre y los paneles animados son parte del formato y no lo son), en los primeros 3 s el nombre de una persona o logos de otras marcas a la vista, ") +
+              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón, la web y el aviso legal del cierre y los paneles animados son parte del formato y no lo son), en los primeros 3 s el nombre de una persona o logos de otras marcas a la vista, ") +
             "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
@@ -1174,7 +1175,10 @@ export async function ejecutarHerramientaVideo(
     if (tool === "video_variedad") {
       const clientId = txt(p.clientId) || (await tareaDeCorrida(db, ctx.runId)).clientId;
       if (!clientId) return mal("no sé de qué cliente es: pasá clientId en guion.json");
-      const { variedadDeCliente } = await import("./video-variedad.js");
+      const { problemaDeAvisoLegal, variedadDeCliente } = await import("./video-variedad.js");
+      const legal = await problemaDeAvisoLegal(db, clientId, p.legal);
+      if (legal) return mal(`- ${legal}`);
+      if (p.forzado) return ok("");
       const v = await variedadDeCliente(db, clientId, { idPieza: txt(p.idPieza), movimiento: txt(p.movimiento), ganchoTipo: txt(p.ganchoTipo), pilar: txt(p.pilar), insertos: Array.isArray(p.insertos) ? p.insertos.map(String) : [] });
       if (v.problemas.length) return mal(v.problemas.map((x) => `- ${x}`).join("\n"));
       return ok(v.avisos.length ? v.avisos.join(" · ") : "");

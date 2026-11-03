@@ -39,7 +39,7 @@ texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son s�
 - `lista` y `pasos`: cada ítem se entiende solo y es del mismo tipo que los demás; no partas una frase de la voz en dos ítems.
 - `numero`: en cifras en el texto de la frase y con `origen`. Sin fuente no va.
 - `chat`: cómo se pide o se reserva. Sale con la etiqueta EJEMPLO; nunca testimonios ni clientes reales.
-- `pantalla`: captura REAL de su web (`npx hyperframes capture <url> --skip-assets`; de `capture/screenshots/` a `assets/marca/`).
+- `pantalla`: captura REAL de su web (`npx hyperframes capture <url> --skip-assets`; de `capture/screenshots/` a `assets/marca/`), entera y sin recortar. `foco`: lo que tiene que verse, porque la ventana baja hasta ahí.
 
 **Cada reel nuevo** lleva en `guion.json`:
 - `movimiento`: `directo`, `pulso`, `relato`, `vitrina` o `ficha`. Distinto a los últimos del cliente: `armar.mjs` frena
@@ -49,6 +49,7 @@ texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son s�
 - `ganchos`: 5 opciones para la primera frase, con su voz y lo de «Qué repetir y qué probar» de la guía. `armar.mjs` las
   puntúa y pone la mejor; las líneas `GANCHOS` van al issue. Con motivo para otra, `ganchoElegido`: el puntaje ordena, no
   decide. La primera frase es el gancho grande: no cargues `gancho`.
+- `cierre.legal`: si la guía trae «Aviso legal», tal cual. `armar.mjs` frena si falta o cambia.
 - En el gancho, sin nombres de personas ni marcas ajenas a la vista: `lmtmVideoDescribir` las marca con TERCEROS y `armar.mjs`
   frena. Solo si el pedido lo pide, `ganchoConTerceros` con el motivo.
 Un proyecto de antes sin `movimiento` sigue con su diseño: no se lo agregues salvo que lo pidan.

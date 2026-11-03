@@ -13,7 +13,7 @@
 //   correcciones       { "Tuplacar": "Tu placar" } lo que whisper escribe mal
 //   tarjetas[]         { dice, dur, etiqueta, tachado, titulo, antes, valor, nota, imagen }
 //   insertos[]         { dice, dur, tipo: numero|lista|pasos|chat|pantalla|antes-despues|grilla|media, … } (ver guion-filmado.ejemplo.json)
-//   cierre             { titulo, cta, url, dice, cola }
+//   cierre             { titulo, cta, url, legal, dice, cola }
 //   movimiento         directo|pulso|relato|vitrina|ficha: acá cambia el panel de los insertos (obligatorio en un reel nuevo)
 //   ganchoTipo, pilar  para la ficha de la pieza: de eso sale el control de variedad y la medición
 //   marca, musica      { color, acento, oscuro, logo, logoBlanco, fuente } · { archivo, volDb } o { prompt, volDb }
@@ -24,7 +24,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chequear, duracion, enWindows, esFoto, fichaYVariedad, huella, norm, pistaDe, r2, renderizarYRevisar, sellar, transcribir, vigente } from "./comun.mjs";
+import { chequear, duracion, enWindows, esFoto, fichaYVariedad, huella, medirCaptura, norm, pistaDe, r2, renderizarYRevisar, sellar, transcribir, vigente } from "./comun.mjs";
 import { DUR_MINIMA, MOVIMIENTOS, TIPOS_INSERTO, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
@@ -95,7 +95,11 @@ for (const [i, I] of INSERTOS.entries()) {
   exigir(typeof I.dice === "string" && I.dice.trim(), `insertos[${i}].dice: la frase que lo dispara`);
   if (TIPOS_INSERTO.includes(I.tipo)) {
     for (const e of validarInserto(I, `insertos[${i}]`)) errores.push(e);
-    if (I.imagen) adentro(I.imagen, `insertos[${i}].imagen`);
+    if (I.imagen) {
+      adentro(I.imagen, `insertos[${i}].imagen`);
+      const mal = fs.existsSync(I.imagen) ? medirCaptura(I, `insertos[${i}]`) : null;
+      if (mal) errores.push(mal);
+    }
   } else if (I.tipo === "media") faltaMedio(I.archivo, `insertos[${i}].archivo`);
   else if (I.tipo === "antes-despues") { faltaMedio(I.antes, `insertos[${i}].antes`); faltaMedio(I.despues, `insertos[${i}].despues`); }
   else if (I.tipo === "grilla") {

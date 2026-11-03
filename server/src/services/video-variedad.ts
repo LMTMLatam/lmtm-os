@@ -8,9 +8,10 @@
 // metadata del entregable, que es de donde sale el historial. No hay tabla nueva.
 
 import type { Db } from "@paperclipai/db";
-import { agentDeliverables, clients } from "@paperclipai/db";
+import { agentDeliverables, clientMemory, clients } from "@paperclipai/db";
 import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { ANGULOS, ANGULOS_ORGANICO } from "./angulos-creativos.js";
+import { KEY_AVISO_LEGAL, norm } from "./guia-contenido.js";
 
 /** Los mismos nombres que MOVIMIENTOS en docker/video-skills/lmtm-video/plantilla/motion.mjs (lo controla un test). */
 export const MOVIMIENTOS = ["directo", "pulso", "relato", "vitrina", "ficha"];
@@ -72,6 +73,17 @@ const ficha = (f: { title: string; metadata: unknown; cliente?: string | null })
     idPieza: m.idPieza as string, movimiento: m.movimiento as string, ganchoTipo: m.ganchoTipo as string, pilar: m.pilar as string, insertos: m.insertos as string[],
   };
 };
+
+const sinEspacios = (s: unknown) => norm(String(s ?? "")).replace(/\s+/g, " ").trim();
+/** Puro. El aviso legal del cliente tiene que estar tal cual en el cierre. */
+export const faltaAvisoLegal = (exigido: string, puesto: unknown) => !sinEspacios(puesto).includes(sinEspacios(exigido));
+
+/** Lo que frena por regulación: a diferencia de la variedad, --forzar no lo saltea. */
+export async function problemaDeAvisoLegal(db: Db, clientId: string, puesto: unknown): Promise<string | null> {
+  const [m] = await db.select({ content: clientMemory.content }).from(clientMemory)
+    .where(and(eq(clientMemory.clientId, clientId), eq(clientMemory.key, KEY_AVISO_LEGAL))).limit(1);
+  return m && faltaAvisoLegal(m.content, puesto) ? `este cliente lleva aviso legal obligatorio. Cargá en cierre.legal, tal cual: «${m.content}»` : null;
+}
 
 export async function variedadDeCliente(db: Db, clientId: string, yo: FichaPieza) {
   const delProductor = sql`${agentDeliverables.metadata}->>'via' = 'productor-video'`;

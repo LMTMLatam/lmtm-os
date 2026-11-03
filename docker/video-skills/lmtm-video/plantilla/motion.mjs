@@ -101,6 +101,9 @@ export const MOVIMIENTOS = {
 };
 
 export const TIPOS_INSERTO = ["numero", "lista", "pasos", "chat", "pantalla"];
+/** La ventana del inserto pantalla: una captura más angosta que esto se agranda y se ve borrosa. */
+export const ANCHO_VENTANA = 968;
+const ALTO_VENTANA = 620;
 /** Lo mínimo para que se entienda: el chat necesita ver llegar los mensajes; la pantalla, el resultado quieto ≥1 s. */
 export const DUR_MINIMA = { numero: 1.8, lista: 2.5, pasos: 2.8, chat: 4, pantalla: 3.4 };
 const lineasDeBurbuja = (txt) => Math.ceil(String(txt).length / 28);
@@ -303,21 +306,29 @@ const chat = (I, { id, t0, dur }) => {
   };
 };
 
-/** Captura REAL en una ventana: el cursor llega antes de la acción, clic, la cámara va a 1,2× y el resultado queda quieto ≥1 s. */
+/**
+ * Captura REAL en una ventana: el cursor llega antes de la acción, clic, y si la captura no entra la ventana baja
+ * hasta el foco. Sin zoom: a 1,2× cortaba los costados de un título que ocupa todo el ancho (LMTM-6642).
+ * I.relacion (alto/ancho de la captura) lo mide comun.mjs. El resultado queda quieto ≥1 s.
+ */
 const pantallaWeb = (I, { id, t0 }) => {
   const fx = Number(I.foco.x), fy = Number(I.foco.y);
-  const dx = Math.round(((88 - fx) / 100) * 968);
+  const dx = Math.round(((88 - fx) / 100) * ANCHO_VENTANA);
+  const alto = Number(I.relacion) > 0 ? ANCHO_VENTANA * Number(I.relacion) : ALTO_VENTANA;
+  const focoEnCaptura = (alto * fy) / 100;
+  const baja = Math.round(Math.min(Math.max(focoEnCaptura - ALTO_VENTANA / 2, 0), Math.max(alto - ALTO_VENTANA, 0)));
   const js = [
     `tl.fromTo("#${id}-v", { y: 70, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, ${r3(t0 + 0.05)});`,
     `tl.fromTo("#${id}-cur", { x: ${dx}, y: 260 }, { x: 0, y: 0, duration: 0.6, ease: "power2.inOut" }, ${r3(t0 + 0.4)});`,
     `tl.to("#${id}-cur", { scale: 1.15, duration: 0.08 }, ${r3(t0 + 1.0)});`,
     `tl.to("#${id}-cur", { scale: 0.98, duration: 0.1 }, ${r3(t0 + 1.08)});`,
     `tl.to("#${id}-cur", { scale: 1, duration: 0.1 }, ${r3(t0 + 1.18)});`,
-    `tl.fromTo("#${id}-cam", { scale: 1 }, { scale: 1.2, duration: 1.3, ease: "power2.inOut" }, ${r3(t0 + 1.1)});`,
+    `tl.to("#${id}-cur", { opacity: 0, duration: 0.25, ease: "power1.out" }, ${r3(t0 + 1.35)});`,
   ];
+  if (baja) js.push(`tl.fromTo("#${id}-cam", { y: 0 }, { y: ${-baja}, duration: 1.3, ease: "power2.inOut" }, ${r3(t0 + 1.1)});`);
   if (I.etiqueta) js.push(`tl.fromTo("#${id}-et", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, ${r3(t0 + 1.8)});`);
   return {
-    html: `<div class="mo-ventana" id="${id}-v"><div class="mo-v-barra"><i></i><i></i><i></i><span>${pantalla(I.ventana ?? "")}</span></div><div class="mo-v-cuerpo"><div class="mo-v-cam" id="${id}-cam" style="transform-origin:${fx}% ${fy}%"><img src="${esc(I.imagen)}" alt="" /></div><div class="mo-v-cursor" id="${id}-cur" style="left:${fx}%;top:${fy}%"></div></div></div>
+    html: `<div class="mo-ventana" id="${id}-v"><div class="mo-v-barra"><i></i><i></i><i></i><span>${pantalla(I.ventana ?? "")}</span></div><div class="mo-v-cuerpo"><div class="mo-v-cam" id="${id}-cam"><img src="${esc(I.imagen)}" alt="" /></div><div class="mo-v-cursor" id="${id}-cur" style="left:${fx}%;top:${Math.round(focoEnCaptura - baja)}px"></div></div></div>
       ${I.etiqueta ? `<div class="mo-tit mo-et" id="${id}-et">${resaltar(I.etiqueta)}</div>` : ""}`,
     js,
   };

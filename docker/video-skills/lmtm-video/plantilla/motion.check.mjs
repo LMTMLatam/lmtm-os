@@ -41,6 +41,11 @@ assert.ok(validarInserto(items("Asesoramiento personalizado", "Tu patrimonio"), 
 assert.ok(validarInserto(items("Asesoramiento", "Patrimonio"), "l", "Asesoramiento para tu patrimonio.").some((e) => /una sola frase/.test(e)));
 assert.deepEqual(validarInserto(items("Inversiones", "Real estate", "Medios de pago"), "l", "Sustenta integra inversiones, real estate y medios de pago."), []);
 assert.deepEqual(validarInserto(items("Respaldo institucional", "Visión de largo plazo"), "l", "Con respaldo institucional y visión de largo plazo."), []);
+// La captura no se agranda: una vertical baja hasta el foco y la que entra queda quieta (LMTM-6642).
+const panea = (relacion) => inserto({ ...casos.pantalla, relacion, foco: { x: 50, y: 50 } }, ctx()).js.join("\n");
+assert.doesNotMatch(panea(2), /scale: 1\.2/);
+assert.match(panea(2), /x-cam", \{ y: 0 \}, \{ y: -658,/);
+assert.doesNotMatch(panea(0.5), /x-cam/);
 // Lo que whisper no reconoce se reparte entre vecinas, sin perder las que sí.
 const al = alinear([{ t: "desde" }, { t: "1956" }, { t: "hasta" }], [{ text: "desde", start: 1, end: 1.2 }, { text: "mil", start: 1.3, end: 1.4 }, { text: "hasta", start: 3, end: 3.2 }]);
 assert.equal(al[0].ini, 1);

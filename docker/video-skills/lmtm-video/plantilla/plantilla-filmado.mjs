@@ -118,6 +118,7 @@ if (C) {
   tl.push(`tl.fromTo("#cierre-titulo .w", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.36, ease: "back.out(2)", stagger: 0.14 }, ${f(C.desde + 0.35)});`);
   if (C.cta) tl.push(`tl.fromTo("#cta", { opacity: 0, scale: 0.82 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, ${f(C.desde + 0.8)});`);
   if (C.url) tl.push(`tl.fromTo("#url", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, ${f(C.desde + 1.05)});`);
+  if (C.legal) tl.push(`tl.fromTo("#legal", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, ${f(C.desde + 0.2)});`);
   cierre = clip("cierre", C.desde, FIN, 6, "", `
         <div id="cierre-velo"></div>
         <div id="cierre-contenido">
@@ -125,6 +126,7 @@ if (C) {
           <div id="cierre-titulo">${conClave(C.titulo, "w")}</div>
           ${C.cta ? `<div id="cta">${esc(C.cta)}</div>` : ""}
           ${C.url ? `<div id="url">${esc(C.url)}</div>` : ""}
+          ${C.legal ? `<div id="legal">${esc(C.legal)}</div>` : ""}
         </div>`);
 }
 tl.push(`tl.fromTo("#marca", { opacity: 0, y: -14 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 0.1);`);
@@ -186,6 +188,7 @@ ${(S.insertos ?? []).some((I) => TIPOS_INSERTO.includes(I.tipo)) ? CSS_MOTION : 
       #cierre-titulo .w { display: inline-block; }
       #cta { margin-top: 38px; padding: 26px 64px; border-radius: 999px; background: ${S.acentoLegible ? acento : "#fff"}; color: ${S.tintaCta}; font-size: 44px; font-weight: 800; }
       #url { margin-top: 24px; font-size: 44px; font-weight: 800; }
+      #legal { margin-top: 22px; font-size: 26px; font-weight: 500; line-height: 1.25; color: rgba(255,255,255,0.9); }
     </style>
   </head>
   <body>

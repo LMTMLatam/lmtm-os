@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ANCHO_VENTANA } from "./motion.mjs";
 
 export const huella = (o) => crypto.createHash("sha1").update(JSON.stringify(o)).digest("hex").slice(0, 16);
 export const vigente = (archivo, h) => fs.existsSync(archivo) && fs.existsSync(`${archivo}.huella`) && fs.readFileSync(`${archivo}.huella`, "utf8") === h;
@@ -15,6 +16,13 @@ export const r2 = (n) => Math.round(n * 100) / 100;
 export { norm } from "./motion.mjs";
 export const esFoto = (f) => /\.(jpe?g|png|webp)$/i.test(f);
 export const duracion = (f) => Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f]).toString().trim()) || 0;
+/** Mide la captura de un inserto pantalla y la deja en I.relacion. Devuelve el problema, si hay. */
+export function medirCaptura(I, q) {
+  const [w, h] = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", I.imagen]).toString().trim().split(",").map(Number);
+  if (!w || !h) return `${q}: no se pudo leer la captura ${I.imagen}`;
+  I.relacion = h / w;
+  return w < ANCHO_VENTANA ? `${q}: la captura tiene ${w} px de ancho y se vería borrosa; capturá la web entera, sin recortarla (${ANCHO_VENTANA} px como mínimo)` : null;
+}
 export const HF = spawnSync("hyperframes", ["--version"]).status === 0 ? ["hyperframes"] : ["npx", "-y", "hyperframes@0.8.212"];
 export const enWindows = { shell: process.platform === "win32" }; // npx es un .cmd en Windows (solo para probar en una PC)
 const envHF = { ...process.env, HYPERFRAMES_NO_TELEMETRY: "1" };
@@ -108,11 +116,11 @@ export async function fichaYVariedad(G, archivoGuion, insertos, flags) {
   }
   const ficha = { idPieza: G.idPieza, movimiento: G.movimiento, ganchoTipo: G.ganchoTipo, pilar: G.pilar, insertos, ...(G.ganchosMejores ? { ganchos: G.ganchosMejores } : {}), ...(G.youtube ? { youtube: G.youtube } : {}), ...(flags.has("--forzar") ? { forzado: true } : {}) };
   fs.writeFileSync("pieza.json", JSON.stringify(ficha, null, 1));
-  if (flags.has("--forzar")) { console.log("AVISO variedad: salteada con --forzar; decí el motivo en el issue"); return; }
+  if (flags.has("--forzar")) console.log("AVISO variedad: salteada con --forzar; decí el motivo en el issue");
   if (!process.env.PAPERCLIP_API_URL) { console.log("AVISO variedad: prueba local sin servidor, no se chequeó"); return; }
-  const r = await herramienta("video_variedad", { ...ficha, ...(G.clientId ? { clientId: G.clientId } : {}) });
+  const r = await herramienta("video_variedad", { ...ficha, legal: G.cierre?.legal ?? "", ...(G.clientId ? { clientId: G.clientId } : {}) });
   if (!r.ok) {
-    console.error(`NO se arma, repite lo reciente de este cliente:\n${r.content}\n(Cambiá movimiento, insertos, gancho o pilar. --forzar lo saltea, solo con motivo.)`);
+    console.error(`NO se arma:\n${r.content}\n(Si repite lo reciente, cambiá movimiento, insertos, gancho o pilar; --forzar saltea solo eso, con motivo.)`);
     process.exit(1);
   }
   if (r.content) console.log(`VARIEDAD ${r.content}`);

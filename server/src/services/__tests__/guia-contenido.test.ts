@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  elegirMaterial, esDeContenido, firmarAcceso, leerPagina, palabrasDePedido, puntaje, sinCopias, terminosDeCliente, textoSinCliente, tipoDe, verificarAcceso,
+  elegirMaterial, esDeContenido, firmarAcceso, leerPagina, palabrasDePedido, puntaje, reglasObligatorias, sinCopias, terminosDeCliente, textoSinCliente, tipoDe, verificarAcceso,
   type ArchivoDrive,
 } from "../guia-contenido.js";
 
@@ -81,6 +81,18 @@ describe("guía de contenido: la web", () => {
     expect(w.paginas).toEqual([{ url: "https://ferrolaparthotel.com.ar/habitaciones/", texto: "Habitaciones" }]);
     expect(w.imagenes.map((i) => i.url)).toEqual(["https://ferrolaparthotel.com.ar/og.jpg", "https://ferrolaparthotel.com.ar/fotos/depto.jpg"]);
     expect(w.videos).toEqual(["https://ferrolaparthotel.com.ar/wp-content/uploads/2024/07/FERROL.webm"]);
+  });
+});
+
+describe("guía de contenido: lo obligatorio", () => {
+  it("va entero y aparte, aunque la memoria tenga cien filas", () => {
+    const memoria = [{ key: "x", content: "otra" }, { key: "obligatorio-aviso-legal", content: "Matrícula 2700" }, { key: "obligatorio-tema", content: "Nunca ESG" }];
+    const r = reglasObligatorias(memoria);
+    expect(r).toContain("- Aviso legal, tal cual (en un reel: cierre.legal): Matrícula 2700");
+    expect(r).toContain("- Nunca ESG");
+    expect(r.join()).not.toContain("otra");
+    expect(reglasObligatorias([{ key: "x", content: "otra" }])).toEqual([]);
+    expect(esDeContenido({ kind: "preference", key: "obligatorio-tema", content: "Nunca ESG" })).toBe(false);
   });
 });
 
