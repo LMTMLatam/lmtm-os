@@ -1,5 +1,5 @@
 {
-  "_": "Un plano de cualquier frase puede ser un inserto en vez de una toma. 3 por reel como mucho. Copiá SOLO el que uses.",
+  "_": "Un plano de cualquier frase puede ser un inserto en vez de una toma. 3 por reel como mucho, uno de cada tipo. Copiá SOLO el que uses.",
   "numero": { "inserto": { "tipo": "numero", "valor": 1956, "etiqueta": "Fabricación argentina", "texto": "Desde *1956*", "prefijo": "", "sufijo": "", "origen": "de dónde salió: guía, web o pedido" } },
   "lista": { "inserto": { "tipo": "lista", "titulo": "A *tu medida*", "items": ["Placares", "Vestidores", "Instalación"] } },
   "pasos": { "inserto": { "tipo": "pasos", "titulo": "Cómo se hace", "pasos": [{ "txt": "Medimos", "nota": "en tu casa" }, { "txt": "Fabricamos" }, { "txt": "Instalamos" }] } },

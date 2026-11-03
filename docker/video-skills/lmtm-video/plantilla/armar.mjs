@@ -25,6 +25,7 @@
 //                      (ganchoElegido: "por qué" deja la primera frase como está)
 //   youtube            { titulo, descripcion, consultas } solo si el cliente publica en YouTube
 //   un plano puede ser { inserto: { tipo: numero|lista|pasos|chat|pantalla, … } } en vez de una toma (guion-motion.ejemplo.json)
+//   ganchoConTerceros  "por qué": el gancho puede mostrar nombres de personas o marcas ajenas (solo si el pedido lo pide)
 //
 // Con "tipo": "filmado" en el guion, el reel sale de filmado.mjs (material con voz
 // propia, títulos y tarjetas): mismo comando, así retomar y pedir cambios son iguales.
@@ -33,7 +34,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chequear, duracion, esFoto, fichaYVariedad, herramienta, huella, norm, pistaDe, puntuarGanchos, r2, renderizarYRevisar, sellar, textoParaVoz, transcribir, vigente } from "./comun.mjs";
-import { DUR_MINIMA, MOVIMIENTOS, SOLAPE, alinear, momentosDe, textoDeInserto, textosDeInserto, validarInserto } from "./motion.mjs";
+import { DUR_MINIMA, MOVIMIENTOS, SOLAPE, TIPOS_INSERTO, alinear, momentosDe, textoDeInserto, textosDeInserto, tiposRepetidos, validarInserto } from "./motion.mjs";
 
 const P = path.dirname(fileURLToPath(import.meta.url));
 const archivoGuion = path.resolve(process.argv[2] ?? "guion.json");
@@ -91,6 +92,7 @@ exigir(PLANOS.length >= 6, `planos: ${PLANOS.length}; el estándar es 8 a 14 dis
 const INSERTOS = PLANOS.filter((p) => p.inserto);
 const TOMAS = PLANOS.filter((p) => !p.inserto);
 exigir(INSERTOS.length <= 3, `insertos: ${INSERTOS.length}; 3 como mucho`);
+for (const t of tiposRepetidos(INSERTOS.map((p) => p.inserto))) errores.push(`insertos: más de uno de tipo ${t}; uno de cada tipo por reel (${TIPOS_INSERTO.join(", ")}) o una toma`);
 for (const [n, p] of INSERTOS.entries()) {
   for (const e of validarInserto(p.inserto, `lineas[${p.linea}] inserto ${n + 1}`, LINEAS[p.linea].texto)) errores.push(e);
   if (p.inserto.imagen) exigir(fs.existsSync(p.inserto.imagen) && !path.relative(DIR, path.resolve(p.inserto.imagen)).startsWith(".."), `inserto pantalla: ${p.inserto.imagen} no existe o está fuera del proyecto`);
@@ -106,6 +108,9 @@ for (const [f, ps] of usos) {
 exigir(usos.size >= Math.ceil(TOMAS.length * 0.75), `solo ${usos.size} fuentes distintas para ${TOMAS.length} planos`);
 // Fuentes que faltan: si el guion trae su id de Drive, se bajan solas (la del índice de drive_bajar también).
 const indiceDrive = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, ".drive.json"), "utf8")); } catch { return {}; } };
+// El gancho es lo primero que se ve: video_describir marca las fuentes con nombres de personas o marcas ajenas.
+const descripcionDe = (f) => { try { return JSON.parse(fs.readFileSync(path.join(path.dirname(String(f)), ".material.json"), "utf8"))[path.basename(String(f))]?.linea ?? ""; } catch { return ""; } };
+if (!G.ganchoConTerceros) for (const p of TOMAS.filter((t) => t.linea === 0)) exigir(!descripcionDe(p.fuente).includes("· TERCEROS"), `${path.basename(String(p.fuente))}: tiene nombres de personas o marcas ajenas y no va en el gancho; elegí otra toma (si el pedido lo pide: ganchoConTerceros con el motivo)`);
 // La toma del cierre también: al retomar un proyecto, las fuentes no están y hay que volver a bajarlas.
 const A_BAJAR = [...TOMAS, ...(C.plano?.fuente ? [C.plano] : [])];
 for (const p of A_BAJAR) {

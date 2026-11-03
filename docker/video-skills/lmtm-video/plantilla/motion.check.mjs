@@ -1,6 +1,6 @@
 // Control de motion.mjs: node motion.check.mjs. Falla si se rompe lo que ya costó caro.
 import assert from "node:assert/strict";
-import { alinear, contraste, inserto, momentosDe, subtitulosJs, ganchoPorPalabra, temaDe, validarInserto } from "./motion.mjs";
+import { alinear, contraste, inserto, momentosDe, subtitulosJs, ganchoPorPalabra, temaDe, tiposRepetidos, validarInserto } from "./motion.mjs";
 
 const marcas = [{ color: "#141416", oscuro: "#141416", claro: "#f0efec" }, { color: "#e4572e" }, { color: "#ffffff" }, { color: "#2f7bff", oscuro: "#0d1220", acento: "#f5d90a" }];
 const ctx = (extra = {}) => ({ id: "x", t0: 5, dur: 6, tema: temaDe(marcas[0]), ...extra });
@@ -33,6 +33,14 @@ assert.match(inserto({ ...casos.numero, valor: 12000 }, ctx()).html, /mo-od-sep/
 assert.ok(validarInserto({ tipo: "numero", valor: 1956 }, "n").some((e) => /origen/.test(e)));
 assert.ok(validarInserto(casos.numero, "n", "Fabricamos en Argentina").some((e) => /no está en el texto/.test(e)));
 assert.deepEqual(validarInserto(casos.numero, "n", "Fabricamos desde *1956.*"), []);
+// Uno de cada tipo por reel, y una frase de la voz no se parte en dos ítems (LMTM-6640).
+assert.deepEqual(tiposRepetidos([casos.lista, casos.pasos, casos.lista, casos.lista]), ["lista"]);
+assert.deepEqual(tiposRepetidos([casos.lista, casos.pasos, casos.numero]), []);
+const items = (...i) => ({ tipo: "lista", items: i });
+assert.ok(validarInserto(items("Asesoramiento personalizado", "Tu patrimonio"), "l", "Y *asesoramiento personalizado* para tu patrimonio.").some((e) => /una sola frase/.test(e)));
+assert.ok(validarInserto(items("Asesoramiento", "Patrimonio"), "l", "Asesoramiento para tu patrimonio.").some((e) => /una sola frase/.test(e)));
+assert.deepEqual(validarInserto(items("Inversiones", "Real estate", "Medios de pago"), "l", "Sustenta integra inversiones, real estate y medios de pago."), []);
+assert.deepEqual(validarInserto(items("Respaldo institucional", "Visión de largo plazo"), "l", "Con respaldo institucional y visión de largo plazo."), []);
 // Lo que whisper no reconoce se reparte entre vecinas, sin perder las que sí.
 const al = alinear([{ t: "desde" }, { t: "1956" }, { t: "hasta" }], [{ text: "desde", start: 1, end: 1.2 }, { text: "mil", start: 1.3, end: 1.4 }, { text: "hasta", start: 3, end: 3.2 }]);
 assert.equal(al[0].ini, 1);

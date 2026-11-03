@@ -106,6 +106,19 @@ export const DUR_MINIMA = { numero: 1.8, lista: 2.5, pasos: 2.8, chat: 4, pantal
 const lineasDeBurbuja = (txt) => Math.ceil(String(txt).length / 28);
 const altoDeChat = (ms) => ms.reduce((h, m) => h + lineasDeBurbuja(m.txt) * 56 + 72, 0);
 
+// «Asesoramiento personalizado» y «Tu patrimonio» eran una sola frase partida en dos ítems (LMTM-6640).
+const soloPalabras = (s) => String(s).replace(/\*/g, "").split(/\s+/).map(norm).filter(Boolean).join(" ");
+function frasePartida(items, dicho) {
+  const voz = ` ${soloPalabras(dicho)} `;
+  for (const a of items) for (const b of items) {
+    if (a !== b && new RegExp(` ${soloPalabras(a)} (para|de|del|con|en|a|al|por|sobre|sin|desde|hasta) ((tu|tus|su|sus|mi|mis|el|la|los|las|un|una|nuestro|nuestra|nuestros|nuestras) )?${soloPalabras(b)} `).test(voz)) return [a, b];
+  }
+  return null;
+}
+
+/** Tipos que aparecen más de una vez: tres listas seguidas se ven como el mismo panel. */
+export const tiposRepetidos = (insertos) => [...new Set(insertos.map((I) => I.tipo).filter((t, i, a) => a.indexOf(t) !== i))];
+
 /** Lo que el guion tiene que traer. Devuelve los problemas (lista vacía = cumple). */
 export function validarInserto(I, q, textoDicho = null) {
   const e = [];
@@ -131,6 +144,10 @@ export function validarInserto(I, q, textoDicho = null) {
   if (I.tipo === "pantalla") {
     if (!String(I.imagen ?? "").trim()) e.push(`${q}.imagen: la captura real de la web o tienda del cliente`);
     if (!Number.isFinite(Number(I.foco?.x)) || !Number.isFinite(Number(I.foco?.y))) e.push(`${q}.foco: { x, y } en % de la imagen, donde hace clic`);
+  }
+  if (!e.length && textoDicho != null) {
+    const partida = frasePartida(textosDeInserto(I), textoDicho);
+    if (partida) e.push(`${q}: «${partida[0]}» y «${partida[1]}» son una sola frase de la voz, no dos ítems: cada ítem se entiende solo`);
   }
   return e;
 }

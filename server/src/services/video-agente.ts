@@ -543,6 +543,9 @@ async function crearTareaProductor(
 // ── material descripto (video_describir) ─────────────────────────────────────
 
 type Descripcion = { tam: number; linea: string };
+// armar.mjs lee esta marca y frena si la fuente va en el gancho (lo controla un test).
+export const AVISO_TERCEROS = " · TERCEROS a la vista (nombre de persona o logos ajenos): no va en el gancho";
+const VER_TERCEROS = "terceros=true si se lee el nombre de una persona o se ven logos de varias empresas, sponsors o carteles de un evento (el logo de una sola marca no cuenta). ";
 
 /** Ancho, alto (como se VE, con la rotación) y duración. */
 async function medidasDe(archivo: string): Promise<{ w: number; h: number; dur: number }> {
@@ -600,23 +603,23 @@ export async function describirMaterial(carpeta: string, para: string): Promise<
       const j = await mirarConGPT(
         `Hoja de 12 cuadros de un video de ${dur.toFixed(1)} s, en orden, con su segundo arriba a la izquierda. ${foco}` +
           "Describí en español qué se ve, concreto (producto, lugar, personas, acción), sin adornos. Juntá los cuadros parecidos en un momento. " +
-          "sirve=false si está movido, oscuro, tapado o no muestra nada útil. foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " +
-          'Respondé SOLO JSON: {"momentos":[{"desde":s,"hasta":s,"muestra":"máx 12 palabras","foco":0.5,"sirve":true}],"habla_a_camara":false,"texto_encima":false}',
+          "sirve=false si está movido, oscuro, tapado o no muestra nada útil. foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " + VER_TERCEROS +
+          'Respondé SOLO JSON: {"momentos":[{"desde":s,"hasta":s,"muestra":"máx 12 palabras","foco":0.5,"sirve":true}],"habla_a_camara":false,"texto_encima":false,"terceros":false}',
         fs.readFileSync(jpg), "high",
       );
       const ms = (Array.isArray(j.momentos) ? j.momentos : []) as Array<{ desde?: number; hasta?: number; muestra?: string; foco?: number; sirve?: boolean }>;
       const conFoco = (f?: number) => (h < w && typeof f === "number" ? ` [foco ${f}]` : "");
       linea = ms.map((m) => `${Number(m.desde ?? 0).toFixed(1)}-${Number(m.hasta ?? dur).toFixed(1)} ${m.muestra ?? ""}${conFoco(m.foco)}${m.sirve === false ? " (no sirve)" : ""}`).join("; ")
-        + (j.habla_a_camara ? " · ALGUIEN HABLA A CÁMARA (material filmado: skill video-local)" : "") + (j.texto_encima ? " · tiene texto encima" : "");
+        + (j.habla_a_camara ? " · ALGUIEN HABLA A CÁMARA (material filmado: skill video-local)" : "") + (j.texto_encima ? " · tiene texto encima" : "") + (j.terceros ? AVISO_TERCEROS : "");
     } else {
       await run("ffmpeg", ["-v", "error", "-y", "-i", ruta, "-vf", "scale=768:-2", "-frames:v", "1", "-q:v", "4", jpg]);
       const j = await mirarConGPT(
         `Foto del material de un cliente. ${foco}Qué se ve, concreto, en español y en 15 palabras como mucho. ` +
-          "foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " +
-          'Respondé SOLO JSON: {"muestra":"...","foco":0.5,"texto_encima":false,"sirve":true}',
+          "foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " + VER_TERCEROS +
+          'Respondé SOLO JSON: {"muestra":"...","foco":0.5,"texto_encima":false,"sirve":true,"terceros":false}',
         fs.readFileSync(jpg), "low",
       );
-      linea = `${j.muestra ?? ""}${h < w && typeof j.foco === "number" ? ` [foco ${j.foco}]` : ""}${j.texto_encima ? " · tiene texto encima" : ""}${j.sirve === false ? " (no sirve)" : ""}`;
+      linea = `${j.muestra ?? ""}${h < w && typeof j.foco === "number" ? ` [foco ${j.foco}]` : ""}${j.texto_encima ? " · tiene texto encima" : ""}${j.terceros ? AVISO_TERCEROS : ""}${j.sirve === false ? " (no sirve)" : ""}`;
     }
     cache[f] = { tam: fs.statSync(ruta).size, linea: `${datos} · ${linea}` };
   };
@@ -1103,7 +1106,7 @@ export async function ejecutarHerramientaVideo(
             "sí lo es si tapa justo el detalle que nombra la frase), " +
             (filmado
               ? "Este reel usa títulos grandes en jerarquía (chica + GRANDE + media), arriba o abajo según dónde esté la cara, tarjetas con datos e insertos a pantalla completa: son parte del formato, no son un problema, y en un inserto la persona no se ve aunque siga hablando. Sí es un problema una tarjeta o título que tape una cara o el producto. Si alguien habla a cámara, eso ya muestra lo que dice. Un cuadro con un título que todavía se está armando, palabra por palabra, está bien. "
-              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón y la web del cierre y los paneles animados son parte del formato y no lo son), ") +
+              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón y la web del cierre y los paneles animados son parte del formato y no lo son), en los primeros 3 s el nombre de una persona o logos de otras marcas a la vista, ") +
             "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
