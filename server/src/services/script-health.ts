@@ -65,16 +65,18 @@ function resolveScriptId(
 
 interface ScriptVerdict {
   scriptId: string;
-  state: "ok" | "failing" | "stale";
+  state: "ok" | "failing" | "stale" | "sin_dato";
   detail: string;
 }
 
-function judge(scriptId: string, procs: Proc[]): ScriptVerdict {
+export function judge(scriptId: string, procs: Proc[]): ScriptVerdict {
   const sorted = procs
     .filter((p) => p.startTime)
     .sort((a, b) => new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime());
   if (sorted.length === 0) {
-    return { scriptId, state: "stale", detail: "el script no tiene ejecuciones registradas (¿trigger sin instalar?)" };
+    // La API devuelve {} para todos los scripts, también los que andan bien
+    // (LMTM-6347): no ver corridas no prueba que no corran.
+    return { scriptId, state: "sin_dato", detail: "la API no devolvió ejecuciones" };
   }
   const latest = sorted[0];
   const ageDays = (Date.now() - new Date(latest.startTime!).getTime()) / 86400000;
@@ -131,7 +133,7 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
         continue;
       }
       const verdict = judge(scriptId, procs);
-      if (verdict.state === "ok") continue;
+      if (verdict.state === "ok" || verdict.state === "sin_dato") continue;
       broken += 1;
       // File a fix task. createClientTask dedups on (clientId, title, open), so a
       // still-broken script won't spam a new task every run.

@@ -268,7 +268,9 @@ export const addCommentSchema = z.object({
 });
 
 export async function addComment(input: z.infer<typeof addCommentSchema>) {
-  const data = await clickupFetch<{ id: string; comment: Array<{ id: string; comment_text: string; user: { id: number; username: string }; date: string }> }>(
+  // ClickUp responde { id, hist_id, date }, sin el comentario. Hasta el 04/11 se
+  // leía data.comment.map(): el comentario se guardaba y la herramienta fallaba.
+  const data = await clickupFetch<{ id: string | number; date?: string | number }>(
     readToken(),
     `/task/${encodeURIComponent(input.taskId)}/comment`,
     {
@@ -279,15 +281,7 @@ export async function addComment(input: z.infer<typeof addCommentSchema>) {
       },
     },
   );
-  return {
-    id: data.id,
-    comments: data.comment.map((c) => ({
-      id: c.id,
-      text: c.comment_text,
-      author: c.user.username,
-      createdAt: c.date,
-    })),
-  };
+  return { id: String(data.id), createdAt: data.date ?? null };
 }
 
 // ---- Search ----

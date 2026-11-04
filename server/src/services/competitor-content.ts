@@ -612,11 +612,25 @@ export async function sweepContentIdeas(
  * / Enfoque Técnico + competidores). Idempotent: at most one idea per client
  * per calendar day, so restarts don't double-post.
  */
+/**
+ * ¿La cola de ideas está llena y sin adopción? El 04/11: 5.677 ideas en 59 clientes,
+ * con adopción en solo 6. Se frena hasta que el equipo apruebe o tome alguna. Pura.
+ */
+export function colaDeIdeasFrenada(feedback: string | null | undefined, tope = 30): boolean {
+  const m = /(\d+) aprobadas, (\d+) tomadas[^,]*, (\d+) pendientes/.exec(feedback ?? "");
+  if (!m) return false;
+  return Number(m[1]) === 0 && Number(m[2]) === 0 && Number(m[3]) >= tope;
+}
+
 export async function generateDailyIdeaForClient(db: Db, clientId: string): Promise<{ created: boolean }> {
   const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
   if (!client) return { created: false };
   const companyId = await resolveCompanyId(db, clientId);
   if (!companyId) return { created: false };
+
+  const [feedback] = await db.select({ content: clientMemory.content }).from(clientMemory)
+    .where(and(eq(clientMemory.clientId, clientId), eq(clientMemory.key, FEEDBACK_KEY))).limit(1);
+  if (colaDeIdeasFrenada(feedback?.content)) return { created: false };
 
   // One idea per client per day (idempotent across restarts/redeploys).
   const startOfDay = new Date();

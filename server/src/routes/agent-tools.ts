@@ -2025,6 +2025,10 @@ export function agentToolsRoutes(
         const key = typeof params.key === "string" ? params.key.slice(0, 120) : "";
         const content = typeof params.content === "string" ? params.content : "";
         if (!clientId || !key || !content.trim()) return reply(false, "Faltan clientId, key o content.");
+        {
+          const { NON_LATIN_RE } = await import("../services/entrega-checks.js");
+          if (NON_LATIN_RE.test(`${key}\n${content}`)) return reply(false, "NO se guardó: tiene caracteres de otro alfabeto. Reescribilo en español y volvé a guardarlo.");
+        }
         const kind = (typeof params.kind === "string" ? params.kind : "fact") as MemoryKind;
         const companyId = (await resolveCompanyId(db, clientId)) ?? ctx.companyId;
         await upsertMemory(db, { companyId, clientId, kind, key, content, source: `agent:${ctx.agentId}` });
@@ -2039,6 +2043,10 @@ export function agentToolsRoutes(
         const area = typeof params.area === "string" ? params.area.trim().toLowerCase().slice(0, 60) : "";
         const lesson = typeof params.lesson === "string" ? params.lesson.trim().slice(0, 1200) : "";
         if (!area || !lesson) return reply(false, "Faltan area o lesson.");
+        {
+          const { NON_LATIN_RE } = await import("../services/entrega-checks.js");
+          if (NON_LATIN_RE.test(lesson)) return reply(false, "NO se guardó: tiene caracteres de otro alfabeto. Reescribila en español y volvé a guardarla.");
+        }
         // Solo lecciones de NEGOCIO (30/7): 76 de 136 lecciones eran sobre el
         // harness/paperclip — infra que no es trabajo de los agentes y que
         // ademas ya tienen prohibido tocar.

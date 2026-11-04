@@ -7980,7 +7980,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         }
         if (outcome === "failed" && isMaxTurnExhaustionRun(livenessRun)) {
           const policy = parseMaxTurnContinuationPolicy(agent);
-          if (policy.enabled && policy.maxAttempts > 0) {
+          // Sin tarea no hay nada que continuar: 48 corridas así del 28/10 al 04/11,
+          // 3 exitosas y 113 M de tokens.
+          const tieneTarea = Boolean(readNonEmptyString(parseObject(livenessRun.contextSnapshot).issueId));
+          if (tieneTarea && policy.enabled && policy.maxAttempts > 0) {
             await scheduleBoundedRetryForRun(livenessRun, agent, {
               retryReason: MAX_TURN_CONTINUATION_RETRY_REASON,
               wakeReason: MAX_TURN_CONTINUATION_WAKE_REASON,
@@ -8730,8 +8733,8 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
     // Idle throttle (30/7): un timer sin cola de trabajo gastaba una corrida
     // igual — Ana hizo 335 corridas en 7 días para cerrar 5 issues. Sin trabajo
-    // asignado dejamos UNA corrida por día (la pasada proactiva: analizar
-    // clientes, detectar pendientes) y salteamos el resto. Los wakeups por
+    // asignado dejamos UNA corrida por semana (04/11: con una por día eran 25% de
+    // los tokens y casi nunca terminaban) y salteamos el resto. Los wakeups por
     // asignación/automation/on-demand no pasan por acá.
     // Un issue que nadie toca hace más de DIAS_ISSUE_VIGENTE no cuenta como
     // trabajo: si no, un `todo` abandonado mantiene el reloj despierto para siempre.
@@ -8754,7 +8757,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           .where(and(
             eq(heartbeatRuns.agentId, agentId),
             eq(heartbeatRuns.invocationSource, "timer"),
-            gte(heartbeatRuns.createdAt, new Date(Date.now() - 24 * 3_600_000)),
+            gte(heartbeatRuns.createdAt, new Date(Date.now() - 7 * 24 * 3_600_000)),
           ));
         if ((reciente?.n ?? 0) >= 1) {
           await writeSkippedRequest("heartbeat.idle.noWork");

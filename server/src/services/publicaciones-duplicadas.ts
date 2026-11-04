@@ -122,29 +122,37 @@ export async function buscarDuplicados(db: Db, dias = DIAS_MIRADOS): Promise<Dup
   return dups;
 }
 
+/** Una sola tarea por pieza: una repetición en Facebook y en Instagram es el mismo problema. Pura. */
+export function agruparPorPieza(dups: Duplicado[]): Duplicado[][] {
+  const grupos = new Map<string, Duplicado[]>();
+  for (const d of dups) {
+    const clave = `${d.clientId}|${d.texto}`;
+    grupos.set(clave, [...(grupos.get(clave) ?? []), d]);
+  }
+  return [...grupos.values()];
+}
+
 export async function avisarDuplicados(db: Db): Promise<{ encontrados: number; avisados: number }> {
   const dups = await buscarDuplicados(db);
   let avisados = 0;
-  for (const d of dups.slice(0, TOPE_POR_CORRIDA)) {
+  for (const grupo of agruparPorPieza(dups).slice(0, TOPE_POR_CORRIDA)) {
+    const d = grupo[0];
     const fecha = d.cuando.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     await createClientTask(db, {
       clientId: d.clientId,
       // createClientTask deduplica por (cliente, título, abierta): mientras la
-      // tarea siga abierta no se repite el aviso.
-      title: `⚠️ Publicación duplicada en ${d.red}: ${d.cliente} (${fecha})`,
+      // tarea siga abierta no se repite el aviso. [HUMANO]: ningún agente puede
+      // borrar un posteo ni ver quién lo subió, y despertarlo solo gasta corridas.
+      title: `[HUMANO] Publicación repetida: ${d.cliente} — "${d.texto.slice(0, 40)}"`,
       description:
-        `El mismo posteo salió DOS VECES en ${d.red}, con minutos de diferencia.\n\n` +
+        `La misma pieza salió más de una vez en la misma red, con minutos de diferencia.\n\n` +
         `• Texto: "${d.texto}…"\n` +
         `• Cuándo: ${fecha}\n` +
-        `• Las dos publicaciones:\n${d.enlaces.map((e) => `   - ${e}`).join("\n")}\n\n` +
-        `Qué hacer ahora: borrar una de las dos de la red del cliente.\n\n` +
-        `Por qué pasa: algo llama dos veces al webhook de Make del cliente, con ~100ms ` +
-        `de diferencia, y el escenario publica dos veces. El origen habitual es una ` +
-        `automatización de ClickUp duplicada (la misma existe dos veces, o está a la vez ` +
-        `en la carpeta del cliente y en la lista). Se revisa en ClickUp → carpeta del ` +
-        `cliente → Automatizaciones, y también dentro de la lista Redes Sociales.\n\n` +
-        `Ojo: las corridas de Make figuran en verde igual, así que esto no se detecta ` +
-        `mirando el historial de Make.`,
+        grupo.map((g) => `• ${g.red}:\n${g.enlaces.map((e) => `   - ${e}`).join("\n")}`).join("\n") +
+        `\n\nQué hacer: decidir cuál queda y borrar la otra de la red del cliente.\n\n` +
+        `Cómo saber de dónde vino: mirá las corridas del escenario del cliente en Make a esa hora. ` +
+        `Dos corridas pegadas son un doble disparo (revisar automatizaciones duplicadas en ClickUp). ` +
+        `Sin corridas a esa hora, la pieza se subió por fuera de Make.`,
     });
     avisados += 1;
   }

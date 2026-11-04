@@ -2,7 +2,7 @@
 // misma red separadas por minutos son un duplicado; separadas por días son un
 // repost a propósito y no hay que avisar nada.
 import { describe, expect, it } from "vitest";
-import { detectarEnGrupo, redDe } from "../publicaciones-duplicadas.js";
+import { agruparPorPieza, detectarEnGrupo, redDe } from "../publicaciones-duplicadas.js";
 
 const t = (iso: string) => new Date(iso);
 
@@ -81,5 +81,14 @@ describe("detectarEnGrupo", () => {
     ];
     expect(detectarEnGrupo(salidas, 15)).toEqual([]);
     expect(detectarEnGrupo(salidas, 60)).toHaveLength(1);
+  });
+});
+
+describe("agruparPorPieza", () => {
+  const dup = (clientId: string, red: string, texto: string) => ({ clientId, cliente: "X", red, cuando: new Date(), texto, enlaces: ["a", "b"] });
+
+  it("junta las dos redes de una pieza en una sola tarea", () => {
+    const grupos = agruparPorPieza([dup("c1", "facebook", "Hola"), dup("c1", "instagram", "Hola"), dup("c1", "instagram", "Otra"), dup("c2", "instagram", "Hola")]);
+    expect(grupos.map((g) => g.length).sort()).toEqual([1, 1, 2]);
   });
 });
