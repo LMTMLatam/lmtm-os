@@ -47,6 +47,9 @@ type ToolDef = {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 };
 
+/** Con este número de tareas abiertas de agentes en un cliente, no se delegan más. */
+const TOPE_TAREAS_POR_CLIENTE = 12;
+
 const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
@@ -2690,6 +2693,21 @@ export function agentToolsRoutes(
           )).limit(1);
         if (dup.length > 0) return reply(false, `Ya existe una tarea abierta igual para ${target.name}: ${dup[0].identifier ?? "s/n"}. No dupliques.`);
         const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        // El 04/11, DUNOD y Hiper tenían más de 30 tareas abiertas cada uno, muchas
+        // recordando lo mismo. Con la cola llena, otra tarea no destraba nada.
+        if (clientId) {
+          const abiertas = await db.select({ identifier: issues.identifier, title: issues.title }).from(issues)
+            .where(and(
+              eq(issues.clientId, clientId),
+              sql`${issues.status} in ('todo','in_progress','blocked')`,
+              sql`${issues.originKind} in ('agent_delegated','agent_detected','agent_proposed')`,
+              sql`${issues.title} not like '[HUMANO]%'`,
+            ))
+            .orderBy(desc(issues.updatedAt)).limit(TOPE_TAREAS_POR_CLIENTE);
+          if (abiertas.length >= TOPE_TAREAS_POR_CLIENTE) {
+            return reply(false, `No se creó: este cliente ya tiene ${abiertas.length} o más tareas abiertas de agentes. Resolvé con lo que tengas o dejalo escrito en tu tarea. Abiertas:\n` + abiertas.slice(0, 6).map((a) => `- ${a.identifier}: ${a.title.slice(0, 90)}`).join("\n"));
+          }
+        }
         const priority = (["low", "medium", "high", "urgent"] as const).includes(params.priority as never) ? (params.priority as string) : "medium";
         const created = await issuesSvc.create(ctx.companyId, {
           title,

@@ -241,9 +241,70 @@ export async function vencerBloqueados(db: Db): Promise<number> {
   return n;
 }
 
+export interface TareaParaVencer {
+  originKind: string | null;
+  status: string;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Por qué esta tarea ya no hace falta, o null si sigue vigente. Pura.
+ * El 04/11 había 832 abiertas y 546 estaban muertas: propuestas de julio, corridas
+ * viejas de rutinas y recuperaciones de corridas que ya no importaban.
+ */
+export function motivoDeVencimiento(t: TareaParaVencer, ahora = new Date()): string | null {
+  const dias = (d: Date) => (ahora.getTime() - new Date(d).getTime()) / DIA;
+  if (["stranded_issue_recovery", "issue_productivity_review"].includes(t.originKind ?? "") && dias(t.createdAt) >= 3) {
+    return "tarea automática de recuperación o revisión de hace más de 3 días";
+  }
+  if (t.originKind === "routine_execution" && dias(t.createdAt) >= 2) {
+    return "corrida vieja de una rutina: la rutina vuelve a correr por su cuenta";
+  }
+  if (t.title.startsWith(PREFIJO)) {
+    return dias(t.updatedAt) >= 60 ? "pedido a una persona sin movimiento hace más de 60 días" : null;
+  }
+  if (t.status === "in_review" && dias(t.updatedAt) >= 14) {
+    return "revisión sin respuesta hace más de 14 días";
+  }
+  if (
+    ["agent_delegated", "agent_detected", "agent_proposed"].includes(t.originKind ?? "") &&
+    ["todo", "backlog"].includes(t.status) &&
+    dias(t.updatedAt) >= 14
+  ) {
+    return "tarea de agente sin movimiento hace más de 14 días";
+  }
+  return null;
+}
+
+export async function vencerOlvidadas(db: Db): Promise<number> {
+  const candidatas = await db
+    .select({
+      id: issues.id, companyId: issues.companyId, originKind: issues.originKind, status: issues.status,
+      title: issues.title, createdAt: issues.createdAt, updatedAt: issues.updatedAt,
+    })
+    .from(issues)
+    .where(and(inArray(issues.status, ["todo", "backlog", "blocked", "in_review"] as never), sql`${issues.executionRunId} is null`));
+  let n = 0;
+  for (const c of candidatas) {
+    const motivo = motivoDeVencimiento(c);
+    if (!motivo) continue;
+    await db.insert(issueComments).values({
+      companyId: c.companyId,
+      issueId: c.id,
+      authorType: "system",
+      body: `Cerrada automáticamente: ${motivo}. Si sigue haciendo falta, se puede reabrir.`,
+    });
+    await db.update(issues).set({ status: "cancelled" as never, cancelledAt: new Date(), updatedAt: new Date() }).where(eq(issues.id, c.id));
+    n += 1;
+  }
+  return n;
+}
+
 export async function barrerColaHumana(db: Db): Promise<{ escalados: number; vencidos: number }> {
   const escalados = await escalarBloqueados(db);
-  const vencidos = await vencerBloqueados(db);
+  const vencidos = (await vencerBloqueados(db)) + (await vencerOlvidadas(db));
   return { escalados, vencidos };
 }
 

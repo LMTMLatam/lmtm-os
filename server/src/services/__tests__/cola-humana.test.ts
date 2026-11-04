@@ -2,7 +2,7 @@
 // que aparecer en la cola humana aunque nadie le haya puesto el prefijo, y uno
 // que nadie tocó en 21 días no puede quedarse abierto para siempre.
 import { describe, expect, it } from "vitest";
-import { DIAS_PARA_ESCALAR, DIAS_PARA_VENCER, necesitaPersona, TOPE_VISIBLE, totalPlataParada } from "../cola-humana.js";
+import { DIAS_PARA_ESCALAR, DIAS_PARA_VENCER, motivoDeVencimiento, necesitaPersona, TOPE_VISIBLE, totalPlataParada } from "../cola-humana.js";
 
 describe("necesitaPersona", () => {
   it("reconoce lo que ya está marcado", () => {
@@ -86,5 +86,33 @@ describe("totalPlataParada", () => {
 
   it("cola vacia es cero, no NaN", () => {
     expect(totalPlataParada([])).toBe(0);
+  });
+});
+
+describe("motivoDeVencimiento", () => {
+  const ahora = new Date("2026-11-04T12:00:00Z");
+  const hace = (dias: number) => new Date(ahora.getTime() - dias * 86_400_000);
+  const tarea = (cambios: Partial<Parameters<typeof motivoDeVencimiento>[0]>) => ({
+    originKind: "agent_delegated", status: "todo", title: "Revisar la campaña", createdAt: hace(1), updatedAt: hace(1), ...cambios,
+  });
+
+  it("deja vivo lo reciente", () => {
+    expect(motivoDeVencimiento(tarea({}), ahora)).toBeNull();
+  });
+  it("vence una tarea de agente quieta 14 días", () => {
+    expect(motivoDeVencimiento(tarea({ updatedAt: hace(14) }), ahora)).toContain("14 días");
+    expect(motivoDeVencimiento(tarea({ updatedAt: hace(13) }), ahora)).toBeNull();
+  });
+  it("vence corridas viejas de rutinas y recuperaciones", () => {
+    expect(motivoDeVencimiento(tarea({ originKind: "routine_execution", createdAt: hace(2) }), ahora)).toContain("rutina");
+    expect(motivoDeVencimiento(tarea({ originKind: "stranded_issue_recovery", createdAt: hace(3) }), ahora)).toContain("recuperación");
+  });
+  it("respeta a las personas: un pedido humano aguanta 60 días y lo manual no vence", () => {
+    expect(motivoDeVencimiento(tarea({ title: "[HUMANO] Reconectar Meta", updatedAt: hace(59) }), ahora)).toBeNull();
+    expect(motivoDeVencimiento(tarea({ title: "[HUMANO] Reconectar Meta", updatedAt: hace(60) }), ahora)).toContain("60 días");
+    expect(motivoDeVencimiento(tarea({ originKind: "manual", updatedAt: hace(90) }), ahora)).toBeNull();
+  });
+  it("no vence una bloqueada por acá: esa la cubre vencerBloqueados", () => {
+    expect(motivoDeVencimiento(tarea({ status: "blocked", updatedAt: hace(15) }), ahora)).toBeNull();
   });
 });

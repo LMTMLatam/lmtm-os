@@ -729,6 +729,9 @@ export async function startServer(): Promise<StartedServer> {
         }
       })
       .then(async () => {
+        // Apagadas el 04/11: 55 tareas en 15 días, con señales como "6 h activa" en
+        // una tarea sin corridas. Se prenden con LMTM_REVISIONES_PRODUCTIVIDAD=1.
+        if (process.env.LMTM_REVISIONES_PRODUCTIVIDAD !== "1") return;
         const reviewed = await heartbeat.reconcileProductivityReviews();
         if (reviewed.created > 0 || reviewed.updated > 0 || reviewed.failed > 0) {
           logger.warn({ ...reviewed }, "startup productivity reconciliation created or updated review work");
@@ -795,6 +798,7 @@ export async function startServer(): Promise<StartedServer> {
           }
         })
         .then(async () => {
+          if (process.env.LMTM_REVISIONES_PRODUCTIVIDAD !== "1") return;
           const reviewed = await heartbeat.reconcileProductivityReviews();
           if (reviewed.created > 0 || reviewed.updated > 0 || reviewed.failed > 0) {
             logger.warn({ ...reviewed }, "periodic productivity reconciliation created or updated review work");
