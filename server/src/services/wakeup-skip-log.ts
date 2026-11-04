@@ -21,6 +21,11 @@ const RUTINARIOS = new Set([
   "issue_dependencies_blocked",
   "heartbeat.disabled",
   "heartbeat.wakeOnDemand.disabled",
+  // Los frenos de cuota despiertan igual cada 90 s: el 04/11 eran 224.340 filas, 94% de la tabla.
+  "llm.cuota_agotada",
+  "llm.ritmo_semanal",
+  "llm.tope_hora",
+  "llm.tope_diario",
 ]);
 
 const VENTANA_MS = 60 * 60 * 1000;
