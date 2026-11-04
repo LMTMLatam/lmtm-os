@@ -116,6 +116,43 @@ export async function proponerAccionPauta(
   return { id: fila.id, repetida: false };
 }
 
+/** Una propuesta ya hecha, tal como se la mostramos al agente antes de proponer. */
+export interface PropuestaPrevia { fecha: string; resumen: string; estado: string; entidades: string[] }
+
+function entidadesDeAccion(a: AccionPauta): string[] {
+  return a.accion === "shift_budget" ? [a.desde.entityId, a.hacia.entityId] : [a.entityId];
+}
+
+/**
+ * Lo propuesto sobre el cliente en 30 días, sin las canceladas (la limpieza diaria
+ * cancela repetidas y vencidas: son ruido). Sin esto el agente no sabía que una
+ * campaña ya se había pausado tres veces y volvió: Distrillantas, 10/2026.
+ */
+export async function propuestasDelCliente(db: Db, clientId: string): Promise<PropuestaPrevia[]> {
+  const filas = await db
+    .select({ status: approvals.status, createdAt: approvals.createdAt, payload: approvals.payload })
+    .from(approvals)
+    .where(and(
+      eq(approvals.type, TIPO_ACCION_PAUTA),
+      sql`${approvals.status} <> 'cancelled'`,
+      sql`${approvals.payload}->>'clientId' = ${clientId}`,
+      sql`${approvals.createdAt} >= now() - interval '30 days'`,
+    ))
+    .orderBy(sql`${approvals.createdAt} desc`);
+  return filas.flatMap((f) => esAccionPauta(f.payload)
+    ? [{ fecha: f.createdAt.toISOString().slice(0, 10), resumen: f.payload.resumen, estado: f.status, entidades: entidadesDeAccion(f.payload.accion) }]
+    : []);
+}
+
+/** Las propuestas que tocan esta campaña o alguno de sus conjuntos, las 5 más nuevas. Pura. */
+export function propuestasDeCampana(propuestas: PropuestaPrevia[], ids: string[]): Array<Omit<PropuestaPrevia, "entidades">> {
+  const buscados = new Set(ids);
+  return propuestas
+    .filter((p) => p.entidades.some((e) => buscados.has(e)))
+    .slice(0, 5)
+    .map(({ fecha, resumen, estado }) => ({ fecha, resumen, estado }));
+}
+
 /**
  * Último día con gasto de una campaña o conjunto (30 días). null = no gastó.
  * Para no proponer pausar lo que ya no gasta: una campaña con la fecha de fin

@@ -5,7 +5,7 @@
 // `esAccionPauta` es el portero: lo que no pasa por acá queda aprobado y SIN
 // ejecutar, con el motivo escrito. Nunca se adivina qué quiso decir.
 import { describe, expect, it } from "vitest";
-import { esAccionPauta, TIPO_ACCION_PAUTA, type PayloadAccionPauta } from "../ads-propuestas.js";
+import { esAccionPauta, propuestasDeCampana, TIPO_ACCION_PAUTA, type PayloadAccionPauta, type PropuestaPrevia } from "../ads-propuestas.js";
 
 const base = { clientId: "c-1", justificacion: "gastó $84.000 sin leads", resumen: "x" };
 
@@ -82,5 +82,22 @@ describe("contrato del payload", () => {
     expect(esAccionPauta(aprobada)).toBe(true);
     expect(aprobada.justificacion).toBe("gastó $84.000 sin leads");
     expect(aprobada.resultado?.ok).toBe(false);
+  });
+});
+
+describe("propuestasDeCampana", () => {
+  const previa = (fecha: string, entidades: string[]): PropuestaPrevia => ({ fecha, resumen: "Pausar", estado: "approved", entidades });
+
+  it("junta lo propuesto sobre la campaña y sobre sus conjuntos, sin exponer los ids", () => {
+    const todas = [previa("2026-10-20", ["camp-1"]), previa("2026-10-15", ["conjunto-1"]), previa("2026-10-14", ["otra"])];
+    expect(propuestasDeCampana(todas, ["camp-1", "conjunto-1"])).toEqual([
+      { fecha: "2026-10-20", resumen: "Pausar", estado: "approved" },
+      { fecha: "2026-10-15", resumen: "Pausar", estado: "approved" },
+    ]);
+  });
+
+  it("muestra como máximo las 5 primeras", () => {
+    const todas = Array.from({ length: 7 }, (_, i) => previa(`2026-10-0${i + 1}`, ["camp-1"]));
+    expect(propuestasDeCampana(todas, ["camp-1"])).toHaveLength(5);
   });
 });

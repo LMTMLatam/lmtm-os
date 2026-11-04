@@ -1565,7 +1565,8 @@ export function agentToolsRoutes(
         // propuso escalar dos campañas de Distrillantas que estaban arriba del
         // objetivo de Meta y no vio una que había que pausar.
         const { destinosDeCampanas, landingsPagas, destinoParaAgente } = await import("../services/ads-destinos.js");
-        const [total, meta, google, campanas, [cl], destinos, landings] = await Promise.all([
+        const { propuestasDelCliente, propuestasDeCampana } = await import("../services/ads-propuestas.js");
+        const [total, meta, google, campanas, [cl], destinos, landings, propuestas] = await Promise.all([
           metricasCliente(db, clientId, { desde, hasta }),
           metricasCliente(db, clientId, { desde, hasta, plataforma: "meta" }),
           metricasCliente(db, clientId, { desde, hasta, plataforma: "google" }),
@@ -1573,6 +1574,7 @@ export function agentToolsRoutes(
           db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)),
           destinosDeCampanas(db, clientId).catch(() => new Map()),
           landingsPagas(db, clientId).catch(() => new Map()),
+          propuestasDelCliente(db, clientId).catch(() => []),
         ]);
         if (campanas == null) {
           return reply(true, "(Este cliente no tiene cuenta de pauta conectada: no se puede saber qué campañas tiene. No es que no tenga.)");
@@ -1599,6 +1601,7 @@ export function agentToolsRoutes(
               "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
               "destino = adónde manda la campaña (whatsapp, formulario de Meta, mensajes, perfil, llamada, web, o publicacion = posteo promocionado que no lleva a ningún lado: se juzga por interacción, no por CPL). Si es web, landing trae lo que dice Google Analytics de ESA página con tráfico pago en 28 días: visitas, % que interactúa y eventos clave. Con CPL alto y destino web: si la landing tiene interacción baja (compará con el resto del sitio en lmtmRendimientoWeb) o 0 eventos clave, el problema está después del clic: decilo y proponé arreglar la página antes de (o además de) pausar. landing null con destino web = Analytics no vinculado o esa página no recibió tráfico pago medido: no es cero.",
               "categoriasEspeciales (Meta): con HOUSING no se puede segmentar ni excluir por edad, género ni código postal — no propongas cortes por edad en esas campañas. En Argentina declararla no es obligatorio (sí en EE. UU., Canadá y parte de Europa). Si el campo no está, no se sabe todavía.",
+              "propuestas30d = lo que ya se propuso sobre esa campaña o sus conjuntos en 30 días. Si dice pending, ya espera decisión. Si una pausa dice approved y la campaña volvió a gastar, alguien o algo la prendió: no la propongas otra vez, preguntá por qué.",
               ...(total.leadsDudosos.length
                 ? ["leadsDudosos=true: Google cuenta como lead acciones que no lo son (convierte más de un tercio de los clics). NO uses ese CPL para comparar, escalar ni mover plata: avisá que la cuenta tiene mal configuradas las conversiones."]
                 : []),
@@ -1606,6 +1609,7 @@ export function agentToolsRoutes(
             campanas: campanas.map((c) => {
               const tcpl = vara.tcpl[c.plataforma];
               const motivo = noSeMidePorCpl(c, vara);
+              const yaPropuesto = propuestasDeCampana(propuestas, [c.campaignId, ...c.conjuntos.map((a) => a.adsetId)]);
               return {
               plataforma: c.plataforma, campaignId: c.campaignId, nombre: c.nombre, estado: c.estado,
               fin: c.fin, presupuestoDiario: c.presupuestoDiario, objetivoCampana: c.objetivoCampana,
@@ -1616,6 +1620,7 @@ export function agentToolsRoutes(
               diasConGasto: c.diasConGasto, ultimoDiaConGasto: c.ultimoDiaConGasto,
               ...(c.leadsDudosos ? { leadsDudosos: true } : {}),
               ...(c.categoriasEspeciales ? { categoriasEspeciales: c.categoriasEspeciales } : {}),
+              ...(yaPropuesto.length ? { propuestas30d: yaPropuesto } : {}),
               destino: destinoParaAgente(destinos.get(c.campaignId), landings),
               conjuntos: c.conjuntos.map((a) => ({
                 adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
@@ -2162,6 +2167,22 @@ export function agentToolsRoutes(
           issueId = iss ? String((iss as Record<string, unknown>).id) : null;
         }
         const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
+        // Un plan sin cliente no aparece en el panel: el 04/11 los de BITTI se
+        // guardaron así, y además afirmando que el cliente no tenía memoria.
+        if (/^plan de acción/i.test(title) && !clientId) {
+          return reply(false, "El plan NO se guardó: falta clientId. Verificá que los datos que leíste sean de ese cliente y volvé a guardarlo.");
+        }
+        if (/^nota blog:/i.test(title)) {
+          const previas = await db.select({ title: agentDeliverables.title }).from(agentDeliverables)
+            .where(and(eq(agentDeliverables.companyId, ctx.companyId), sql`${agentDeliverables.title} ilike 'Nota blog:%'`))
+            .orderBy(desc(agentDeliverables.createdAt)).limit(300);
+          const { notaBlogRepetida } = await import("../services/entrega-checks.js");
+          const choca = notaBlogRepetida(title, previas.map((p) => p.title));
+          if (choca) {
+            const recientes = [...new Set(previas.map((p) => p.title.replace(/^nota blog:\s*/i, "")))].slice(0, 15);
+            return reply(false, `La nota NO se guardó: repite el tema de "${choca}". Elegí un tema nuevo, sin reescribir este. Últimas notas:\n` + recientes.map((t) => `- ${t}`).join("\n"));
+          }
+        }
         // Checks deterministas (curso reliable-agents 26/7): links muertos,
         // caracteres no latinos, mención de otro cliente. Si falla, el error
         // vuelve al agente para que corrija y reintente — no lo pesca un humano.

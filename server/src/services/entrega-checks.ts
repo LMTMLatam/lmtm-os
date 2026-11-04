@@ -98,6 +98,52 @@ export async function verificarEntrega(
   return { ok: problemas.length === 0, problemas };
 }
 
+// Temas del blog que ya se escribieron demasiado: compartir uno alcanza para que
+// la nota sea repetida (19 de las primeras 31 notas eran "agencia agéntica").
+// ponytail: lista a mano; sumar acá el próximo tema que se sature.
+const TEMAS_SATURADOS: Array<[RegExp, string]> = [
+  [/\bagencias? agentic[ao]s?\b/g, "tema:agencia-agentica"],
+  [/\b(google (business profile|maps|mi negocio)|ficha de google|perfil de empresa)\b/g, "tema:ficha-google"],
+  [/\b(geo|ai overviews?|respuestas de ia|chatgpt|gemini)\b/g, "tema:geo"],
+  [/\berrores (de )?marketing\b/g, "tema:errores-marketing"],
+];
+
+const PALABRAS_VACIAS = new Set([
+  "nota", "blog", "que", "qui", "como", "cuando", "cuanto", "por", "para", "con", "los", "las", "del", "una", "uno", "unos",
+  "tus", "sus", "mis", "este", "esta", "mas", "sin", "pero", "2026", "pyme", "pymes", "argentina", "argentinas", "argentino",
+  "argentinos", "latam", "marketing", "digital", "guia", "aparecer", "aparece", "cambia", "cambio", "importa", "conviene", "sirve",
+]);
+
+function terminosDeTitulo(titulo: string): Set<string> {
+  let t = titulo.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/^nota blog:\s*/, "");
+  const terminos = new Set<string>();
+  for (const [re, tema] of TEMAS_SATURADOS) {
+    if (t.search(re) >= 0) terminos.add(tema);
+    t = t.replace(re, " ");
+  }
+  for (const palabra of t.split(/[^a-z0-9]+/)) {
+    if (palabra.length >= 3 && !PALABRAS_VACIAS.has(palabra)) terminos.add(palabra.slice(0, 6));
+  }
+  return terminos;
+}
+
+/**
+ * ¿Esta nota repite una anterior? Devuelve el título con el que choca, o null.
+ * Repite si comparte un tema saturado, o si la mayoría de las palabras
+ * importantes del título más corto están en el otro. Pura.
+ */
+export function notaBlogRepetida(titulo: string, anteriores: string[]): string | null {
+  const nuevo = terminosDeTitulo(titulo);
+  for (const anterior of anteriores) {
+    const otro = terminosDeTitulo(anterior);
+    const comunes = [...nuevo].filter((p) => otro.has(p));
+    if (comunes.some((p) => p.startsWith("tema:"))) return anterior;
+    const menor = Math.min(nuevo.size, otro.size);
+    if (menor >= 2 && comunes.length / menor >= 0.6) return anterior;
+  }
+  return null;
+}
+
 /** Quita caracteres no latinos y links muertos de un texto de pipeline (donde no hay agente al que devolverle el error). */
 export async function sanearTextoPipeline(texto: string): Promise<string> {
   let out = texto.replace(new RegExp(NON_LATIN_RE.source, "g"), "");

@@ -1389,11 +1389,10 @@ function PlanAccionTab({ client }: { client: Client }) {
           {(() => {
             const secciones = parseSecciones(p.reporteAgente.content).filter((s) => s.titulo && s.lineas.some((l) => l.trim()));
             if (secciones.length < 2) {
-              // Reporte con el formato viejo (sin ## secciones): mostrarlo plano.
+              // Un plan corto o sin secciones es válido: el formato sale del caso (04/11).
               return (
                 <Card className="p-4">
                   <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[32rem] overflow-y-auto">{p.reporteAgente.content}</pre>
-                  <p className="text-[11px] text-muted-foreground mt-2">Este reporte es del formato anterior — apretá "Regenerar" para tenerlo con las secciones nuevas.</p>
                 </Card>
               );
             }

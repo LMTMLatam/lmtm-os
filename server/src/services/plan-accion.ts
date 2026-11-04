@@ -83,25 +83,29 @@ export function decidirSemaforo(s: SenalesCliente): Semaforo {
   return verde ? "verde" : "amarillo";
 }
 
-// Estándar del reporte estratégico (pedido 20/7: "más personalizado, ideas más
-// creativas, qué funciona en su nicho, contrastando con sus competidores").
-// Se usa en el issue del botón "Regenerar" y es el MISMO texto que lleva la
-// rutina "Plan de acción por cliente" (si se cambia acá, actualizar la rutina
-// vía PATCH /routines/:id).
+// Criterio del reporte estratégico. Se usa en el issue del botón "Regenerar" y es
+// el MISMO texto que lleva la rutina "Plan de acción por cliente" (si se cambia
+// acá, actualizar la rutina vía PATCH /routines/:id). Hasta el 04/11 imponía seis
+// secciones fijas: 220 de 229 planes salían iguales y tapaban lo importante.
 export const PLAN_ACCION_SPEC = [
-  "Estructura OBLIGATORIA del reporte (markdown):",
-  "## Radiografía — los números clave de ESTE cliente (orgánico, pauta, cumplimiento de lo cotizado), 3-4 frases con datos reales.",
-  "## Qué funciona en el rubro — benchmark CTR/CPL, formato ganador, y lo que muestran los referentes EXTERNOS del radar del rubro: nombralos con su link (vienen en lmtmGetNicheIntel).",
-  "## Contraste con competidores — mínimo 2 POR NOMBRE (lmtmGetClientCompetitors y/o referentes del radar): qué hacen ellos que les funciona y este cliente NO está haciendo; y qué hueco del rubro nadie cubre y este cliente puede ocupar.",
-  "## Ideas creativas — 4 a 6, LISTAS PARA PRODUCIR. Cada una: [Formato] + el gancho textual listo (las 2 primeras líneas, escritas en la voz del cliente según su brain) + por qué va a funcionar PARA ESTE cliente (el dato del nicho o del competidor que la respalda, con link si viene del radar).",
-  "## Fallos → solución — cada problema abierto (incumplimiento, avisos fatigados, cadencia caída, intervenciones) con SU fix concreto, no un consejo general.",
-  "## Acciones de la semana — 3 a 5, medibles y priorizadas, con quién la ejecuta.",
+  "NO HAY ESTRUCTURA FIJA: la forma sale del caso de este cliente. Antes de escribir, cargá la skill lmtm-ejemplos-estrategia. Sirve para ver cómo se decide, no para copiar su forma ni sus números.",
   "",
-  "REGLAS ANTI-GENÉRICO:",
+  "CÓMO ARMARLO:",
+  "1. Buscá lo que cambia una decisión esta semana: el número más raro de la cuenta, aunque no sea tu área. Eso va primero.",
+  "2. Leé el plan anterior del cliente (lmtmListDeliverables con clientId). Si nada cambió, decilo en una línea. No repitas sus títulos ni su apertura.",
+  "3. Elegí el formato que ayude a decidir: memo de una decisión, tabla, lista corta o lo que el caso pida. Si usás títulos ##, que digan la conclusión, no el tema.",
+  "4. Incluí solo lo que cambia qué hacer. Benchmark, competidores, referentes o ideas van si sostienen esa decisión. Si los usás, nombrá la fuente y el link que trajo la herramienta.",
+  "5. Sin datos para decidir: tres líneas con lo firme, la única acción que falta y quién la hace. No rellenes.",
+  "",
+  "REGLAS:",
   "- PROHIBIDO el consejo que le sirve a cualquier cliente ('subir la cadencia', 'mejorar el engagement', 'diversificar formatos') sin anclarlo a un dato propio: nombre de campaña o post real, número, competidor.",
-  "- Nombrá mínimo 2 competidores o referentes POR NOMBRE con qué les está funcionando.",
-  "- Las ideas se escriben en la voz del cliente (brain: tono, público, restricciones). Si el brain está vacío, decilo y la primera acción es nutrirlo.",
+  "- No uses un promedio de toda la agencia como conclusión de este cliente: si no cambia su decisión, no va.",
+  "- Si una herramienta dice que no hay datos, revisá que usaste el clientId correcto y cruzalo con otra antes de afirmarlo.",
+  "- Lo que no se sabe se escribe como hipótesis, con cómo comprobarlo.",
+  "- Cada acción lleva quién la hace y cómo se sabe que funcionó.",
+  "- Las ideas de contenido se escriben en la voz del cliente (brain: tono, público, restricciones).",
   "- Nada inventado: números de las tools, links SOLO los que devuelven las tools. Citá origen y fecha.",
+  "- Guardá siempre con clientId: un plan sin cliente no aparece en el panel.",
 ].join("\n");
 
 export interface PlanAccionCliente {
