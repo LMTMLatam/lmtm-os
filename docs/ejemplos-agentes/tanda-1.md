@@ -32,7 +32,7 @@ Trabajos hechos a mano sobre datos reales de producción, solo con lectura. No s
 |---|---|---|
 | **No volver a proponer: preguntar** | WP - AMORTIGUADORES OCTUBRE | El piloto la pausó el 15, 19 y 20/10. No gastó del 21 al 26 y volvió el 27. Ya hay dos pausas pendientes. No encontré quién la prendió: una cuarta propuesta no resuelve eso |
 | **Verificar antes de juzgarla** | Conjunto AMORTIGUADORES CALL | CPL $4.684. Solo 5,5% de los clics termina en lead, contra 19 a 23% en Pilar, Beiro, Liniers y Merlo. El nombre dice CALL: si el aviso busca llamadas, esos contactos no cuentan como lead y el CPL no la mide |
-| **Proponer** | WP - MENSAJES PILAR: $13.750 → $16.500 | CPL $682 con 299 leads; ya gasta todo su presupuesto. Termina el 09/11, así que vale solo si se renueva |
+| **Pedir decisión** | WP - MENSAJES PILAR: $13.750 → $16.500, pendiente desde el 20/10 | CPL $682 con 299 leads; ya gasta todo su presupuesto. Termina el 09/11, así que vale solo si se renueva |
 | **Rechazar pendiente** | WP NUEVO MERLO +20% | CPL $1.094, justo en el objetivo, con 6 días. No hay margen para escalar |
 | **Preguntar hoy** | TRAFICO y VENTAS CYBERDISTRI | $72.500 por día hasta el 06/11. El CyberMonday termina hoy: si la promo también, son dos días de gasto sin motivo. No se juzga por CPL: es calendario |
 | **Corregir memoria** | Nota «Amortiguadores: CPL crónico» | Dice que «la plata se reasignó». Pilar, Beiro y Liniers siguen en $13.750 |

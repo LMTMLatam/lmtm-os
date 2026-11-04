@@ -27,7 +27,7 @@ El formato fue una lista de decisiones, porque quien lee tiene que aprobar o rec
 |---|---|---|
 | Preguntar, no proponer | Campaña pausada tres veces, volvió a gastar | Ya tenía dos pausas pendientes. El problema es quién la prende, no el número |
 | Verificar antes de juzgar | Conjunto llamado «...CALL», CPL 4,3 veces el objetivo | Solo 5,5% de los clics terminó en lead, contra 19 a 23% en las demás. Si el aviso busca llamadas, el CPL no lo mide |
-| Proponer +20% | CPL 0,6 veces el objetivo, con 299 leads, y ya gasta todo su presupuesto | Tiene volumen y está topada. Se aclara que termina en 5 días |
+| Pedir decisión, sin duplicar | +20% pendiente hace dos semanas; CPL 0,6 veces el objetivo, con 299 leads, y ya gasta todo su presupuesto | Tiene volumen y está topada, pero ya está propuesta. Se aclara que termina en 5 días |
 | Rechazar una pendiente | +20% con CPL justo en el objetivo y 6 días | No hay margen para escalar |
 | Preguntar hoy | Campañas de una promo que siguen dos días después del evento | Es un problema de calendario, no de CPL |
 | Proponer pausa | Dos campañas con el mismo nombre: una con CPL 3 veces el de la otra | Compiten entre sí. Confirmar que sea la misma propiedad |
