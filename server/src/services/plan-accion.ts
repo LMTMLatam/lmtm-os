@@ -88,7 +88,7 @@ export function decidirSemaforo(s: SenalesCliente): Semaforo {
 // acá, actualizar la rutina vía PATCH /routines/:id). Hasta el 04/11 imponía seis
 // secciones fijas: 220 de 229 planes salían iguales y tapaban lo importante.
 export const PLAN_ACCION_SPEC = [
-  "NO HAY ESTRUCTURA FIJA: la forma sale del caso de este cliente. Antes de escribir, cargá la skill lmtm-ejemplos-estrategia. Sirve para ver cómo se decide, no para copiar su forma ni sus números.",
+  "NO HAY ESTRUCTURA FIJA: la forma sale del caso de este cliente. Antes de escribir, cargá las skills lmtm-ejemplos-estrategia y lmtm-ejemplos-nicho. Sirve para ver cómo se decide, no para copiar su forma ni sus números.",
   "",
   "CÓMO ARMARLO:",
   "1. Buscá lo que cambia una decisión esta semana: el número más raro de la cuenta, aunque no sea tu área. Eso va primero.",

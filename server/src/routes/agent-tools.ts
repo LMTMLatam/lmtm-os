@@ -1523,10 +1523,17 @@ export function agentToolsRoutes(
         const [cl] = await db.select({ industry: clients.industry }).from(clients).where(eq(clients.id, clientId));
         const { analisisProfundo } = await import("../services/ads-deep-analysis.js");
         const profundo = await analisisProfundo(db, { id: clientId, industry: cl?.industry ?? null }).catch(() => null);
+        // Sin la moneda, USD 20 se lee como $20 y parece el mejor CPL del rubro (GALA, 05/11).
+        const cuentas = await db.select({ currency: adsAccountMappings.currency }).from(adsAccountMappings).where(eq(adsAccountMappings.clientId, clientId));
+        const monedas = [...new Set(cuentas.map((c) => c.currency).filter(Boolean))];
         return reply(
           true,
           JSON.stringify({
             windowDays: days, desde, hasta,
+            moneda: monedas.length === 1 ? monedas[0] : monedas.length ? monedas : null,
+            notaMoneda: monedas.some((m) => m !== "ARS")
+              ? `Hay gasto en ${monedas.join(" y ")}. No compares gasto ni CPL contra el benchmark del rubro, que está en ARS, sin convertir. Con más de una moneda, el total las mezcla.`
+              : undefined,
             notaDatos: "null = no se puede medir (cuenta sin conectar, sin seguimiento de ventas, o dato que todavía no traemos). NUNCA lo tomes como cero ni lo inventes. Mirá 'frescura' antes de afirmar algo: si una fuente está 'fallando' o 'atrasada', los números de esa plataforma pueden estar incompletos.",
             objetivo: total.objetivo,
             notaObjetivo: total.objetivo.tcplFuente === "historial"
