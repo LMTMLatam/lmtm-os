@@ -37,6 +37,18 @@ else
   echo "[wrapper] CRM_SSH_KEY not set — CRM agent VPS access disabled"
 fi
 
+# ── Lo que el usuario de los agentes (node) no puede leer (05/11) ─────────────
+# Los agentes corren como node. Esto es solo del servidor: los respaldos de la
+# base entera, las sesiones de Higgsfield y WhatsApp, y los logs. Va antes de
+# arrancar cualquier servicio, así nada se crea legible para otros.
+if [ -d /data ]; then
+  for d in /data/backups /data/higgsfield; do mkdir -p "$d" && chmod 700 "$d"; done
+fi
+mkdir -p /app/data && chmod 700 /app/data
+for f in /tmp/server.log /tmp/wa-gateway.log /tmp/litellm.log /tmp/pg-backup.log; do
+  touch "$f" && chmod 600 "$f"
+done
+
 # NOTE: do NOT add a `require.resolve()` module preflight here. The server
 # loads its deps via ESM `import`, which resolves them through pnpm's
 # server/node_modules + .pnpm store correctly. A CommonJS `require.resolve`
