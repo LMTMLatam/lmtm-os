@@ -28,7 +28,7 @@ import { fetchAccountBalances } from "../services/balance-monitor.js";
 import { getRedesScheduledContent, getRedesCalendar } from "../services/clickup-sync.js";
 import { createClientTask } from "../services/client-tasks.js";
 import { clickupTools, googleTools } from "../services/agent-mcp-tools.js";
-import { resolveCompanyId } from "../services/intel-common.js";
+import { enRutinas, resolveCompanyId } from "../services/intel-common.js";
 import { canonicalizeNiches, trendMatchesIndustry } from "../services/niche-slugs.js";
 import {
   esDeAccion,
@@ -2233,7 +2233,7 @@ export function agentToolsRoutes(
             .select({ name: clients.name, id: clients.id, ultimo: sql<string | null>`max(${agentDeliverables.createdAt})` })
             .from(clients)
             .leftJoin(agentDeliverables, and(eq(agentDeliverables.clientId, clients.id), sql`${agentDeliverables.title} ilike ${tipo + "%"}`))
-            .where(eq(clients.status, "active"))
+            .where(enRutinas())
             .groupBy(clients.id, clients.name)
             .orderBy(sql`max(${agentDeliverables.createdAt}) asc nulls first`)
             .limit(15);

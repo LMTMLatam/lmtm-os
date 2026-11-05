@@ -38,6 +38,15 @@ export function clienteReal() {
   );
 }
 
+/**
+ * Los clientes que entran en las rutinas de los agentes: los reales, menos los
+ * que una persona sacó con metadata.sinRutinas. El 05/11 había cuatro sin
+ * pauta, posteos ni web que igual recibían un plan por semana.
+ */
+export function enRutinas() {
+  return and(clienteReal(), sql`coalesce(${clients.metadata}->>'sinRutinas', '') <> 'true'`);
+}
+
 export const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 export const num = (v: unknown): number => {
   const x = typeof v === "number" ? v : parseFloat(String(v ?? 0));

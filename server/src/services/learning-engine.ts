@@ -6,6 +6,7 @@
 // tried). Stored with confidence and evidence. Feeds reports, opportunities
 // and agent context.
 
+import { enRutinas } from "./intel-common.js";
 import type { Db } from "@paperclipai/db";
 import { adsCreatives, clients, learnings, companies, adsInsights } from "@paperclipai/db";
 import { and, eq, gte, isNotNull, notInArray, sql } from "drizzle-orm";
@@ -229,14 +230,14 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
  *   Se descartan inversión y resultados de esa plataforma para el CPL.
  */
 export function desglosarPorCliente(rows: Array<{ industry: string | null; clientId: string; platform: string; spend: string | number; impressions: number; clicks: number; leads: number }>): Array<{
-  industry: string; clientId: string; ctrMeta: number | null; cpl: number | null; leadsDudosos: boolean;
+  industry: string; clientId: string; ctrMeta: number | null; cpl: number | null; cplMeta: number | null; leadsDudosos: boolean;
 }> {
-  const porCliente = new Map<string, { industry: string; metaImp: number; metaClicks: number; spend: number; leads: number; dudosos: boolean }>();
+  const porCliente = new Map<string, { industry: string; metaImp: number; metaClicks: number; metaSpend: number; metaLeads: number; spend: number; leads: number; dudosos: boolean }>();
   for (const r of rows) {
     if (!r.industry) continue;
-    const c = porCliente.get(r.clientId) ?? { industry: r.industry, metaImp: 0, metaClicks: 0, spend: 0, leads: 0, dudosos: false };
+    const c = porCliente.get(r.clientId) ?? { industry: r.industry, metaImp: 0, metaClicks: 0, metaSpend: 0, metaLeads: 0, spend: 0, leads: 0, dudosos: false };
     const clicks = Number(r.clicks), leads = Number(r.leads), spend = Number(r.spend);
-    if (r.platform === "meta") { c.metaImp += Number(r.impressions); c.metaClicks += clicks; }
+    if (r.platform === "meta") { c.metaImp += Number(r.impressions); c.metaClicks += clicks; c.metaSpend += spend; c.metaLeads += leads; }
     if (conversionesDudosas(r.platform, leads, clicks)) c.dudosos = true;
     else { c.spend += spend; c.leads += leads; }
     porCliente.set(r.clientId, c);
@@ -246,6 +247,10 @@ export function desglosarPorCliente(rows: Array<{ industry: string | null; clien
     clientId,
     ctrMeta: c.metaImp >= 500 ? c.metaClicks / c.metaImp : null, // con menos, no hay señal
     cpl: c.leads > 0 ? c.spend / c.leads : null,
+    // Para decidir sobre un cliente: el CPL de Google mide otra cosa (demanda
+    // que ya busca) y su conversión no siempre es un contacto. COSA figuraba
+    // "en la meta" con $1.988 combinado y $4.777 en Meta (05/11).
+    cplMeta: c.metaLeads > 0 ? c.metaSpend / c.metaLeads : null,
     leadsDudosos: c.dudosos,
   }));
 }
@@ -382,6 +387,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
   }
 
   await db.delete(learnings).where(eq(learnings.scope, "niche_actions"));
+  const fueraDeRutinas = new Set((await db.select({ id: clients.id }).from(clients).where(sql`not (${enRutinas()})`)).map((c) => c.id));
 
   let count = 0;
   for (const [niche, members] of byNiche) {
@@ -396,11 +402,12 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     const actions: NicheAction[] = [];
     const sinPauta: string[] = [];
     for (const m of members) {
+      if (fueraDeRutinas.has(m.id)) continue;
       const d = perClient.get(m.id);
       if (otraMoneda.has(m.id)) continue;
       if ((impresiones.get(m.id) ?? 0) < 500) { sinPauta.push(m.name); continue; }
       const ctr = d?.ctrMeta ?? null;
-      const cpl = d?.cpl ?? null;
+      const cpl = d?.cplMeta ?? null;
       if (d?.leadsDudosos) {
         actions.push({
           priority: 1,
@@ -427,7 +434,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
       } else if (ctr != null || cpl != null) {
         actions.push({
           priority: 2,
-          action: `Escalar presupuesto de ${m.name}: ya rinde en la meta del nicho (${[ctr != null ? `CTR en Meta ${(ctr * 100).toFixed(2)}%` : "", cpl != null ? `CPL ${Math.round(cpl)}` : ""].filter(Boolean).join(", ")}) — subir inversión gradual manteniendo la creatividad.`,
+          action: `Ver si conviene escalar ${m.name}: está en la meta del nicho (${[ctr != null ? `CTR en Meta ${(ctr * 100).toFixed(2)}%` : "", cpl != null ? `CPL ${Math.round(cpl)}` : ""].filter(Boolean).join(", ")}). Antes de subir, mirá campaña por campaña: si la plata está en una sola, si las mejores dejaron de gastar y si el CPL viene peor que el mes anterior.`,
           clientSlug: m.slug, kind: "accion",
         });
       }

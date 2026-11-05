@@ -11,9 +11,9 @@
 
 import type { Db } from "@paperclipai/db";
 import { clients } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { driveList, scriptProcesses } from "@paperclipai/mcp-google";
-import { activeClients } from "./intel-common.js";
+import { activeClients, enRutinas } from "./intel-common.js";
 import { createClientTask } from "./client-tasks.js";
 
 const SCRIPTS_FOLDER_REDES = "1nbhnzZYjeKdlrIGWYBPLyFTFUC16r5pk";
@@ -74,8 +74,9 @@ export function judge(scriptId: string, procs: Proc[]): ScriptVerdict {
     .filter((p) => p.startTime)
     .sort((a, b) => new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime());
   if (sorted.length === 0) {
-    // La API devuelve {} para todos los scripts, también los que andan bien
-    // (LMTM-6347): no ver corridas no prueba que no corran.
+    // Sin ejecuciones en los últimos días la API devuelve {}. Puede ser un
+    // script que nunca corrió (05/11: 24 de 129, casi todos de clientes
+    // inactivos), así que esto solo no afirma nada: lo decide dejoDeCorrer().
     return { scriptId, state: "sin_dato", detail: "la API no devolvió ejecuciones" };
   }
   const latest = sorted[0];
@@ -102,6 +103,18 @@ export function judge(scriptId: string, procs: Proc[]): ScriptVerdict {
   return { scriptId, state: "ok", detail: "última ejecución OK" };
 }
 
+/**
+ * Un script que venía corriendo (lo vimos andar en los últimos 30 días) y ya no
+ * registra ejecuciones. Sin ese historial no se avisa: el 04/11 se apagó el
+ * aviso porque se creía que la API devolvía {} para todos, y el 05/11 devolvió
+ * ejecuciones para 21 de 23. Puro.
+ */
+export function dejoDeCorrer(ultimoOk: string | undefined, hoy = new Date()): boolean {
+  if (!ultimoOk) return false;
+  const dias = (hoy.getTime() - new Date(ultimoOk).getTime()) / 86_400_000;
+  return dias >= 2 && dias <= 30;
+}
+
 export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; broken: number }> {
   const rows = await activeClients(db);
   let checked = 0;
@@ -114,6 +127,10 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
       console.warn(`[script-health] could not list ${pipeline.key} scripts folder:`, e);
       continue;
     }
+    const hoy = new Date().toISOString().slice(0, 10);
+    const enRutina = new Set((await db.select({ id: clients.id }).from(clients).where(enRutinas())).map((c) => c.id));
+    const sinEjecuciones: Array<{ id: string; name: string; scriptId: string; ultimoOk?: string }> = [];
+    let conEjecuciones = 0;
     for (const client of rows) {
       const full = (await db
         .select({ id: clients.id, name: clients.name, metadata: clients.metadata })
@@ -133,7 +150,20 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
         continue;
       }
       const verdict = judge(scriptId, procs);
-      if (verdict.state === "ok" || verdict.state === "sin_dato") continue;
+      if (procs.length) conEjecuciones += 1;
+      const vistos = ((full.metadata ?? {}) as { scriptOk?: Record<string, string> }).scriptOk ?? {};
+      if (verdict.state === "ok") {
+        if (vistos[pipeline.key] !== hoy) {
+          await db.update(clients).set({
+            metadata: sql`coalesce(${clients.metadata}, '{}'::jsonb) || jsonb_build_object('scriptOk', coalesce(${clients.metadata}->'scriptOk', '{}'::jsonb) || jsonb_build_object(${pipeline.key}::text, ${hoy}::text))`,
+          }).where(eq(clients.id, client.id)).catch(() => {});
+        }
+        continue;
+      }
+      if (verdict.state === "sin_dato") {
+        sinEjecuciones.push({ id: client.id, name: client.name, scriptId, ultimoOk: vistos[pipeline.key] });
+        continue;
+      }
       broken += 1;
       // File a fix task. createClientTask dedups on (clientId, title, open), so a
       // still-broken script won't spam a new task every run.
@@ -156,6 +186,30 @@ export async function runScriptHealthCheck(db: Db): Promise<{ checked: number; b
         priority: "medium",
         source: "script-health-monitor",
         // Que el agente la cierre no habilita a abrirla de nuevo en la próxima pasada.
+        noRepetirDias: CHECK_EVERY_DAYS,
+      }).catch(() => {});
+    }
+    // Si ningún script devolvió ejecuciones, lo roto es la consulta, no los scripts.
+    if (conEjecuciones === 0) continue;
+    for (const c of sinEjecuciones) {
+      if (!enRutina.has(c.id) || !dejoDeCorrer(c.ultimoOk)) continue;
+      broken += 1;
+      await createClientTask(db, {
+        clientId: c.id,
+        title: `[HUMANO] Script de ${pipeline.label} dejó de correr: ${c.name}`,
+        description:
+          `El Apps Script que sincroniza ${pipeline.desc} de ${c.name} corría (última vez vista: ${c.ultimoOk}) y ya no registra ejecuciones. ` +
+          `Lo que salga de la planilla no va a llegar a ClickUp.
+
+` +
+          `• Script: https://script.google.com/d/${c.scriptId}/edit
+` +
+          `• Lo reinstala una persona, desde la cuenta dueña del script: función ${pipeline.trigger}.
+` +
+          `• No lo edita un agente: el código tiene credenciales.`,
+        taskType: "internal",
+        priority: "medium",
+        source: "script-health-monitor",
         noRepetirDias: CHECK_EVERY_DAYS,
       }).catch(() => {});
     }
