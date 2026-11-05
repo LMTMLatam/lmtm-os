@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HERRAMIENTAS, pedirAlServidor, servidorDesdeEntorno } from "@paperclipai/mcp-clickup";
+import { HERRAMIENTAS as GOOGLE, servidorDesdeEntorno as googleDesdeEntorno } from "@paperclipai/mcp-google";
 import { esDeAccion } from "../services/agent-modo.js";
 
 // 05/11: los agentes dejan de tener el token de ClickUp (el mismo de los 129
-// Apps Scripts). Su MCP `clickup` le pide cada acción al servidor.
+// Apps Scripts) y la credencial de Google. Sus MCP `clickup` y `google` le
+// piden cada acción al servidor.
 
 const paperclip = { PAPERCLIP_API_URL: "https://os.test", PAPERCLIP_API_KEY: "jwt", PAPERCLIP_RUN_ID: "run-1" };
 
@@ -58,5 +60,26 @@ describe("modo consulta", () => {
   it("solo create_task, update_task y add_comment cuentan como acción", () => {
     const deAccion = Object.keys(HERRAMIENTAS).filter((n) => esDeAccion(`clickup.${n}`));
     expect(deAccion.sort()).toEqual(["add_comment", "create_task", "update_task"]);
+  });
+});
+
+describe("google", () => {
+  it("sin la credencial va por el servidor; con ella y sin interruptor, directo", () => {
+    expect(googleDesdeEntorno(paperclip)).not.toBeNull();
+    expect(googleDesdeEntorno({ ...paperclip, GOOGLE_OAUTH_REFRESH_TOKEN: "rt" })).toBeNull();
+    expect(googleDesdeEntorno({ ...paperclip, GOOGLE_OAUTH_REFRESH_TOKEN: "rt", LMTM_GOOGLE_POR_SERVIDOR: "1" })).not.toBeNull();
+  });
+
+  it("en modo consulta se lee y no se escribe", () => {
+    const deAccion = Object.keys(GOOGLE).filter((n) => esDeAccion(`google.${n}`));
+    expect(deAccion.sort()).toEqual([
+      "drive_copy",
+      "drive_create_folder",
+      "script_create",
+      "script_update_content",
+      "sheets_append",
+      "sheets_create",
+      "sheets_update",
+    ]);
   });
 });

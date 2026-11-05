@@ -62,6 +62,14 @@ export const TOOLS_DE_CONSULTA: ReadonlySet<string> = new Set([
   "clickup_list_lists",
   "clickup_list_tasks",
   "sheets_read",
+  // MCP `google` de los agentes, que corre en el servidor (05/11). Las de
+  // `clickup.` se resuelven por prefijo (list_, get_, search_).
+  "google.sheets_read",
+  "google.sheets_metadata",
+  "google.drive_list",
+  "google.drive_get",
+  "google.script_get_content",
+  "google.script_processes",
 ]);
 
 /** Prefijos de solo lectura para las tools de plugin, que son dinámicas. */

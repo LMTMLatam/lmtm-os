@@ -29,6 +29,7 @@ import { getRedesScheduledContent, getRedesCalendar } from "../services/clickup-
 import { createClientTask } from "../services/client-tasks.js";
 import { clickupTools, googleTools } from "../services/agent-mcp-tools.js";
 import { HERRAMIENTAS as HERRAMIENTAS_CLICKUP } from "@paperclipai/mcp-clickup";
+import { HERRAMIENTAS as HERRAMIENTAS_GOOGLE } from "@paperclipai/mcp-google";
 import { enRutinas, resolveCompanyId } from "../services/intel-common.js";
 import { canonicalizeNiches, trendMatchesIndustry } from "../services/niche-slugs.js";
 import {
@@ -1034,6 +1035,9 @@ const CORE_TOOLS: ToolDef[] = [
   },
 ];
 
+/** Los MCP que corren en el servidor, por prefijo de la herramienta. */
+const MCP_POR_SERVIDOR: Record<string, typeof HERRAMIENTAS_CLICKUP> = { clickup: HERRAMIENTAS_CLICKUP, google: HERRAMIENTAS_GOOGLE };
+
 /** Nombre del agente con el que actúa el conector MCP de Claude (fase C). */
 export const AGENTE_CONECTOR = "Claude (conector)";
 
@@ -1847,12 +1851,17 @@ export function agentToolsRoutes(
         return reply(true, "Reporte encolado para el resumen del equipo de las 9:00.");
       }
 
-      // El MCP `clickup` de los agentes ya no tiene el token (05/11): cada acción
-      // llega acá como `clickup.<nombre>` y corre con el del servidor y sus frenos.
-      if (tool.startsWith("clickup.")) {
-        const nombre = tool.slice("clickup.".length);
-        const h = Object.hasOwn(HERRAMIENTAS_CLICKUP, nombre) ? HERRAMIENTAS_CLICKUP[nombre] : undefined;
-        if (!h) return reply(false, `No existe la herramienta de ClickUp "${tool}".`);
+      // Los MCP `clickup` y `google` de los agentes ya no tienen las claves (05/11):
+      // cada acción llega acá como `clickup.<nombre>` o `google.<nombre>` y corre
+      // con las del servidor y sus frenos.
+      const punto = tool.indexOf(".");
+      const registro = punto > 0 && Object.hasOwn(MCP_POR_SERVIDOR, tool.slice(0, punto))
+        ? MCP_POR_SERVIDOR[tool.slice(0, punto)]
+        : undefined;
+      if (registro) {
+        const nombre = tool.slice(punto + 1);
+        const h = Object.hasOwn(registro, nombre) ? registro[nombre] : undefined;
+        if (!h) return reply(false, `No existe la herramienta "${tool}".`);
         const entrada = h.schema.safeParse(params);
         if (!entrada.success) {
           const detalle = entrada.error.issues.map((i) => `${i.path.join(".") || "?"}: ${i.message}`).join("; ");
@@ -1861,6 +1870,11 @@ export function agentToolsRoutes(
         if (tool === "clickup.create_task") {
           const { motivoListaProtegida } = await import("../services/planillas-protegidas.js");
           const motivo = await motivoListaProtegida(db, String(entrada.data.listId ?? ""));
+          if (motivo) return reply(false, motivo);
+        }
+        if (tool === "google.sheets_append" || tool === "google.sheets_update") {
+          const { motivoPlanillaProtegida } = await import("../services/planillas-protegidas.js");
+          const motivo = await motivoPlanillaProtegida(db, String(entrada.data.spreadsheetId ?? ""));
           if (motivo) return reply(false, motivo);
         }
         try {

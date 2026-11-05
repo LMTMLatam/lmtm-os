@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, promises as fs, type Dirent } from "node:fs";
 import os from "node:os";
@@ -1150,6 +1150,54 @@ export function entornoHeredable(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
   return Object.fromEntries(Object.entries(baseEnv).filter(([key]) => ENTORNO_HEREDABLE.has(key)));
 }
 
+/**
+ * Usuario con el que corre un agente que tiene LMTM_AGENTE_SIN_ROOT=1 (05/11).
+ * Como root leían el entorno del servidor en /proc/<pid>/environ (la clave de
+ * admin de la base, el secreto de Meta) aunque `entornoHeredable` no se lo
+ * pasara. Con otro usuario el kernel no deja leer el entorno de un proceso
+ * ajeno. Es el usuario `node` que ya trae la imagen node:20-slim.
+ */
+export const USUARIO_AGENTE = { uid: 1000, gid: 1000, home: "/home/node", nombre: "node" };
+
+/** Lo único que se le da al agente. Nunca /app: sería dueño del código del servidor. */
+export const RAICES_DEL_AGENTE = ["/paperclip/", "/tmp/"];
+
+export function puedeSerDelAgente(dirReal: string): boolean {
+  // Una subcarpeta, nunca la raíz: /tmp entero tiene los logs del servidor.
+  return RAICES_DEL_AGENTE.some((r) => dirReal.startsWith(r) && dirReal.length > r.length) && !dirReal.split("/").includes("..");
+}
+
+/**
+ * Deja la carpeta de trabajo y el HOME a nombre del agente y devuelve con qué
+ * usuario lanzarlo, o null si corre como hasta ahora.
+ * ponytail: chown -R en cada corrida; si una carpeta crece a cientos de miles de
+ * archivos, cambiar solo la raíz y lo que escribe el servidor.
+ */
+export async function prepararSinRoot(
+  env: Record<string, string | undefined>,
+  cwd: string,
+  remota: boolean,
+): Promise<{ uid: number; gid: number } | null> {
+  if (env.LMTM_AGENTE_SIN_ROOT !== "1" || remota) return null;
+  if (process.platform === "win32" || process.getuid?.() !== 0) return null;
+  const u = USUARIO_AGENTE;
+  const dir = await fs.realpath(cwd);
+  if (!puedeSerDelAgente(dir)) {
+    throw new Error(`Un agente sin root no trabaja en ${dir}: solo bajo ${RAICES_DEL_AGENTE.join(" o ")}.`);
+  }
+  await fs.mkdir(u.home, { recursive: true });
+  for (const d of [u.home, dir]) {
+    // -h: un symlink de la carpeta que apunte a /app cambia el link, no el archivo.
+    await new Promise<void>((ok, mal) =>
+      execFile("chown", ["-R", "-h", `${u.uid}:${u.gid}`, d], (e) => (e ? mal(e) : ok())),
+    );
+  }
+  env.HOME = u.home;
+  env.USER = u.nombre;
+  env.LOGNAME = u.nombre;
+  return { uid: u.uid, gid: u.gid };
+}
+
 export function defaultPathForPlatform() {
   if (process.platform === "win32") {
     return "C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem";
@@ -1954,17 +2002,22 @@ export async function runChildProcess(
     }
 
     const mergedEnv = ensurePathInEnv(rawMerged);
-    void resolveSpawnTarget(command, args, opts.cwd, mergedEnv, {
-      remoteExecution: opts.remoteExecution ?? null,
-      remoteEnv: opts.remoteExecution ? opts.env : null,
-    })
-      .then((target) => {
+    void prepararSinRoot(mergedEnv, opts.cwd, Boolean(opts.remoteExecution))
+      .then(async (sinRoot) => ({
+        sinRoot,
+        target: await resolveSpawnTarget(command, args, opts.cwd, mergedEnv, {
+          remoteExecution: opts.remoteExecution ?? null,
+          remoteEnv: opts.remoteExecution ? opts.env : null,
+        }),
+      }))
+      .then(({ sinRoot, target }) => {
         const child = spawn(target.command, target.args, {
           cwd: target.cwd ?? opts.cwd,
           env: mergedEnv,
           detached: process.platform !== "win32",
           shell: false,
           stdio: [opts.stdin != null ? "pipe" : "ignore", "pipe", "pipe"],
+          ...(sinRoot ?? {}),
         }) as ChildProcessWithEvents;
         const startedAt = new Date().toISOString();
         const processGroupId = resolveProcessGroupId(child);
