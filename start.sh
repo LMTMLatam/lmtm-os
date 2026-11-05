@@ -45,6 +45,8 @@ if [ -d /data ]; then
   for d in /data/backups /data/higgsfield; do mkdir -p "$d" && chmod 700 "$d"; done
 fi
 mkdir -p /app/data && chmod 700 /app/data
+L="${PAPERCLIP_HOME:-/paperclip}/instances/${PAPERCLIP_INSTANCE_ID:-lmtm}/logs"
+mkdir -p "$L" && chmod 700 "$L"
 for f in /tmp/server.log /tmp/wa-gateway.log /tmp/litellm.log /tmp/pg-backup.log; do
   touch "$f" && chmod 600 "$f"
 done
