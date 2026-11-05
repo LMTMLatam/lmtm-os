@@ -2,7 +2,10 @@
   "mcpServers": {
     "paperclip": {
       "command": "/usr/local/bin/node",
-      "args": ["--conditions=production", "/app/packages/mcp-server/dist/stdio.js"],
+      "args": [
+        "--conditions=production",
+        "/app/packages/mcp-server/dist/stdio.js"
+      ],
       "env": {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "PAPERCLIP_API_URL": "${PAPERCLIP_API_URL}",
@@ -26,29 +29,28 @@
     },
     "google": {
       "command": "/usr/local/bin/node",
-      "args": ["--conditions=production", "/app/packages/mcp-servers/google/dist/stdio.js"],
+      "args": [
+        "--conditions=production",
+        "/app/packages/mcp-servers/google/dist/stdio.js"
+      ],
       "env": {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
-        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
-        "GOOGLE_OAUTH_REFRESH_TOKEN": "${GOOGLE_OAUTH_REFRESH_TOKEN}",
-        "LMTM_DRIVE_AGENTS_FOLDER": "${LMTM_DRIVE_AGENTS_FOLDER}",
         "PAPERCLIP_API_URL": "${PAPERCLIP_API_URL}",
         "PAPERCLIP_API_KEY": "${PAPERCLIP_API_KEY}",
-        "PAPERCLIP_RUN_ID": "${PAPERCLIP_RUN_ID}",
-        "LMTM_GOOGLE_POR_SERVIDOR": "${LMTM_GOOGLE_POR_SERVIDOR:-}"
+        "PAPERCLIP_RUN_ID": "${PAPERCLIP_RUN_ID}"
       }
     },
     "clickup": {
       "command": "/usr/local/bin/node",
-      "args": ["--conditions=production", "/app/packages/mcp-servers/clickup/dist/stdio.js"],
+      "args": [
+        "--conditions=production",
+        "/app/packages/mcp-servers/clickup/dist/stdio.js"
+      ],
       "env": {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "CLICKUP_API_TOKEN": "${CLICKUP_API_TOKEN}",
         "PAPERCLIP_API_URL": "${PAPERCLIP_API_URL}",
         "PAPERCLIP_API_KEY": "${PAPERCLIP_API_KEY}",
-        "PAPERCLIP_RUN_ID": "${PAPERCLIP_RUN_ID}",
-        "LMTM_CLICKUP_POR_SERVIDOR": "${LMTM_CLICKUP_POR_SERVIDOR:-}"
+        "PAPERCLIP_RUN_ID": "${PAPERCLIP_RUN_ID}"
       }
     }
   }

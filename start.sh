@@ -120,12 +120,18 @@ fi
 # primera vez que se transcribe: en el volumen /data no se vuelve a bajar en cada
 # deploy. El autotest queda en el log de cada arranque.
 if [ -d /data ]; then
-  W="${HOME:-/root}/.cache/hyperframes/whisper"
-  mkdir -p /data/whisper-models "$W"
-  if [ ! -L "$W/models" ]; then
-    rm -rf "$W/models"
-    ln -sfn /data/whisper-models "$W/models"
-  fi
+  mkdir -p /data/whisper-models
+  # Los agentes corren con el usuario node (05/11): el modelo lo baja y lo lee él.
+  chown node:node /data/whisper-models 2>/dev/null || true
+  for H in "${HOME:-/root}" /home/node; do
+    W="$H/.cache/hyperframes/whisper"
+    mkdir -p "$W"
+    if [ ! -L "$W/models" ]; then
+      rm -rf "$W/models"
+      ln -sfn /data/whisper-models "$W/models"
+    fi
+  done
+  chown -R node:node /home/node/.cache 2>/dev/null || true
 fi
 if command -v vtool >/dev/null 2>&1; then
   echo "[wrapper] vtool: $(vtool autotest 2>&1 | tail -1)"

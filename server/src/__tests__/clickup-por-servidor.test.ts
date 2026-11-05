@@ -16,16 +16,12 @@ describe("servidorDesdeEntorno", () => {
     expect(servidorDesdeEntorno(paperclip)).toEqual({ apiUrl: "https://os.test/api", apiKey: "jwt", runId: "run-1" });
   });
 
-  it("con token y sin el interruptor, sigue directo", () => {
-    expect(servidorDesdeEntorno({ ...paperclip, CLICKUP_API_TOKEN: "pk_x" })).toBeNull();
+  it("aunque se cuele un token en el entorno, sigue yendo por el servidor", () => {
+    expect(servidorDesdeEntorno({ ...paperclip, CLICKUP_API_TOKEN: "pk_x" })).not.toBeNull();
   });
 
-  it("el interruptor del agente de prueba gana aunque haya token", () => {
-    expect(servidorDesdeEntorno({ ...paperclip, CLICKUP_API_TOKEN: "pk_x", LMTM_CLICKUP_POR_SERVIDOR: "1" })).not.toBeNull();
-  });
-
-  it("sin la API del servidor no hay a quién pedirle", () => {
-    expect(servidorDesdeEntorno({ LMTM_CLICKUP_POR_SERVIDOR: "1" })).toBeNull();
+  it("sin la API del servidor (uso suelto) llama directo", () => {
+    expect(servidorDesdeEntorno({ CLICKUP_API_TOKEN: "pk_x" })).toBeNull();
   });
 });
 
@@ -64,10 +60,9 @@ describe("modo consulta", () => {
 });
 
 describe("google", () => {
-  it("sin la credencial va por el servidor; con ella y sin interruptor, directo", () => {
-    expect(googleDesdeEntorno(paperclip)).not.toBeNull();
-    expect(googleDesdeEntorno({ ...paperclip, GOOGLE_OAUTH_REFRESH_TOKEN: "rt" })).toBeNull();
-    expect(googleDesdeEntorno({ ...paperclip, GOOGLE_OAUTH_REFRESH_TOKEN: "rt", LMTM_GOOGLE_POR_SERVIDOR: "1" })).not.toBeNull();
+  it("con la API del servidor va por él aunque haya credencial; sin ella, directo", () => {
+    expect(googleDesdeEntorno({ ...paperclip, GOOGLE_OAUTH_REFRESH_TOKEN: "rt" })).not.toBeNull();
+    expect(googleDesdeEntorno({ GOOGLE_OAUTH_REFRESH_TOKEN: "rt" })).toBeNull();
   });
 
   it("en modo consulta se lee y no se escribe", () => {

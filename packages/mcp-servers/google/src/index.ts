@@ -172,15 +172,14 @@ type Servidor = { apiUrl: string; apiKey: string; runId: string };
 /**
  * Los agentes no reciben la credencial de Google (05/11): la leían del entorno
  * desde la terminal. Le piden cada acción al servidor, que es el único que la
- * guarda. Con la credencial puesta (uso suelto, sin servidor) llama directo.
+ * guarda: con la API del servidor a mano va siempre por él. Sin ella (uso
+ * suelto) llama directo con GOOGLE_OAUTH_*.
  * Gemelo de servidorDesdeEntorno en @paperclipai/mcp-clickup.
  */
 export function servidorDesdeEntorno(env: NodeJS.ProcessEnv = process.env): Servidor | null {
   const apiUrl = env.PAPERCLIP_API_URL?.trim().replace(/\/+$/, "");
   const apiKey = env.PAPERCLIP_API_KEY?.trim();
   if (!apiUrl || !apiKey) return null;
-  const porServidor = env.LMTM_GOOGLE_POR_SERVIDOR === "1" || !env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim();
-  if (!porServidor) return null;
   return { apiUrl: apiUrl.endsWith("/api") ? apiUrl : `${apiUrl}/api`, apiKey, runId: env.PAPERCLIP_RUN_ID?.trim() ?? "" };
 }
 

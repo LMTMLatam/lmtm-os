@@ -174,15 +174,14 @@ type Servidor = { apiUrl: string; apiKey: string; runId: string };
 /**
  * Los agentes no tienen el token de ClickUp (05/11): era el mismo de los 129
  * Apps Scripts y lo podían leer desde la terminal. Le piden cada acción al
- * servidor, que es el único que lo guarda. Con el token puesto (uso suelto, sin
- * servidor) llama directo a ClickUp.
+ * servidor, que es el único que lo guarda: con la API del servidor a mano va
+ * siempre por él, aunque haya un token en el entorno. Sin ella (uso suelto)
+ * llama directo a ClickUp con CLICKUP_API_TOKEN.
  */
 export function servidorDesdeEntorno(env: NodeJS.ProcessEnv = process.env): Servidor | null {
   const apiUrl = env.PAPERCLIP_API_URL?.trim().replace(/\/+$/, "");
   const apiKey = env.PAPERCLIP_API_KEY?.trim();
   if (!apiUrl || !apiKey) return null;
-  const porServidor = env.LMTM_CLICKUP_POR_SERVIDOR === "1" || !env.CLICKUP_API_TOKEN?.trim();
-  if (!porServidor) return null;
   return { apiUrl: apiUrl.endsWith("/api") ? apiUrl : `${apiUrl}/api`, apiKey, runId: env.PAPERCLIP_RUN_ID?.trim() ?? "" };
 }
 

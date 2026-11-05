@@ -1141,9 +1141,9 @@ const ENTORNO_HEREDABLE = new Set([
   "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
   // Cómo hablarle a la API de Paperclip
   "PAPERCLIP_RUNTIME_API_URL", "PAPERCLIP_LISTEN_HOST", "PAPERCLIP_LISTEN_PORT",
-  // Lo que piden los MCP de docker/claude-mcp.json
-  "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN", "LMTM_DRIVE_AGENTS_FOLDER",
-  "CLICKUP_API_TOKEN", "TRENDS_MCP_API_KEY",
+  // Lo que piden los MCP de docker/claude-mcp.json. ClickUp y Google no: los
+  // agentes se los piden al servidor, que es el único que tiene esas claves (05/11).
+  "TRENDS_MCP_API_KEY",
 ]);
 
 export function entornoHeredable(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

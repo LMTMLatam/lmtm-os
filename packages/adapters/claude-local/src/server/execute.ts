@@ -761,6 +761,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       });
     }
 
+    // Las corridas de agentes van sin root salvo que una persona ponga
+    // LMTM_AGENTE_SIN_ROOT=0 en la config del agente (05/11, ver prepararSinRoot).
+    if (env.LMTM_AGENTE_SIN_ROOT !== "0") env.LMTM_AGENTE_SIN_ROOT = "1";
     const proc = await runAdapterExecutionTargetProcess(runId, runtimeExecutionTarget, command, args, {
       cwd,
       env,
