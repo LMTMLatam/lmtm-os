@@ -40,7 +40,11 @@
       "args": ["--conditions=production", "/app/packages/mcp-servers/clickup/dist/stdio.js"],
       "env": {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "CLICKUP_API_TOKEN": "${CLICKUP_API_TOKEN}"
+        "CLICKUP_API_TOKEN": "${CLICKUP_API_TOKEN}",
+        "PAPERCLIP_API_URL": "${PAPERCLIP_API_URL}",
+        "PAPERCLIP_API_KEY": "${PAPERCLIP_API_KEY}",
+        "PAPERCLIP_RUN_ID": "${PAPERCLIP_RUN_ID}",
+        "LMTM_CLICKUP_POR_SERVIDOR": "${LMTM_CLICKUP_POR_SERVIDOR:-}"
       }
     }
   }

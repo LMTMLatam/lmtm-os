@@ -28,6 +28,7 @@ import { fetchAccountBalances } from "../services/balance-monitor.js";
 import { getRedesScheduledContent, getRedesCalendar } from "../services/clickup-sync.js";
 import { createClientTask } from "../services/client-tasks.js";
 import { clickupTools, googleTools } from "../services/agent-mcp-tools.js";
+import { HERRAMIENTAS as HERRAMIENTAS_CLICKUP } from "@paperclipai/mcp-clickup";
 import { enRutinas, resolveCompanyId } from "../services/intel-common.js";
 import { canonicalizeNiches, trendMatchesIndustry } from "../services/niche-slugs.js";
 import {
@@ -1844,6 +1845,29 @@ export function agentToolsRoutes(
         if (r.estado === "descartado") return reply(true, `Ya se mandó lo mismo hace poco, no lo repito: ${r.motivo}`);
         if (r.estado === "error") return reply(false, `No se pudo enviar: ${r.motivo ?? "error desconocido"}`);
         return reply(true, "Reporte encolado para el resumen del equipo de las 9:00.");
+      }
+
+      // El MCP `clickup` de los agentes ya no tiene el token (05/11): cada acción
+      // llega acá como `clickup.<nombre>` y corre con el del servidor y sus frenos.
+      if (tool.startsWith("clickup.")) {
+        const nombre = tool.slice("clickup.".length);
+        const h = Object.hasOwn(HERRAMIENTAS_CLICKUP, nombre) ? HERRAMIENTAS_CLICKUP[nombre] : undefined;
+        if (!h) return reply(false, `No existe la herramienta de ClickUp "${tool}".`);
+        const entrada = h.schema.safeParse(params);
+        if (!entrada.success) {
+          const detalle = entrada.error.issues.map((i) => `${i.path.join(".") || "?"}: ${i.message}`).join("; ");
+          return reply(false, `Parámetros inválidos para ${tool}: ${detalle}`);
+        }
+        if (tool === "clickup.create_task") {
+          const { motivoListaProtegida } = await import("../services/planillas-protegidas.js");
+          const motivo = await motivoListaProtegida(db, String(entrada.data.listId ?? ""));
+          if (motivo) return reply(false, motivo);
+        }
+        try {
+          return reply(true, JSON.stringify(await h.correr(entrada.data as never), null, 2));
+        } catch (e) {
+          return reply(false, `${tool}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       // ClickUp tools (in-process MCP wrapper).
