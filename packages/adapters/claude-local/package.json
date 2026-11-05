@@ -63,6 +63,7 @@
   },
   "files": [
     "dist",
+    "hooks",
     "skills"
   ],
   "scripts": {

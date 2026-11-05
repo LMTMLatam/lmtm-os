@@ -65,6 +65,7 @@ import { buildClaudeExecutionPermissionArgs } from "./permissions.js";
 import { SANDBOX_INSTALL_COMMAND } from "../index.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const FRENO_APROBACION = path.resolve(__moduleDir, "../../hooks/freno-aprobacion.mjs");
 
 interface ClaudeExecutionInput {
   runId: string;
@@ -698,6 +699,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       args.push("--append-system-prompt-file", attemptInstructionsFilePath);
     }
     args.push("--add-dir", effectivePromptBundleAddDir);
+    // En un destino remoto el script no existe.
+    if (executionTarget?.kind !== "remote") {
+      args.push("--settings", JSON.stringify({
+        hooks: {
+          PreToolUse: [{
+            matcher: "Bash|Write|Edit",
+            hooks: [{ type: "command", command: `"${process.execPath}" "${FRENO_APROBACION}"` }],
+          }],
+        },
+      }));
+    }
     if (extraArgs.length > 0) args.push(...extraArgs);
     return args;
   };

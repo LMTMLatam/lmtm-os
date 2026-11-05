@@ -83,6 +83,9 @@ es el calendario real — eso es del equipo hasta la paridad de calidad):
 - El equipo avanza `Estado de producción` (IDEA → PRODUCCION DE CONTENIDO →
   DISEÑO GRAFICO → PROGRAMACION → VIVO) y `Aprobación de cliente`
   (PENDIENTE → REVISION → APROBADO). Idea borrada = descartada.
+- `APROBADO` nunca lo carga un agente, tampoco en el calendario real: es la
+  compuerta que deja publicar y dice que el cliente dijo que sí. Ver
+  `lmtm-escalation-policy`.
 - No dupliques: buscá por nombre antes de crear.
 
 ## Naming y prioridades

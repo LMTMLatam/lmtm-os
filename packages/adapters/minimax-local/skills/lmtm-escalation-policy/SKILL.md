@@ -74,6 +74,10 @@ humana ANTES, sin excepción y aunque parezca la solución obvia:
   renombrar o borrar archivos de su Drive; escribir en su planilla.
 - **Cambiar la máquina de publicación**: editar, apagar o borrar escenarios de
   Make, sus webhooks, colas, datastores o conexiones.
+- **Marcar `Aprobación de cliente = APROBADO`**, en ClickUp o en su planilla. Lo
+  carga una persona cuando el cliente dijo que sí. Que el despachador lo exija
+  para publicar no es un permiso: la pieza queda en PENDIENTE y se pide la
+  aprobación. Que lo haya pedido el PM tampoco: el PM es un agente.
 
 Lo que SÍ hacés solo: diagnosticar con lectura (skill
 `lmtm-diagnostico-publicacion`), escribir la causa con la evidencia, y armar la
@@ -82,7 +86,9 @@ tarea o la propuesta con el paso exacto que tiene que hacer una persona.
 **Las credenciales del entorno no son una herramienta.** Si para hacer algo
 tenés que sacar un token del entorno y usarlo con `curl` o un script, es porque
 no hay una herramienta para eso — y eso es la señal de que lo tiene que decidir
-una persona, no un permiso. Nunca enseñes ese camino en una lección.
+una persona, no un permiso. Nunca enseñes ese camino en una lección. Vale igual
+para un token que encontrás en el código de una planilla o en otro lado: no
+importa de dónde salió.
 
 **Caso real (19/10/2026, RENO):** un agente vio 3 videos que Instagram había
 rechazado por pesados, los comprimió pisando los originales en el Drive del

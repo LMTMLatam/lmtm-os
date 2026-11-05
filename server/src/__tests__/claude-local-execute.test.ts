@@ -224,6 +224,11 @@ describe("claude execute", () => {
       });
       const captured = JSON.parse(await fs.readFile(capturePath, "utf-8"));
       expect(captured.argv).toContain("--append-system-prompt-file");
+
+      // El freno de la aprobación del cliente: el script tiene que existir donde apunta.
+      const settings = JSON.parse(captured.argv[captured.argv.indexOf("--settings") + 1]);
+      const comando: string = settings.hooks.PreToolUse[0].hooks[0].command;
+      await expect(fs.access(comando.split('"')[3])).resolves.toBeUndefined();
     } finally {
       restore();
       await fs.rm(root, { recursive: true, force: true });
