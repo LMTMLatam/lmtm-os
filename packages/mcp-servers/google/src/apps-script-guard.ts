@@ -63,6 +63,22 @@ function writesCustomFields(code: string): boolean {
   return code.includes("/field/") || code.includes("custom_fields");
 }
 
+/** La librería con el token de ClickUp (05/11/26). Los scripts lo leen con
+ *  LmtmClickUp.token(); la librería la cambia una persona. */
+export const LIBRERIA_TOKEN_CLICKUP = "1Fmq7A10spAGAshYF_YN8xsELBUoLV874sXzjiOHAYVuGYzJ1koU0KO86";
+export const SIMBOLO_TOKEN_CLICKUP = "LmtmClickUp";
+export const TOKEN_CLICKUP_RE = /pk_[0-9A-Za-z_]{10,}/g;
+
+function traeLaLibreria(files: ScriptFile[]): boolean {
+  const man = files.find((f) => f.type === "JSON" && f.name === "appsscript");
+  try {
+    const libs = JSON.parse(man?.source ?? "{}")?.dependencies?.libraries ?? [];
+    return libs.some((l: { userSymbol?: string }) => l.userSymbol === SIMBOLO_TOKEN_CLICKUP);
+  } catch {
+    return false; // el manifest roto ya lo marca la regla de sintaxis
+  }
+}
+
 export interface Violation {
   regla: string;
   detalle: string;
@@ -155,6 +171,21 @@ export function validarAppsScript(nuevos: ScriptFile[], actuales: ScriptFile[]):
 
   // 6. Los campos phone y email de ClickUp validan formato y rechazan con 400.
   //    En las planillas no hay un solo valor válido en esas columnas.
+
+  // 7. El token de ClickUp vive en una sola librería (05/11/26). Hasta entonces
+  //    estaba escrito en 131 scripts: cambiarlo era tocarlos todos.
+  if (new RegExp(TOKEN_CLICKUP_RE.source).test(nuevo)) {
+    v.push({
+      regla: "token-escrito",
+      detalle: `el código tiene un token de ClickUp escrito. Usá ${SIMBOLO_TOKEN_CLICKUP}.token(): la librería ya está en el manifest de cada script.`,
+    });
+  }
+  if (uses(nuevo, SIMBOLO_TOKEN_CLICKUP) && !traeLaLibreria(nuevos)) {
+    v.push({
+      regla: "libreria-faltante",
+      detalle: `el código llama a ${SIMBOLO_TOKEN_CLICKUP} y el manifest no trae la librería: copiá dependencies.libraries del manifest actual (script_get_content). Sin eso, el script falla en la primera línea.`,
+    });
+  }
   return v;
 }
 

@@ -134,3 +134,25 @@ describe("validarAppsScript", () => {
     expect(v.length).toBeGreaterThanOrEqual(3); // manifest + 2 configs
   });
 });
+
+describe("token de ClickUp en la librería (05/11/26)", () => {
+  const conLib: ScriptFile = {
+    name: "appsscript",
+    type: "JSON",
+    source: JSON.stringify({ timeZone: "America/Argentina/Buenos_Aires", dependencies: { libraries: [{ userSymbol: "LmtmClickUp", libraryId: "x", version: "1", developmentMode: true }] } }),
+  };
+  const reglas = (files: ScriptFile[]) => validarAppsScript(files, sano()).map((x) => x.regla);
+
+  it("rechaza el token escrito en el código", () => {
+    expect(reglas(con(SANO + 'const CLICKUP_API_TOKEN = "pk_1234567890_ABCDEFGHIJ";'))).toContain("token-escrito");
+  });
+
+  it("rechaza llamar a la librería sin traerla en el manifest", () => {
+    expect(reglas(con(SANO + "const CLICKUP_API_TOKEN = LmtmClickUp.token();"))).toContain("libreria-faltante");
+  });
+
+  it("acepta la librería con su manifest", () => {
+    const files = [conLib, { name: "Código", type: "SERVER_JS" as const, source: SANO + "const CLICKUP_API_TOKEN = LmtmClickUp.token();" }];
+    expect(reglas(files)).toEqual([]);
+  });
+});

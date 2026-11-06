@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { gFetch } from "./api.js";
-import { mensajeDeRechazo, validarAppsScript, type ScriptFile } from "./apps-script-guard.js";
+import { LIBRERIA_TOKEN_CLICKUP, TOKEN_CLICKUP_RE, mensajeDeRechazo, validarAppsScript, type ScriptFile } from "./apps-script-guard.js";
 
 const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
 const DRIVE = "https://www.googleapis.com/drive/v3/files";
@@ -217,7 +217,10 @@ export const scriptGetContentSchema = z.object({
   scriptId: z.string(),
 });
 export async function scriptGetContent(i: z.infer<typeof scriptGetContentSchema>) {
-  return gFetch(`${SCRIPT}/${i.scriptId}/content`);
+  // El token de ClickUp no se le muestra a nadie (05/11/26): solo queda en la
+  // librería, y los scripts lo leen con LmtmClickUp.token().
+  const r = (await gFetch(`${SCRIPT}/${i.scriptId}/content`)) as { files?: ScriptFile[] };
+  return { ...r, files: (r.files ?? []).map((f) => ({ ...f, source: f.source.replace(TOKEN_CLICKUP_RE, "pk_***") })) };
 }
 
 export const scriptProcessesSchema = z.object({
@@ -253,6 +256,9 @@ export const scriptUpdateContentSchema = z.object({
     .describe("Complete set of files for the project. This REPLACES all existing files, so include the manifest too."),
 });
 export async function scriptUpdateContent(i: z.infer<typeof scriptUpdateContentSchema>) {
+  if (i.scriptId === LIBRERIA_TOKEN_CLICKUP) {
+    throw new Error("La librería del token de ClickUp no se edita desde acá: la cambia una persona. Si un script no lo encuentra, revisá que su manifest traiga la librería.");
+  }
   // Se valida contra el contenido que está corriendo antes de pisarlo: ver
   // apps-script-guard.ts, cada regla sale de algo que rompió el sync de un
   // cliente de verdad. Un script roto igual reporta COMPLETED, así que si esto
