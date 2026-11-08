@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accionDesdeParametros, dominiosDelCliente, esAccionWeb, hostDe, pedidoDeAccion, websDelDominio, type WebHostinger } from "../services/hostinger.js";
+import { accionDesdeParametros, dominiosDelCliente, esAccionWeb, hostDe, pedidoDeAccion, resumenVulns, websDelDominio, type WebHostinger } from "../services/hostinger.js";
 
 const web = (domain: string, username = "u1"): WebHostinger => ({ domain, username, website_type: "wordpress", is_enabled: true });
 
@@ -51,5 +51,19 @@ describe("acciones permitidas", () => {
   it("un payload de aprobación mal formado no se ejecuta", () => {
     expect(esAccionWeb({ clientId: "c", dominio: "d", accion: { accion: "borrar_web" } })).toBe(false);
     expect(esAccionWeb({ clientId: "c", dominio: "d", accion: { accion: "purgar_cache" } })).toBe(true);
+  });
+});
+
+describe("vulnerabilidades", () => {
+  it("cuenta, nombra las graves y da la versión que arregla todas", () => {
+    const r = resumenVulns([
+      { title: "Contributor+ Stored XSS", fixed_in: "1.9.5" },
+      { title: "Unauthenticated Arbitrary Shortcode Execution", fixed_in: "1.10.2.1" },
+      { title: "Admin+ XSS", fixed_in: null },
+    ]);
+    expect(r.total).toBe(3);
+    expect(r.graves).toEqual(["Unauthenticated Arbitrary Shortcode Execution (arreglado en 1.10.2.1)"]);
+    expect(r.arregladoEn).toBe("1.10.2.1");
+    expect(resumenVulns(undefined)).toEqual({ total: 0, graves: [], arregladoEn: null });
   });
 });

@@ -145,7 +145,30 @@ const base = (w: WebHostinger) => `/api/hosting/v1/accounts/${w.username}/websit
 const baseWp = (w: WebHostinger, i: InstalacionWp) => `/api/hosting/v1/accounts/${w.username}/wordpress/${i.id}`;
 
 type Vuln = { title?: string; fixed_in?: string | null };
-const vulns = (v: unknown) => (Array.isArray(v) ? (v as Vuln[]).map((x) => `${x.title ?? "?"}${x.fixed_in ? ` (arreglado en ${x.fixed_in})` : ""}`) : []);
+/** Lo que deja entrar sin usuario o tomar el servidor. El resto (XSS de
+ *  colaborador, etc.) pide una cuenta en el sitio. */
+const GRAVE = /unauthenticated|remote code execution|rce|sql injection|arbitrary file (upload|deletion)|privilege escalation|shortcode execution/i;
+
+/** Compara versiones "1.10.2" > "1.9.9". Pura. */
+export function versionMayor(a: string, b: string): number {
+  const pa = a.split(".").map((x) => parseInt(x, 10) || 0), pb = b.split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  return 0;
+}
+
+/** Resumen de vulnerabilidades: cuántas, las graves con nombre y la versión
+ *  que arregla todas. La lista entera de un WordPress viejo pasa de 100 y
+ *  cortaba la respuesta antes de llegar a los plugins (08/11/26). Pura. */
+export function resumenVulns(v: unknown): { total: number; graves: string[]; arregladoEn: string | null } {
+  const l = Array.isArray(v) ? (v as Vuln[]) : [];
+  const arreglos = l.map((x) => x.fixed_in).filter((x): x is string => !!x);
+  return {
+    total: l.length,
+    graves: l.filter((x) => GRAVE.test(x.title ?? "")).map((x) => `${x.title}${x.fixed_in ? ` (arreglado en ${x.fixed_in})` : ""}`).slice(0, 5),
+    arregladoEn: arreglos.length ? arreglos.reduce((m, x) => (versionMayor(x, m) > 0 ? x : m)) : null,
+  };
+}
+const vulns = resumenVulns;
 
 /** Lectura: el estado técnico de la web del cliente en una llamada. */
 export async function auditarWeb(db: Db, clientId: string, dominio?: string): Promise<{ ok: boolean; contenido: unknown }> {
