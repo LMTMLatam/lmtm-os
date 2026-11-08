@@ -16,11 +16,23 @@
 
 import { spamOculto } from "./hostinger.js";
 
+const NAVEGADOR = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 LMTM-OS";
+
+/**
+ * JSON con < y > escapados (lo mismo que JSON_HEX_TAG de PHP). El firewall
+ * de Hostinger corta con 403 cualquier pedido que lleve <iframe o <script, y
+ * una página de Elementor con una calculadora embebida los lleva (SRP,
+ * 08/11/26). PHP lo decodifica igual. Sin barras escritas en el código: las
+ * herramientas de edición las rompían.
+ */
+const BARRA = String.fromCharCode(92);
+export const jsonSinEtiquetas = (o: unknown) => JSON.stringify(o).replace(/</g, BARRA + "u003c").replace(/>/g, BARRA + "u003e");
+
 export interface SesionWp {
   sitio: string;
   get: (path: string) => Promise<{ status: number; json: unknown; text: string }>;
   send: (method: string, path: string, body?: unknown) => Promise<{ status: number; json: unknown }>;
-  ajax: (params: Record<string, string>) => Promise<{ status: number; json: unknown }>;
+  ajax: (params: Record<string, string>) => Promise<{ status: number; json: unknown; text: string }>;
 }
 
 /** Abre una sesión de administrador con el link temporal de Hostinger. */
@@ -45,18 +57,34 @@ export async function abrirSesion(linkLogin: string): Promise<SesionWp> {
   if (![...jar.keys()].some((k) => k.startsWith("wordpress_logged_in"))) throw new Error("El link de acceso de Hostinger no abrió sesión en WordPress.");
   const nonce = (await (await fetch(`${sitio}/wp-admin/admin-ajax.php?action=rest-nonce`, { headers: { Cookie: cookie() } })).text()).trim();
   if (!/^[0-9a-f]{6,}$/.test(nonce)) throw new Error("WordPress no dio el nonce de la API con la sesión abierta.");
-  const H = () => ({ Cookie: cookie(), "X-WP-Nonce": nonce, "User-Agent": "LMTM-OS" });
+  const H = () => ({ Cookie: cookie(), "X-WP-Nonce": nonce, "User-Agent": NAVEGADOR, Referer: `${sitio}/wp-admin/` });
   const leer = async (r: Response) => { const text = await r.text(); let json: unknown = null; try { json = JSON.parse(text); } catch { /* html */ } return { status: r.status, json, text }; };
   return {
     sitio,
     get: async (path) => leer(await fetch(sitio + path, { headers: H(), signal: AbortSignal.timeout(60_000) })),
     send: async (method, path, body) => {
-      const r = await leer(await fetch(sitio + path, { method, headers: { ...H(), "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(60_000) }));
+      const r = await leer(await fetch(sitio + path, { method, headers: { ...H(), "Content-Type": "application/json" }, body: body === undefined ? undefined : jsonSinEtiquetas(body), signal: AbortSignal.timeout(60_000) }));
       return { status: r.status, json: r.json };
     },
+    // Con las mismas cabeceras que manda el editor desde el navegador: sin
+    // ellas el firewall de la web (Wordfence, LiteSpeed) corta el guardado con
+    // 403 aunque la lectura pase (SRP, 08/11/26).
     ajax: async (params) => {
-      const r = await leer(await fetch(`${sitio}/wp-admin/admin-ajax.php`, { method: "POST", headers: { Cookie: cookie(), "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params), signal: AbortSignal.timeout(60_000) }));
-      return { status: r.status, json: r.json };
+      const r = await leer(await fetch(`${sitio}/wp-admin/admin-ajax.php`, {
+        method: "POST",
+        headers: {
+          Cookie: cookie(),
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "User-Agent": NAVEGADOR,
+          Origin: sitio,
+          Referer: params.editor_post_id ? `${sitio}/wp-admin/post.php?post=${params.editor_post_id}&action=elementor` : `${sitio}/wp-admin/`,
+          "X-Requested-With": "XMLHttpRequest",
+          Accept: "application/json, text/javascript, */*; q=0.01",
+        },
+        body: new URLSearchParams(params),
+        signal: AbortSignal.timeout(90_000),
+      }));
+      return { status: r.status, json: r.json, text: r.text };
     },
   };
 }
@@ -163,10 +191,10 @@ export async function cambiarContenido(s: SesionWp, dominio: string, c: CambioCo
     if (cambios.length === 0) return { ok: false, detalle: "No había nada para cambiar en esa página de Elementor." };
     const r = await s.ajax({
       action: "elementor_ajax", _nonce: doc.nonce, editor_post_id: String(postId), initial_document_id: String(postId),
-      actions: JSON.stringify({ g: { action: "save_builder", data: { status: doc.estado, elements: elementos } } }),
+      actions: jsonSinEtiquetas({ g: { action: "save_builder", data: { status: doc.estado, elements: elementos } } }),
     });
     const ok = (r.json as { data?: { responses?: { g?: { success?: boolean } } } })?.data?.responses?.g?.success === true;
-    if (!ok) return { ok: false, detalle: `Elementor no guardó (${r.status}).`, respaldo: { postId, elementos: doc.elementos } };
+    if (!ok) return { ok: false, detalle: `Elementor no guardó (${r.status}): ${r.text.replace(/<[^>]+>/g, " ").replace(/ +/g, " ").trim().slice(0, 200)}`, respaldo: { postId, elementos: doc.elementos } };
     // Verificación: se vuelve a leer y el cambio tiene que estar.
     const despues = await documentoElementor(s, postId);
     const quedo = despues ? editarTextos(despues.elementos, (v) => cambiar(v)).cambios.length === 0 : false;

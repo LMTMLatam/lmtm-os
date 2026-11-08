@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { editarTextos, quitarOcultos } from "../services/wordpress.js";
+import { editarTextos, jsonSinEtiquetas, quitarOcultos } from "../services/wordpress.js";
 import { accionDesdeParametros, describir } from "../services/hostinger.js";
 
 const SPAM = `<div style="position: absolute; left: -7566px;"><p>Las tragamonedas ofrecen grandes emociones y, con <a href="https://xbet-bolivia.com/" rel="dofollow">1xbet bolivia</a>, puedes registrarte.</p></div>`;
@@ -34,5 +34,14 @@ describe("acciones de contenido", () => {
     const a = accionDesdeParametros({ accion: "reemplazar_texto", postId: 5, buscar: "Inicio viejo", reemplazar: "" });
     if (typeof a === "string") throw new Error(a);
     expect(describir(a)).toContain("(nada)");
+  });
+});
+
+describe("JSON sin etiquetas (firewall de Hostinger)", () => {
+  it("no deja ningún < ni > y se decodifica igual", () => {
+    const o = { html: "<iframe src=\"x\"></iframe>", t: "a > b" };
+    const j = jsonSinEtiquetas(o);
+    expect(j).not.toMatch(/[<>]/);
+    expect(JSON.parse(j)).toEqual(o);
   });
 });
