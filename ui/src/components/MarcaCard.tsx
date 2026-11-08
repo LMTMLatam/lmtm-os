@@ -101,8 +101,8 @@ export function MarcaCard({ clientSlug, marca, web }: { clientSlug: string; marc
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Etiqueta titulo="Colores" ayuda="En hex, separados por coma. El primero es el principal.">
-          <Input value={aTexto(m.colores)} placeholder="#0B3D2E, #F2E8DC, #C8A46A"
-            onChange={(e) => setM((p) => ({ ...p, colores: aLista(e.target.value) }))} />
+          <InputLista valor={m.colores} placeholder="#0B3D2E, #F2E8DC, #C8A46A"
+            onCambio={(v) => setM((p) => ({ ...p, colores: v }))} />
           {m.colores.length > 0 && (
             <div className="flex gap-1 mt-1.5">
               {m.colores.map((c, i) => (
@@ -113,8 +113,8 @@ export function MarcaCard({ clientSlug, marca, web }: { clientSlug: string; marc
         </Etiqueta>
 
         <Etiqueta titulo="Tipografías" ayuda="Las que usa la marca, separadas por coma.">
-          <Input value={aTexto(m.tipografias)} placeholder="Poppins, Georgia"
-            onChange={(e) => setM((p) => ({ ...p, tipografias: aLista(e.target.value) }))} />
+          <InputLista valor={m.tipografias} placeholder="Poppins, Georgia"
+            onCambio={(v) => setM((p) => ({ ...p, tipografias: v }))} />
         </Etiqueta>
 
         <Etiqueta titulo="Logo (URL)" ayuda="Link al archivo del logo.">
@@ -128,13 +128,13 @@ export function MarcaCard({ clientSlug, marca, web }: { clientSlug: string; marc
         </Etiqueta>
 
         <Etiqueta titulo="Palabras que SÍ usa" ayuda="Las propias de la marca.">
-          <Input value={aTexto(m.palabrasSi)} placeholder="acompañar, a medida, artesanal"
-            onChange={(e) => setM((p) => ({ ...p, palabrasSi: aLista(e.target.value) }))} />
+          <InputLista valor={m.palabrasSi} placeholder="acompañar, a medida, artesanal"
+            onCambio={(v) => setM((p) => ({ ...p, palabrasSi: v }))} />
         </Etiqueta>
 
         <Etiqueta titulo="Palabras que NO usa" ayuda="Las que hay que evitar sí o sí.">
-          <Input value={aTexto(m.palabrasNo)} placeholder="barato, low cost, urgente"
-            onChange={(e) => setM((p) => ({ ...p, palabrasNo: aLista(e.target.value) }))} />
+          <InputLista valor={m.palabrasNo} placeholder="barato, low cost, urgente"
+            onCambio={(v) => setM((p) => ({ ...p, palabrasNo: v }))} />
         </Etiqueta>
       </div>
 
@@ -163,6 +163,21 @@ export function MarcaCard({ clientSlug, marca, web }: { clientSlug: string; marc
         {guardar.isError && <span className="text-xs text-rose-500">No se pudo guardar</span>}
       </div>
     </Card>
+  );
+}
+
+/** El texto se guarda tal cual se tipea y la lista sale de él. Antes el valor
+ *  se rearmaba desde la lista en cada tecla: la coma recién tipeada dejaba un
+ *  elemento vacío, se filtraba y desaparecía (08/11/26). */
+function InputLista({ valor, onCambio, placeholder }: { valor: string[]; onCambio: (v: string[]) => void; placeholder: string }) {
+  const [texto, setTexto] = useState(aTexto(valor));
+  // Si la lista cambia desde afuera (otro cliente, datos del server), se toma esa.
+  useEffect(() => {
+    setTexto((t) => (aTexto(aLista(t)) === aTexto(valor) ? t : aTexto(valor)));
+  }, [valor]);
+  return (
+    <Input value={texto} placeholder={placeholder}
+      onChange={(e) => { setTexto(e.target.value); onCambio(aLista(e.target.value)); }} />
   );
 }
 
