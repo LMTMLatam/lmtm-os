@@ -222,7 +222,9 @@ export async function archivosWeb(db: Db, clientId: string, p: { dominio?: strin
   if ("error" in r) return { ok: false, contenido: r.error };
   const ruta = (p.ruta ?? "").replace(/^\/+/, "");
   if (ruta.split("/").includes("..")) return { ok: false, contenido: "La ruta no puede subir de carpeta (..)." };
-  const q = new URLSearchParams({ path: ruta });
+  // Listar usa `directory` (y recorre 5 niveles si no se le dice otra cosa); leer usa `path`.
+  // Con `path` en el listado devolvía la raíz entera sin avisar (08/11/26).
+  const q = p.leer ? new URLSearchParams({ path: ruta }) : new URLSearchParams({ directory: ruta, max_depth: "1", max_items: "500" });
   try {
     const path = `/api/hosting/v1/accounts/${r.web.username}/domains/${r.web.domain}/files${p.leer ? "/content" : ""}?${q}`;
     return { ok: true, contenido: await pedir("GET", path) };
