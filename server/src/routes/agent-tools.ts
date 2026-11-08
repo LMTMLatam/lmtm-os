@@ -287,15 +287,33 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
-      name: "proponer_cambio_web",
+      name: "get_web_contenido",
       description:
-        "PROPONE un cambio en la web del cliente en Hostinger. NO lo ejecuta: deja una aprobación con el cambio exacto y se ejecuta solo cuando una persona la aprueba (actualizar un plugin puede tirar la web). Acciones: actualizar_plugins (plugins: slugs), actualizar_temas (temas: slugs), desactivar_plugin (plugin), actualizar_wordpress (soloMenor: true por defecto), instalar_ssl, forzar_https, crear_redireccion (desde, hacia), purgar_cache, version_php (version, ej. \"8.3\"). Los slugs salen de get_web_hosting. `justificacion` es lo que lee quien aprueba: vulnerabilidad, versión, qué se arregla y qué riesgo tiene.",
+        "Entra al WordPress del cliente (sesión temporal de administrador que da Hostinger, sin contraseñas) y busca DÓNDE aparece un texto: páginas y entradas (con el widget de Elementor exacto) e ítems de menú. Con administradores=true lista los administradores (para revisar una web hackeada). Devuelve los postId / menuItemId que pide proponer_cambio_web. Solo lectura.",
       parameters: {
         type: "object",
         properties: {
           clientId: { type: "string" },
           dominio: { type: "string" },
-          accion: { type: "string", enum: ["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress", "instalar_ssl", "forzar_https", "crear_redireccion", "purgar_cache", "version_php"] },
+          buscar: { type: "string", description: "Texto a buscar (ej. el del spam que marcó get_web_hosting)." },
+          administradores: { type: "boolean" },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "proponer_cambio_web",
+      description:
+        "PROPONE un cambio en la web del cliente en Hostinger. NO lo ejecuta: deja una aprobación con el cambio exacto y se ejecuta solo cuando una persona la aprueba (actualizar un plugin puede tirar la web). Acciones: actualizar_plugins (plugins: slugs), actualizar_temas (temas: slugs), desactivar_plugin (plugin), actualizar_wordpress (soloMenor: true por defecto), instalar_ssl, forzar_https, crear_redireccion (desde, hacia), purgar_cache, version_php (version, ej. \"8.3\"); y de CONTENIDO: quitar_spam (postId o menuItemId: saca solo los bloques ocultos con enlaces ajenos; un ítem de menú se borra solo si ES el spam) y reemplazar_texto (postId, buscar: texto exacto, reemplazar: nuevo o vacío) y bajar_administrador (userId: pasa a suscriptor un administrador sospechoso, por ejemplo uno creado hace poco con un mail ajeno; nunca el único). Los slugs salen de get_web_hosting; postId/menuItemId de get_web_contenido. `justificacion` es lo que lee quien aprueba: vulnerabilidad, versión, qué se arregla y qué riesgo tiene.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          dominio: { type: "string" },
+          accion: { type: "string", enum: ["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress", "instalar_ssl", "forzar_https", "crear_redireccion", "purgar_cache", "version_php", "quitar_spam", "reemplazar_texto", "bajar_administrador"] },
           plugins: { type: "array", items: { type: "string" } },
           temas: { type: "array", items: { type: "string" } },
           plugin: { type: "string" },
@@ -303,6 +321,11 @@ const CORE_TOOLS: ToolDef[] = [
           desde: { type: "string" },
           hacia: { type: "string" },
           version: { type: "string" },
+          postId: { type: "number" },
+          menuItemId: { type: "number" },
+          userId: { type: "number" },
+          buscar: { type: "string" },
+          reemplazar: { type: "string" },
           justificacion: { type: "string" },
         },
         required: ["clientId", "accion", "justificacion"],
@@ -1433,7 +1456,7 @@ export function agentToolsRoutes(
         }
       }
 
-      if (tool === "get_web_hosting" || tool === "get_web_archivos" || tool === "proponer_cambio_web") {
+      if (tool === "get_web_hosting" || tool === "get_web_archivos" || tool === "get_web_contenido" || tool === "proponer_cambio_web") {
         const clientId = textoDe(params.clientId);
         if (!clientId) return reply(false, "Falta clientId.");
         const dominio = textoDe(params.dominio) || undefined;
@@ -1444,6 +1467,10 @@ export function agentToolsRoutes(
         }
         if (tool === "get_web_archivos") {
           const r = await h.archivosWeb(db, clientId, { dominio, ruta: textoDe(params.ruta), leer: params.leer === true });
+          return reply(r.ok, typeof r.contenido === "string" ? r.contenido : JSON.stringify(r.contenido).slice(0, 20000));
+        }
+        if (tool === "get_web_contenido") {
+          const r = await h.contenidoWeb(db, clientId, { dominio, buscar: textoDe(params.buscar), administradores: params.administradores === true });
           return reply(r.ok, typeof r.contenido === "string" ? r.contenido : JSON.stringify(r.contenido).slice(0, 20000));
         }
         const accion = h.accionDesdeParametros(params);

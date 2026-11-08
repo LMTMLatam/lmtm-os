@@ -46,12 +46,19 @@ export type AccionWeb =
   | { accion: "forzar_https" }
   | { accion: "crear_redireccion"; desde: string; hacia: string }
   | { accion: "purgar_cache" }
-  | { accion: "version_php"; version: string };
+  | { accion: "version_php"; version: string }
+  // Contenido (08/11/26): por sesión de administrador con el link temporal de Hostinger.
+  | { accion: "quitar_spam"; postId?: number; menuItemId?: number }
+  | { accion: "reemplazar_texto"; postId: number; buscar: string; reemplazar: string }
+  | { accion: "bajar_administrador"; userId: number };
 
 export const ACCIONES_WEB = [
   "actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress",
   "instalar_ssl", "forzar_https", "crear_redireccion", "purgar_cache", "version_php",
+  "quitar_spam", "reemplazar_texto", "bajar_administrador",
 ] as const;
+
+const DE_CONTENIDO = new Set(["quitar_spam", "reemplazar_texto", "bajar_administrador"]);
 
 export interface PayloadAccionWeb {
   clientId: string;
@@ -243,6 +250,29 @@ export async function auditarWeb(db: Db, clientId: string, dominio?: string): Pr
   };
 }
 
+/** Link de acceso temporal al wp-admin (lo genera Hostinger; se usa una vez). */
+async function linkDeAcceso(w: WebHostinger, i: InstalacionWp): Promise<string> {
+  const j = (await pedir("POST", `${baseWp(w, i)}/login/links`, {})) as { login?: string };
+  if (!j?.login) throw new ErrorHostinger("Hostinger no dio el link de acceso a WordPress.");
+  return j.login;
+}
+
+/** Lectura por sesión de WordPress: dónde aparece un texto, o los administradores. */
+export async function contenidoWeb(db: Db, clientId: string, p: { dominio?: string; buscar?: string; administradores?: boolean }): Promise<{ ok: boolean; contenido: unknown }> {
+  const r = await webDelCliente(db, clientId, p.dominio);
+  if ("error" in r) return { ok: false, contenido: r.error };
+  if (!r.wp) return { ok: false, contenido: `${r.web.domain} no figura como WordPress en Hostinger.` };
+  const buscar = (p.buscar ?? "").trim();
+  if (!p.administradores && buscar.length < 3) return { ok: false, contenido: "Pasá `buscar` (3 caracteres o más) o `administradores: true`." };
+  try {
+    const { abrirSesion, buscarEnWeb, administradores } = await import("./wordpress.js");
+    const s = await abrirSesion(await linkDeAcceso(r.web, r.wp));
+    return { ok: true, contenido: p.administradores ? await administradores(s) : await buscarEnWeb(s, buscar) };
+  } catch (e) {
+    return { ok: false, contenido: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Lectura: lista una carpeta o lee un archivo de texto de la web del cliente. */
 export async function archivosWeb(db: Db, clientId: string, p: { dominio?: string; ruta?: string; leer?: boolean }): Promise<{ ok: boolean; contenido: unknown }> {
   const r = await webDelCliente(db, clientId, p.dominio);
@@ -292,6 +322,24 @@ export function accionDesdeParametros(p: Record<string, unknown>): AccionWeb | s
       const version = texto(p.version);
       return /^\d\.\d$/.test(version) ? { accion: "version_php", version } : "Pasá `version` como \"8.3\".";
     }
+    case "quitar_spam": {
+      const postId = Number(p.postId), menuItemId = Number(p.menuItemId);
+      if (Number.isInteger(menuItemId) && menuItemId > 0) return { accion: "quitar_spam", menuItemId };
+      if (Number.isInteger(postId) && postId > 0) return { accion: "quitar_spam", postId };
+      return "Pasá `postId` (página) o `menuItemId` (ítem de menú), los que devuelve get_web_contenido.";
+    }
+    case "reemplazar_texto": {
+      const postId = Number(p.postId);
+      const buscar = typeof p.buscar === "string" ? p.buscar : "";
+      const reemplazar = typeof p.reemplazar === "string" ? p.reemplazar : "";
+      if (!Number.isInteger(postId) || postId <= 0) return "Pasá `postId`.";
+      if (buscar.trim().length < 3 || buscar.length > 2000 || reemplazar.length > 5000) return "`buscar` es el texto exacto a cambiar (3 a 2000 caracteres); `reemplazar`, el nuevo (vacío = borrarlo).";
+      return { accion: "reemplazar_texto", postId, buscar, reemplazar };
+    }
+    case "bajar_administrador": {
+      const userId = Number(p.userId);
+      return Number.isInteger(userId) && userId > 0 ? { accion: "bajar_administrador", userId } : "Pasá `userId` (de get_web_contenido con administradores=true).";
+    }
     default:
       return `Acción desconocida. Las que hay: ${ACCIONES_WEB.join(", ")}.`;
   }
@@ -309,7 +357,7 @@ export async function proponerCambioWeb(
 ): Promise<{ ok: boolean; mensaje: string }> {
   const r = await webDelCliente(db, input.clientId, input.dominio);
   if ("error" in r) return { ok: false, mensaje: r.error };
-  if (["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress"].includes(input.accion.accion) && !r.wp) {
+  if (["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress", ...DE_CONTENIDO].includes(input.accion.accion) && !r.wp) {
     return { ok: false, mensaje: `${r.web.domain} no figura como WordPress en Hostinger: esa acción no aplica.` };
   }
   const payload: PayloadAccionWeb = {
@@ -354,6 +402,9 @@ export function describir(a: AccionWeb): string {
     case "crear_redireccion": return `redirigir ${a.desde} → ${a.hacia}`;
     case "purgar_cache": return "purgar la cache";
     case "version_php": return `pasar PHP a ${a.version}`;
+    case "quitar_spam": return a.menuItemId ? `borrar el ítem de menú ${a.menuItemId} (spam oculto)` : `quitar el spam oculto de la página ${a.postId}`;
+    case "reemplazar_texto": return `en la página ${a.postId}, cambiar «${a.buscar.slice(0, 60)}» por «${a.reemplazar.slice(0, 60) || "(nada)"}»`;
+    case "bajar_administrador": return `sacarle el rol de administrador al usuario ${a.userId} (pasa a suscriptor)`;
   }
 }
 
@@ -376,6 +427,9 @@ export function pedidoDeAccion(w: WebHostinger, wp: InstalacionWp | null, a: Acc
     case "crear_redireccion": return { method: "POST", path: `${base(w)}/redirects`, body: { from: a.desde, to: a.hacia } };
     case "purgar_cache": return { method: "DELETE", path: `${base(w)}/cache/clear` };
     case "version_php": return { method: "PATCH", path: `${base(w)}/php/version`, body: { version: a.version } };
+    case "quitar_spam":
+    case "reemplazar_texto":
+    case "bajar_administrador": return "Es un cambio de contenido: va por sesión de WordPress, no por la API de Hostinger.";
   }
 }
 
@@ -384,6 +438,17 @@ export async function ejecutarCambioWeb(db: Db, p: PayloadAccionWeb, agentId: st
   try {
     const r = await webDelCliente(db, p.clientId, p.dominio);
     if ("error" in r) return { ok: false, detalle: r.error };
+    if (DE_CONTENIDO.has(p.accion.accion)) {
+      if (!r.wp) return { ok: false, detalle: "La web no figura como WordPress en Hostinger." };
+      const { abrirSesion, cambiarContenido } = await import("./wordpress.js");
+      const sesion = await abrirSesion(await linkDeAcceso(r.web, r.wp));
+      const c = await cambiarContenido(sesion, r.web.domain, p.accion as never);
+      await db.insert(agentActions).values({
+        clientId: p.clientId, agentId, kind: `web_${p.accion.accion}`,
+        entityType: "web", entityId: r.web.domain, detail: { accion: p.accion, justificacion: p.justificacion, ok: c.ok, respaldo: c.respaldo ?? null },
+      }).catch(() => {});
+      return { ok: c.ok, detalle: c.detalle };
+    }
     const pedido = pedidoDeAccion(r.web, r.wp, p.accion);
     if (typeof pedido === "string") return { ok: false, detalle: pedido };
     await pedir(pedido.method, pedido.path, pedido.body);

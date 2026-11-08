@@ -26,7 +26,7 @@ required: false
 - **WordPress del núcleo: `soloMenor: true`.** Si las vulnerabilidades graves recién se arreglan en una versión mayor, decilo en la justificación. El salto mayor lo decide una persona con respaldo.
 - **PHP viejo (7.x) no se sube primero.** Con un tema o un page builder viejos, subir PHP rompe la web. El orden es tema y plugins, después PHP.
 - **Plugins premium** (Elementor Pro, Slider Revolution, WP All Export Pro, temas comprados): si no figuran con actualización, la API no los puede actualizar. Van como tarea para una persona (licencia).
-- **El contenido no se limpia por API.** Spam en una página, usuarios, contraseñas y base de datos los maneja una persona.
+- **Contenido, con aprobación (desde el 08/11):** `get_web_contenido` entra al WordPress con una sesión temporal y dice DÓNDE está un texto (página + widget de Elementor, o ítem de menú) y quiénes son los administradores. Con eso `proponer_cambio_web` arma `quitar_spam` (postId o menuItemId), `reemplazar_texto` (postId, buscar, reemplazar) o `bajar_administrador` (userId). Nada se ejecuta sin que una persona lo apruebe. Contraseñas y base de datos siguen siendo de una persona.
 - **La justificación** dice qué vulnerabilidad se arregla, cuál es su gravedad y qué riesgo tiene el cambio. Es lo que lee quien aprueba.
 
 ## Casos (anónimos)
@@ -44,7 +44,7 @@ required: false
 - **Cómo se encontró:** la meta description que armaba el plugin de SEO terminaba en «Las tragamonedas ofrecen grandes…».
 - **Qué había:** en el HTML, un bloque oculto (`left: -7566px`) dentro de un widget de Elementor, con link dofollow a un casino.
 - **Por qué entraron:** WordPress 6.4 con fallas sin login, y plugins con ejecución remota de código o subida de archivos.
-- **Propuesto:** actualizar los 9 plugins vulnerables que tenían actualización disponible.
+- **Propuesto:** actualizar los 9 plugins vulnerables con actualización, y la limpieza: `quitar_spam` del widget de la home, `quitar_spam` del ítem de menú falso y `bajar_administrador` de un admin creado hace poco con un Gmail y el dominio como usuario (los otros eran de hace años).
 - **Para una persona:**
   - Sacar el bloque y buscar el texto en las demás páginas.
   - Revisar los administradores y cambiar las contraseñas.
