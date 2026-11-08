@@ -1,8 +1,9 @@
-import { UserPlus, Lightbulb, Megaphone, ShieldAlert, ShieldCheck } from "lucide-react";
+import { UserPlus, Lightbulb, Megaphone, ShieldAlert, ShieldCheck, Globe } from "lucide-react";
 import { formatCents } from "../lib/utils";
 
 export const typeLabel: Record<string, string> = {
   accion_pauta: "Accion de pauta",
+  accion_web: "Cambio en la web",
   hire_agent: "Hire Agent",
   approve_ceo_strategy: "CEO Strategy",
   budget_override_required: "Budget Override",
@@ -42,6 +43,7 @@ export function approvalLabel(type: string, payload?: Record<string, unknown> | 
 
 export const typeIcon: Record<string, typeof UserPlus> = {
   accion_pauta: Megaphone,
+  accion_web: Globe,
   hire_agent: UserPlus,
   approve_ceo_strategy: Lightbulb,
   budget_override_required: ShieldAlert,
@@ -261,7 +263,7 @@ function AccionPautaPayload({ payload }: { payload: Record<string, unknown> }) {
 
       {!resultado && (
         <p className="text-muted-foreground text-xs">
-          Al aprobar, el sistema ejecuta este cambio contra la cuenta del cliente. No hay que hacer nada a mano.
+          Al aprobar, el sistema ejecuta este cambio en la cuenta o la web del cliente. No hay que hacer nada a mano.
         </p>
       )}
 
@@ -294,7 +296,8 @@ export function ApprovalPayloadRenderer({
   payload: Record<string, unknown>;
   hidePrimaryTitle?: boolean;
 }) {
-  if (type === "accion_pauta") return <AccionPautaPayload payload={payload} />;
+  // El cambio en la web (Hostinger) tiene la misma forma: resumen, porqué y resultado.
+  if (type === "accion_pauta" || type === "accion_web") return <AccionPautaPayload payload={payload} />;
   if (type === "hire_agent") return <HireAgentPayload payload={payload} />;
   if (type === "budget_override_required") return <BudgetOverridePayload payload={payload} />;
   if (type === "request_board_approval") {

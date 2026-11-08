@@ -8,6 +8,7 @@ import { budgetService } from "./budgets.js";
 import { notifyHireApproved } from "./hire-hook.js";
 import { instanceSettingsService } from "./instance-settings.js";
 import { ejecutarAccionAprobada, esAccionPauta, TIPO_ACCION_PAUTA } from "./ads-propuestas.js";
+import { ejecutarCambioWeb, esAccionWeb, TIPO_ACCION_WEB } from "./hostinger.js";
 
 export function approvalService(db: Db) {
   const agentsSvc = agentService(db);
@@ -118,9 +119,14 @@ export function approvalService(db: Db) {
       // El resultado se guarda en el propio payload: si la plataforma rechaza el
       // cambio, la aprobación queda aprobada igual (la persona dijo que sí) pero
       // con el motivo a la vista, en vez de aparentar que se hizo.
-      if (applied && updated.type === TIPO_ACCION_PAUTA) {
-        if (esAccionPauta(updated.payload)) {
-          const r = await ejecutarAccionAprobada(db, updated.payload, updated.requestedByAgentId ?? null);
+      if (applied && (updated.type === TIPO_ACCION_PAUTA || updated.type === TIPO_ACCION_WEB)) {
+        // Cambio en la web del cliente (Hostinger, 08/11/26): mismo camino que la pauta.
+        const r = esAccionPauta(updated.payload)
+          ? await ejecutarAccionAprobada(db, updated.payload, updated.requestedByAgentId ?? null)
+          : esAccionWeb(updated.payload)
+            ? await ejecutarCambioWeb(db, updated.payload, updated.requestedByAgentId ?? null)
+            : null;
+        if (r) {
           const conResultado = {
             ...updated.payload,
             resultado: { ok: r.ok, detalle: r.detalle, ejecutadoAt: now.toISOString() },

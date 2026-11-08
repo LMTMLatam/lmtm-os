@@ -1332,6 +1332,32 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_rendimiento_web", parameters: p } }),
     ),
     makeTool(
+      "lmtmWebHosting",
+      "AUDITORÍA TÉCNICA de la web del cliente desde su hosting (Hostinger): SSL, https, PHP, cache, redirecciones y, si es WordPress, núcleo, plugins y temas con actualizaciones y VULNERABILIDADES conocidas. Solo la web de la Marca del cliente o un subdominio. Con ruta lista una carpeta (o lee un archivo de texto con leer=true). Solo lectura.",
+      z.object({ clientId: z.string().min(1), dominio: z.string().optional(), ruta: z.string().optional(), leer: z.boolean().optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", {
+        body: { tool: p.ruta !== undefined || p.leer ? "get_web_archivos" : "get_web_hosting", parameters: p },
+      }),
+    ),
+    makeTool(
+      "lmtmCambioWeb",
+      "PROPONE un cambio en la web del cliente en Hostinger; se ejecuta solo cuando una persona lo aprueba. accion: actualizar_plugins (plugins), actualizar_temas (temas), desactivar_plugin (plugin), actualizar_wordpress (soloMenor), instalar_ssl, forzar_https, crear_redireccion (desde, hacia), purgar_cache, version_php (version). justificacion obligatoria: vulnerabilidad o problema, qué se arregla y qué riesgo tiene.",
+      z.object({
+        clientId: z.string().min(1),
+        dominio: z.string().optional(),
+        accion: z.enum(["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress", "instalar_ssl", "forzar_https", "crear_redireccion", "purgar_cache", "version_php"]),
+        plugins: z.array(z.string()).optional(),
+        temas: z.array(z.string()).optional(),
+        plugin: z.string().optional(),
+        soloMenor: z.boolean().optional(),
+        desde: z.string().optional(),
+        hacia: z.string().optional(),
+        version: z.string().optional(),
+        justificacion: z.string().min(1),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "proponer_cambio_web", parameters: p } }),
+    ),
+    makeTool(
       "lmtmVincularWebGoogle",
       "VINCULA a un cliente su sitio de Search Console y/o su propiedad de GA4 cuando no se emparejaron solos por la web. Sin gscSitio ni ga4Propiedad lista lo que ven las cuentas de Google conectadas. Queda fijo y se sincroniza en el momento.",
       z.object({ clientId: z.string().min(1), gscSitio: z.string().optional(), ga4Propiedad: z.string().optional() }),

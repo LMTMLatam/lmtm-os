@@ -253,6 +253,65 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_web_hosting",
+      description:
+        "AUDITORÍA TÉCNICA de la web del cliente desde su hosting (Hostinger): certificado SSL y si fuerza https, versión de PHP y si muestra errores, cache, redirecciones y, si es WordPress, versión del núcleo, actualizaciones y CADA plugin y tema con su versión, si tiene actualización y sus VULNERABILIDADES conocidas. Solo la web cargada en la Marca del cliente (o un subdominio). wordpress=null es que no es WordPress, no que esté sano. Combinala con get_analisis_seo. Solo lectura.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          dominio: { type: "string", description: "Otro dominio o subdominio del mismo cliente. Si no, su web principal." },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_web_archivos",
+      description:
+        "Lista una carpeta o lee un archivo de texto de la web del cliente en Hostinger (robots.txt, .htaccess, una plantilla…). Los archivos con credenciales no se devuelven. Solo lectura.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          dominio: { type: "string" },
+          ruta: { type: "string", description: "Relativa a la raíz de la web. Vacío = la raíz." },
+          leer: { type: "boolean", description: "true = devuelve el contenido del archivo; false = lista la carpeta." },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "proponer_cambio_web",
+      description:
+        "PROPONE un cambio en la web del cliente en Hostinger. NO lo ejecuta: deja una aprobación con el cambio exacto y se ejecuta solo cuando una persona la aprueba (actualizar un plugin puede tirar la web). Acciones: actualizar_plugins (plugins: slugs), actualizar_temas (temas: slugs), desactivar_plugin (plugin), actualizar_wordpress (soloMenor: true por defecto), instalar_ssl, forzar_https, crear_redireccion (desde, hacia), purgar_cache, version_php (version, ej. \"8.3\"). Los slugs salen de get_web_hosting. `justificacion` es lo que lee quien aprueba: vulnerabilidad, versión, qué se arregla y qué riesgo tiene.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          dominio: { type: "string" },
+          accion: { type: "string", enum: ["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress", "instalar_ssl", "forzar_https", "crear_redireccion", "purgar_cache", "version_php"] },
+          plugins: { type: "array", items: { type: "string" } },
+          temas: { type: "array", items: { type: "string" } },
+          plugin: { type: "string" },
+          soloMenor: { type: "boolean" },
+          desde: { type: "string" },
+          hacia: { type: "string" },
+          version: { type: "string" },
+          justificacion: { type: "string" },
+        },
+        required: ["clientId", "accion", "justificacion"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_rendimiento_web",
       description:
         "RENDIMIENTO DE LA WEB de un cliente, de Google Search Console y Google Analytics 4: clics e impresiones en Google, posición media, sesiones, usuarios, eventos clave (conversiones), interacción, los últimos N días contra los N anteriores, lo más buscado, las páginas que más traen, canales, landings con su canal, fuentes y qué eventos clave tiene configurados. Incluye OPORTUNIDADES: búsquedas donde la web aparece en posición 4 a 20 con muchas impresiones (un contenido o una mejora de esa página las sube). null = esa fuente no está vinculada (nunca 0); 'falta' dice qué hay que hacer. Las ventanas terminan donde el dato ya es final (Search Console hoy-3, Analytics hoy-2). Solo lectura.",
@@ -1372,6 +1431,27 @@ export function agentToolsRoutes(
         } catch (e) {
           return reply(false, `No se pudo leer ${url}: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
         }
+      }
+
+      if (tool === "get_web_hosting" || tool === "get_web_archivos" || tool === "proponer_cambio_web") {
+        const clientId = textoDe(params.clientId);
+        if (!clientId) return reply(false, "Falta clientId.");
+        const dominio = textoDe(params.dominio) || undefined;
+        const h = await import("../services/hostinger.js");
+        if (tool === "get_web_hosting") {
+          const r = await h.auditarWeb(db, clientId, dominio);
+          return reply(r.ok, typeof r.contenido === "string" ? r.contenido : JSON.stringify(r.contenido).slice(0, 20000));
+        }
+        if (tool === "get_web_archivos") {
+          const r = await h.archivosWeb(db, clientId, { dominio, ruta: textoDe(params.ruta), leer: params.leer === true });
+          return reply(r.ok, typeof r.contenido === "string" ? r.contenido : JSON.stringify(r.contenido).slice(0, 20000));
+        }
+        const accion = h.accionDesdeParametros(params);
+        if (typeof accion === "string") return reply(false, accion);
+        const justificacion = textoDe(params.justificacion);
+        if (!justificacion) return reply(false, "Falta `justificacion`: es lo que lee la persona que aprueba.");
+        const r = await h.proponerCambioWeb(db, { companyId: ctx.companyId, agentId: ctx.agentId || null, clientId, dominio, justificacion, accion });
+        return reply(r.ok, r.mensaje);
       }
 
       if (tool === "get_rendimiento_web") {
