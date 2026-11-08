@@ -43,6 +43,7 @@ Se eligieron 5 webs de rubros distintos: hotel, inmobiliaria, industria B2B, lot
 - Dice «Las tragamonedas ofrecen grandes emociones y, con 1xbet bolivia…» con un link dofollow a `xbet-bolivia.com`.
 - All in One SEO arma la meta description con el texto de la página, así que la descripción que ve Google termina en «Las tragamonedas ofrecen grandes».
 - La página figura modificada el 05/11/26 19:31. Ya estaba anotado como abierto el 05/11.
+- **Segunda inyección**, que encontró el detector automático y no la revisión a mano: un texto de casino en árabe con link a `glorion.ae.org`, repetido dos veces. Lección: no cortar en el primer hallazgo.
 
 **Por qué entraron:** WordPress 6.4.14 con 53 vulnerabilidades del núcleo, varias sin login (SQL injection, RCE por condición de carrera). Plugins con fallas graves:
 
@@ -117,4 +118,6 @@ Se eligieron 5 webs de rubros distintos: hotel, inmobiliaria, industria B2B, lot
 ## Lo que la corrida cambió en el sistema
 
 - **Vulnerabilidades resumidas.** Un WordPress viejo traía más de 100 vulnerabilidades y la respuesta se cortaba antes de los plugins. Ahora va el total, las graves con nombre (sin login, RCE, SQL, subida de archivos, escalada) y la versión que las arregla todas.
+- **Spam oculto:** `get_web_hosting` ahora revisa la home y devuelve los bloques ocultos con enlaces ajenos (`spam.ocultosConLinks`). Sirve también para confirmar que una limpieza quedó bien. No dio falsos positivos en 10 webs sanas.
+- **Regla de gravedad:** `rce` había quedado con caracteres de control y no detectaba «RCE» suelto (el error de las barras de Python; se arregló editando con Node).
 - **Listar carpetas.** Usaba el parámetro equivocado y devolvía la raíz entera sin avisar. Arreglado (`directory`).

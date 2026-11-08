@@ -147,7 +147,7 @@ const baseWp = (w: WebHostinger, i: InstalacionWp) => `/api/hosting/v1/accounts/
 type Vuln = { title?: string; fixed_in?: string | null };
 /** Lo que deja entrar sin usuario o tomar el servidor. El resto (XSS de
  *  colaborador, etc.) pide una cuenta en el sitio. */
-const GRAVE = /unauthenticated|remote code execution|rce|sql injection|arbitrary file (upload|deletion)|privilege escalation|shortcode execution/i;
+const GRAVE = /unauthenticated|remote code execution|\brce\b|sql injection|arbitrary file (upload|deletion)|privilege escalation|shortcode execution/i;
 
 /** Compara versiones "1.10.2" > "1.9.9". Pura. */
 export function versionMayor(a: string, b: string): number {
@@ -170,6 +170,32 @@ export function resumenVulns(v: unknown): { total: number; graves: string[]; arr
 }
 const vulns = resumenVulns;
 
+const OCULTO = /<(div|p|span)[^>]*style="[^"]*(left:\s*-\d{3,}px|top:\s*-\d{3,}px|display:\s*none|visibility:\s*hidden|font-size:\s*0)[^"]*"[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
+const SPAM = /casino|tragamonedas|apuestas|\bbet\b|1xbet|slots?\b|póker|poker|viagra|cialis|préstamo|loan|porn|escort/i;
+
+/**
+ * Enlaces a otros sitios escondidos en la página: el spam de SEO típico de una
+ * web hackeada (SRP, 08/11/26: un bloque en left:-7566px con un link a un
+ * casino). Una persona no lo ve; Google sí. Pura.
+ */
+export function spamOculto(html: string, dominio: string): Array<{ texto: string; links: string[] }> {
+  const propio = dominio.replace(/^www\./, "").split(".").slice(-3).join(".");
+  const out: Array<{ texto: string; links: string[] }> = [];
+  for (const m of html.matchAll(OCULTO)) {
+    const cuerpo = m[3];
+    const links = [...cuerpo.matchAll(/href="(https?:\/\/[^"]+)"/gi)].map((x) => x[1]).filter((u) => !u.includes(propio));
+    const texto = cuerpo.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (links.length > 0 && (SPAM.test(texto) || SPAM.test(links.join(" ")) || /dofollow/i.test(cuerpo))) out.push({ texto: texto.slice(0, 200), links });
+  }
+  return out;
+}
+
+async function revisarSpam(dominio: string): Promise<unknown> {
+  const r = await fetch(`https://${dominio}/`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-auditoria)" }, signal: AbortSignal.timeout(20_000) });
+  const hallados = spamOculto(await r.text(), new URL(r.url).hostname);
+  return { revisado: r.url, ocultosConLinks: hallados, nota: hallados.length ? "Contenido oculto con enlaces ajenos: típico de web hackeada. Limpiarlo es tarea de una persona (la API no edita contenido); además cambiar contraseñas y actualizar." : "Sin enlaces ocultos en la home (solo se revisa la home)." };
+}
+
 /** Lectura: el estado técnico de la web del cliente en una llamada. */
 export async function auditarWeb(db: Db, clientId: string, dominio?: string): Promise<{ ok: boolean; contenido: unknown }> {
   const r = await webDelCliente(db, clientId, dominio);
@@ -179,7 +205,8 @@ export async function auditarWeb(db: Db, clientId: string, dominio?: string): Pr
   const parte = async <T>(f: () => Promise<T>): Promise<T | { error: string }> => {
     try { return await f(); } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
   };
-  const [ssl, php, cacheEstado, redirecciones, core, actualizaciones, plugins, temas] = await Promise.all([
+  const [spam, ssl, php, cacheEstado, redirecciones, core, actualizaciones, plugins, temas] = await Promise.all([
+    parte(() => revisarSpam(web.domain)),
     parte(() => pedir("GET", `${base(web)}/ssl/status`)),
     parte(async () => {
       const p = (await pedir("GET", `${base(web)}/php/details`)) as { php_version?: string; options?: Record<string, { value?: string }> };
@@ -208,7 +235,7 @@ export async function auditarWeb(db: Db, clientId: string, dominio?: string): Pr
       dominio: web.domain,
       tipo: web.website_type,
       activa: web.is_enabled,
-      ssl, php, cache: cacheEstado, redirecciones,
+      spam, ssl, php, cache: cacheEstado, redirecciones,
       // null = no es WordPress (o Hostinger no la detecta como tal), no "sin problemas".
       wordpress: wp ? { titulo: wp.site_title ?? null, core, actualizacionesCore: actualizaciones, plugins, temas } : null,
       acciones: "Para cambiar algo, proponer_cambio_web con una de: " + ACCIONES_WEB.join(", ") + ". Queda para aprobación humana.",

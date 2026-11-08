@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accionDesdeParametros, dominiosDelCliente, esAccionWeb, hostDe, pedidoDeAccion, resumenVulns, websDelDominio, type WebHostinger } from "../services/hostinger.js";
+import { accionDesdeParametros, dominiosDelCliente, esAccionWeb, hostDe, pedidoDeAccion, resumenVulns, spamOculto, websDelDominio, type WebHostinger } from "../services/hostinger.js";
 
 const web = (domain: string, username = "u1"): WebHostinger => ({ domain, username, website_type: "wordpress", is_enabled: true });
 
@@ -65,5 +65,15 @@ describe("vulnerabilidades", () => {
     expect(r.graves).toEqual(["Unauthenticated Arbitrary Shortcode Execution (arreglado en 1.10.2.1)"]);
     expect(r.arregladoEn).toBe("1.10.2.1");
     expect(resumenVulns(undefined)).toEqual({ total: 0, graves: [], arregladoEn: null });
+  });
+});
+
+describe("spam oculto", () => {
+  it("encuentra el bloque escondido con link a un casino y no marca lo propio", () => {
+    const html = `<div class="x"><div style="position: absolute; left: -7566px;"><p>Las tragamonedas ofrecen grandes emociones y, con <a href="https://xbet-bolivia.com/" rel="dofollow">1xbet bolivia</a>, puedes registrarte.</p></div></div>
+      <div style="display:none"><a href="https://sramascopadilla.com.ar/contacto">Contacto</a></div>`;
+    const r = spamOculto(html, "sramascopadilla.com.ar");
+    expect(r).toHaveLength(1);
+    expect(r[0].links).toEqual(["https://xbet-bolivia.com/"]);
   });
 });

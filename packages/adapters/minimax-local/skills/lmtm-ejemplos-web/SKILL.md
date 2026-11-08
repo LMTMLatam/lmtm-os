@@ -50,6 +50,7 @@ required: false
   - Revisar los administradores y cambiar las contraseñas.
   - Actualizar a mano los premium.
   - WordPress mayor con respaldo; reindexar.
+- **Lo que la revisión a mano no vio:** el campo `spam` de `get_web_hosting` encontró una segunda inyección (casino en árabe). Mirá siempre ese campo; vacío = sin enlaces ocultos en la home, no «web limpia».
 - **Cómo se reporta:** primero el hallazgo y la prueba (el texto y dónde está), después la causa probable. No al revés.
 
 ### 3. Industria B2B — núcleo atrasado, plugins al día
