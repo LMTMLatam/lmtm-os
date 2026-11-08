@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accionDesdeParametros, esAccionWeb, hostDe, pedidoDeAccion, websDelDominio, type WebHostinger } from "../services/hostinger.js";
+import { accionDesdeParametros, dominiosDelCliente, esAccionWeb, hostDe, pedidoDeAccion, websDelDominio, type WebHostinger } from "../services/hostinger.js";
 
 const web = (domain: string, username = "u1"): WebHostinger => ({ domain, username, website_type: "wordpress", is_enabled: true });
 
@@ -8,6 +8,12 @@ describe("dueño de la web", () => {
     expect(hostDe("https://www.Lmtm.com.ar/")).toBe("lmtm.com.ar");
     expect(hostDe("lmtm.com.ar")).toBe("lmtm.com.ar");
     expect(hostDe(null)).toBe("");
+  });
+
+  it("suma las webs mapeadas sin repetir", () => {
+    expect(dominiosDelCliente("https://www.sustentainversiones.com.ar/", { webs: ["sustenta.ar", "sustentainversiones.com.ar", 3] }))
+      .toEqual(["sustentainversiones.com.ar", "sustenta.ar"]);
+    expect(dominiosDelCliente(null, {})).toEqual([]);
   });
 
   it("toma el dominio y sus subdominios, nunca uno que solo termina igual", () => {

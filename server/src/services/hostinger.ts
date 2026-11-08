@@ -113,17 +113,26 @@ export function websDelDominio(host: string, webs: WebHostinger[]): WebHostinger
   });
 }
 
+/** Los dominios del cliente: su "Sitio web" de Marca más los mapeados en
+ *  metadata.webs (un cliente puede tener varias webs, 08/11/26). Pura. */
+export function dominiosDelCliente(web: string | null | undefined, metadata: unknown): string[] {
+  const extra = (metadata as { webs?: unknown } | null)?.webs;
+  const lista = [web, ...(Array.isArray(extra) ? extra.filter((x): x is string => typeof x === "string") : [])];
+  return [...new Set(lista.map(hostDe).filter(Boolean))];
+}
+
 interface WebResuelta { web: WebHostinger; wp: InstalacionWp | null; cliente: string }
 
 /** La web del cliente en Hostinger, verificando que sea suya. */
 async function webDelCliente(db: Db, clientId: string, dominio?: string): Promise<WebResuelta | { error: string }> {
-  const [c] = await db.select({ name: clients.name, web: clients.websiteUrl }).from(clients).where(eq(clients.id, clientId)).limit(1);
+  const [c] = await db.select({ name: clients.name, web: clients.websiteUrl, metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
   if (!c) return { error: "Cliente no encontrado." };
   const host = hostDe(c.web);
-  if (!host) return { error: `${c.name.trim()} no tiene "Sitio web" cargado en su Marca: sin eso no se sabe cuál es su web en Hostinger.` };
+  const dominios = dominiosDelCliente(c.web, c.metadata);
+  if (dominios.length === 0) return { error: `${c.name.trim()} no tiene "Sitio web" cargado en su Marca ni webs mapeadas: sin eso no se sabe cuál es su web en Hostinger.` };
   const { webs, wp } = await inventario();
-  const suyas = websDelDominio(host, webs);
-  if (suyas.length === 0) return { error: `La web de ${c.name.trim()} (${host}) no está en la cuenta de Hostinger de la agencia: está alojada en otro lado.` };
+  const suyas = [...new Map(dominios.flatMap((d) => websDelDominio(d, webs)).map((w) => [w.domain, w])).values()];
+  if (suyas.length === 0) return { error: `La web de ${c.name.trim()} (${dominios.join(", ")}) no está en la cuenta de Hostinger de la agencia: está alojada en otro lado.` };
   const pedido = hostDe(dominio);
   const web = pedido ? suyas.find((w) => w.domain.toLowerCase().replace(/^www\./, "") === pedido) : (suyas.find((w) => w.domain === host) ?? suyas[0]);
   if (!web) return { error: `${dominio} no es de ${c.name.trim()}. Sus webs en Hostinger: ${suyas.map((w) => w.domain).join(", ")}.` };
