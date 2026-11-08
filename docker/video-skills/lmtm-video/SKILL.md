@@ -40,6 +40,7 @@ texto en pantalla es el subtítulo y, como mucho, el gancho. Las tarjetas son s�
 - `numero`: en cifras en el texto de la frase y con `origen`. Sin fuente no va.
 - `chat`: cómo se pide o se reserva. Sale con la etiqueta EJEMPLO; nunca testimonios ni clientes reales.
 - `pantalla`: captura REAL de su web (`npx hyperframes capture <url> --skip-assets`; de `capture/screenshots/` a `assets/marca/`), entera y sin recortar. `foco`: lo que tiene que verse, porque la ventana baja hasta ahí.
+- ¿Piden «algo distinto», un explicativo o un dato animado? Leé `/app/video-skills/lmtm-video/referencias-motion.md`: qué inserto usar según referencias de afuera y qué NO se puede hacer hoy.
 
 **Cada reel nuevo** lleva en `guion.json`:
 - `movimiento`: `directo`, `pulso`, `relato`, `vitrina` o `ficha`. Distinto a los últimos del cliente: `armar.mjs` frena
