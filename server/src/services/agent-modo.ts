@@ -70,6 +70,8 @@ export const TOOLS_DE_CONSULTA: ReadonlySet<string> = new Set([
   "google.drive_get",
   "google.script_get_content",
   "google.script_processes",
+  // NAS de LMTM por WebDAV (09/11): listar no cambia nada.
+  "nas_listar",
 ]);
 
 /** Prefijos de solo lectura para las tools de plugin, que son dinámicas. */

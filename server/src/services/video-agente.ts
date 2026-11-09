@@ -414,6 +414,15 @@ export const VIDEO_TOOLS: ToolDef[] = [
     tipo: { type: "string", enum: ["foto", "video", "todo"] },
     cantidad: { type: "number", description: "Máximo de archivos (por defecto 30)." },
   }, ["link", "carpeta"]),
+  def("nas_listar", "LISTA una carpeta del NAS de LMTM (crudos y videos de los clientes): carpetas y archivos con su peso en MB. Solo lectura. Empezá por «/» para ver las carpetas compartidas.", {
+    ruta: { type: "string", description: "Ruta en el NAS, por ejemplo /LMTM/Clientes/RENO." },
+  }, ["ruta"]),
+  def("nas_bajar", "BAJA archivos del NAS de LMTM a tu carpeta de trabajo (un archivo, o los de una carpeta sin entrar a subcarpetas). Devuelve las rutas locales.", {
+    ruta: { type: "string", description: "Archivo o carpeta del NAS (de nas_listar)." },
+    carpeta: { type: "string", description: `Carpeta de destino bajo ${RAIZ}/` },
+    tipo: { type: "string", enum: ["foto", "video", "todo"] },
+    cantidad: { type: "number", description: "Máximo de archivos de una carpeta (por defecto 20)." },
+  }, ["ruta", "carpeta"]),
   def("encargar_al_productor", "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo: vos no tenés terminal ni editor de imágenes.", {
     cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
     pedido: { type: "string", description: "Lo que pidió la persona, completo, con los links que pasó." },
@@ -781,6 +790,43 @@ export async function ejecutarHerramientaVideo(
       if (!txt(p.pedido)) return mal("falta el pedido");
       const r = await encargarAlProductor(db, { companyId: ctx.companyId, clientId: c.id, clienteNombre: c.name, pedido: txt(p.pedido).slice(0, 4000) });
       return r.ok ? ok(r.mensaje) : mal(r.mensaje);
+    }
+
+    if (tool === "nas_listar" || tool === "nas_bajar") {
+      const nas = await import("./nas.js");
+      const falta = nas.nasConfigurado();
+      if (falta) return mal(falta);
+      const ruta = nas.rutaNas(p.ruta);
+      if (!ruta) return mal("ruta inválida (sin «..»)");
+      try {
+        if (tool === "nas_listar") {
+          const items = await nas.listarNas(ruta);
+          if (items.length === 0) return ok(`${ruta}: vacía`);
+          return ok(`${ruta} (${items.length}):\n` + items.slice(0, 300).map((i) => `${i.carpeta ? "[carpeta] " : ""}${i.ruta}${i.mb != null ? ` · ${i.mb} MB` : ""}`).join("\n"));
+        }
+        const destino = rutaSegura(p.carpeta);
+        if (!destino) return mal(`carpeta tiene que estar bajo ${RAIZ}/`);
+        const tipo = txt(p.tipo) || "todo";
+        const sirve = (n: string) => tipo === "todo" || (tipo === "foto" ? /\.(jpe?g|png|webp|heic|tiff?)$/i : /\.(mp4|mov|mxf|avi|mkv|m4v|mts)$/i).test(n);
+        let archivos: string[];
+        if (/\.[a-z0-9]{2,5}$/i.test(ruta)) archivos = [ruta];
+        else {
+          const items = await nas.listarNas(ruta);
+          archivos = items.filter((i) => !i.carpeta && sirve(i.nombre)).map((i) => i.ruta)
+            .slice(0, Math.min(Math.max(1, Number(p.cantidad) || 20), 60));
+          if (archivos.length === 0) return mal(`${ruta}: no hay ${tipo === "todo" ? "archivos" : `${tipo}s`} ahí`);
+        }
+        const bajados: string[] = [];
+        const salteados: string[] = [];
+        // ponytail: en serie, como drive_bajar; muchos crudos pesados pueden pasar el tope del MCP.
+        for (const a of archivos) {
+          try { bajados.push(await nas.bajarNas(a, destino, archivos.length === 1 ? 3e9 : 500e6)); }
+          catch (e) { salteados.push(e instanceof Error ? e.message : String(e)); }
+        }
+        return ok(`Bajados ${bajados.length} a ${destino}:\n${bajados.join("\n")}` + (salteados.length ? `\nSin bajar: ${salteados.join("; ")}` : ""));
+      } catch (e) {
+        return mal(`NAS: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
     if (tool === "drive_bajar") {

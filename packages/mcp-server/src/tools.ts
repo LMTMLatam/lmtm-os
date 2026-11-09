@@ -1237,6 +1237,23 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "drive_bajar", parameters: p } }),
     ),
     makeTool(
+      "lmtmNasListar",
+      "LISTA una carpeta del NAS de LMTM (crudos y videos de los clientes): carpetas y archivos con su peso. Solo lectura. Empezá por «/».",
+      z.object({ ruta: z.string().min(1).describe("Ruta en el NAS, por ejemplo /LMTM/Clientes/RENO.") }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "nas_listar", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmNasBajar",
+      "BAJA del NAS de LMTM un archivo, o los de una carpeta (sin subcarpetas), a tu carpeta de trabajo. Devuelve las rutas locales.",
+      z.object({
+        ruta: z.string().min(1).describe("Archivo o carpeta del NAS (de lmtmNasListar)."),
+        carpeta: z.string().min(1).describe("Carpeta de destino bajo /tmp/videos/."),
+        tipo: z.enum(["foto", "video", "todo"]).optional(),
+        cantidad: z.number().int().min(1).max(60).optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "nas_bajar", parameters: p } }),
+    ),
+    makeTool(
       "lmtmEncargarAlProductor",
       "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo si no tenés terminal ni editor de imágenes.",
       z.object({

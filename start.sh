@@ -47,6 +47,23 @@ if [ -d /data ]; then
   # contenedor se borra en cada deploy. Retención y piso de espacio en run-log-store.ts.
   export RUN_LOG_ARCHIVE_PATH="${RUN_LOG_ARCHIVE_PATH:-/data/run-logs}"
 fi
+# ── Tailscale hacia el NAS de LMTM (09/11) ─────────────────────────────────────
+# Modo userspace (Railway no da TUN). El estado queda en el volumen, así TS_AUTHKEY
+# solo se usa la primera vez. El socket es solo de root: los agentes (node) no pueden
+# manejar tailscale. El servidor llega al NAS por el proxy 127.0.0.1:1055 (nas.ts).
+if [ -n "${TS_AUTHKEY:-}" ] || [ -f /data/tailscale/tailscaled.state ]; then
+  mkdir -p /data/tailscale /run/tailscale && chmod 700 /data/tailscale /run/tailscale
+  tailscaled --tun=userspace-networking --state=/data/tailscale/tailscaled.state \
+    --socket=/run/tailscale/tailscaled.sock --outbound-http-proxy-listen=127.0.0.1:1055 \
+    > /tmp/tailscaled.log 2>&1 &
+  sleep 2
+  tailscale --socket=/run/tailscale/tailscaled.sock up ${TS_AUTHKEY:+--auth-key="$TS_AUTHKEY"} \
+    --hostname=lmtm-os --advertise-tags=tag:agentes --accept-dns=false --timeout=30s \
+    && echo "[wrapper] tailscale arriba: $(tailscale --socket=/run/tailscale/tailscaled.sock ip -4)" \
+    || echo "[wrapper] tailscale NO levantó (ver /tmp/tailscaled.log)"
+  chmod 600 /tmp/tailscaled.log
+fi
+
 # Los logs en curso tienen la salida de todos los agentes: no los lee otro agente.
 RL="${PAPERCLIP_HOME:-/paperclip}/instances/${PAPERCLIP_INSTANCE_ID:-lmtm}/data/run-logs"
 mkdir -p "$RL" && chmod 700 "$RL"

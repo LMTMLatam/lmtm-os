@@ -195,6 +195,13 @@ RUN ! ldd /usr/local/bin/whisper-cli | grep -q 'not found' \
   && /opt/vtool/bin/python -c "import cv2, os; assert os.path.exists(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')" \
   && printf '#!/bin/sh\nPATH=/opt/node22/bin:$PATH exec /opt/vtool/bin/python -I /app/video-skills/video-local/vtool.py "$@"\n' > /usr/local/bin/vtool \
   && chmod +x /usr/local/bin/vtool
+# Tailscale (09/11): el NAS de LMTM está en la tailnet. Railway no da TUN, así que
+# tailscaled corre en modo userspace (start.sh) y el servidor llega por su proxy HTTP.
+ARG TAILSCALE_VERSION=1.104.5
+RUN curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_amd64.tgz" | tar -xz -C /tmp \
+  && mv /tmp/tailscale_${TAILSCALE_VERSION}_amd64/tailscale /tmp/tailscale_${TAILSCALE_VERSION}_amd64/tailscaled /usr/local/bin/ \
+  && rm -rf /tmp/tailscale_* \
+  && tailscale version
 COPY docker/video-skills/ /app/video-skills/
 COPY docker/render-worker.mjs /app/render-worker.mjs
 
