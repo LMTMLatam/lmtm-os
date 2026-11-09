@@ -1,6 +1,8 @@
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { gzip, gunzip } from "node:zlib";
+import { promisify } from "node:util";
 import { notFound } from "../errors.js";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 
@@ -50,7 +52,50 @@ function resolveWithin(basePath: string, relativePath: string) {
   return resolved;
 }
 
-function createLocalFileRunLogStore(basePath: string): RunLogStore {
+// LMTM 08/11: el log de una corrida se escribe en el disco del contenedor (rápido,
+// pero se borra en cada deploy: se perdían 133 de 152). Al terminar la corrida se
+// comprime (~7x) y se archiva en el volumen persistente, con 14 días de retención y
+// sin archivar si el volumen queda con menos de 300 MB libres (estaba al 87%).
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
+export const RETENCION_LOGS_MS = 14 * 86_400_000;
+export const LIBRE_MINIMO_BYTES = 300 * 1024 * 1024;
+
+export interface ArchivoLogs {
+  dir: string;
+  ahora?: () => number;
+  libreBytes?: (dir: string) => Promise<number>;
+}
+
+async function libreEnDisco(dir: string) {
+  const s = await fs.statfs(dir);
+  return Number(s.bavail) * Number(s.bsize);
+}
+
+/** Borra los .gz archivados más viejos que la retención. Devuelve cuántos borró. */
+export async function limpiarArchivo(dir: string, ahora = Date.now()) {
+  let borrados = 0;
+  async function recorrer(d: string) {
+    const entradas = await fs.readdir(d, { withFileTypes: true }).catch(() => []);
+    for (const e of entradas) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) await recorrer(p);
+      else if (e.name.endsWith(".gz")) {
+        const st = await fs.stat(p).catch(() => null);
+        if (st && ahora - st.mtimeMs > RETENCION_LOGS_MS) {
+          await fs.rm(p, { force: true });
+          borrados++;
+        }
+      }
+    }
+  }
+  await recorrer(dir);
+  return borrados;
+}
+
+export function createLocalFileRunLogStore(basePath: string, archivo?: ArchivoLogs): RunLogStore {
+  const ahora = archivo?.ahora ?? Date.now;
+  let ultimaLimpieza = 0;
   async function ensureDir(relativeDir: string) {
     const dir = resolveWithin(basePath, relativeDir);
     await fs.mkdir(dir, { recursive: true });
@@ -128,6 +173,27 @@ function createLocalFileRunLogStore(basePath: string): RunLogStore {
       if (!stat) throw notFound("Run log not found");
 
       const hash = await sha256File(absPath);
+      if (archivo) {
+        try {
+          if (ahora() - ultimaLimpieza > 86_400_000) {
+            ultimaLimpieza = ahora();
+            await fs.mkdir(archivo.dir, { recursive: true });
+            await limpiarArchivo(archivo.dir, ahora());
+          }
+          await fs.mkdir(archivo.dir, { recursive: true });
+          const libre = await (archivo.libreBytes ?? libreEnDisco)(archivo.dir);
+          if (libre > LIBRE_MINIMO_BYTES + stat.size) {
+            const destino = resolveWithin(archivo.dir, handle.logRef + ".gz");
+            await fs.mkdir(path.dirname(destino), { recursive: true });
+            await fs.writeFile(destino, await gzipAsync(await fs.readFile(absPath)));
+            await fs.rm(absPath, { force: true });
+            return { bytes: stat.size, sha256: hash, compressed: true };
+          }
+        } catch (err) {
+          // Archivar es un extra: si falla, el log queda donde estaba.
+          console.warn("[run-log] no se pudo archivar", handle.logRef, err instanceof Error ? err.message : err);
+        }
+      }
       return {
         bytes: stat.size,
         sha256: hash,
@@ -142,6 +208,15 @@ function createLocalFileRunLogStore(basePath: string): RunLogStore {
       const absPath = resolveWithin(basePath, handle.logRef);
       const offset = opts?.offset ?? 0;
       const limitBytes = opts?.limitBytes ?? 256_000;
+      if (archivo) {
+        const gz = await fs.readFile(resolveWithin(archivo.dir, handle.logRef + ".gz")).catch(() => null);
+        if (gz) {
+          const todo = await gunzipAsync(gz);
+          const start = Math.max(0, Math.min(offset, todo.length));
+          const end = Math.min(start + limitBytes, todo.length);
+          return { content: todo.subarray(start, end).toString("utf8"), nextOffset: end < todo.length ? end : undefined };
+        }
+      }
       return readFileRange(absPath, offset, limitBytes);
     },
   };
@@ -152,6 +227,8 @@ let cachedStore: RunLogStore | null = null;
 export function getRunLogStore() {
   if (cachedStore) return cachedStore;
   const basePath = process.env.RUN_LOG_BASE_PATH ?? path.resolve(resolvePaperclipInstanceRoot(), "data", "run-logs");
-  cachedStore = createLocalFileRunLogStore(basePath);
+  // RUN_LOG_ARCHIVE_PATH lo pone start.sh cuando hay volumen (/data/run-logs).
+  const dirArchivo = process.env.RUN_LOG_ARCHIVE_PATH?.trim();
+  cachedStore = createLocalFileRunLogStore(basePath, dirArchivo ? { dir: dirArchivo } : undefined);
   return cachedStore;
 }

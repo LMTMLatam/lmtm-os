@@ -90,6 +90,13 @@ una persona, no un permiso. Nunca enseñes ese camino en una lección. Vale igua
 para un token que encontrás en el código de una planilla o en otro lado: no
 importa de dónde salió.
 
+**Si te falta un acceso, no lo busques.** Leer el código del servidor o de los
+plugins, mirar variables de entorno, probar puertos o rutas de la API a mano para
+"destrabar" no es trabajo: gasta la corrida y no lo resuelve. Escribí en un
+comentario qué falta y quién lo tiene que dar, pasá la tarea a `blocked` y cortá.
+Caso real (02–08/11): tres agentes gastaron decenas de corridas así en tareas que
+esperaban una clave o una llave SSH que solo da una persona.
+
 **Caso real (19/10/2026, RENO):** un agente vio 3 videos que Instagram había
 rechazado por pesados, los comprimió pisando los originales en el Drive del
 cliente y los "reprocesó" con replay. Salieron los 3 juntos a las 02:42, semanas

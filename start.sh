@@ -42,9 +42,19 @@ fi
 # base entera, las sesiones de Higgsfield y WhatsApp, y los logs. Va antes de
 # arrancar cualquier servicio, así nada se crea legible para otros.
 if [ -d /data ]; then
-  for d in /data/backups /data/higgsfield; do mkdir -p "$d" && chmod 700 "$d"; done
+  for d in /data/backups /data/higgsfield /data/run-logs; do mkdir -p "$d" && chmod 700 "$d"; done
+  # Logs de corrida (08/11): se archivan comprimidos acá al terminar; el disco del
+  # contenedor se borra en cada deploy. Retención y piso de espacio en run-log-store.ts.
+  export RUN_LOG_ARCHIVE_PATH="${RUN_LOG_ARCHIVE_PATH:-/data/run-logs}"
 fi
+# Los logs en curso tienen la salida de todos los agentes: no los lee otro agente.
+RL="${PAPERCLIP_HOME:-/paperclip}/instances/${PAPERCLIP_INSTANCE_ID:-lmtm}/data/run-logs"
+mkdir -p "$RL" && chmod 700 "$RL"
 mkdir -p /app/data && chmod 700 /app/data
+# 08/11: con tareas trabadas por credenciales, los agentes leían el código del
+# servidor y de los plugins buscando cómo «destrabar». Los corre root; los agentes
+# (node) solo necesitan /app/packages, /app/node_modules y /app/video-skills.
+for d in /app/server /app/.paperclip /app/.ssh; do [ -d "$d" ] && chmod 700 "$d"; done
 L="${PAPERCLIP_HOME:-/paperclip}/instances/${PAPERCLIP_INSTANCE_ID:-lmtm}/logs"
 mkdir -p "$L" && chmod 700 "$L"
 for f in /tmp/server.log /tmp/wa-gateway.log /tmp/litellm.log /tmp/pg-backup.log; do
