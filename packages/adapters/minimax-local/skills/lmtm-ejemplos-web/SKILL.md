@@ -11,6 +11,8 @@ required: false
 
 ## El método
 
+Herramientas (MCP): `lmtmWebHosting` = `get_web_hosting` (con `ruta` o `leer: true` = `get_web_archivos`), `lmtmWebContenido` = `get_web_contenido`, `lmtmCambioWeb` = `proponer_cambio_web`. No llames a la API a mano.
+
 1. **`get_web_hosting`:** SSL, PHP, WordPress, plugins y temas con vulnerabilidades (total, graves con nombre y la versión que las arregla).
 2. **`get_analisis_seo`:** lo que ve Google.
 3. **Cruzar las dos.** Lo importante sale de la cruza, no de cada lista por separado.

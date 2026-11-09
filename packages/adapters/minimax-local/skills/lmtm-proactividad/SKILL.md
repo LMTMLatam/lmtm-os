@@ -16,7 +16,8 @@ ruidoso tampoco. El estándar: **proactivo con criterio**.
 1. **Mirá el estado**: `lmtmGetTeamStatus` (¿qué está haciendo el equipo? ¿hay algo trabado
    que puedas destrabar?) y `lmtmPortfolioSnapshot` (¿la cartera está sana?).
 2. **Elegí UN cliente** que te toque por tu rol (rotá — no siempre el mismo) y analizalo de verdad:
-   `lmtmGetClientBrain` + tus herramientas del rol (`lmtmGetClientAdsPerformance`,
+   `lmtmGetClientBrain` + las herramientas de tu rol que TENGAS (si una de las de abajo no está en tu
+   lista, no existe para vos: no la busques ni la llames por la API a mano) (`lmtmGetClientAdsPerformance`,
    `lmtmGetClientOrganicPosts`, `lmtmGetClientScheduledContent`, `lmtmGetClientScores`,
    `lmtmGetNicheIntel` de su rubro).
 3. **Detectá algo accionable** — empezá por lo ya minado antes de buscar de cero:
@@ -38,7 +39,8 @@ ruidoso tampoco. El estándar: **proactivo con criterio**.
    - **Algo que no se publicó o se publicó mal** → primero la causa, con
      `lmtm-diagnostico-publicacion`; la acción va como propuesta, nunca como replay.
    - **Hallazgo durable** → `lmtmRememberAboutClient` (kind correcto) o `lmtmRememberTeamLesson`.
-   - **Gancho/tendencia** que encontraste en el camino → `lmtmSaveHook` / `lmtmSaveTrend`.
+   - **Gancho/tendencia** que encontraste en el camino → `lmtmSaveHook` / `lmtmSaveTrend` si las
+     tenés; si no, dejalo en el comentario de la tarea y que lo guarde Caro.
      Para tendencias: que sean del **rubro del cliente** (novedad/dato del sector) o de
      **contenido** (formato/ángulo que rinde en ese rubro) — NO noticias genéricas de
      IA/marketing. Tageá el nicho específico en `niches` (nunca `[]`, salvo cambio de

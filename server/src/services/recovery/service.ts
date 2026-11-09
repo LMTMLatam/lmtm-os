@@ -24,7 +24,7 @@ import { parseObject, asBoolean, asNumber } from "../../adapters/utils.js";
 import { runningProcesses } from "../../adapters/index.js";
 import { forbidden, notFound } from "../../errors.js";
 import { logger } from "../../middleware/logger.js";
-import { decidirRecuperacion, tituloParaPersona, MAX_INTENTOS } from "./reintentos.js";
+import { decidirRecuperacion, tituloParaPersona, MAX_INTENTOS, demasiadasFallas, VENTANA_FALLAS_MS } from "./reintentos.js";
 import { redactCurrentUserText } from "../../log-redaction.js";
 import { redactSensitiveText } from "../../redaction.js";
 import { logActivity } from "../activity-log.js";
@@ -424,6 +424,24 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function fallasRecientes(companyId: string, issueId: string) {
+    const desde = new Date(Date.now() - VENTANA_FALLAS_MS).toISOString();
+    const [fila] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(heartbeatRuns)
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, companyId),
+          sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+          inArray(heartbeatRuns.status, [...UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES]),
+          sql`${heartbeatRuns.createdAt} > ${desde}`,
+          // La cuota del proveedor no es una falla de la tarea.
+          sql`coalesce(${heartbeatRuns.errorCode}, '') <> 'claude_quota_exhausted'`,
+        ),
+      );
+    return Number(fila?.n ?? 0);
   }
 
   async function hasActiveExecutionPath(companyId: string, issueId: string) {
@@ -2065,6 +2083,23 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
             "Paperclip automatically retried continuation for this assigned `in_progress` issue after its live " +
             `execution disappeared, but it still has no live execution path.${failureSummary ?? ""} ` +
             "Moving it to `blocked` so it is visible for intervention.",
+        });
+        if (updated) {
+          result.escalated += 1;
+          result.issueIds.push(issue.id);
+        } else {
+          result.skipped += 1;
+        }
+        continue;
+      }
+
+      const rendirse = demasiadasFallas(await fallasRecientes(issue.companyId, issue.id));
+      if (rendirse) {
+        const updated = await escalateStrandedAssignedIssue({
+          issue,
+          previousStatus: "in_progress",
+          latestRun,
+          comment: rendirse,
         });
         if (updated) {
           result.escalated += 1;

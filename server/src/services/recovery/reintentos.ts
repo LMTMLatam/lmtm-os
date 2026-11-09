@@ -70,3 +70,22 @@ export function tituloParaPersona(titulo: string): string {
   if (limpio.startsWith(PREFIJO_HUMANO)) return limpio;
   return `${PREFIJO_HUMANO} ${limpio}`.trim().slice(0, 200);
 }
+
+// EL OTRO LAZO (08/11/26): la recuperación de continuación miraba solo la última
+// corrida del issue para decidir si rendirse. Cuando el agente se queda sin
+// turnos, en el medio hay dos reintentos "max_turns_continuation", así que la
+// última corrida nunca era la de la recuperación y nunca se rendía: LMTM-6593
+// corrió 13 veces en una hora (02/11) sin terminar, ~34 M de tokens.
+// Se cuentan las corridas fallidas del issue en un día, vengan de donde vengan.
+
+export const VENTANA_FALLAS_MS = 24 * 3_600_000;
+/** Dos cadenas completas (corrida + 2 continuaciones por turnos). */
+export const MAX_FALLAS_EN_VENTANA = 6;
+
+export function demasiadasFallas(fallasEnVentana: number): string | null {
+  const n = Number.isFinite(fallasEnVentana) ? Math.trunc(fallasEnVentana) : 0;
+  return n >= MAX_FALLAS_EN_VENTANA
+    ? `El issue ya tuvo ${n} corridas fallidas en las últimas 24 h (sin turnos o sin tiempo). Reintentar repite lo mismo: lo sigue una persona. Antes de reabrirlo, achicá el pedido o dividilo.`
+    : null;
+}
+

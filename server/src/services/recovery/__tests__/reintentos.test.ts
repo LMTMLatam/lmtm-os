@@ -8,6 +8,8 @@ import {
   ESPERA_ENTRE_INTENTOS_MS,
   MAX_INTENTOS,
   PREFIJO_HUMANO,
+  demasiadasFallas,
+  MAX_FALLAS_EN_VENTANA,
 } from "../reintentos.js";
 
 const ahora = new Date("2026-08-30T15:00:00Z");
@@ -79,3 +81,18 @@ describe("tituloParaPersona", () => {
     expect(tituloParaPersona("")).toBe(PREFIJO_HUMANO);
   });
 });
+
+describe("demasiadasFallas (LMTM-6593: 13 corridas en una hora)", () => {
+  it("deja seguir mientras no se juntan dos cadenas fallidas", () => {
+    expect(demasiadasFallas(0)).toBeNull();
+    expect(demasiadasFallas(MAX_FALLAS_EN_VENTANA - 1)).toBeNull();
+  });
+  it("con 6 corridas fallidas en el día se rinde y lo explica", () => {
+    expect(demasiadasFallas(MAX_FALLAS_EN_VENTANA)).toMatch(/6 corridas fallidas/);
+    expect(demasiadasFallas(12)).toMatch(/lo sigue una persona/);
+  });
+  it("un valor raro no traba nada", () => {
+    expect(demasiadasFallas(Number.NaN)).toBeNull();
+  });
+});
+
