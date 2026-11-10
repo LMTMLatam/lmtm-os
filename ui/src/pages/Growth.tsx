@@ -286,7 +286,7 @@ function CargaEquipo() {
 
 interface SemaforoCliente {
   id: string; name: string; slug: string; industry: string | null;
-  score: number | null; semaforo: "verde" | "amarillo" | "rojo" | "sin-pauta"; oportunidades: string[];
+  score: number | null; semaforo: "verde" | "amarillo" | "rojo" | "sin-pauta" | "sin-datos"; oportunidades: string[];
 }
 
 /** Tablero master de pauta: cada cliente en semáforo + oportunidades, con el
@@ -299,7 +299,7 @@ function SemaforoPauta() {
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : s === "sin-pauta" ? "bg-muted-foreground/40" : "bg-rose-500";
+  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : s === "sin-pauta" || s === "sin-datos" ? "bg-muted-foreground/40" : "bg-rose-500";
   const copiar = async (slug: string, name: string) => {
     const a = await api.get<{ resumen: string[] }>(`/clients/${slug}/analisis-estrategico`);
     await navigator.clipboard.writeText([`📊 Análisis de pauta — ${name}`, "", ...(a.resumen ?? [])].join("\n"));
@@ -317,7 +317,7 @@ function SemaforoPauta() {
             <div className="flex items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${dot(c.semaforo)}`} />
               <Link to={`/c/${c.slug}`} className="font-medium hover:underline truncate">{c.name}</Link>
-              <span className="text-muted-foreground">{c.score != null ? `${c.score}/100` : "sin pauta"}</span>
+              <span className="text-muted-foreground">{c.score != null ? `${c.score}/100` : c.semaforo === "sin-datos" ? "sin dato" : "sin pauta"}</span>
               <button onClick={() => void copiar(c.slug, c.name)} className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">Copiar</button>
               {c.oportunidades.length > 0 && (
                 <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">{c.oportunidades.length} opp</button>

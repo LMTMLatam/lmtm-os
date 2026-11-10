@@ -180,6 +180,10 @@ export function validarEntradaAgente(body: unknown): { ok: true; entrada: Entrad
   return { ok: true, entrada: { clientId, tipo, que, porque, arsPorDia, responsable, accion: accion ?? null, venceEnDias: Math.round(vence) } };
 }
 
+/** Lista de textos de 1 a 50, sin vacíos ni repetidos. */
+const textos = (v: unknown): string[] =>
+  [...new Set((Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string").map((x) => x.trim().slice(0, 80)).filter(Boolean))].slice(0, 50);
+
 /** null = sin acción (la hace una persona a mano). */
 export function validarAccion(v: unknown): Accion | { motivo: string } | null {
   if (v == null) return null;
@@ -219,8 +223,29 @@ export function validarAccion(v: unknown): Accion | { motivo: string } | null {
       if (titulo.length < 5) return { motivo: "accion tarea necesita un titulo." };
       return { tipo: "tarea", titulo, ...(typeof a.descripcion === "string" ? { descripcion: a.descripcion.slice(0, 4000) } : {}) };
     }
+    // Google (10/11): lo que proponen los agentes desde la auditoría de keywords.
+    // Los textos y los ids se vuelven a verificar contra la cuenta al ejecutar.
+    case "negativas": {
+      const terminos = textos(a.terminos);
+      if (!id(a.campaignId) || terminos.length === 0) return { motivo: "accion negativas necesita campaignId y terminos (de 1 a 50)." };
+      return { tipo: "negativas", campaignId: a.campaignId as string, terminos, ...(typeof a.campana === "string" ? { campana: a.campana.slice(0, 200) } : {}) };
+    }
+    case "pausar_keywords": {
+      const ts = textos(a.textos);
+      if (ts.length === 0) return { motivo: "accion pausar_keywords necesita textos (de 1 a 50)." };
+      return { tipo: "pausar_keywords", textos: ts };
+    }
+    case "sumar_keywords": {
+      const items = (Array.isArray(a.items) ? a.items : [])
+        .map((x) => x as Record<string, unknown>)
+        .filter((x) => typeof x?.texto === "string" && x.texto.trim() && /^\d{1,20}$/.test(String(x.adGroupId ?? "")))
+        .slice(0, 50)
+        .map((x) => ({ texto: (x.texto as string).trim().slice(0, 80), adGroupId: String(x.adGroupId), ...(typeof x.campana === "string" ? { campana: x.campana.slice(0, 200) } : {}) }));
+      if (items.length === 0) return { motivo: "accion sumar_keywords necesita items: [{texto, adGroupId}] (de 1 a 50), sacados de la auditoría." };
+      return { tipo: "sumar_keywords", items };
+    }
     default:
-      return { motivo: "accion.tipo tiene que ser presupuesto, mover_presupuesto, duplicar, pausar o tarea." };
+      return { motivo: "accion.tipo tiene que ser presupuesto, mover_presupuesto, duplicar, pausar, negativas, pausar_keywords, sumar_keywords o tarea." };
   }
 }
 

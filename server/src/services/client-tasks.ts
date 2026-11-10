@@ -160,14 +160,15 @@ export async function createClientTask(db: Db, input: CreateClientTaskInput): Pr
       const { resolverResponsable } = await import("./cotizado.js");
       const resp = await resolverResponsable(clientName, `${title} ${input.description ?? ""}`);
       if (resp) {
-        const { recordIntervention } = await import("./vigilantes.js");
+        const { recordIntervention, claveDeDerivacion } = await import("./vigilantes.js");
         const urgente = priority === "urgent" || priority === "high";
         await recordIntervention(db, {
           vigilante: "tareas", kind: "tarea", level: urgente ? 4 : 3,
           clientId: input.clientId,
           title: `${clientName}: derivar a ${resp.nombre} (${resp.area}) — ${title.slice(0, 120)}`,
           body: `${input.description ?? title}\n\nResponsable según planilla: ${resp.nombre} (${resp.area}). Issue: ${identifier ?? "s/n"}.`,
-          dedupeKey: `tareas:${identifier ?? title.slice(0, 60)}`,
+          // Con identificador, la cierra cerrarDerivacionesTerminadas cuando termina la tarea.
+          dedupeKey: identifier ? claveDeDerivacion(identifier) : `tareas:${title.slice(0, 60)}`,
         });
         if (urgente) {
           const { avisarAlEquipo } = await import("./wa-embudo.js");

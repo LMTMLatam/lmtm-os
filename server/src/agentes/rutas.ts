@@ -208,6 +208,10 @@ export function agentesRoutes(db: Db) {
           (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days') as corridas,
           (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days' and r.status in ('failed', 'timed_out')) as fallas,
           (select max(r.created_at) from heartbeat_runs r where r.agent_id = a.id) as ultima,
+          -- Por qué corrió poco: los despertares que se cortaron por la cuota
+          -- del modelo (10/11: ~17.000 en una semana y el panel no lo decía).
+          (select count(*)::int from agent_wakeup_requests w where w.agent_id = a.id and w.created_at > now() - interval '7 days'
+             and w.status = 'skipped' and w.reason like 'llm.%') as frenadas,
           coalesce((select json_agg(json_build_object('titulo', ro.title, 'cron', (select t.cron_expression from routine_triggers t where t.routine_id = ro.id limit 1)) order by ro.title)
             from routines ro where ro.assignee_agent_id = a.id and ro.status = 'active'), '[]'::json) as rutinas
         from agents a where a.adapter_type = 'claude_local' order by corridas desc, a.name`)) as unknown as Array<Record<string, unknown>> & { rows?: Array<Record<string, unknown>> };

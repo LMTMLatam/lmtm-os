@@ -11,7 +11,7 @@ import type { Db } from "@paperclipai/db";
 import { waOutbox } from "@paperclipai/db";
 import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import { datosDeHoy, type Hoy } from "../decisiones/hoy.js";
-import { enviarResumenDiario, ORIGEN_RESUMEN } from "../services/wa-embudo.js";
+import { descartarVencidos, enviarResumenDiario, ORIGEN_RESUMEN, separarVencidos } from "../services/wa-embudo.js";
 import { diaLocal } from "./politica.js";
 import { ORIGEN_INCIDENTES, urlDeHoy } from "./incidentes.js";
 
@@ -313,22 +313,28 @@ export async function mandarResumen(db: Db, ahora = new Date()): Promise<{ envia
   const encabezado = armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora));
   // Una sola lectura de lo pendiente: lo que se resume es exactamente lo que
   // después se marca como agrupado.
-  const filas = await db
-    .select({ id: waOutbox.id, origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, clave: waOutbox.clave })
+  const todas = await db
+    .select({ id: waOutbox.id, origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, clave: waOutbox.clave, createdAt: waOutbox.createdAt })
     .from(waOutbox)
     .where(eq(waOutbox.estado, "pendiente"))
     .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));
+  // Lo que esperó demasiado (gateway caído días) no sale como "desde ayer".
+  const { vigentes: filas, vencidos } = separarVencidos(todas, ahora);
+  await descartarVencidos(db, vencidos.map((f) => f.id));
   return enviarResumenDiario(db, encabezado, { texto: armarPendientesCortos(filas), ids: filas.map((f) => f.id) });
 }
 
 /** El texto que saldría ahora, sin mandarlo. Para verificar en producción. */
 export async function ensayarResumen(db: Db, ahora = new Date()): Promise<{ texto: string; pendientes: number }> {
   const hoy = await datosDeHoy(db);
-  const filas = await db
-    .select({ origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, clave: waOutbox.clave })
-    .from(waOutbox)
-    .where(eq(waOutbox.estado, "pendiente"))
-    .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));
+  const { vigentes: filas } = separarVencidos(
+    await db
+      .select({ origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, clave: waOutbox.clave, createdAt: waOutbox.createdAt })
+      .from(waOutbox)
+      .where(eq(waOutbox.estado, "pendiente"))
+      .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt)),
+    ahora,
+  );
   const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora)), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
   return { texto, pendientes: filas.length };
 }

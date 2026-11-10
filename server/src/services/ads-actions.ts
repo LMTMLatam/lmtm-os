@@ -342,3 +342,132 @@ export async function pausarKeywords(
     return { ok: false, error: `Google rechazó la pausa de keywords: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
+
+export interface ResultadoSumarKeywords {
+  ok: boolean;
+  approvalRequired?: boolean;
+  error?: string;
+  agregadas?: string[];
+  /** Ya eran keyword en ese grupo: no se duplican. */
+  yaEstaban?: string[];
+  /** El grupo no es de la cuenta del cliente (o no existe): no se toca. */
+  gruposAjenos?: string[];
+  ensayo?: boolean;
+}
+
+export interface KeywordASumar {
+  texto: string;
+  adGroupId: string;
+}
+
+/**
+ * Qué se crea de verdad. Pura, para probarla: se descarta lo que ya está como
+ * keyword en ese grupo y lo que apunta a un grupo que no es de la cuenta.
+ */
+export function planSumarKeywords(
+  items: KeywordASumar[],
+  gruposDeLaCuenta: Set<string>,
+  existentes: Set<string>,
+): { crear: KeywordASumar[]; yaEstaban: string[]; gruposAjenos: string[] } {
+  const crear: KeywordASumar[] = [];
+  const yaEstaban: string[] = [];
+  const gruposAjenos: string[] = [];
+  const vistos = new Set<string>();
+  for (const it of items) {
+    const texto = it.texto.trim().toLowerCase();
+    const clave = `${it.adGroupId}|${texto}`;
+    if (!texto || vistos.has(clave)) continue;
+    vistos.add(clave);
+    if (!gruposDeLaCuenta.has(it.adGroupId)) gruposAjenos.push(texto);
+    else if (existentes.has(clave)) yaEstaban.push(texto);
+    else crear.push({ texto, adGroupId: it.adGroupId });
+  }
+  return { crear, yaEstaban, gruposAjenos };
+}
+
+/**
+ * Suma como keyword, en concordancia de FRASE, búsquedas que ya trajeron
+ * conversiones y todavía no son keyword propia (la auditoría las lista como
+ * "nuevas"). Es la palanca que faltaba para optimizar Google: la auditoría las
+ * proponía desde agosto y no había con qué aplicarlas.
+ *
+ * Puede subir el gasto (más búsquedas elegibles), así que va con firma humana,
+ * nunca por el piloto. Cada una entra en el grupo donde convirtió, y el grupo
+ * se resuelve DENTRO de la cuenta del cliente: un id ajeno o inventado no
+ * encuentra nada y no se toca.
+ */
+export async function agregarKeywords(
+  db: Db,
+  input: {
+    clientId: string;
+    items: KeywordASumar[];
+    agentId?: string | null;
+    approved?: boolean;
+    ensayo?: boolean;
+  },
+): Promise<ResultadoSumarKeywords> {
+  const { clientId } = input;
+  const items = input.items.filter((i) => i.texto?.trim() && /^\d+$/.test(String(i.adGroupId ?? "")));
+  if (items.length === 0) return { ok: false, error: "No mandaste ninguna keyword con su grupo de anuncios." };
+  if (items.length > MAX_POR_LLAMADA) {
+    return { ok: false, error: `Son ${items.length} keywords y el tope por llamada es ${MAX_POR_LLAMADA}.` };
+  }
+  if (!input.approved && !input.ensayo) {
+    return {
+      ok: false, approvalRequired: true,
+      error: `Sumar ${items.length} keyword(s) puede subir el gasto de la cuenta. Proponelo con las conversiones de cada búsqueda y esperá OK humano; recién ahí ejecutá con approved=true.`,
+    };
+  }
+
+  const [camp] = await db
+    .select({ connectionId: adsCampaigns.connectionId, adAccountId: adsCampaigns.adAccountId })
+    .from(adsCampaigns)
+    .where(and(eq(adsCampaigns.clientId, clientId), eq(adsCampaigns.platform, "google")))
+    .limit(1);
+  if (!camp?.connectionId) return { ok: false, error: "El cliente no tiene campañas de Google sincronizadas." };
+  const cuenta = camp.adAccountId.replace(/^act_/i, "").replace(/-/g, "").trim();
+  const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, camp.connectionId)).limit(1);
+  if (!conn?.accessToken) return { ok: false, error: "No hay token de la conexión." };
+
+  try {
+    const fresca = await withFreshAccessToken(db, conn);
+    const ids = [...new Set(items.map((i) => i.adGroupId))];
+    const grupos = await searchStream(fresca, cuenta, `
+      SELECT ad_group.id FROM ad_group WHERE ad_group.id IN (${ids.join(",")})`);
+    const gruposDeLaCuenta = new Set(grupos.map((g) => String(((g as Record<string, Record<string, unknown>>).ad_group ?? {}).id ?? "")));
+    const actuales = await searchStream(fresca, cuenta, `
+      SELECT ad_group.id, ad_group_criterion.keyword.text
+      FROM ad_group_criterion
+      WHERE ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = FALSE
+        AND ad_group_criterion.status != 'REMOVED' AND ad_group.id IN (${ids.join(",")})`);
+    const existentes = new Set(actuales.map((f) => {
+      const r = f as Record<string, Record<string, unknown>>;
+      const kw = (r.ad_group_criterion?.keyword ?? {}) as Record<string, unknown>;
+      return `${String(r.ad_group?.id ?? "")}|${String(kw.text ?? "").trim().toLowerCase()}`;
+    }));
+    const plan = planSumarKeywords(items, gruposDeLaCuenta, existentes);
+    if (plan.crear.length === 0) {
+      return { ok: false, yaEstaban: plan.yaEstaban, gruposAjenos: plan.gruposAjenos, error: "No queda nada para sumar: ya son keyword en su grupo o el grupo no es de esta cuenta. No se tocó nada." };
+    }
+
+    await mutate(fresca, cuenta, "adGroupCriteria", plan.crear.map((k) => ({
+      create: {
+        adGroup: `customers/${cuenta}/adGroups/${k.adGroupId}`,
+        status: "ENABLED",
+        keyword: { text: k.texto, matchType: "PHRASE" },
+      },
+    })), { validateOnly: input.ensayo === true });
+
+    const agregadas = plan.crear.map((k) => k.texto);
+    if (!input.ensayo) {
+      await db.insert(agentActions).values({
+        clientId, agentId: input.agentId ?? null, kind: "add_keywords",
+        entityType: "keyword", entityId: cuenta,
+        detail: { cuenta, plataforma: "google", agregadas, grupos: [...new Set(plan.crear.map((k) => k.adGroupId))], yaEstaban: plan.yaEstaban },
+      }).catch(() => {});
+    }
+    return { ok: true, agregadas, yaEstaban: plan.yaEstaban, gruposAjenos: plan.gruposAjenos, ensayo: input.ensayo === true };
+  } catch (e) {
+    return { ok: false, error: `Google rechazó las keywords: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}

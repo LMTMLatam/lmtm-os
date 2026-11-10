@@ -285,6 +285,7 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
     const { propuestasDeKeywords } = await import("./reglas/keywords.js");
     const out: Propuesta[] = [];
     let fallas = 0;
+    let primerError = "";
     const conGoogle = activos.filter((c) => (metricas.get(c.id)?.frescura ?? []).some((f) => f.fuente === "google_ads" && f.estado === "ok"));
     for (const c of conGoogle) {
       try {
@@ -292,11 +293,12 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
         if (a) out.push(...propuestasDeKeywords({ clientId: c.id, cliente: c.name.trim() }, a));
       } catch (e) {
         fallas += 1;
+        primerError ||= `${c.name.trim()}: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`;
         console.warn(`[decisiones] auditoría de keywords de ${c.name.trim()} falló:`, e instanceof Error ? e.message : e);
       }
     }
     // Si no se pudo auditar alguna cuenta, no se cierra nada de lo suyo.
-    if (fallas > 0) return { propuestas: out, evaluada: false, nota: `No se pudieron auditar ${fallas} de ${conGoogle.length} cuentas de Google.` };
+    if (fallas > 0) return { propuestas: out, evaluada: false, nota: `No se pudieron auditar ${fallas} de ${conGoogle.length} cuentas de Google. Primer error: ${primerError}` };
     return out;
   }));
 
@@ -449,6 +451,18 @@ async function aplicar(db: Db, op: Operacion, vivas: Map<string, DecisionFila>, 
       .where(and(eq(decisiones.id, op.id), eq(decisiones.estado, "abierta")));
     return;
   }
+  if (op.op === "refrescar") {
+    // Ejecutada y la regla la sigue viendo: el texto y los números de hoy (lo
+    // que suma "Plata parada"), sin tocar el estado, la acción ni cuándo se hizo.
+    // La nota del ciclo ("se marcó hecha y…"), si había, se conserva.
+    const nota = vivas.get(op.id)?.porque?.nota;
+    const v = valoresDePropuesta(op.propuesta, ahora);
+    await db
+      .update(decisiones)
+      .set({ que: op.propuesta.que, porque: nota ? { ...v.porque, nota } : v.porque, arsPorDia: v.arsPorDia, updatedAt: ahora })
+      .where(and(eq(decisiones.id, op.id), eq(decisiones.estado, "ejecutada")));
+    return;
+  }
   if (op.op === "sin_confirmacion") {
     await db
       .update(decisiones)
@@ -549,7 +563,7 @@ export async function ensayarMotor(db: Db, ahora = new Date()): Promise<EnsayoMo
   const resultados = await correrReglas(db, ahora);
   const vivas = await leerVivas(db);
   const ops = planificar(vivas as Viva[], resultados, ahora, await leerDescartadas(db));
-  const operaciones: Record<Operacion["op"], number> = { insertar: 0, actualizar: 0, verificar: 0, no_confirmada: 0, vencer: 0, sin_confirmacion: 0 };
+  const operaciones: Record<Operacion["op"], number> = { insertar: 0, actualizar: 0, refrescar: 0, verificar: 0, no_confirmada: 0, vencer: 0, sin_confirmacion: 0 };
   for (const o of ops) operaciones[o.op] += 1;
   const propuestas = resultados
     .flatMap((r) => r.propuestas.map((p) => ({ regla: r.regla, clientId: p.clientId, tipo: p.tipo, que: p.que, arsPorDia: p.arsPorDia, responsable: p.responsable })))
@@ -580,7 +594,7 @@ async function correrMotorInterno(db: Db, ahora: Date): Promise<ResumenMotor> {
   const vivasPorId = new Map(vivas.map((v) => [v.id, v]));
 
   const ops = planificar(vivas as Viva[], resultados, ahora, await leerDescartadas(db));
-  const conteo: Record<Operacion["op"], number> = { insertar: 0, actualizar: 0, verificar: 0, no_confirmada: 0, vencer: 0, sin_confirmacion: 0 };
+  const conteo: Record<Operacion["op"], number> = { insertar: 0, actualizar: 0, refrescar: 0, verificar: 0, no_confirmada: 0, vencer: 0, sin_confirmacion: 0 };
   const incidentes: IncidenteNuevo[] = [];
   const nombres = new Map((await db.select({ id: clients.id, name: clients.name }).from(clients)).map((c) => [c.id, c.name.trim()]));
   for (const op of ops) {

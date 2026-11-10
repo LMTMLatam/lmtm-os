@@ -444,11 +444,38 @@ export async function runVigilanteSaludCliente(db: Db): Promise<{ evaluados: num
   return { evaluados: activos.length, preocupado };
 }
 
+/** La clave con la que una tarea derivada a una persona queda en `interventions`. */
+export const claveDeDerivacion = (identifier: string) => `tareas:${identifier}`;
+/** Estados de un issue que ya no piden nada a la persona a la que se derivó. */
+export const ISSUE_TERMINADO = ["done", "cancelled"] as const;
+
+/**
+ * Cierra las derivaciones ("X: derivar a Caro…") cuya tarea ya se hizo o se
+ * canceló. Nada las cerraba: al 10/11 había 650 abiertas desde julio, y de las
+ * 68 de las últimas tres semanas, 29 eran de tareas terminadas.
+ */
+export async function cerrarDerivacionesTerminadas(db: Db): Promise<number> {
+  const r = await db.execute(sql`
+    update interventions iv set status = 'resolved', updated_at = now()
+    from issues i
+    where iv.vigilante = 'tareas'
+      and iv.status in ('open', 'sent')
+      and iv.dedupe_key = 'tareas:' || i.identifier
+      and i.client_id = iv.client_id
+      and i.status in (${sql.join(ISSUE_TERMINADO.map((e) => sql`${e}`), sql`, `)})
+    returning iv.id`);
+  return ((r as { rows?: unknown[] }).rows ?? (r as unknown as unknown[])).length;
+}
+
 let vigilanteTimer: ReturnType<typeof setInterval> | null = null;
 
 export function initVigilantes(db: Db): void {
   if (!vigilanteTimer) {
     const tick = async () => {
+      // Barato y sin avisar a nadie: cada 3 horas, no una vez por día.
+      await cerrarDerivacionesTerminadas(db)
+        .then((n) => { if (n) console.log(`[vigilantes] ${n} derivaciones cerradas: su tarea ya terminó`); })
+        .catch((e) => console.warn("[vigilantes] cerrar derivaciones falló:", e instanceof Error ? e.message : e));
       // 1×/día de verdad: con el día en memoria, cada deploy los volvía a correr.
       const { tocaHoy } = await import("./una-vez-por-dia.js");
       if (!(await tocaHoy(db, "monitor:vigilantes"))) return;

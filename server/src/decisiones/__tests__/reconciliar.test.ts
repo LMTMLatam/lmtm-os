@@ -59,8 +59,9 @@ describe("planificar", () => {
     const frenada = { ...propuesta("k1"), porque: { resumen: "frenada", datos: [], nivel: 5 as const } };
     const [op] = planificar([hecha], [resultado([frenada])], ahora);
     expect(op).toMatchObject({ op: "no_confirmada", id: "id-k1", propuesta: frenada });
-    // Si ya era un incidente cuando se marcó hecha, rige la gracia de siempre.
-    expect(planificar([{ ...hecha, porque: { nivel: 5 } }], [resultado([frenada])], ahora)).toEqual([]);
+    // Si ya era un incidente cuando se marcó hecha, rige la gracia de siempre
+    // (mientras tanto solo se refrescan los números).
+    expect(planificar([{ ...hecha, porque: { nivel: 5 } }], [resultado([frenada])], ahora)).toEqual([{ op: "refrescar", id: "id-k1", propuesta: frenada }]);
   });
 
   it("lo abierto que dejó de aparecer vence: nadie lo tocó y ya no aplica", () => {
@@ -79,9 +80,35 @@ describe("planificar", () => {
     const hace8 = viva({ clave: "k1", estado: "ejecutada", ejecutadaAt: new Date(ahora.getTime() - 8 * DIA) });
     const [op] = planificar([hace8], [resultado([propuesta("k1")])], ahora);
     expect(op.op).toBe("no_confirmada");
-    // Dentro del margen de una tarea (7 días) se espera.
+    // Dentro del margen de una tarea (7 días) se espera, con los números de hoy.
     const hace3 = viva({ clave: "k1", estado: "ejecutada", ejecutadaAt: new Date(ahora.getTime() - 3 * DIA) });
-    expect(planificar([hace3], [resultado([propuesta("k1")])], ahora)).toEqual([]);
+    expect(planificar([hace3], [resultado([propuesta("k1")])], ahora)).toEqual([{ op: "refrescar", id: "id-k1", propuesta: propuesta("k1") }]);
+  });
+
+  it("lo ejecutado que la regla sigue viendo trae los números de hoy, no los del día que se hizo", () => {
+    const hecha = viva({ clave: "k1", estado: "ejecutada", ejecutadaAt: new Date(ahora.getTime() - DIA) });
+    const hoy = { ...propuesta("k1"), arsPorDia: 22_615 };
+    expect(planificar([hecha], [resultado([hoy])], ahora)).toEqual([{ op: "refrescar", id: "id-k1", propuesta: hoy }]);
+  });
+
+  it("refrescar no cuenta como confirmar: a los 21 días sin confirmación se cierra igual", () => {
+    const vieja = viva({ clave: "k1", estado: "ejecutada", ejecutadaAt: new Date(ahora.getTime() - 22 * DIA) });
+    const p = { ...propuesta("k1"), tipo: "contenido:reutilizar" }; // se aprovecha: no se reabre
+    expect(planificar([vieja], [resultado([p])], ahora)).toEqual([
+      { op: "refrescar", id: "id-k1", propuesta: p },
+      { op: "sin_confirmacion", id: "id-k1" },
+    ]);
+  });
+
+  it("una regla que miró a medias mete lo que encontró, pero no cierra nada", () => {
+    // 10/11: web_google proponía 13 por día y una propiedad con error la
+    // marcaba sin evaluar; no había entrado ninguna.
+    const ops = planificar(
+      [viva({ clave: "k1" }), viva({ clave: "k2", estado: "ejecutada", ejecutadaAt: new Date(ahora.getTime() - DIA) })],
+      [resultado([propuesta("k3")], { evaluada: false })],
+      ahora,
+    );
+    expect(ops).toEqual([{ op: "insertar", propuesta: propuesta("k3") }]);
   });
 
   it("una regla que no pudo mirar no toca nada de lo suyo: no ver no es estar bien", () => {

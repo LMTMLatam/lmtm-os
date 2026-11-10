@@ -945,6 +945,7 @@ const CORE_TOOLS: ToolDef[] = [
           campaignId: { type: "string", description: "ID de la campaña de Google a la que se le suman las negativas" },
           terminos: { type: "array", items: { type: "string" }, description: "Términos de búsqueda a negativizar (máximo 50)" },
           ensayo: { type: "boolean", description: "true = validar contra Google sin guardar nada" },
+          justificacion: { type: "string", description: "Gasto y clics sin conversiones de cada término. Con esto queda la decisión en Hoy para que la apruebe una persona." },
           approved: { type: "boolean", description: "true SOLO si un humano ya aprobó esta lista en el issue" },
         },
         required: ["clientId", "campaignId", "terminos"],
@@ -963,9 +964,33 @@ const CORE_TOOLS: ToolDef[] = [
           clientId: { type: "string" },
           textos: { type: "array", items: { type: "string" }, description: "Texto exacto de las keywords a pausar (máximo 50)" },
           ensayo: { type: "boolean", description: "true = validar contra Google sin guardar nada" },
+          justificacion: { type: "string", description: "Gasto, clics y conversiones de cada una. Con esto queda la decisión en Hoy para que la apruebe una persona." },
           approved: { type: "boolean", description: "true SOLO si un humano ya aprobó esta lista en el issue" },
         },
         required: ["clientId", "textos"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_keywords_google",
+      description:
+        "SUMAR como palabra clave (concordancia de frase) búsquedas de Google Ads que ya trajeron conversiones y todavía no son keyword propia. Sacalas de get_auditoria_keywords_google → `nuevas` (trae texto y adGroupId: cada una va al grupo donde convirtió). Es la palanca para EMPUJAR lo que ya funciona, no solo frenar. Puede subir el gasto, así que la decide una persona: mandá 'justificacion' con las conversiones y el costo de cada una y queda la decisión en Hoy con su botón; al aprobarla se ejecuta sola y le aparece al cliente en 'Lo que hicimos'. No inventes textos ni grupos: el servidor los verifica contra la cuenta. Si la auditoría avisa que las conversiones son dudosas, no la uses.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string" },
+          items: {
+            type: "array",
+            description: "De 1 a 50, tal como vienen en `nuevas` de la auditoría",
+            items: { type: "object", properties: { texto: { type: "string" }, adGroupId: { type: "string" }, campana: { type: "string" } }, required: ["texto", "adGroupId"] },
+          },
+          ensayo: { type: "boolean", description: "true = validar contra Google sin guardar nada" },
+          justificacion: { type: "string", description: "Conversiones y costo de cada búsqueda, del período de la auditoría" },
+          approved: { type: "boolean", description: "true SOLO si un humano ya aprobó esta lista" },
+        },
+        required: ["clientId", "items"],
       },
     },
   },
@@ -1371,6 +1396,47 @@ export function agentToolsRoutes(
             : `Ya dejé la propuesta armada y lista para ejecutarse: aprobación ${id} — "${p.resumen}". `) +
           `Nombrala en el issue para que quien decida llegue directo. Cuando alguien la apruebe, el sistema la ejecuta solo; NO hace falta que vuelvas a llamar la tool.`,
       );
+    };
+
+    /**
+     * Las palancas de Google (negativas, pausar y sumar keywords) sin firma
+     * humana quedan como DECISIÓN en Hoy, con su botón. Antes devolvían
+     * "proponelo en el issue" y la propuesta moría como prosa: en 45 días no se
+     * aplicó ninguna en Google (10/11). Al aprobarla, ejecutar.ts la corre por
+     * la misma función (con sus guardas) y queda en "Lo que hicimos".
+     */
+    const dejarEnHoy = async (
+      clientId: string,
+      tipo: string,
+      que: string,
+      accion: import("../decisiones/tipos.js").Accion,
+      cantidad: number,
+      nota = "",
+    ) => {
+      const justificacion = textoDe(params.justificacion);
+      if (!justificacion) {
+        return reply(false, `Para dejarlo en Hoy necesito el parámetro \`justificacion\` con los números de la auditoría (gasto, clics y conversiones de cada una): es lo que lee la persona que aprueba.${nota}`);
+      }
+      if (!ctx) return reply(false, "Solo un agente puede proponer.");
+      try {
+        const { crearDesdeAgente } = await import("../decisiones/store.js");
+        const { decision, creada } = await crearDesdeAgente(
+          db,
+          {
+            clientId, tipo, que: que.slice(0, 300),
+            porque: { resumen: justificacion.slice(0, 600), datos: [{ etiqueta: "Palabras clave en la propuesta", valor: cantidad }] },
+            arsPorDia: null, responsable: "equipo", accion, venceEnDias: 7,
+          },
+          { actorType: "agent", actorId: ctx.agentId, agentId: ctx.agentId, runId: ctx.runId || null, companyId: ctx.companyId },
+        );
+        return reply(
+          true,
+          `${creada ? "Dejé la decisión en Hoy" : "Ya estaba en Hoy (le dejé los números de ahora)"}: «${decision.que}» (${decision.id}).${nota} ` +
+            "Cuando una persona la apruebe se ejecuta sola contra Google y le aparece al cliente en 'Lo que hicimos'. NO hace falta que vuelvas a llamar la tool.",
+        );
+      } catch (e) {
+        return reply(false, `No pude dejarla en Hoy: ${e instanceof Error ? e.message : String(e)}`);
+      }
     };
 
     // El filtro del GET ya esconde estas tools, pero el modelo puede inventarse
@@ -2741,6 +2807,7 @@ export function agentToolsRoutes(
         const dias = typeof params.dias === "number" && params.dias > 0 ? Math.min(params.dias, 90) : 30;
         try {
           const { auditarKeywords, auditoriaAPasos } = await import("../services/ads-keywords.js");
+          const { conversionesDudosas } = await import("../metricas/index.js");
           const a = await auditarKeywords(db, clientId, dias);
           if (!a) return reply(false, "El cliente no tiene Google Ads mapeado.");
           // Se devuelve la guía redactada Y los ids que hacen falta para actuar:
@@ -2749,8 +2816,12 @@ export function agentToolsRoutes(
             guia: auditoriaAPasos(a).cuerpo,
             cuenta: a.cuenta,
             gastoMarcaSinConversion: a.gastoMarcaSinConversion,
-            negativas: a.negativas.map((t) => ({ termino: t.termino, costo: t.costo, clics: t.clics, campana: t.campana })),
+            // campaignId y adGroupId: sin ellos no se puede llamar a
+            // add_negative_keywords ni a add_keywords_google (10/11: faltaban).
+            negativas: a.negativas.map((t) => ({ termino: t.termino, costo: t.costo, clics: t.clics, campana: t.campana, campaignId: t.campaignId })),
+            nuevas: a.nuevas.map((t) => ({ texto: t.termino, adGroupId: t.adGroupId, campana: t.campana, conversiones: Math.round(t.conversiones * 10) / 10, costo: Math.round(t.costo) })),
             pausar: a.pausar.map((k) => ({ texto: k.texto, costo: k.costo, clics: k.clics, campana: k.campana })),
+            conversionesDudosas: conversionesDudosas("google", a.conversionesTotal, a.clicsTotal),
           }));
         } catch (e) {
           return reply(false, `get_auditoria_keywords_google: ${e instanceof Error ? e.message : String(e)}`);
@@ -2773,7 +2844,11 @@ export function agentToolsRoutes(
         const nota = r.rechazadosPorMarca?.length
           ? ` No se incluyeron por ser de la marca: ${r.rechazadosPorMarca.join(", ")}.`
           : "";
-        if (r.approvalRequired) return reply(false, (r.error ?? "Requiere aprobación humana.") + nota);
+        if (r.approvalRequired) {
+          const ts = r.aplicados ?? terminos;
+          return dejarEnHoy(clientId, "pauta:negativas", `Agregar ${ts.length} ${ts.length === 1 ? "negativa" : "negativas"} en Google: ${ts.slice(0, 3).join(", ")}${ts.length > 3 ? "…" : ""}`,
+            { tipo: "negativas", campaignId, terminos: ts }, ts.length, nota);
+        }
         if (!r.ok) return reply(false, r.error ?? "No se pudieron agregar las negativas.");
         if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.aplicados?.length ?? 0} negativa(s) y NO guardó nada.${nota} Pedí OK humano y volvé a llamar con approved=true.`);
         return reply(true, `Agregadas ${r.aplicados?.length ?? 0} negativa(s) en concordancia de frase.${nota} Acción registrada.`);
@@ -2793,10 +2868,41 @@ export function agentToolsRoutes(
         if (r.protegidasPorMarca?.length) partes.push(`protegidas por ser de la marca: ${r.protegidasPorMarca.join(", ")}`);
         if (r.noEncontradas?.length) partes.push(`no están activas en la cuenta: ${r.noEncontradas.join(", ")}`);
         const nota = partes.length ? ` (${partes.join("; ")})` : "";
-        if (r.approvalRequired) return reply(false, (r.error ?? "Requiere aprobación humana.") + nota);
+        if (r.approvalRequired) {
+          const marca = new Set((r.protegidasPorMarca ?? []).map((t) => t.toLowerCase()));
+          const ts = textos.filter((t) => !marca.has(t.trim().toLowerCase()));
+          return dejarEnHoy(clientId, "pauta:pausar_keywords", `Pausar ${ts.length} ${ts.length === 1 ? "palabra clave" : "palabras clave"} en Google: ${ts.slice(0, 3).join(", ")}${ts.length > 3 ? "…" : ""}`,
+            { tipo: "pausar_keywords", textos: ts }, ts.length, nota);
+        }
         if (!r.ok) return reply(false, (r.error ?? "No se pudieron pausar.") + nota);
         if (r.ensayo) return reply(true, `Ensayo OK: Google validó la pausa de ${r.pausadas?.length ?? 0} keyword(s) y NO guardó nada.${nota} Pedí OK humano y volvé a llamar con approved=true.`);
         return reply(true, `Pausadas ${r.pausadas?.length ?? 0} keyword(s).${nota} Acción registrada.`);
+      }
+
+      if (tool === "add_keywords_google") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        const { validarAccion } = await import("../decisiones/store.js");
+        const accion = validarAccion({ tipo: "sumar_keywords", items: params.items });
+        if (!accion || "motivo" in accion || accion.tipo !== "sumar_keywords") {
+          return reply(false, accion && "motivo" in accion ? accion.motivo : "Falta la lista de items.");
+        }
+        const { agregarKeywords } = await import("../services/ads-actions.js");
+        const r = await agregarKeywords(db, {
+          clientId, items: accion.items, agentId: ctx.agentId,
+          approved: firmaHumana, ensayo: params.ensayo === true,
+        });
+        const partes: string[] = [];
+        if (r.yaEstaban?.length) partes.push(`ya eran keyword: ${r.yaEstaban.join(", ")}`);
+        if (r.gruposAjenos?.length) partes.push(`su grupo no es de esta cuenta: ${r.gruposAjenos.join(", ")}`);
+        const nota = partes.length ? ` (${partes.join("; ")})` : "";
+        if (r.approvalRequired) {
+          return dejarEnHoy(clientId, "pauta:sumar_keywords", `Sumar ${accion.items.length} ${accion.items.length === 1 ? "búsqueda que ya trae" : "búsquedas que ya traen"} consultas como palabra clave en Google: ${accion.items.slice(0, 3).map((i) => i.texto).join(", ")}${accion.items.length > 3 ? "…" : ""}`,
+            accion, accion.items.length, nota);
+        }
+        if (!r.ok) return reply(false, (r.error ?? "No se pudieron sumar.") + nota);
+        if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.agregadas?.length ?? 0} keyword(s) y NO guardó nada.${nota} Mandá 'justificacion' para dejar la decisión en Hoy.`);
+        return reply(true, `Sumadas ${r.agregadas?.length ?? 0} keyword(s) en concordancia de frase.${nota} Acción registrada.`);
       }
 
       if (tool === "get_client_video_tasks") {

@@ -66,6 +66,21 @@ const VERBOS: Record<string, [string, string, string]> = {
   sumar: ["Sumó", "Sumamos", "Sumar"],
   duplicar: ["Duplicó", "Duplicamos", "Duplicar"],
 };
+/** Cambios en la web del cliente, dichos para una persona: [hizo, hicimos, hacer]. */
+const CAMBIOS_WEB: Record<string, [string, string, string]> = {
+  quitar_spam: ["Sacó contenido basura (spam) que se había colado en la web", "Sacamos contenido basura (spam) que se había colado en tu web", "Sacar contenido basura (spam) de la web"],
+  actualizar_plugins: ["Actualizó complementos de la web", "Actualizamos los complementos de tu web por seguridad", "Actualizar complementos de la web"],
+  actualizar_temas: ["Actualizó el tema de la web", "Actualizamos el diseño base de tu web", "Actualizar el tema de la web"],
+  actualizar_wordpress: ["Actualizó WordPress", "Actualizamos WordPress en tu web", "Actualizar WordPress"],
+  desactivar_plugin: ["Desactivó un complemento de la web", "Desactivamos un complemento riesgoso o sin uso de tu web", "Desactivar un complemento de la web"],
+  instalar_ssl: ["Instaló el certificado de seguridad", "Instalamos el certificado de seguridad (https) de tu web", "Instalar el certificado de seguridad"],
+  forzar_https: ["Forzó la conexión segura", "Tu web ahora abre siempre con conexión segura (https)", "Forzar la conexión segura (https)"],
+  crear_redireccion: ["Creó una redirección", "Redirigimos una dirección vieja de tu web a la nueva", "Crear una redirección"],
+  purgar_cache: ["Limpió la caché de la web", "Limpiamos la caché de tu web", "Limpiar la caché de la web"],
+  version_php: ["Actualizó la versión de PHP", "Actualizamos el servidor de tu web", "Actualizar la versión de PHP"],
+  reemplazar_texto: ["Corrigió un texto de la web", "Corregimos un texto de tu web", "Corregir un texto de la web"],
+  bajar_administrador: ["Le sacó permisos de administrador a un usuario sospechoso", "Le sacamos permisos de administrador a un usuario sospechoso de tu web", "Sacarle permisos de administrador a un usuario sospechoso"],
+};
 const verbo = (v: keyof typeof VERBOS, f: Forma) => VERBOS[v][f === "hizo" ? 0 : f === "hicimos" ? 1 : 2];
 const plural = (n: number, una: string, varias: string) => (n === 1 ? una : varias);
 const pesos = (n: unknown) => `$${Math.round(Number(n) || 0).toLocaleString("es-AR")}`;
@@ -104,8 +119,17 @@ export function fraseAccion(
     }
     case "duplicate_winner":
       return `${verbo("duplicar", forma)} el conjunto${de}${conCifras && d.nacioPausada ? " (la copia nace pausada)" : ""}`;
-    default:
+    case "add_keywords": {
+      const t = lista(d.agregadas);
+      if (!conCifras) return `${verbo("sumar", forma)} palabras clave que ya traían consultas en Google`;
+      return `${verbo("sumar", forma)} ${t.length} ${plural(t.length, "palabra clave", "palabras clave")} que ya traían consultas en Google${t.length ? `: ${t.slice(0, 6).join(", ")}${t.length > 6 ? "…" : ""}` : ""}`;
+    }
+    default: {
+      // Los cambios en la web (hostinger.ts): el cliente lee "web_quitar_spam" si no.
+      const w = a.kind.startsWith("web_") ? CAMBIOS_WEB[a.kind.slice(4)] : undefined;
+      if (w) return w[forma === "hizo" ? 0 : forma === "hicimos" ? 1 : 2];
       return a.kind;
+    }
   }
 }
 
@@ -465,6 +489,12 @@ export async function trabajoDeAgentes(db: Db, f: { clientId?: string; dias?: nu
 }
 
 /**
+ * Un cambio que se intentó y falló queda en el registro con `detail.ok = false`
+ * (los de la web, 08/11): al cliente no se le cuenta como hecho. Pura.
+ */
+export const salioBien = (a: { detail: Record<string, unknown> | null }) => (a.detail as { ok?: unknown } | null)?.ok !== false;
+
+/**
  * Lo que ve el cliente en su dashboard: solo los cambios ejecutados en su
  * cuenta y, si ya se midió, qué pasó con su costo por consulta. Ni el porqué
  * interno (se escribe para el equipo, con jerga) ni quién lo hizo.
@@ -475,7 +505,7 @@ export async function optimizacionesPublicas(db: Db, clientId: string, since: st
   // Del día `since` a `until` inclusive, en horario de Buenos Aires.
   const desde = new Date(`${since}T03:00:00Z`);
   const hasta = new Date(`${sumarDias(until, 1)}T03:00:00Z`);
-  const filas = await accionesEjecutadas(db, { clientId, desde, hasta });
+  const filas = (await accionesEjecutadas(db, { clientId, desde, hasta })).filter(salioBien);
   return filas.map((a) => ({
     fecha: iso(a.created_at),
     plataforma: plataformaDeAccion(a),

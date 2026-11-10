@@ -136,6 +136,18 @@ export async function ejecutarAccion(
       return fin(true, `${ensayo ? "Ensayo OK: Google pausaría" : "Pausadas"} ${n} ${n === 1 ? "palabra clave" : "palabras clave"}.${extra ? ` ${extra}` : ""}`, { pausadas: r.pausadas ?? [] });
     }
 
+    if (accion.tipo === "sumar_keywords") {
+      const { agregarKeywords } = await import("../services/ads-actions.js");
+      const r = await agregarKeywords(db, { clientId, items: accion.items, approved: !ensayo, ensayo });
+      const extra = [
+        r.yaEstaban?.length ? `Ya eran keyword: ${r.yaEstaban.join(", ")}.` : "",
+        r.gruposAjenos?.length ? `Su grupo ya no está en la cuenta: ${r.gruposAjenos.join(", ")}.` : "",
+      ].filter(Boolean).join(" ");
+      if (!r.ok) return fin(false, `${r.error ?? "No se pudieron sumar."}${extra ? ` ${extra}` : ""}`);
+      const n = r.agregadas?.length ?? 0;
+      return fin(true, `${ensayo ? "Ensayo OK: Google sumaría" : "Sumadas"} ${n} ${n === 1 ? "palabra clave" : "palabras clave"} en concordancia de frase.${extra ? ` ${extra}` : ""}`, { agregadas: r.agregadas ?? [] });
+    }
+
     // tarea
     const { crearTareaEnListaDelCliente } = await import("../services/clickup-sync.js");
     const porque = d.porque?.resumen ? `\n\n**Por qué:** ${d.porque.resumen}` : "";

@@ -280,23 +280,66 @@ export async function leerResponsables(): Promise<Array<{ cliente: string; disen
 // ── Derivación de tareas al responsable humano (pestaña RESPONSABLES) ──────
 let respCache: { at: number; rows: Awaited<ReturnType<typeof leerResponsables>> } | null = null;
 
-/** Resuelve el responsable humano de una tarea de cliente según la planilla
- *  del equipo. El área se infiere del texto: diseño vs copy/programación. */
+export type AreaTarea = "diseño" | "pauta" | "cuenta" | "copy";
+
+/**
+ * De qué se trata una tarea, por su texto. Pura.
+ *
+ * Antes solo se distinguía diseño de "el resto", y el resto iba a copy y
+ * programación: al 10/11, 332 derivaciones a Caro incluían recargar saldo,
+ * el BM de Meta y las conversiones de Google. La pauta y la relación con el
+ * cliente tienen responsable propio en PLANILLA GENERAL.
+ */
+export function areaDeTarea(texto: string): AreaTarea {
+  if (/dise[ñn]|placa|banner|imagen|logo|pieza|gr[aá]fic|flyer|portada|editable|pixel[ae]|resoluci[oó]n/i.test(texto)) return "diseño";
+  if (/\bpauta|campa[ñn]a|anuncio|presupuesto|spend ?cap|saldo|recarg|meta ads|google ads|conversi[oó]n|conversiones|\bcpl\b|\bbm\b|business manager|p[ií]xel|lead ads|act_\d/i.test(texto)) return "pauta";
+  if (/churn|contactar|llamar|check-?in|reuni[oó]n|whatsapp proactivo|avisarle al cliente|pedir(le)? a/i.test(texto)) return "cuenta";
+  return "copy";
+}
+
+/** Pauta y gestión de cuenta por cliente (PLANILLA GENERAL, columnas AF y AH). */
+async function responsablesGenerales(): Promise<Array<{ cliente: string; cuenta: string | null; pauta: string | null }>> {
+  const values = await readSheet();
+  const cell = (row: string[], i: number) => String(row[i] ?? "").trim() || null;
+  return values.slice(4).map((row) => ({ cliente: String(row[0] ?? "").trim(), cuenta: cell(row, 31), pauta: cell(row, 33) })).filter((r) => r.cliente);
+}
+
+/**
+ * Elige a la persona según el área de la tarea. Si el área no tiene a nadie
+ * cargado, cae como antes: copy y programación, y si no, diseño. Pura.
+ */
+export function elegirResponsable(
+  area: AreaTarea,
+  r: { diseno: string | null; copyProgramacion: string | null; pauta?: string | null; cuenta?: string | null },
+): { nombre: string; area: string } | null {
+  if (area === "diseño" && r.diseno) return { nombre: r.diseno, area: "diseño" };
+  if (area === "pauta" && r.pauta) return { nombre: r.pauta, area: "pauta" };
+  if (area === "cuenta" && r.cuenta) return { nombre: r.cuenta, area: "gestión de cuenta" };
+  if (r.copyProgramacion) return { nombre: r.copyProgramacion, area: "copy y programación" };
+  return r.diseno ? { nombre: r.diseno, area: "diseño" } : null;
+}
+
+const mismoCliente = (a: string, b: string) => {
+  const x = norm(a), y = norm(b);
+  return x === y || x.includes(y) || y.includes(x);
+};
+
+/** Resuelve el responsable humano de una tarea de cliente según la planilla del equipo. */
 export async function resolverResponsable(clienteName: string, texto: string): Promise<{ nombre: string; area: string } | null> {
   try {
     if (!respCache || Date.now() - respCache.at > 10 * 60_000) {
       respCache = { at: Date.now(), rows: await leerResponsables() };
     }
   } catch { return null; }
-  const fila = respCache.rows.find((r) => {
-    const a = norm(r.cliente), b = norm(clienteName);
-    return a === b || a.includes(b) || b.includes(a);
-  });
+  const fila = respCache.rows.find((r) => mismoCliente(r.cliente, clienteName));
   if (!fila) return null;
-  const esDiseno = /dise[ñn]|placa|banner|imagen|logo|pieza|gr[aá]fic|flyer|portada|editable|pixel[ae]|resoluci[oó]n/i.test(texto);
-  if (esDiseno && fila.diseno) return { nombre: fila.diseno, area: "diseño" };
-  if (fila.copyProgramacion) return { nombre: fila.copyProgramacion, area: "copy y programación" };
-  return fila.diseno ? { nombre: fila.diseno, area: "diseño" } : null;
+  const area = areaDeTarea(texto);
+  // La planilla general solo hace falta para pauta y cuenta; si no se puede
+  // leer, se deriva como antes en vez de no derivar.
+  const general = area === "pauta" || area === "cuenta"
+    ? await responsablesGenerales().then((rs) => rs.find((r) => mismoCliente(r.cliente, clienteName)) ?? null).catch(() => null)
+    : null;
+  return elegirResponsable(area, { ...fila, pauta: general?.pauta ?? null, cuenta: general?.cuenta ?? null });
 }
 
 // ── Carga del equipo (pedido 18/7: "ver si algún recurso está con muchas

@@ -8,7 +8,7 @@ const base: AuditoriaKeywords = {
   ahorroMensual: 0, gastoMarcaSinConversion: 0,
 };
 const t = (termino: string, campaignId: string, costo: number) =>
-  ({ termino, keyword: null, campana: `Camp ${campaignId}`, campaignId, clics: 12, impresiones: 300, costo, conversiones: 0 });
+  ({ termino, keyword: null, campana: `Camp ${campaignId}`, campaignId, adGroupId: `g${campaignId}`, clics: 12, impresiones: 300, costo, conversiones: 0 });
 
 describe("keywords de Google → decisiones de Hoy", () => {
   it("negativas: una decisión por campaña, con los términos y su botón", () => {
@@ -44,5 +44,25 @@ describe("keywords de Google → decisiones de Hoy", () => {
   it("sin nada que proponer, nada; un término sin campaña no se propone", () => {
     expect(propuestasDeKeywords({ clientId: "c1", cliente: "BOERO" }, base)).toEqual([]);
     expect(propuestasDeKeywords({ clientId: "c1", cliente: "BOERO" }, { ...base, negativas: [t("x", "", 5000)] })).toEqual([]);
+  });
+
+  it("búsquedas que convirtieron: una decisión para sumarlas, en el grupo donde convirtieron más", () => {
+    const conv = (termino: string, adGroupId: string, conversiones: number) => ({ ...t(termino, "11", 2000), adGroupId, conversiones });
+    const [p] = propuestasDeKeywords({ clientId: "c1", cliente: "BOERO" }, {
+      ...base, nuevas: [conv("pintura látex", "g1", 3), conv("Pintura látex", "g2", 5), conv("membrana líquida", "g1", 2)],
+    });
+    expect(p.tipo).toBe("pauta:sumar_keywords");
+    expect(p.accion).toEqual({
+      tipo: "sumar_keywords",
+      items: [
+        { texto: "Pintura látex", adGroupId: "g2", campana: "Camp 11" },
+        { texto: "membrana líquida", adGroupId: "g1", campana: "Camp 11" },
+      ],
+    });
+  });
+
+  it("con conversiones dudosas (más que una por cada 3 clics) no se afirma que conviertan", () => {
+    const dudosa = { ...base, clicsTotal: 1000, conversionesTotal: 1365, nuevas: [{ ...t("inmobiliaria rosario", "11", 9875), conversiones: 103 }] };
+    expect(propuestasDeKeywords({ clientId: "c1", cliente: "MA PROPIEDADES" }, dudosa)).toEqual([]);
   });
 });

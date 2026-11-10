@@ -32,7 +32,7 @@ import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsAdsets, adsAlerts, adsCampaigns, adsConnections, adsCreatives, adsInsights, adsInventoryCache, audienceDemographics, clients, clientMemory, contentPerformance, hooks, learnings, organicPosts, organicPostInsights, publicDashboards, syncLogs, accountScores, issues, opportunities, trends, videoReferences, type AdsAccountMapping } from "@paperclipai/db";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import { getAdsProvider, isKnownAdsPlatform } from "../services/ads/registry.js";
 import { trendMatchesIndustry } from "../services/niche-slugs.js";
 import { googleAdsProviderScopes } from "../services/ads/providers/google.js";
@@ -63,6 +63,7 @@ import { fetchAccountBalances, runBalanceCheck } from "../services/balance-monit
 import { competitors, contentIdeas, nicheReports, interventions, googleWebConexiones } from "@paperclipai/db";
 import { generateContentPlan } from "../services/competitor-content.js";
 import { resolveCompanyId } from "../services/intel-common.js";
+import { diaLocal } from "../avisos/politica.js";
 import { pasarCuentasAntesDeBorrar, vincularCuentasSueltas } from "../services/ads/mappings-sueltos.js";
 
 // Per-platform OAuth configuration. The start route redirects the user
@@ -3442,9 +3443,6 @@ export function adsRoutes(db: Db): Router {
     }
   });
 
-  // (B4) /growth/semaforo-pauta se retiró con Pauta y su tarjeta de Growth:
-  // la Cartera mide a cada cliente contra su objetivo.
-
   // Triage general rojo/amarillo/verde (pedido 20/7): la vista principal de
   // Growth. Cada cliente con sus problemas y su plan corto para salir del rojo.
   // B3 lo había retirado; vuelve en la fase C.
@@ -3460,11 +3458,12 @@ export function adsRoutes(db: Db): Router {
   router.get("/growth/semaforo-pauta", async (_req, res) => {
     const { accountScores: scores, opportunities: opps } = await import("@paperclipai/db");
     const { clienteReal } = await import("../services/intel-common.js");
+    const { OPORTUNIDAD_CERRADA, semaforoDe } = await import("../services/semaforo-pauta.js");
     const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
       .from(clients).where(clienteReal());
     const hoy = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
     const scoreRows = await db.select().from(scores).where(gte(scores.date, hoy)).orderBy(desc(scores.date));
-    const latest = new Map<string, number>();
+    const latest = new Map<string, number | null>();
     // Un cliente SIN pauta puntúa 0 y se pintaba de rojo junto a los que sí
     // tienen pauta andando mal: 40 de 58 en rojo con 0/100 (18/8). No es lo
     // mismo "la pauta va mal" que "no hay pauta" — el segundo no es un problema
@@ -3472,11 +3471,11 @@ export function adsRoutes(db: Db): Router {
     const sinPauta = new Set<string>();
     for (const s of scoreRows) {
       if (latest.has(s.clientId)) continue;
-      latest.set(s.clientId, Number(s.healthScore ?? 0));
+      latest.set(s.clientId, s.healthScore == null ? null : Number(s.healthScore));
       if ((s.components as { noAds?: boolean } | null)?.noAds === true) sinPauta.add(s.clientId);
     }
     const oppRows = await db.select({ clientId: opps.clientId, title: opps.title, priority: opps.priority })
-      .from(opps).where(sql`${opps.status} not in ('done','dismissed','descartada')`).orderBy(desc(opps.priority)).limit(300);
+      .from(opps).where(notInArray(opps.status, [...OPORTUNIDAD_CERRADA])).orderBy(desc(opps.priority)).limit(300);
     const oppsByClient = new Map<string, string[]>();
     for (const o of oppRows) {
       if (!o.clientId) continue;
@@ -3488,13 +3487,12 @@ export function adsRoutes(db: Db): Router {
       .filter((c) => latest.has(c.id))
       .map((c) => {
         // Sin pauta no hay score: un 0 se leía como "pauta pésima".
-        const score = sinPauta.has(c.id) ? null : latest.get(c.id)!;
+        const score = sinPauta.has(c.id) ? null : latest.get(c.id) ?? null;
         return {
           id: c.id, name: c.name, slug: c.slug, industry: c.industry,
           score,
           sinPauta: sinPauta.has(c.id),
-          semaforo: score == null ? "sin-pauta"
-            : score >= 70 ? "verde" : score >= 40 ? "amarillo" : "rojo",
+          semaforo: semaforoDe(score, sinPauta.has(c.id)),
           oportunidades: oppsByClient.get(c.id) ?? [],
         };
       })
@@ -3650,7 +3648,8 @@ export function adsRoutes(db: Db): Router {
       const since30 = defaultSince();
       const since56 = new Date(Date.now() - 56 * 86_400_000);
       // Hoy está a medio sincronizar: en la tendencia se veía como una caída.
-      const hoyDia = new Date().toISOString().slice(0, 10);
+      // En Buenos Aires: de 21 a 24 h el día UTC ya es mañana.
+      const hoyDia = diaLocal(new Date());
       const { clienteReal } = await import("../services/intel-common.js");
 
       // Independent reads — run concurrently (5 round-trips → 1).
@@ -3799,7 +3798,7 @@ export function adsRoutes(db: Db): Router {
   router.get("/growth/niches", async (_req, res) => {
     try {
       const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-      const hoyNichos = new Date().toISOString().slice(0, 10);
+      const hoyNichos = diaLocal(new Date());
       const EXCLUDED = ["interno-test", "agencia-marketing"];
 
       const clientRows = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, industry: clients.industry })
@@ -3840,7 +3839,7 @@ export function adsRoutes(db: Db): Router {
         }).from(adsInsights)
           .innerJoin(clients, eq(adsInsights.clientId, clients.id))
           // Solo Meta: una campaña de búsqueda de Google siempre gana por CTR.
-          .where(and(gte(adsInsights.date, since30), eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+          .where(and(gte(adsInsights.date, since30), sql`${adsInsights.date} < ${hoyNichos}`, eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
           .groupBy(clients.industry, clients.name, adsInsights.campaignName)
           .having(sql`sum(${adsInsights.impressions}) >= 500`),
         // Ideas del baúl y tendencias del nicho (recién sembrados — crecen solos).

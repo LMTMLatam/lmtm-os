@@ -34,7 +34,7 @@ describe("registro cerrado (16/10)", () => {
 
 describe("conector del equipo", () => {
   it("no expone pauta, SQL, WhatsApp a clientes ni la API genérica", () => {
-    for (const prohibida of ["lmtmSql", "lmtmPauseAdEntity", "lmtmSetBudget", "lmtmShiftBudget", "lmtmDuplicateWinner", "lmtmSendWhatsappReport", "lmtmSendBalanceAlert", "lmtmHerramientaAgente", "paperclipApiRequest", "lmtmCrmRequest"]) {
+    for (const prohibida of ["lmtmSql", "lmtmPauseAdEntity", "lmtmSetBudget", "lmtmShiftBudget", "lmtmDuplicateWinner", "lmtmAddNegativeKeywords", "lmtmPauseKeywordsGoogle", "lmtmAddKeywordsGoogle", "lmtmSendWhatsappReport", "lmtmSendBalanceAlert", "lmtmHerramientaAgente", "paperclipApiRequest", "lmtmCrmRequest"]) {
       expect(HERRAMIENTAS_EQUIPO).not.toContain(prohibida);
     }
     expect(HERRAMIENTAS_EQUIPO).toEqual(expect.arrayContaining(["lmtmGenerarContenido", "lmtmGenerarPieza"]));

@@ -20,7 +20,7 @@
 // Auto-refreshes every 60s so the client always sees fresh data without
 // having to manually reload.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PubvizTheme, AreaChart, Donut, FunnelViz, RankedBars, Delta, PV_SLOTS, StatRow, ComboChart, CumulativeFlow, Spark, BarsVsRef } from "@/components/pubviz";
 import type { OptimizacionPublica, Resultado } from "../api/trabajo";
+import { ScrollLateral } from "../lmtm/ScrollLateral";
 import {
   LayoutDashboard,
   ClipboardCheck,
@@ -195,15 +196,13 @@ async function apiPublic<T>(slug: string, path: string, params?: { since?: strin
 
 function useFormatters(currency: string) {
   return useMemo(() => {
+    // Como se escribe la plata en Argentina ($ 1.257.643, 2,35 %): el cliente
+    // leia "ARS 1,257,643" y "629.5k" (10/11).
     const fmtMoney = (n: number, max = 0) =>
-      new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: max }).format(n);
-    const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
-    const fmtPct = (n: number, digits = 2) => `${(n * 100).toFixed(digits)}%`;
-    const fmtCompact = (n: number) => {
-      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-      if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-      return n.toString();
-    };
+      new Intl.NumberFormat("es-AR", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: max }).format(n);
+    const fmtInt = (n: number) => new Intl.NumberFormat("es-AR").format(Math.round(n));
+    const fmtPct = (n: number, digits = 2) => `${new Intl.NumberFormat("es-AR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n * 100)}%`;
+    const fmtCompact = (n: number) => new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 }).format(n);
     return { fmtMoney, fmtInt, fmtPct, fmtCompact };
   }, [currency]);
 }
@@ -253,12 +252,12 @@ function Kpi({ title, value, sub, icon: Icon, accent = "blue", delta, big = fals
         <div className="space-y-0.5 min-w-0 flex-1">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium truncate">{title}</p>
           <div className="flex items-baseline gap-2 flex-wrap">
-            <p className={`${big ? "text-2xl" : "text-xl"} font-bold truncate`}>{value}</p>
+            <p className={`${big ? "text-xl sm:text-2xl" : "text-lg sm:text-xl"} font-bold tabular-nums truncate`} title={typeof value === "string" ? value : undefined}>{value}</p>
             {delta}
           </div>
           {sub && <p className="text-[10px] text-muted-foreground truncate">{sub}</p>}
         </div>
-        <div className="shrink-0 rounded-lg p-2 text-white shadow-sm" style={{ background: ACCENTS[accent].chip }}>
+        <div className="hidden shrink-0 rounded-lg p-2 text-white shadow-sm min-[420px]:block" style={{ background: ACCENTS[accent].chip }}>
           <Icon className="h-4 w-4" />
         </div>
       </div>
@@ -270,8 +269,32 @@ function Kpi({ title, value, sub, icon: Icon, accent = "blue", delta, big = fals
 // ============================================================
 //   Main public page
 // ============================================================
+/**
+ * Esta pagina scrollea el DOCUMENTO, no un contenedor. El body del app tiene
+ * overflow:hidden (el panel scrollea adentro) y antes se compensaba con un
+ * contenedor h-dvh + overflow-y-auto: en el celular (sobre todo iPhone) se
+ * trababa y la barra del navegador no se escondia (pedido 10/11: "no se
+ * puede scrollear"). Se restaura al salir.
+ */
+function useScrollDelDocumento() {
+  useEffect(() => {
+    const body = document.body;
+    const html = document.documentElement;
+    const antes = { overflow: body.style.overflow, alto: body.style.height, altoHtml: html.style.height };
+    body.style.overflow = "auto";
+    body.style.height = "auto";
+    html.style.height = "auto";
+    return () => {
+      body.style.overflow = antes.overflow;
+      body.style.height = antes.alto;
+      html.style.height = antes.altoHtml;
+    };
+  }, []);
+}
+
 export function PublicDashboardDetalle() {
   const { slug } = useParams<{ slug: string }>();
+  useScrollDelDocumento();
 
   const headerQuery = useQuery({
     queryKey: ["public", "dashboards", slug],
@@ -428,6 +451,14 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
     retry: false,
   });
 
+  const mainRef = useRef<HTMLElement>(null);
+  /** Cambiar de seccion con la pagina bajada deja ver el principio de la nueva. */
+  const irASeccion = (sec: Section) => {
+    setActiveSection(sec);
+    const main = mainRef.current;
+    if (main && main.getBoundingClientRect().top < 0) main.scrollIntoView({ block: "start" });
+  };
+
   const funnel = funnelQuery.data?.funnel;
   const prevFunnel = prevFunnelQuery.data?.funnel;
   const series = tsQuery.data?.series ?? [];
@@ -445,7 +476,9 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
   const activeCampaigns = campaigns.filter((c) => c.spend > 0).length;
 
   const lastSync = useMemo(() => {
-    const elapsed = Math.floor((now - (tsQuery.dataUpdatedAt ?? now)) / 1000);
+    // Antes del primer dato dataUpdatedAt es 0: salia "hace 498427 h".
+    if (!tsQuery.dataUpdatedAt) return "cargando…";
+    const elapsed = Math.floor((now - tsQuery.dataUpdatedAt) / 1000);
     if (elapsed < 5) return "ahora";
     if (elapsed < 60) return `hace ${elapsed}s`;
     if (elapsed < 3600) return `hace ${Math.floor(elapsed / 60)} min`;
@@ -472,9 +505,8 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
   }, [range]);
 
   return (
-    // h-dvh + overflow-y-auto: el body del app tiene overflow:hidden (el panel
-    // maneja su propio scroll), así que esta página pública scrollea sola.
-    <div className="h-dvh overflow-y-auto bg-background pv">
+    // Scrollea el documento (useScrollDelDocumento), no este contenedor.
+    <div className="min-h-dvh bg-background pv">
       <PubvizTheme />
       {/* Hero header */}
       <header className="text-white" style={{ background: "linear-gradient(120deg, #1c3f8f 0%, #2a78d6 45%, #4a3aa7 100%)" }}>
@@ -515,30 +547,39 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
               </button>
             ))}
           </div>
-          <nav className="flex flex-wrap gap-1">
+        </div>
+      </header>
+
+      {/* Las secciones, con su nombre tambien en el celular (antes eran solo
+          iconos) y siempre a mano: la barra queda arriba al bajar. */}
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-[0_1px_0_rgba(15,23,42,0.03)] backdrop-blur">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4">
+          <ScrollLateral fondo="#ffffff" etiqueta="Secciones del reporte">
             {SECTIONS.map((s) => {
               const Icon = s.icon;
               const isActive = s.value === activeSection;
               return (
                 <button
                   key={s.value}
-                  onClick={() => setActiveSection(s.value)}
-                  className={`text-xs inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors ${
-                    isActive ? "bg-white text-slate-900 font-semibold shadow-sm" : "text-white/80 hover:text-white hover:bg-white/10"
+                  type="button"
+                  data-activo={isActive}
+                  onClick={() => irASeccion(s.value)}
+                  className={`-mb-px inline-flex min-h-12 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] transition-colors ${
+                    isActive ? "border-[#2a78d6] font-semibold text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
                   }`}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{s.label}</span>
+                  <Icon className={`h-4 w-4 ${isActive ? "text-[#2a78d6]" : ""}`} />
+                  {s.label}
                 </button>
               );
             })}
-          </nav>
+          </ScrollLateral>
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <main ref={mainRef} className="max-w-7xl mx-auto scroll-mt-14 px-4 sm:px-6 py-6">
         {activeSection === "resumen" && <NovedadesPublic items={novedadesQuery.data?.novedades ?? []} />}
-        {renderSection()}
+        {funnelQuery.isLoading && SECCIONES_CON_TOTALES.has(activeSection) ? <CargandoNumeros /> : renderSection()}
       </main>
 
       <footer className="border-t mt-12">
@@ -546,6 +587,26 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
           Powered by LMTM-OS · {dashboard.label ?? client.name}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/** Secciones que muestran totales: mientras cargan no se pintan ceros. */
+const SECCIONES_CON_TOTALES: ReadonlySet<Section> = new Set<Section>(["resumen", "presupuesto", "leads"]);
+
+/** Mientras llegan los numeros: la forma de las tarjetas, no "ARS 0" (que se lee como que no hubo pauta). */
+function CargandoNumeros() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Cargando los numeros">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} className="h-[92px] w-full rounded-xl" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <Skeleton className="h-72 w-full rounded-xl" />
+        <Skeleton className="h-72 w-full rounded-xl" />
+      </div>
     </div>
   );
 }

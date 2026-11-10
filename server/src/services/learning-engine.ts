@@ -11,6 +11,9 @@ import type { Db } from "@paperclipai/db";
 import { adsCreatives, clients, learnings, companies, adsInsights } from "@paperclipai/db";
 import { and, eq, gte, isNotNull, notInArray, sql } from "drizzle-orm";
 import { clientesEnOtraMoneda, conversionesDudosas, cuentaEnPesos } from "../metricas/index.js";
+// "Hoy" en Buenos Aires: ads_insights.date es el día de la cuenta, no UTC (de
+// 21 a 24 h el día UTC ya es mañana y el de hoy, a medio sincronizar, entraba).
+import { diaLocal } from "../avisos/politica.js";
 
 export async function mineLearnings(db: Db): Promise<{ learnings: number }> {
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
@@ -146,7 +149,7 @@ export async function mineAdsBenchmarks(db: Db): Promise<{ benchmarks: number }>
   const [company] = await db.select({ id: companies.id }).from(companies).limit(1);
   if (!company) return { benchmarks: 0 };
   const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = diaLocal(new Date());
 
   // Por cliente y plataforma, 30 días completos (hoy está a medio sincronizar).
   const rows = await db
@@ -349,7 +352,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
       leads: sql<number>`coalesce(sum(${adsInsights.leads}), 0)::int`,
     })
     .from(adsInsights)
-    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${new Date().toISOString().slice(0, 10)}`, cuentaEnPesos(adsInsights.adAccountId)))
+    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${diaLocal(new Date())}`, cuentaEnPesos(adsInsights.adAccountId)))
     .groupBy(adsInsights.clientId, adsInsights.platform);
   const campaignRows = await db
     .select({
@@ -362,7 +365,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     .from(adsInsights)
     .innerJoin(clients, eq(adsInsights.clientId, clients.id))
     // Solo Meta: una campaña de búsqueda de Google siempre "gana" por CTR.
-    .where(and(gte(adsInsights.date, since), eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
+    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${diaLocal(new Date())}`, eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
     .groupBy(clients.industry, clients.name, adsInsights.campaignName)
     .having(sql`sum(${adsInsights.impressions}) >= 500`);
 

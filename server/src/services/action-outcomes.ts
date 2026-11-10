@@ -24,7 +24,7 @@ const DAY = 86_400_000;
  *  le pasó al CPL del cliente", y eso aplica igual cuando se empuja que cuando
  *  se frena. Subirle el presupuesto a un conjunto que rinde tiene que dejar el
  *  CPL igual o mejor; si lo empeora, la decisión estuvo mal. */
-export const KINDS_EVALUABLES = ["pause_ad_entity", "add_negative_keywords", "pause_keywords", "set_budget"] as const;
+export const KINDS_EVALUABLES = ["pause_ad_entity", "add_negative_keywords", "pause_keywords", "set_budget", "add_keywords"] as const;
 
 interface PauseOutcome {
   entitySpend7dBefore: number;
@@ -116,15 +116,22 @@ export async function evaluatePauseOutcomes(db: Db): Promise<{ evaluated: number
         // real de esa misma entidad, porque compartían la clave.
         const det = action.detail as { anterior?: number; nuevo?: number } | null;
         const esPresupuesto = action.kind === "set_budget";
+        // Las de keywords no son pausas de una entidad (y las de palabras clave
+        // comparten el id de la cuenta): cada una con su texto y su clave.
+        const deKeywords: Record<string, string> = {
+          add_keywords: "de sumar palabras clave que convertían",
+          add_negative_keywords: `de las negativas en la campaña "${name}"`,
+          pause_keywords: "de la pausa de palabras clave sin conversiones",
+        };
         const queSeHizo = esPresupuesto
           ? `del cambio de presupuesto de ${action.entityType} "${name}" ($${Math.round(det?.anterior ?? 0)} → $${Math.round(det?.nuevo ?? 0)} por día)`
-          : `de la pausa de ${action.entityType} "${name}"`;
-        const contexto = esPresupuesto
+          : deKeywords[action.kind] ?? `de la pausa de ${action.entityType} "${name}"`;
+        const contexto = esPresupuesto || deKeywords[action.kind]
           ? ""
           : ` La entidad venía gastando $${outcome.entitySpend7dBefore} con ${outcome.entityLeads7dBefore} leads en su última semana.`;
         await upsertMemory(db, {
           companyId, clientId: action.clientId, kind: "performance",
-          key: `${esPresupuesto ? "presupuesto" : "pausa"}-${action.entityId}`,
+          key: `${esPresupuesto ? "presupuesto" : deKeywords[action.kind] ? action.kind : "pausa"}-${action.entityId}`,
           content: `Resultado ${queSeHizo} (${dPause}).${contexto} CPL del cliente: $${outcome.clientCplBefore ?? "?"} antes → $${outcome.clientCplAfter ?? "?"} después (${verdictTxt}). CTR: ${outcome.clientCtrBefore}% → ${outcome.clientCtrAfter}%.`,
           source: "action-outcomes",
         }).catch(() => {});

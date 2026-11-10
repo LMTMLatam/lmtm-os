@@ -238,3 +238,23 @@ describe("resumen de las 9:00", () => {
     expect(fechaLarga(new Date(Date.UTC(2026, 9, 7, 1)))).toBe("martes 6 de octubre");
   });
 });
+
+describe("pendientes que vencen", () => {
+  it("lo que esperó más de 48 h al resumen no sale como 'desde ayer'", async () => {
+    const { separarVencidos, HORAS_VIGENCIA_PENDIENTE } = await import("../../services/wa-embudo.js");
+    const ahora = new Date("2026-11-10T12:00:00Z");
+    const hace = (h: number) => ({ id: `h${h}`, createdAt: new Date(ahora.getTime() - h * 3_600_000) });
+    const { vigentes, vencidos } = separarVencidos([hace(2), hace(30), hace(HORAS_VIGENCIA_PENDIENTE), hace(72), hace(14 * 24)], ahora);
+    expect(vigentes.map((f) => f.id)).toEqual(["h2", "h30", `h${HORAS_VIGENCIA_PENDIENTE}`]);
+    expect(vencidos.map((f) => f.id)).toEqual(["h72", "h336"]);
+  });
+});
+
+describe("el día de hoy es el de Buenos Aires", () => {
+  it("a las 22:30 de acá el día UTC ya es mañana; el de ads_insights sigue siendo hoy", async () => {
+    const { diaLocal } = await import("../politica.js");
+    const ahora = new Date("2026-11-11T01:30:00Z"); // 10/11 22:30 en Buenos Aires
+    expect(ahora.toISOString().slice(0, 10)).toBe("2026-11-11");
+    expect(diaLocal(ahora)).toBe("2026-11-10");
+  });
+});

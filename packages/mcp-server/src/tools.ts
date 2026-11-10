@@ -1002,6 +1002,66 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
           body: { tool: "shift_budget", parameters: p },
         }),
     ),
+    // ── Google Ads: keywords (10/11). Existían en el servidor pero ningún agente
+    // las veía: en 45 días no se aplicó ni una optimización en Google.
+    makeTool(
+      "lmtmAuditoriaKeywordsGoogle",
+      "AUDITAR las keywords de Google Ads de un cliente (solo lee): términos de búsqueda de los últimos N días y qué hacer — negativas (con campaignId), búsquedas que convierten y no son keyword (`nuevas`, con adGroupId), keywords a pausar y amplias caras. Es la ÚNICA fuente válida de textos e ids para lmtmAddNegativeKeywords, lmtmPauseKeywordsGoogle y lmtmAddKeywordsGoogle. Si `conversionesDudosas` es true o la guía avisa gasto de marca sin conversiones, el problema es la MEDICIÓN: decilo y no propongas cambios.",
+      z.object({
+        clientId: z.string().min(1),
+        dias: z.number().int().positive().max(90).optional().describe("Ventana hacia atrás (default 30)"),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "get_auditoria_keywords_google", parameters: p },
+        }),
+    ),
+    makeTool(
+      "lmtmAddNegativeKeywords",
+      "AGREGAR negativas (frase) a una campaña de Google con los términos de la auditoría que gastaron sin convertir. Solo baja gasto. Mandá 'justificacion' con gasto y clics de cada término: queda la decisión en Hoy y, cuando una persona la aprueba, se ejecuta sola y le aparece al cliente en 'Lo que hicimos'. El servidor rechaza los términos de la marca del cliente.",
+      z.object({
+        clientId: z.string().min(1),
+        campaignId: z.string().min(1).describe("campaignId de la auditoría"),
+        terminos: z.array(z.string().min(1)).min(1).max(50),
+        justificacion: z.string().optional().describe("Gasto, clics y 0 conversiones de cada término. Sin esto no se arma la decisión."),
+        ensayo: z.boolean().optional().describe("Valida contra Google sin guardar"),
+        approved: z.boolean().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "add_negative_keywords", parameters: p },
+        }),
+    ),
+    makeTool(
+      "lmtmPauseKeywordsGoogle",
+      "PAUSAR keywords de Google que gastan sin convertir, por TEXTO (el servidor las busca en la cuenta del cliente). Sacalas de la auditoría. Mandá 'justificacion' y queda la decisión en Hoy para que la apruebe una persona; al aprobarla se ejecuta y le aparece al cliente. Las de la marca no se tocan.",
+      z.object({
+        clientId: z.string().min(1),
+        textos: z.array(z.string().min(1)).min(1).max(50),
+        justificacion: z.string().optional().describe("Gasto, clics y 0 conversiones de cada una"),
+        ensayo: z.boolean().optional(),
+        approved: z.boolean().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "pause_keywords_google", parameters: p },
+        }),
+    ),
+    makeTool(
+      "lmtmAddKeywordsGoogle",
+      "SUMAR como palabra clave (frase) las búsquedas que ya trajeron conversiones y no son keyword propia (`nuevas` de la auditoría, cada una con su adGroupId). Empuja lo que ya funciona. Puede subir el gasto: mandá 'justificacion' con conversiones y costo de cada una, queda la decisión en Hoy, una persona la aprueba, se ejecuta sola y le aparece al cliente en 'Lo que hicimos'. No inventes textos ni grupos.",
+      z.object({
+        clientId: z.string().min(1),
+        items: z.array(z.object({ texto: z.string().min(1), adGroupId: z.string().min(1), campana: z.string().optional() })).min(1).max(50),
+        justificacion: z.string().optional().describe("Conversiones y costo de cada búsqueda"),
+        ensayo: z.boolean().optional(),
+        approved: z.boolean().optional(),
+      }),
+      async (p) =>
+        client.requestJson("POST", "/agent-tools/execute", {
+          body: { tool: "add_keywords_google", parameters: p },
+        }),
+    ),
     makeTool(
       "lmtmDuplicateWinner",
       "DUPLICAR un conjunto de Meta que viene rindiendo, para escalarlo sin tocar el original. La copia NACE PAUSADA y con el MISMO presupuesto: arrancarla es una decisión humana aparte. El server verifica que de verdad sea un ganador antes de copiar (al menos 5 leads en 30 días y CPL igual o mejor que el promedio del RESTO de la cuenta del cliente); si no lo cumple te dice por qué y no copia. Una copia por conjunto por día, sólo Meta. A diferencia de las otras palancas, ésta NUNCA se ejecuta sola: crea algo que gasta, y lo creado no se deshace, se borra.",

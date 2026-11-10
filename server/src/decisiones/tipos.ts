@@ -56,6 +56,7 @@ export interface Porque {
  *   pausar             → ads-actions.pauseAdEntity
  *   negativas          → ads-actions.agregarNegativas (Google, protege la marca)
  *   pausar_keywords    → ads-actions.pausarKeywords (Google, protege la marca)
+ *   sumar_keywords     → ads-actions.agregarKeywords (Google, frase, grupo de la cuenta)
  *   tarea              → ClickUp, en la carpeta del cliente (nunca en la lista de Redes)
  */
 export type Accion =
@@ -70,6 +71,8 @@ export type Accion =
   | { tipo: "pausar"; entityType: "campaign" | "adset"; entityId: string; nombre?: string }
   | { tipo: "negativas"; campaignId: string; campana?: string; terminos: string[] }
   | { tipo: "pausar_keywords"; textos: string[] }
+  /** Google: búsquedas que convirtieron, como keyword de frase en el grupo donde convirtieron. */
+  | { tipo: "sumar_keywords"; items: Array<{ texto: string; adGroupId: string; campana?: string }> }
   | { tipo: "tarea"; titulo: string; descripcion?: string };
 
 /** Qué pasó cuando se ejecutó. Se guarda dentro de `accion.resultado`. */

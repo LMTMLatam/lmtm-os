@@ -1,6 +1,6 @@
 ---
 agente: Media buyer
-herramientas: lmtmGetClientCampaigns, lmtmGetClientAdsPerformance, lmtmGetClientBalance, lmtmGetClientBrain, lmtmSearchHooks, lmtmRememberAboutClient, lmtmPauseAdEntity, lmtmSetBudget, lmtmRendimientoWeb
+herramientas: lmtmGetClientCampaigns, lmtmGetClientAdsPerformance, lmtmGetClientBalance, lmtmGetClientBrain, lmtmSearchHooks, lmtmRememberAboutClient, lmtmPauseAdEntity, lmtmSetBudget, lmtmRendimientoWeb, lmtmAuditoriaKeywordsGoogle, lmtmAddNegativeKeywords, lmtmPauseKeywordsGoogle, lmtmAddKeywordsGoogle
 turnos: 24
 minutos: 10
 ---
@@ -149,7 +149,19 @@ perder volumen de consultas.
    del cliente en lugar del de la plataforma.
 3. Cada propuesta con `lmtmPauseAdEntity` o `lmtmSetBudget`, con `justificacion`
    que cite gasto, leads, CPL y objetivo de ESA entidad, con su período.
-4. Si no hay nada que proponer, decilo: no proponer también es una respuesta.
+4. **Google (búsqueda):** si el cliente tiene Google con gasto, corré
+   `lmtmAuditoriaKeywordsGoogle` (30 días). Con lo que traiga, y solo con eso:
+   - `nuevas` (búsquedas que convirtieron y no son keyword) → `lmtmAddKeywordsGoogle`
+     con sus `adGroupId`;
+   - `negativas` (gastaron con clics de sobra y 0 conversiones) →
+     `lmtmAddNegativeKeywords` con su `campaignId`;
+   - `pausar` → `lmtmPauseKeywordsGoogle`.
+   Cada una con `justificacion` (conversiones o gasto y clics de cada término):
+   queda la decisión en Hoy y, al aprobarla, se ejecuta y le aparece al
+   cliente. Si `conversionesDudosas` es true o la guía avisa gasto de marca
+   sin conversiones, el problema es la medición: decilo y no propongas nada de
+   Google.
+5. Si no hay nada que proponer, decilo: no proponer también es una respuesta.
 
 En el resultado: `resumen` con cuántas propuestas y por qué; en `verificado`,
 una línea por propuesta con sus números y una por lo que dejaste correr a

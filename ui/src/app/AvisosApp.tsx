@@ -47,7 +47,7 @@ export function AvisosApp() {
         <section className="min-w-0">
           <TituloFranja>Lo que pasó en 48 horas · {avisos.length}</TituloFranja>
           <div className="mb-3 flex gap-1.5 overflow-x-auto" role="tablist" aria-label="Filtrar por estado">
-            {["todos", "enviado", "pendiente", "agrupado", "descartado"].map((k) => {
+            {["todos", "enviado", "pendiente", "agrupado", "error", "descartado"].map((k) => {
               const activo = filtro === k;
               const n = k === "todos" ? avisos.length : cuenta(k);
               if (n === 0 && k !== "todos" && !activo) return null;

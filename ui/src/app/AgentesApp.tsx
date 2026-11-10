@@ -108,6 +108,8 @@ interface AgenteFlota {
   latido: number | null;
   corridas: number;
   fallas: number;
+  /** Despertares cortados por la cuota del modelo en 7 días. */
+  frenadas: number;
   ultima: string | null;
   rutinas: Array<{ titulo: string; cron: string | null }>;
 }
@@ -124,12 +126,20 @@ function Flota() {
     <Tarjeta>
       <TituloFranja>Agentes heredados · 7 días</TituloFranja>
       <p className="-mt-1.5 mb-2 text-[12px] leading-[1.45] text-l-tinta-3">Siguen corriendo mientras cada rol pasa al runner propio.</p>
+      {as.some((a) => a.frenadas > 0) && (
+        <p className="mb-2 text-[12px] leading-[1.45] text-l-tinta-2">
+          «Frenado por cuota»: el sistema no lo despertó para no pasarse del ritmo semanal del modelo. Es a propósito; por eso algunos corren poco.
+        </p>
+      )}
       {q.isLoading && <p className="text-[13px] text-l-tinta-3">Cargando…</p>}
       <ul className="space-y-2.5">
         {as.map((a) => (
           <li key={a.name} className="text-[13px]">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="font-medium text-l-tinta">{a.name}</span>
+              <span className="font-medium text-l-tinta">
+                {a.name}
+                {a.status === "error" && <span className="ml-1.5 rounded-full bg-l-critico-suave px-1.5 py-px text-[11px] font-semibold text-l-critico-texto">en error</span>}
+              </span>
               <span className="shrink-0 tabular-nums text-l-tinta-3">
                 {a.corridas} corridas{a.fallas > 0 && <span className="text-l-critico-texto"> · {a.fallas} fallas</span>}
               </span>
@@ -139,6 +149,7 @@ function Flota() {
               {a.latido ? ` · latido cada ${Math.round(a.latido / 3600)} h` : ""}
               {a.ultima ? ` · ${haceCuanto(a.ultima)}` : ""}
             </div>
+            {a.frenadas > 0 && <div className="text-[12px] text-l-atencion-texto">Frenado por cuota {a.frenadas.toLocaleString("es-AR")} veces en 7 días</div>}
           </li>
         ))}
       </ul>

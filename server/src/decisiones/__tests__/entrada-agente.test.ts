@@ -47,3 +47,15 @@ describe("lo que propone un agente", () => {
     expect(a).toBe(b);
   });
 });
+
+describe("acciones de Google que propone un agente (10/11)", () => {
+  it("valida negativas, pausar y sumar keywords, y rechaza lo mal armado", async () => {
+    const { validarAccion } = await import("../store.js");
+    expect(validarAccion({ tipo: "negativas", campaignId: "123", terminos: ["gratis", "gratis", " "] })).toEqual({ tipo: "negativas", campaignId: "123", terminos: ["gratis"] });
+    expect(validarAccion({ tipo: "pausar_keywords", textos: ["pintura barata"] })).toEqual({ tipo: "pausar_keywords", textos: ["pintura barata"] });
+    expect(validarAccion({ tipo: "sumar_keywords", items: [{ texto: "látex", adGroupId: "987" }, { texto: "x", adGroupId: "no-es-id" }] }))
+      .toEqual({ tipo: "sumar_keywords", items: [{ texto: "látex", adGroupId: "987" }] });
+    expect(validarAccion({ tipo: "sumar_keywords", items: [] })).toHaveProperty("motivo");
+    expect(validarAccion({ tipo: "negativas", campaignId: "123", terminos: [] })).toHaveProperty("motivo");
+  });
+});

@@ -135,6 +135,7 @@ describe('las palancas de plata son acción, nunca consulta', () => {
     'pause_ad_entity',
     'add_negative_keywords',
     'pause_keywords_google',
+    'add_keywords_google',
   ])('%s es de acción', (tool) => {
     expect(esDeAccion(tool)).toBe(true);
     expect(puedeUsar('consulta', tool)).toBe(false);

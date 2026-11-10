@@ -25,7 +25,7 @@ import {
 import { ErrorDecision, type Actor } from "./store.js";
 import { olvidarInformePublico } from "./informe-cache.js";
 import { invalidateMicroCache } from "../services/micro-cache.js";
-import { fraseAccion } from "../services/trabajo.js";
+import { fraseAccion, salioBien } from "../services/trabajo.js";
 
 export type EstadoInforme = "borrador" | "observado" | "aprobado" | "publicado";
 
@@ -291,7 +291,7 @@ async function decisionesDeSemana(db: Db, clientId: string, semana: { desde: str
     .leftJoin(adsCampaigns, eq(adsCampaigns.id, adsAdsets.campaignId))
     .where(and(eq(agentActions.clientId, clientId), gte(agentActions.createdAt, desde), lt(agentActions.createdAt, hasta)));
   return {
-    hechas: [...acciones.map((a) => fraseAccion(a, "hacer")), ...hechas.map((h) => h.que)],
+    hechas: [...acciones.filter(salioBien).map((a) => fraseAccion(a, "hacer")), ...hechas.map((h) => h.que)],
     abiertasEquipo: abiertas.filter((a) => a.responsable !== "cliente").map((a) => a.que),
     // Lo mismo que el link: aunque el borrador lo publica una persona, lo que se
     // le pide al cliente sale solo de las reglas que dicen un hecho medido.

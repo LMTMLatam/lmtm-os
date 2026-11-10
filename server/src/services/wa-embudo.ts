@@ -208,17 +208,44 @@ export async function avisarAlEquipo(db: Db, aviso: AvisoEquipo): Promise<Result
 }
 
 /**
+ * Cuánto espera un aviso pendiente a que salga un resumen. Pasado esto ya no
+ * es "desde ayer": con el WhatsApp caído del 27/10 al 09/11, el resumen del
+ * 10/11 salió con 131 avisos de días distintos leídos como de hoy ("gastó ARS
+ * 10.147 ayer" de tres días diferentes). Dos días cubren un fin de semana con
+ * el gateway caído; lo de antes se marca descartado, con el motivo.
+ */
+export const HORAS_VIGENCIA_PENDIENTE = 48;
+export const MOTIVO_VENCIDO = `venció sin salir: más de ${HORAS_VIGENCIA_PENDIENTE} h esperando el resumen`;
+
+/** Separa lo pendiente que todavía vale de lo que ya venció. Pura. */
+export function separarVencidos<T extends { createdAt: Date | string }>(filas: T[], ahora = new Date()): { vigentes: T[]; vencidos: T[] } {
+  const corte = ahora.getTime() - HORAS_VIGENCIA_PENDIENTE * 3_600_000;
+  const vigentes: T[] = [];
+  const vencidos: T[] = [];
+  for (const f of filas) (new Date(f.createdAt).getTime() >= corte ? vigentes : vencidos).push(f);
+  return { vigentes, vencidos };
+}
+
+/** Marca como descartado lo pendiente que venció (queda en el registro con su motivo). */
+export async function descartarVencidos(db: Db, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await db.update(waOutbox).set({ estado: "descartado", motivo: MOTIVO_VENCIDO }).where(and(inArray(waOutbox.id, ids), eq(waOutbox.estado, "pendiente")));
+}
+
+/**
  * Lo pendiente, ya armado como texto, sin mandarlo.
  *
  * Lo usa `enviarDigest` (la ruta manual). El resumen de las 9:00 arma el suyo
  * en `avisos/resumen.ts` y manda UNO solo, con lo pendiente adentro.
  */
 export async function juntarPendientes(db: Db): Promise<{ texto: string | null; ids: string[] }> {
-  const pendientes = await db
-    .select({ id: waOutbox.id, origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto })
+  const filas = await db
+    .select({ id: waOutbox.id, origen: waOutbox.origen, nivel: waOutbox.nivel, texto: waOutbox.texto, createdAt: waOutbox.createdAt })
     .from(waOutbox)
     .where(eq(waOutbox.estado, "pendiente"))
     .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt));
+  const { vigentes: pendientes, vencidos } = separarVencidos(filas);
+  await descartarVencidos(db, vencidos.map((p) => p.id));
 
   return { texto: armarDigest(pendientes), ids: pendientes.map((p) => p.id) };
 }

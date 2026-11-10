@@ -28,6 +28,7 @@ export type Accion =
   | { tipo: "pausar"; entityType: "campaign" | "adset"; entityId: string; nombre?: string }
   | { tipo: "negativas"; campaignId: string; campana?: string; terminos: string[] }
   | { tipo: "pausar_keywords"; textos: string[] }
+  | { tipo: "sumar_keywords"; items: Array<{ texto: string; adGroupId: string; campana?: string }> }
   | { tipo: "tarea"; titulo: string; descripcion?: string };
 
 export interface ResultadoEjecucion {

@@ -12,6 +12,7 @@ import { clientsApi } from "../api/clients";
 import { SelectorCliente } from "../components/SelectorCliente";
 import { queryKeys } from "../lib/queryKeys";
 import { haceCuanto } from "../lmtm/formato";
+import { ScrollLateral } from "../lmtm/ScrollLateral";
 import { ClientResourcesPanel, TABS, TabContent, type Tab } from "../pages/ClientDashboard";
 import { agentesApi, nombreRol, ROLES } from "./api";
 import { EstadoPunto, Tarjeta, TituloFranja } from "./HoyApp";
@@ -66,8 +67,9 @@ export function ClienteApp() {
         {c && (
           <>
             <ClientResourcesPanel client={c} />
-            <nav className="sticky top-0 z-10 -mx-4 mt-5 overflow-x-auto border-b border-l-linea bg-l-papel/95 px-4 backdrop-blur [scrollbar-width:none] md:-mx-8 md:px-8" aria-label="Secciones del cliente">
-              <ul className="flex gap-1">
+            <nav className="sticky top-0 z-10 -mx-4 mt-5 border-b border-l-linea bg-l-papel/95 px-4 backdrop-blur md:-mx-8 md:px-8" aria-label="Secciones del cliente">
+              <ScrollLateral>
+              <ul className="flex shrink-0 gap-1">
                 {ORDEN.map((s) => {
                   const nombre = NOMBRE[s] ?? TABS.find((t) => t.value === s)?.label ?? s;
                   const activo = s === activa;
@@ -75,6 +77,7 @@ export function ClienteApp() {
                     <li key={s}>
                       <Link
                         to={`/clientes/${c.slug}/${s}`}
+                        aria-current={activo ? "page" : undefined}
                         className={`-mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-2 px-3 text-[14px] transition-colors ${
                           activo ? "border-l-tinta font-semibold text-l-tinta" : "border-transparent text-l-tinta-3 hover:text-l-tinta"
                         }`}
@@ -85,6 +88,7 @@ export function ClienteApp() {
                   );
                 })}
               </ul>
+              </ScrollLateral>
             </nav>
             <div className="py-6">
               {activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : activa === "que-funciona" ? <QueFuncionaCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}

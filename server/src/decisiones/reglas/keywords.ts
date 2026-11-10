@@ -7,7 +7,8 @@
 //
 //   · términos de búsqueda que gastaron sin una conversión → negativas, por
 //     campaña (la negativa se agrega en la campaña donde gastó);
-//   · palabras clave que gastan sin convertir → pausarlas.
+//   · palabras clave que gastan sin convertir → pausarlas;
+//   · búsquedas que convirtieron y no son keyword → sumarlas (10/11).
 //
 // Los umbrales (gasto y clics mínimos) y la protección de la marca son los de
 // la auditoría: acá no se decide nada nuevo, se lo hace aprobable.
@@ -15,6 +16,7 @@
 
 import type { AuditoriaKeywords, KeywordActiva, TerminoBusqueda } from "../../services/ads-keywords.js";
 import type { Dato, Propuesta } from "../tipos.js";
+import { conversionesDudosas } from "../../metricas/index.js";
 
 const plata = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
 const lista = (xs: string[], max = 4) => xs.slice(0, max).map((x) => `«${x}»`).join(", ") + (xs.length > max ? ` y ${xs.length - max} más` : "");
@@ -86,6 +88,40 @@ export function propuestasDeKeywords(c: { clientId: string; cliente: string }, a
       accion: { tipo: "pausar_keywords", textos: pausar.map((k) => k.texto) },
       venceEnDias: 7,
     });
+  }
+  // Búsquedas que convirtieron y no son keyword propia: sumarlas en frase, en
+  // el grupo donde convirtieron. Con conversiones dudosas (MA PROPIEDADES:
+  // acciones de conversión que no son consultas) no se afirma que conviertan.
+  if (!conversionesDudosas("google", a.conversionesTotal, a.clicsTotal)) {
+    const porTexto = new Map<string, TerminoBusqueda>();
+    for (const t of a.nuevas) {
+      const k = t.termino.trim().toLowerCase();
+      if (!t.adGroupId || !k) continue;
+      const previo = porTexto.get(k);
+      if (!previo || t.conversiones > previo.conversiones) porTexto.set(k, t);
+    }
+    const sumar = [...porTexto.values()];
+    if (sumar.length > 0) {
+      const conv = sumar.reduce((s, t) => s + t.conversiones, 0);
+      out.push({
+        clientId: c.clientId,
+        tipo: "pauta:sumar_keywords",
+        clave: `pauta:sumar_keywords:${c.clientId}`,
+        que: `Sumar ${sumar.length} ${sumar.length === 1 ? "búsqueda que ya trae" : "búsquedas que ya traen"} consultas como palabra clave en Google`,
+        porque: {
+          resumen: `${lista(sumar.map((t) => t.termino))} ${sumar.length === 1 ? "trajo" : "trajeron"} conversiones en ${a.dias} días y todavía no ${sumar.length === 1 ? "es" : "son"} palabra clave propia: hoy se pagan como concordancia amplia de otra. Se suman en frase, en el grupo donde convirtieron.`,
+          datos: [
+            { etiqueta: `Conversiones de esas búsquedas (${a.dias} días)`, valor: Math.round(conv * 10) / 10, unidad: "leads" },
+            ...sumar.slice(0, 5).map((t): Dato => ({ etiqueta: `«${t.termino}» · ${Math.round(t.conversiones * 10) / 10} conversiones (${t.campana})`, valor: Math.round(t.costo), unidad: "ars" })),
+          ],
+        },
+        arsPorDia: null,
+        responsable: "equipo",
+        creadaPor: "regla:keywords_google",
+        accion: { tipo: "sumar_keywords", items: sumar.map((t) => ({ texto: t.termino, adGroupId: t.adGroupId, campana: t.campana })) },
+        venceEnDias: 7,
+      });
+    }
   }
   return out;
 }

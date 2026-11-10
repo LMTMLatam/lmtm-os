@@ -14,8 +14,11 @@
 // posteriores a la ejecución, pasado un margen, la decisión vuelve a abierta.
 // "Lo hice" no alcanza; el número tiene que moverse.
 //
-// Si una regla no pudo mirar (Make caído, una API que no contestó), no se toca
-// nada de lo suyo: no ver no es lo mismo que estar bien.
+// Si una regla no pudo mirar todo (Make caído, una API que no contestó, una de
+// ocho cuentas que falló), no se CIERRA nada de lo suyo: no ver no es lo mismo
+// que estar bien. Lo que sí encontró entra igual: haber mirado a medias no
+// borra lo que se vio (10/11: la regla web_google proponía 13 por día y no
+// había entrado ninguna, porque una propiedad con error la marcaba sin evaluar).
 
 import { deMenor } from "../services/ads-budget.js";
 import { seAprovecha } from "./tipos.js";
@@ -46,6 +49,8 @@ export interface ResultadoConFecha extends ResultadoRegla {
 export type Operacion =
   | { op: "insertar"; propuesta: Propuesta }
   | { op: "actualizar"; id: string; propuesta: Propuesta }
+  /** Ejecutada que la regla sigue viendo: se refrescan los números, no el estado. */
+  | { op: "refrescar"; id: string; propuesta: Propuesta }
   | { op: "verificar"; id: string }
   | { op: "no_confirmada"; id: string; propuesta: Propuesta | null; nota: string }
   | { op: "vencer"; id: string; motivo: "dejo_de_aplicar" | "plazo" }
@@ -102,7 +107,6 @@ export function planificar(
   const tocadas = new Set<string>();
 
   for (const r of resultados) {
-    if (!r.evaluada) continue;
     const vistas = new Set<string>();
 
     for (const p of r.propuestas) {
@@ -130,20 +134,28 @@ export function planificar(
           propuesta: p,
           nota: v.ejecutadaAt ? `Se marcó hecha el ${fecha(v.ejecutadaAt)} y empeoró.` : "Se marcó hecha y empeoró.",
         });
-      } else if (v.estado === "ejecutada" && !verificaPorEfecto(v.accion) && v.ejecutadaAt && !seAprovecha(p.tipo)) {
+      } else if (v.estado === "ejecutada") {
         // Una oportunidad hecha sigue apareciendo (el post sigue siendo bueno):
         // eso no es "el dato sigue igual", no se reabre.
-        const limite = v.ejecutadaAt.getTime() + gracia(v.accion) * DIA;
-        if (r.datosHasta.getTime() > limite) {
+        const limite = v.ejecutadaAt ? v.ejecutadaAt.getTime() + gracia(v.accion) * DIA : Infinity;
+        if (!verificaPorEfecto(v.accion) && v.ejecutadaAt && !seAprovecha(p.tipo) && r.datosHasta.getTime() > limite) {
           ops.push({
             op: "no_confirmada",
             id: v.id,
             propuesta: p,
             nota: `Se marcó hecha el ${fecha(v.ejecutadaAt)} y el dato sigue igual.`,
           });
+        } else {
+          // Sigue viva y la regla la volvió a medir: los números son los de hoy.
+          // Sin esto, "Plata parada" sumaba lo de la ejecución (10/11: BOERO
+          // figuraba $12.154 del 03/11 y la caída ya era $22.615).
+          ops.push({ op: "refrescar", id: v.id, propuesta: p });
         }
       }
     }
+
+    // Lo que no se miró entero no se da por resuelto.
+    if (!r.evaluada) continue;
 
     // Lo de esta regla que ya no apareció.
     const prefijo = `regla:${r.regla}`;
@@ -162,7 +174,9 @@ export function planificar(
     }
   }
 
-  const conOperacion = new Set(ops.filter((o): o is Extract<Operacion, { id: string }> => "id" in o).map((o) => o.id));
+  // Refrescar números no cuenta como confirmar: lo ejecutado que ningún dato
+  // confirma en 21 días se cierra igual.
+  const conOperacion = new Set(ops.filter((o): o is Extract<Operacion, { id: string }> => "id" in o && o.op !== "refrescar").map((o) => o.id));
   for (const v of vivas) {
     // Plazo vencido: lo que nadie tocó y ninguna regla volvió a afirmar.
     if (!tocadas.has(v.id) && (v.estado === "abierta" || v.estado === "aprobada") && v.venceAt && v.venceAt.getTime() < ahora.getTime()) {

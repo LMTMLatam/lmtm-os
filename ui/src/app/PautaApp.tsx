@@ -18,7 +18,7 @@ interface ClienteSemaforo {
   slug: string;
   industry: string | null;
   score: number | null;
-  semaforo: "verde" | "amarillo" | "rojo" | "sin-pauta";
+  semaforo: "verde" | "amarillo" | "rojo" | "sin-pauta" | "sin-datos";
   oportunidades: string[];
 }
 
@@ -27,8 +27,9 @@ const COLOR: Record<ClienteSemaforo["semaforo"], string> = {
   amarillo: "var(--l-atencion)",
   verde: "var(--l-bien)",
   "sin-pauta": "var(--l-neutro)",
+  "sin-datos": "var(--l-neutro)",
 };
-const PALABRA: Record<ClienteSemaforo["semaforo"], string> = { rojo: "mal", amarillo: "a mirar", verde: "bien", "sin-pauta": "sin pauta" };
+const PALABRA: Record<ClienteSemaforo["semaforo"], string> = { rojo: "mal", amarillo: "a mirar", verde: "bien", "sin-pauta": "sin pauta", "sin-datos": "sin dato" };
 
 export function PautaApp() {
   const [buscar, setBuscar] = useState("");
@@ -42,6 +43,7 @@ export function PautaApp() {
   const atender = todos.filter((c) => c.semaforo === "rojo" || c.semaforo === "amarillo").sort((a, b) => (a.score ?? 999) - (b.score ?? 999));
   const bien = todos.filter((c) => c.semaforo === "verde").sort((a, b) => a.name.localeCompare(b.name));
   const sinPauta = todos.filter((c) => c.semaforo === "sin-pauta");
+  const sinDatos = todos.filter((c) => c.semaforo === "sin-datos");
 
   return (
     <>
@@ -82,6 +84,11 @@ export function PautaApp() {
                 <TituloFranja>Bien · {bien.length}</TituloFranja>
                 <Lista clientes={bien} />
               </section>
+            )}
+            {sinDatos.length > 0 && (
+              <p className="text-[13px] text-l-tinta-3">
+                Sin puntaje calculado ({sinDatos.length}): {sinDatos.map((c) => c.name).join(", ")}. No se sabe cómo están: no se pintan ni de verde ni de rojo.
+              </p>
             )}
             {sinPauta.length > 0 && (
               <p className="text-[13px] text-l-tinta-3">

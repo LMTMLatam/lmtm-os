@@ -5,12 +5,13 @@ describe("KINDS_EVALUABLES", () => {
   // Cuando se sumó la escritura en Google, esas acciones quedaron sin evaluar:
   // la capacidad más nueva era la única sin feedback. Volvió a pasar al sumar
   // el presupuesto, así que la lista se fija acá a propósito.
-  it("cubre las cuatro palancas de escritura que ejecuta la flota", () => {
+  it("cubre las cinco palancas de escritura que ejecuta la flota", () => {
     expect([...KINDS_EVALUABLES]).toEqual([
       "pause_ad_entity",
       "add_negative_keywords",
       "pause_keywords",
       "set_budget",
+      "add_keywords", // 10/11: sumar en Google las búsquedas que convierten
     ]);
   });
 
