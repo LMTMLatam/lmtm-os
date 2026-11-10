@@ -49,6 +49,9 @@ export const TOOLS_DE_CONSULTA: ReadonlySet<string> = new Set([
   "portfolio_snapshot",
   // conocimiento compartido
   "search_hooks",
+  "tipos_de_video",
+  "plantilla_video",
+  "buscar_virales",
   "get_niche_intel",
   "get_team_lessons",
   "list_deliverables",

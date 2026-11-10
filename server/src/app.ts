@@ -25,6 +25,7 @@ import { webGoogleRoutes } from "./routes/web-google.js";
 import { trabajoRoutes } from "./routes/trabajo.js";
 import { equipoRoutes, guardaRegistro } from "./routes/equipo.js";
 import { clientProductRoutes } from "./routes/client-products.js";
+import { videoTiposRoutes } from "./routes/video-tipos.js";
 import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
 import { agentToolsRoutes } from "./routes/agent-tools.js";
@@ -276,6 +277,7 @@ export async function createApp(
   api.use(trabajoRoutes(db));
   api.use(equipoRoutes(db));
   api.use(clientProductRoutes(db));
+  api.use(videoTiposRoutes(db));
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
   // Mounted at /api/public so the URL space stays under /api.
@@ -446,6 +448,9 @@ export async function createApp(
         // La competencia medida en Instagram, para comparar rubros sin cuentas propias.
         const { initCompetenciaIg } = await import("./services/competencia-ig.js");
         initCompetenciaIg(db);
+        // El tipo de video de cada video de la competencia («Tipos de video»).
+        const { initVideoTipos } = await import("./services/video-tipos.js");
+        initVideoTipos(db);
       } catch (e) {
         console.warn("[contenido-angulos] init failed:", e);
       }

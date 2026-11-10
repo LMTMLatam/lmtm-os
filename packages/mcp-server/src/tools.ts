@@ -752,6 +752,45 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         client.requestJson("POST", "/agent-tools/execute", { body: { tool: "search_hooks", parameters: p } }),
     ),
     makeTool(
+      "lmtmTiposDeVideo",
+      "TIPOS DE VIDEO: qué plantillas de edición hay por nicho y tipo de video (recorrido, producto, testimonio, habla-a-camara, tutorial...), en qué estado (sin-plantilla, borrador, lista, aprobada, vieja) y cuántos virales medidos las respaldan. Usala antes de editar o planear un video de un cliente.",
+      z.object({ nicho: z.string().optional().describe("Rubro o nombre de un cliente; sin esto, todos") }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "tipos_de_video", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmPlantillaVideo",
+      "La PLANTILLA DE EDICIÓN de un tipo de video en un nicho: estructura, ganchos, edición, prompt de IA, qué no hacer, REGLAS del equipo (obligatorias), el perfil para `vtool --perfil` y la guía en Markdown. Para editar con el kit de video: guardá `perfil` como `<nicho>__<tipo>.json` y `guia` como `<nicho>__<tipo>.md` en la carpeta de perfiles. Si no está aprobada, avisá que es borrador.",
+      z.object({
+        nicho: z.string().min(1).describe("Rubro (ej. 'inmobiliaria') o nombre/slug de un cliente"),
+        tipo: z.string().min(1).describe("habla-a-camara, recorrido, producto, testimonio, tutorial, antes-y-despues, detras-de-escena, tendencia, promo o evento"),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "plantilla_video", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmBuscarVirales",
+      "VIRALES de la competencia por nicho y tipo de video: videos que hicieron 3 veces o más lo normal de su propia cuenta, con link, cuántas veces lo normal, texto y gancho, más los que no rindieron de las mismas cuentas para comparar.",
+      z.object({ nicho: z.string().optional(), tipo: z.string().optional(), limite: z.number().optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "buscar_virales", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmGuardarViral",
+      "Carga un VIRAL que encontraste: link, cuenta que lo publicó (sin @), nicho y tipo de video. La cuenta se verifica antes de guardar. Si todavía no medimos esa cuenta queda «sin medir».",
+      z.object({
+        url: z.string().min(1), cuenta: z.string().min(1), nicho: z.string().min(1), tipo: z.string().min(1),
+        gancho: z.string().optional().describe("Lo que se dice o lee en los primeros 3 s"), notas: z.string().optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "guardar_viral", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmGuardarPlantillaVideo",
+      "Propone una VERSIÓN NUEVA de la plantilla de edición (nicho + tipo de video) armada con los virales de lmtmBuscarVirales. Queda en borrador; la aprueba una persona. Cada regla y gancho cita el id del viral de donde sale. Las reglas del equipo se conservan solas.",
+      z.object({
+        nicho: z.string().min(1), tipo: z.string().min(1), motivo: z.string().optional(),
+        contenido: z.record(z.unknown()).describe("objetivo, duracion [min,max], estructura [{tramo,desde,hasta,que}], ganchos [{formula,viral}], edicion {cortes,subtitulos,zoom,sfx,musica,look,planos}, promptIa, noHacer [], reglas [{texto,viral}], perfil {reel:{pausa,estilo,zoom,sfx,vol_musica,vol_sfx},duracion}"),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "guardar_plantilla_video", parameters: p } }),
+    ),
+    makeTool(
       "lmtmGetClientVideoTasks",
       "Tareas abiertas de 'Producción de video' del cliente (ClickUp) con flag tieneGuion. Las que no tienen guion, escribíselo: comentario en la tarea (clickup add_comment) + deliverable.",
       z.object({ clientId: z.string().min(1) }),

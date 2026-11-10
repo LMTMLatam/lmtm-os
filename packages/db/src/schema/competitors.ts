@@ -50,6 +50,9 @@ export const competenciaPosts = pgTable(
     permalink: text("permalink"),
     angulo: text("angulo"),
     anguloAt: timestamp("angulo_at", { withTimezone: true }),
+    /** Tipo de video (slug de video_tipos, "otro" o "sin-texto"); lo pone video-tipos.ts. Migración 0161. */
+    tipoVideo: text("tipo_video"),
+    tipoVideoAt: timestamp("tipo_video_at", { withTimezone: true }),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ usuarioIdx: index("competencia_posts_usuario_idx").on(t.usuario, t.publicadoAt) }),

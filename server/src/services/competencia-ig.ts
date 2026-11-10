@@ -24,7 +24,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { clients, competenciaPosts, competitors } from "@paperclipai/db";
-import { and, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lte } from "drizzle-orm";
 import { analizarPublicaciones, citar, linea, nombreFormato, type AnalisisContenido, type PublicacionMedida } from "./contenido-analisis.js";
 import { engagementDe } from "./organico-aprendizaje.js";
 import {
@@ -39,6 +39,8 @@ const POR_VUELTA = 40;
 /** Lecturas con el lector propio por vuelta, y la pausa entre una y otra: ritmo de persona, no de robot. */
 const PROPIO_POR_VUELTA = 15;
 const PAUSA_PROPIO_MS = 20_000;
+/** Días que tarda una publicación en juntar casi toda su interacción. */
+export const MADURA_DIAS = 3;
 /** Cada cuánto se vuelve a medir una cuenta. */
 const DIAS_ENTRE_LECTURAS = 6;
 const FB_POR_VUELTA = 15;
@@ -52,6 +54,67 @@ export function usuarioDeInstagram(raw: string | null | undefined): string | nul
   if (m) s = m[1];
   s = s.replace(/^@/, "").toLowerCase();
   return /^[a-z0-9._]{1,30}$/.test(s) ? s : null;
+}
+
+/**
+ * El usuario de Instagram de un competidor. 101 de 436 filas (10/11) tenían el
+ * link de Instagram cargado en "sitio web" y el campo de Instagram vacío: no se
+ * medían nunca. Se toma de donde esté.
+ */
+export function usuarioDeCompetidor(f: { ig?: string | null; web?: string | null }): string | null {
+  return usuarioDeInstagram(f.ig) ?? (/instagram\.com\//i.test(f.web ?? "") ? usuarioDeInstagram(f.web) : null);
+}
+
+/** Rutas de instagram.com que no son un usuario. */
+const NO_ES_USUARIO = new Set(["p", "reel", "reels", "explore", "accounts", "stories", "tv", "share", "sharer", "direct", "about", "legal", "developer", "web", "embed.js"]);
+
+/** El Instagram que un sitio web enlaza (el más repetido); null si no enlaza ninguno. Puro. */
+export function instagramEnHtml(html: string): string | null {
+  const veces = new Map<string, number>();
+  for (const m of html.matchAll(/instagram\.com\/([A-Za-z0-9._]{1,30})/g)) {
+    const u = m[1].toLowerCase().replace(/\.+$/, "");
+    if (!u || NO_ES_USUARIO.has(u)) continue;
+    veces.set(u, (veces.get(u) ?? 0) + 1);
+  }
+  return [...veces].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/** Sitios por vuelta en los que se busca el Instagram. */
+const WEBS_POR_VUELTA = 25;
+/** ig_estado de un competidor sin Instagram cuyo sitio ya se miró y no enlaza ninguno: no se vuelve a mirar. */
+const WEB_SIN_INSTAGRAM = "web_sin_instagram";
+
+/**
+ * Completa el Instagram de los competidores que solo tienen sitio web (225 el
+ * 10/11, casi todos inmobiliarias): se lee la portada de SU sitio y se toma el
+ * Instagram que enlaza. No se adivina: si el sitio no enlaza ninguno queda sin
+ * Instagram. Después Business Discovery confirma que la cuenta existe.
+ */
+export async function descubrirInstagramEnWebs(db: Db): Promise<{ miradas: number; encontradas: number }> {
+  const filas = await db
+    .select({ id: competitors.id, web: competitors.website })
+    .from(competitors)
+    .innerJoin(clients, eq(clients.id, competitors.clientId))
+    .where(and(eq(clients.status, "active"), isNull(competitors.igHandle), isNull(competitors.igEstado), isNotNull(competitors.website)));
+  const porWeb = new Map<string, string[]>();
+  for (const f of filas) {
+    const web = (f.web ?? "").trim();
+    if (!web || /instagram\.com|facebook\.com|fb\.com/i.test(web)) continue;
+    porWeb.set(web, [...(porWeb.get(web) ?? []), f.id]);
+  }
+  let miradas = 0, encontradas = 0;
+  for (const [web, ids] of [...porWeb].slice(0, WEBS_POR_VUELTA)) {
+    let usuario: string | null = null;
+    try {
+      const r = await fetch(/^https?:\/\//i.test(web) ? web : `https://${web}`, { redirect: "follow", signal: AbortSignal.timeout(12_000), headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-OS verificador)" } });
+      if (!r.ok) continue; // caído o filtra robots: se reintenta en otra vuelta
+      usuario = instagramEnHtml((await r.text()).slice(0, 2_000_000));
+    } catch { continue; }
+    miradas += 1;
+    if (usuario) encontradas += 1;
+    await db.update(competitors).set(usuario ? { igHandle: usuario, updatedAt: new Date() } : { igEstado: WEB_SIN_INSTAGRAM, igRevisadoAt: new Date() }).where(inArray(competitors.id, ids));
+  }
+  return { miradas, encontradas };
 }
 
 /** Igual que el sync propio (providers/meta.ts), para que el formato se compare. */
@@ -114,13 +177,13 @@ export async function medirCompetencia(db: Db): Promise<{ medidas: number; publi
   corriendo = true;
   try {
     const filas = await db
-      .select({ id: competitors.id, ig: competitors.igHandle, revisado: competitors.igRevisadoAt, estado: competitors.igEstado })
+      .select({ id: competitors.id, ig: competitors.igHandle, web: competitors.website, revisado: competitors.igRevisadoAt, estado: competitors.igEstado })
       .from(competitors)
       .innerJoin(clients, eq(clients.id, competitors.clientId))
-      .where(and(eq(clients.status, "active"), isNotNull(competitors.igHandle)));
+      .where(eq(clients.status, "active"));
     const porUsuario = new Map<string, { ids: string[]; revisado: number; propio: boolean }>();
     for (const f of filas) {
-      const u = usuarioDeInstagram(f.ig);
+      const u = usuarioDeCompetidor(f);
       // Confirmado que no existe: el usuario está mal cargado. No se insiste; si
       // lo corrigen es otro usuario y entra solo.
       if (!u || f.estado === "no_existe") continue;
@@ -268,7 +331,7 @@ export async function cargarPublicacionesCompetencia(db: Db, dias = 180): Promis
   // El rubro de una cuenta de la competencia es el del cliente que la tiene
   // cargada (el más repetido si son varios).
   const filas = await db
-    .select({ ig: competitors.igHandle, fb: competitors.fbPageUrl, nombre: competitors.name, nicho: clients.industry })
+    .select({ ig: competitors.igHandle, web: competitors.website, fb: competitors.fbPageUrl, nombre: competitors.name, nicho: clients.industry })
     .from(competitors)
     .innerJoin(clients, eq(clients.id, competitors.clientId))
     .where(and(eq(clients.status, "active"), isNotNull(clients.industry)));
@@ -281,7 +344,7 @@ export async function cargarPublicacionesCompetencia(db: Db, dias = 180): Promis
   };
   for (const f of filas) {
     if (!f.nicho) continue;
-    const u = usuarioDeInstagram(f.ig);
+    const u = usuarioDeCompetidor(f);
     if (u) votar(u, f.nicho);
     const id = idDePaginaFacebook(f.fb);
     if (id) { votar(`fb:${id}`, f.nicho); nombres.set(`fb:${id}`, f.nombre); }
@@ -289,10 +352,13 @@ export async function cargarPublicacionesCompetencia(db: Db, dias = 180): Promis
   const nichoDe = new Map([...votos].map(([u, m]) => [u, [...m].sort((a, b) => b[1] - a[1])[0][0]]));
 
   const desde = new Date(Date.now() - dias * 86_400_000);
+  // Una publicación de ayer todavía está juntando interacción: contarla baja lo
+  // normal de la cuenta y la muestra como floja. Entran las de MADURA_DIAS o más.
+  const hasta = new Date(Date.now() - MADURA_DIAS * 86_400_000);
   const posts = await db
     .select()
     .from(competenciaPosts)
-    .where(and(gte(competenciaPosts.publicadoAt, desde), isNotNull(competenciaPosts.meGusta)));
+    .where(and(gte(competenciaPosts.publicadoAt, desde), lte(competenciaPosts.publicadoAt, hasta), isNotNull(competenciaPosts.meGusta)));
   return posts
     .filter((p) => nichoDe.has(p.usuario))
     .map((p) => {
@@ -332,14 +398,14 @@ export async function estadoCompetencia(db: Db): Promise<{
   noExisten: number; privadas: number; conFacebook: number; medidasFacebook: number; motivoFacebook: string | null;
 }> {
   const filas = await db
-    .select({ ig: competitors.igHandle, estado: competitors.igEstado, fb: competitors.fbPageUrl, fbEstado: competitors.fbEstado })
+    .select({ ig: competitors.igHandle, web: competitors.website, estado: competitors.igEstado, fb: competitors.fbPageUrl, fbEstado: competitors.fbEstado })
     .from(competitors)
     .innerJoin(clients, eq(clients.id, competitors.clientId))
     .where(eq(clients.status, "active"));
   const porUsuario = new Map<string, string | null>();
   const porPagina = new Map<string, string | null>();
   for (const f of filas) {
-    const u = usuarioDeInstagram(f.ig);
+    const u = usuarioDeCompetidor(f);
     if (u) porUsuario.set(u, f.estado);
     if (!u || f.estado !== "ok") {
       const id = idDePaginaFacebook(f.fb);
@@ -390,7 +456,9 @@ let timer: ReturnType<typeof setInterval> | null = null;
 export function initCompetenciaIg(db: Db): void {
   if (timer) return;
   const vuelta = () => {
-    void medirCompetencia(db)
+    void descubrirInstagramEnWebs(db)
+      .then((r) => { if (r.miradas) console.log(`[competencia-ig] ${r.miradas} sitios mirados, ${r.encontradas} con Instagram`); })
+      .then(() => medirCompetencia(db))
       .then((r) => { if (r.medidas || r.sinMedir || r.motivo) console.log(`[competencia-ig] ${r.medidas} cuentas medidas (${r.publicaciones} publicaciones), ${r.sinMedir} sin medir${r.motivo ? ` — ${r.motivo}` : ""}`); })
       .then(() => medirCompetenciaFacebook(db))
       .then((r) => { if (r.medidas || r.sinMedir || r.motivo) console.log(`[competencia-fb] ${r.medidas} páginas medidas (${r.publicaciones} publicaciones), ${r.sinMedir} sin medir${r.motivo ? ` — ${r.motivo}` : ""}`); })

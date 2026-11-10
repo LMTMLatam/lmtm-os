@@ -127,6 +127,8 @@ export type {
 } from "./intelligence.js";
 // Competitors + content ideas (0108).
 export { competitors, contentIdeas, competenciaPosts } from "./competitors.js";
+export { videoTipos, videoVirales, videoPlantillas } from "./video_tipos.js";
+export type { ContenidoPlantilla, ReglaDeVideo, PerfilVtool, FormaDeVideo } from "./video_tipos.js";
 export type { Competitor, NewCompetitor, ContentIdea, NewContentIdea } from "./competitors.js";
 export { publicDashboards } from "./public_dashboards.js";
 export type { PublicDashboard, NewPublicDashboard } from "./public_dashboards.js";

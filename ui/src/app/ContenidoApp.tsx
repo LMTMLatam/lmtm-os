@@ -19,6 +19,7 @@ import { horaCorta } from "../lmtm/formato";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 import { QueFunciona } from "./QueFunciona";
+import { TiposDeVideo } from "./TiposDeVideo";
 
 interface Pieza {
   id: string;
@@ -188,6 +189,11 @@ export function ContenidoApp() {
             </p>
           )}
           {tablero.data && <Calendario t={tablero.data} puede={puedeGenerar} />}
+        </section>
+
+        <section id="tipos-de-video" className="scroll-mt-4">
+          <TituloFranja>Tipos de video</TituloFranja>
+          <TiposDeVideo />
         </section>
 
         <section id="que-funciona" className="scroll-mt-4">

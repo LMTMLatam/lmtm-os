@@ -108,7 +108,7 @@ export const HERRAMIENTAS_EQUIPO = [
   "lmtmGetClientCompetitors", "lmtmGetClientScores", "lmtmPortfolioSnapshot", "lmtmGetClientBalance",
   "lmtmGetClientMarketingPlan", "lmtmGetClientOrganicPosts", "lmtmGetClientScheduledContent",
   "lmtmGetClientContentMatrix", "lmtmGetClientVideoTasks", "lmtmGetCadenaPublicacion", "lmtmGetNicheIntel",
-  "lmtmGetTeamLessons", "lmtmSearchHooks", "lmtmListDeliverables", "lmtmAnalisisSeo", "lmtmRendimientoWeb",
+  "lmtmGetTeamLessons", "lmtmSearchHooks", "lmtmTiposDeVideo", "lmtmPlantillaVideo", "lmtmBuscarVirales", "lmtmGuardarViral", "lmtmListDeliverables", "lmtmAnalisisSeo", "lmtmRendimientoWeb",
   "lmtmRedesPublicas", "lmtmContenidoGenerado", "lmtmEstadoGeneracion", "lmtmBuscarMaterial",
   // Lo que escribe: contenido, tareas y lo aprendido del cliente.
   "lmtmGenerarContenido", "lmtmGenerarPieza", "lmtmCreateClientTask", "lmtmRememberAboutClient", "lmtmSaveHook",
