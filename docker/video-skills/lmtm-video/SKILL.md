@@ -84,6 +84,11 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    proyecto (deja el índice con el id de Drive de cada archivo: sirve para los
    cambios). Si no alcanza, `lmtmBuscarMaterial` y bajá lo elegido con
    `lmtmDriveBajar` (link o id). El logo, a `assets/marca/`.
+   **Crudos y videos del cliente que no están en Drive:** están en el NAS, solo
+   lectura. `lmtmNasListar` empezando por `/LMTM/Clientes/<Cliente>` (cada uno
+   tiene `VIDEO/PROYECTOS`, `VIDEO/RECURSOS` y `VIDEO/TERMINADOS`) y bajá lo
+   elegido con `lmtmNasBajar` (`carpeta` = `<cliente>-<tema>/assets/fuente`).
+   Mirá el peso antes: los terminados pesan 20–600 MB; bajá solo lo que vas a usar.
 3. **Qué hay en el material:** `lmtmVideoDescribir` con `carpeta` = `assets/fuente/`
    y `para` = de qué es el video. Devuelve TEXTO: los momentos de cada video con su
    segundo, el foco y si sirve, y una línea por foto. No armes hojas de contacto
