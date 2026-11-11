@@ -753,16 +753,16 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmTiposDeVideo",
-      "TIPOS DE VIDEO: qué plantillas de edición hay por nicho y tipo de video (recorrido, producto, testimonio, habla-a-camara, tutorial...), en qué estado (sin-plantilla, borrador, lista, aprobada, vieja) y cuántos virales medidos las respaldan. Usala antes de editar o planear un video de un cliente.",
-      z.object({ nicho: z.string().optional().describe("Rubro o nombre de un cliente; sin esto, todos") }),
+      "TIPOS DE VIDEO: qué plantillas de edición hay (generales, por rubro y por cliente) para cada tipo de video (recorrido, producto, testimonio, habla-a-camara, tutorial... y los propios del equipo), en qué estado (sin-plantilla, borrador, lista, aprobada, vieja) y cuántos virales medidos las respaldan. Usala antes de editar o planear un video de un cliente.",
+      z.object({ nicho: z.string().optional().describe("Nombre de un cliente (trae también sus tipos propios), un rubro o 'todos'; sin esto, general y los rubros") }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "tipos_de_video", parameters: p } }),
     ),
     makeTool(
       "lmtmPlantillaVideo",
-      "La PLANTILLA DE EDICIÓN de un tipo de video en un nicho: estructura, ganchos, edición, prompt de IA, qué no hacer, REGLAS del equipo (obligatorias), el perfil para `vtool --perfil` y la guía en Markdown. Para editar con el kit de video: guardá `perfil` como `<nicho>__<tipo>.json` y `guia` como `<nicho>__<tipo>.md` en la carpeta de perfiles. Si no está aprobada, avisá que es borrador.",
+      "La PLANTILLA DE EDICIÓN de un tipo de video para un cliente, un rubro o general. Con un cliente usa la más específica que haya (cliente → rubro → general; `desde` dice de cuál sale) y suma las REGLAS de los tres niveles (obligatorias). Trae estructura, ganchos, edición, prompt de IA, qué no hacer, el perfil para `vtool --perfil` y la guía en Markdown. Para editar con el kit de video: guardá `perfil` como `<archivo>.json` y `guia` como `<archivo>.md` en la carpeta de perfiles y usá `--perfil <archivo>`. Si no está aprobada, avisá que es borrador.",
       z.object({
-        nicho: z.string().min(1).describe("Rubro (ej. 'inmobiliaria') o nombre/slug de un cliente"),
-        tipo: z.string().min(1).describe("habla-a-camara, recorrido, producto, testimonio, tutorial, antes-y-despues, detras-de-escena, tendencia, promo o evento"),
+        nicho: z.string().min(1).describe("Nombre o slug del cliente (lo mejor si el video es de un cliente), un rubro (ej. 'inmobiliaria') o 'todos'"),
+        tipo: z.string().min(1).describe("habla-a-camara, recorrido, producto, testimonio, tutorial, antes-y-despues, detras-de-escena, tendencia, promo, evento o un tipo propio (lmtmTiposDeVideo los lista)"),
       }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "plantilla_video", parameters: p } }),
     ),

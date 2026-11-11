@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { instagramEnHtml, usuarioDeCompetidor } from "../competencia-ig.js";
 import {
-  codigoDeLink, estadoVisible, evidenciaDe, guiaDe, leerTipos, limpiarContenido, medirVideos, mezclarReglas, vigenteDe, type Viral,
+  baseArchivo, codigoDeLink, estadoVisible, evidenciaDe, guiaDe, leerTipos, limpiarContenido, medirVideos, mezclarReglas, resolverCadena, slugDe, tiposPara, vigenteDe, type Viral,
 } from "../video-tipos.js";
 
 const dia = 86_400_000;
@@ -73,5 +73,40 @@ describe("Tipos de video (09/11)", () => {
     const html = '<a href="https://www.instagram.com/p/XYZ">x</a><a href="https://instagram.com/lattuca.prop/">ig</a><a href="https://www.instagram.com/lattuca.prop">ig</a><a href="https://instagram.com/otra">';
     expect(instagramEnHtml(html)).toBe("lattuca.prop");
     expect(instagramEnHtml("<p>sin redes</p>")).toBeNull();
+  });
+
+  it("alcance (11/11): la del cliente gana; si no tiene, hereda del rubro y después la general; las reglas se suman sin repetir", () => {
+    const f = (nicho: string, version: number, estado: string, reglas: string[]) => ({
+      nicho, version, estado, aprobadaAt: null,
+      contenido: { objetivo: nicho, reglas: reglas.map((texto, i) => ({ id: `${nicho}${i}`, texto, origen: "persona" })) },
+    } as never);
+    const niveles = (cli: never[], rub: never[], gen: never[]) => [
+      { clave: "cliente:reno", nombre: "RENO", versiones: cli },
+      { clave: "amoblamientos", nombre: "amoblamientos", versiones: rub },
+      { clave: "todos", nombre: "general", versiones: gen },
+    ];
+    const conTodo = resolverCadena(niveles([f("cliente:reno", 1, "borrador", ["Logo arriba"])], [f("amoblamientos", 2, "aprobada", ["Precio en pantalla", "logo arriba"])], [f("todos", 1, "aprobada", ["Subtítulos siempre"])]));
+    expect(conTodo.efectiva?.clave).toBe("cliente:reno");
+    expect(conTodo.heredada?.clave).toBe("amoblamientos");
+    expect(conTodo.reglas.map((r) => [r.texto, r.desde ?? null])).toEqual([["Logo arriba", null], ["Precio en pantalla", "de amoblamientos"], ["Subtítulos siempre", "general"]]);
+    const soloGeneral = resolverCadena(niveles([], [], [f("todos", 1, "aprobada", ["Subtítulos siempre"])]));
+    expect(soloGeneral.propia).toBeNull();
+    expect(soloGeneral.efectiva?.clave).toBe("todos");
+    expect(resolverCadena(niveles([], [], [])).efectiva).toBeNull();
+    // El cliente solo sumó una regla: la plantilla sigue siendo la del rubro, con la regla del cliente primero.
+    const soloRegla = { nicho: "cliente:reno", version: 1, estado: "borrador", aprobadaAt: null, contenido: { reglas: [{ id: "r", texto: "Logo arriba", origen: "persona" }] } } as never;
+    const r = resolverCadena(niveles([soloRegla], [f("amoblamientos", 1, "aprobada", ["Precio en pantalla"])], []));
+    expect(r.efectiva?.clave).toBe("amoblamientos");
+    expect(r.reglas.map((x) => x.texto)).toEqual(["Logo arriba", "Precio en pantalla"]);
+  });
+
+  it("tipos propios: un cliente ve los generales, los de su rubro y los suyos; nombres de archivo sin «:»", () => {
+    const tipos = [{ slug: "promo", alcance: "todos" }, { slug: "obra", alcance: "amoblamientos" }, { slug: "showroom", alcance: "cliente:reno" }, { slug: "ajeno", alcance: "cliente:otro" }];
+    expect(tiposPara(tipos, { cadena: ["cliente:reno", "amoblamientos", "todos"] }).map((t) => t.slug)).toEqual(["promo", "obra", "showroom"]);
+    expect(tiposPara(tipos, { cadena: ["todos"] }).map((t) => t.slug)).toEqual(["promo"]);
+    expect(baseArchivo("cliente:reno")).toBe("reno");
+    expect(baseArchivo("todos")).toBe("general");
+    expect(slugDe("  Promo Flash ¡Ya! ")).toBe("promo-flash-ya");
+    expect(slugDe("Recorrido de Obra")).toBe("recorrido-de-obra");
   });
 });

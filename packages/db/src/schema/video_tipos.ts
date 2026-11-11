@@ -10,6 +10,10 @@ export const videoTipos = pgTable("video_tipos", {
   descripcion: text("descripcion").notNull().default(""),
   orden: integer("orden").notNull().default(100),
   activo: boolean("activo").notNull().default(true),
+  /** 'todos' | '<rubro>' | 'cliente:<slug>' (migración 0162). */
+  alcance: text("alcance").notNull().default("todos"),
+  /** null = de fábrica; si lo creó una persona, se puede ocultar. */
+  creadoPor: text("creado_por"),
 });
 
 /** Lo que mide `vtool referencia` de un video; null = no se pudo medir. */

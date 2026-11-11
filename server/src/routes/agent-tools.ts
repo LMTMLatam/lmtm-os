@@ -636,8 +636,8 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "tipos_de_video",
       description:
-        "TIPOS DE VIDEO: la grilla nicho × tipo de video (recorrido, producto, testimonio, habla-a-camara, tutorial...) con el estado de cada plantilla de edición (sin-plantilla, borrador, lista, aprobada, vieja) y cuántos virales medidos la respaldan. Usala para saber qué plantillas hay antes de editar o planear un video.",
-      parameters: { type: "object", properties: { nicho: { type: "string", description: "Rubro (ej. 'inmobiliaria') o nombre de un cliente. Sin esto, todos." } } },
+        "TIPOS DE VIDEO: la grilla de tipos de video (recorrido, producto, testimonio, habla-a-camara, tutorial... y los propios que cargó el equipo) con el estado de cada plantilla de edición (sin-plantilla, borrador, lista, aprobada, vieja) y cuántos virales medidos la respaldan. Hay plantillas generales ('todos'), por rubro y por cliente: con un cliente se ven también sus tipos propios y, si no tiene plantilla propia, la que hereda (hereda.desde). Usala para saber qué plantillas hay antes de editar o planear un video.",
+      parameters: { type: "object", properties: { nicho: { type: "string", description: "Rubro (ej. 'inmobiliaria'), nombre de un cliente o 'todos'. Sin esto, general y los rubros." } } },
     },
   },
   {
@@ -645,11 +645,11 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "plantilla_video",
       description:
-        "La PLANTILLA DE EDICIÓN de un tipo de video en un nicho: objetivo, duración, estructura por segundos, fórmulas de gancho, edición (cortes, subtítulos, zoom, efectos, música, look), prompt de IA, qué no hacer, las REGLAS del equipo (obligatorias), el perfil para `vtool --perfil` (perfil) y la guía en Markdown (guia), más los virales que la respaldan. Si el estado no es 'aprobada', avisá que es un borrador. Las reglas con origen 'persona' no se discuten.",
+        "La PLANTILLA DE EDICIÓN de un tipo de video para un cliente, un rubro o general. Con un cliente usa la más específica que exista (cliente → rubro → general: 'desde' dice de cuál sale) y suma las reglas de los tres niveles. Trae objetivo, duración, estructura por segundos, fórmulas de gancho, edición (cortes, subtítulos, zoom, efectos, música, look), prompt de IA, qué no hacer, las REGLAS del equipo (obligatorias), el perfil para `vtool --perfil` (perfil) y la guía en Markdown (guia), más los virales que la respaldan. Si el estado no es 'aprobada', avisá que es un borrador. Las reglas con origen 'persona' no se discuten.",
       parameters: {
         type: "object",
         properties: {
-          nicho: { type: "string", description: "Rubro (ej. 'inmobiliaria') o nombre/slug de un cliente (usa su rubro)" },
+          nicho: { type: "string", description: "Nombre o slug de un cliente (lo mejor si el video es de un cliente), un rubro (ej. 'inmobiliaria') o 'todos'" },
           tipo: { type: "string", description: "Tipo de video: habla-a-camara, recorrido, producto, testimonio, tutorial, antes-y-despues, detras-de-escena, tendencia, promo, evento" },
         },
         required: ["nicho", "tipo"],
@@ -2436,8 +2436,9 @@ export function agentToolsRoutes(
       if (tool === "plantilla_video") {
         if (!textoDe(params.nicho) || !textoDe(params.tipo)) return reply(false, "Faltan nicho y tipo.");
         const p = await plantillaVideo(db, textoDe(params.nicho), textoDe(params.tipo));
-        if (!p.contenido) return reply(true, JSON.stringify({ nicho: p.nicho, tipo: p.tipo, estado: p.estado, evidencia: p.evidencia, virales: p.virales.slice(0, 5), mensaje: "Todavía no hay plantilla para este tipo de video en este nicho. Usá el perfil local del nicho y avisalo." }));
+        if (!p.contenido) return reply(true, JSON.stringify({ alcance: p.alcance, nicho: p.nicho, cliente: p.cliente, tipo: p.tipo, estado: p.estado, evidencia: p.evidencia, virales: p.virales.slice(0, 5), mensaje: "Todavía no hay plantilla para este tipo de video (ni del cliente, ni del rubro, ni general). Usá el perfil local del nicho y avisalo." }));
         return reply(true, JSON.stringify({
+          alcance: p.alcance, desde: p.desde, cliente: p.cliente, archivo: p.archivo,
           nicho: p.nicho, tipo: p.tipo, estado: p.estado, version: p.version, evidencia: p.evidencia,
           ...(p.estado === "aprobada" ? {} : { aviso: "No está aprobada: es un borrador del equipo de agentes. Usala como referencia y avisalo." }),
           reglas: p.contenido.reglas ?? [], contenido: { ...p.contenido, reglas: undefined, perfil: undefined },
@@ -2467,12 +2468,13 @@ export function agentToolsRoutes(
       if (tool === "guardar_plantilla_video") {
         if (!textoDe(params.nicho) || !textoDe(params.tipo)) return reply(false, "Faltan nicho y tipo.");
         const [ag] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, ctx.agentId)).limit(1);
+        // Los agentes proponen por rubro (la evidencia es del rubro); lo de un cliente lo escribe una persona.
         const r = await guardarPlantillaVideo(db, {
-          nicho: textoDe(params.nicho), tipo: textoDe(params.tipo), contenido: params.contenido,
+          nicho: await resolverNichoVideo(db, textoDe(params.nicho)), tipo: textoDe(params.tipo), contenido: params.contenido,
           autor: `agente:${ag?.name ?? ctx.agentId}`, esPersona: false, motivo: textoDe(params.motivo) || undefined,
         });
         if (!r.ok) return reply(false, r.mensaje);
-        return reply(true, `Versión ${r.version} guardada como «${r.estado}» (${r.evidencia.virales} virales medidos de ${r.evidencia.cuentas} cuentas). La aprueba una persona en Contenido → Tipos de video.`);
+        return reply(true, `Versión ${r.version} guardada como «${r.estado}» (${r.evidencia.virales} virales medidos de ${r.evidencia.cuentas} cuentas). La aprueba una persona en Producción → Tipos de video.`);
       }
 
       if (tool === "save_trend") {

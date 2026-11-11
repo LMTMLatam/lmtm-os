@@ -19,7 +19,6 @@ import { horaCorta } from "../lmtm/formato";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 import { QueFunciona } from "./QueFunciona";
-import { TiposDeVideo } from "./TiposDeVideo";
 
 interface Pieza {
   id: string;
@@ -191,11 +190,6 @@ export function ContenidoApp() {
           {tablero.data && <Calendario t={tablero.data} puede={puedeGenerar} />}
         </section>
 
-        <section id="tipos-de-video" className="scroll-mt-4">
-          <TituloFranja>Tipos de video</TituloFranja>
-          <TiposDeVideo />
-        </section>
-
         <section id="que-funciona" className="scroll-mt-4">
           <div className="flex flex-wrap items-baseline gap-x-3">
             <TituloFranja>Qué funciona · todas las cuentas</TituloFranja>
@@ -207,7 +201,7 @@ export function ContenidoApp() {
         <section>
           <div className="flex flex-wrap items-baseline gap-x-3">
             <TituloFranja>Generado</TituloFranja>
-            <Link to="/contenido/generado" className="text-[13px] text-l-tinta-2 hover:text-l-marca">Todo, con sus links y lo que gastó →</Link>
+            <Link to="/produccion/generado" className="text-[13px] text-l-tinta-2 hover:text-l-marca">Todo, con sus links y lo que gastó (Producción) →</Link>
           </div>
           <Galeria items={generados.data?.videos ?? []} cargando={generados.isLoading} />
         </section>

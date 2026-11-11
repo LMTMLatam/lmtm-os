@@ -14,6 +14,13 @@
 // La plantilla (nicho + tipo) la propone un agente con esos virales y la
 // aprueba una persona. Cada cambio es una versión nueva. Las reglas que carga
 // una persona no las puede sacar un agente.
+//
+// Alcance (11/11, «que se puedan poner tipos de videos para clientes
+// específicos, para nichos, para todo»): una plantilla y un tipo de video
+// valen para todos ('todos'), para un rubro ('inmobiliaria') o para un cliente
+// ('cliente:<slug>'). La clave va en video_plantillas.nicho y video_tipos.alcance.
+// Al pedir la plantilla de un cliente se usa la más específica que exista
+// (cliente → rubro → general) y las reglas de los tres niveles se suman.
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
@@ -156,10 +163,100 @@ export function evidenciaDe(virales: Viral[]): { virales: number; cuentas: numbe
   return { virales: medidos.length, cuentas: new Set(medidos.map((v) => v.cuenta)).size, ids: medidos.map((v) => v.id) };
 }
 
+// ── Alcance: general, rubro o cliente ─────────────────────────────────────────
+
+export const TODOS = "todos";
+export const PREFIJO_CLIENTE = "cliente:";
+
+export type Alcance = {
+  clave: string;
+  nivel: "todos" | "nicho" | "cliente";
+  /** El rubro: el del nivel nicho, o el del cliente. null en general. */
+  nicho: string | null;
+  cliente: { id: string; slug: string; nombre: string } | null;
+  /** De lo más específico a lo general: dónde se busca la plantilla. */
+  cadena: string[];
+  nombre: string;
+};
+
+/** Puro: el nombre que se lee en el panel y en la guía. */
+export function nombreAlcance(clave: string, cliente?: string | null): string {
+  if (clave === TODOS) return "general";
+  if (clave.startsWith(PREFIJO_CLIENTE)) return cliente ?? clave.slice(PREFIJO_CLIENTE.length);
+  return clave;
+}
+
+/** Puro: la parte del nombre de archivo del perfil (sin «:», que Windows no acepta). */
+export function baseArchivo(clave: string): string {
+  if (clave === TODOS) return "general";
+  return clave.startsWith(PREFIJO_CLIENTE) ? clave.slice(PREFIJO_CLIENTE.length) : clave;
+}
+
+/**
+ * «todos»/«general» → general. «cliente:<slug>», o el nombre, slug o id de un
+ * cliente activo → ese cliente. Cualquier otra cosa → un rubro.
+ */
+export async function alcanceDe(db: Db, x: string | null | undefined): Promise<Alcance> {
+  const q = (x ?? "").trim().toLowerCase();
+  if (!q || q === TODOS || q === "general") return { clave: TODOS, nivel: "todos", nicho: null, cliente: null, cadena: [TODOS], nombre: "general" };
+  const conPrefijo = q.startsWith(PREFIJO_CLIENTE);
+  const buscado = conPrefijo ? q.slice(PREFIJO_CLIENTE.length) : q;
+  const [c] = await db.select({ id: clients.id, slug: clients.slug, name: clients.name, industry: clients.industry }).from(clients)
+    .where(and(eq(clients.status, "active"), conPrefijo
+      ? eq(clients.slug, buscado)
+      : or(sql`lower(${clients.name}) = ${buscado}`, eq(clients.slug, buscado), ...(/^[0-9a-f-]{36}$/i.test(buscado) ? [eq(clients.id, buscado)] : [])))).limit(1);
+  if (c?.slug) {
+    const clave = `${PREFIJO_CLIENTE}${c.slug}`;
+    const nicho = c.industry ? norm(c.industry) : null;
+    return { clave, nivel: "cliente", nicho, cliente: { id: c.id, slug: c.slug, nombre: c.name }, cadena: [clave, ...(nicho ? [nicho] : []), TODOS], nombre: c.name };
+  }
+  if (conPrefijo) throw new Error(`No hay un cliente activo con el slug «${buscado}».`);
+  return { clave: q, nivel: "nicho", nicho: q, cliente: null, cadena: [q, TODOS], nombre: q };
+}
+
 // ── Tipo de video de cada publicación ─────────────────────────────────────────
 
 export async function tiposActivos(db: Db) {
   return db.select().from(videoTipos).where(eq(videoTipos.activo, true)).orderBy(asc(videoTipos.orden));
+}
+
+type FilaTipo = typeof videoTipos.$inferSelect;
+
+/** Puro: los tipos que se ven en un alcance: los generales y los de su rubro o cliente. */
+export function tiposPara<T extends Pick<FilaTipo, "alcance">>(tipos: T[], a: Pick<Alcance, "cadena">): T[] {
+  return tipos.filter((t) => a.cadena.includes(t.alcance));
+}
+
+/** Puro: «Promo flash» → «promo-flash». */
+export function slugDe(nombre: string): string {
+  return nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+/** Una persona suma un tipo de video para todos, para un rubro o para un cliente. */
+export async function crearTipo(db: Db, p: { nombre: string; descripcion?: string; alcance: string; autor: string }): Promise<{ ok: true; slug: string } | { ok: false; mensaje: string }> {
+  const nombre = p.nombre.trim().slice(0, 60);
+  const slug = slugDe(nombre);
+  if (!slug) return { ok: false, mensaje: "Falta el nombre del tipo de video." };
+  if (slug === OTRO || slug === SIN_TEXTO) return { ok: false, mensaje: "Ese nombre está reservado." };
+  const a = await alcanceDe(db, p.alcance);
+  if (a.nivel === "nicho") {
+    const nichos = new Set((await db.selectDistinct({ i: clients.industry }).from(clients).where(and(eq(clients.status, "active"), isNotNull(clients.industry)))).map((r) => norm(r.i)));
+    if (!nichos.has(a.clave)) return { ok: false, mensaje: `Rubro desconocido: ${a.clave}.` };
+  }
+  const [ya] = await db.select({ slug: videoTipos.slug, activo: videoTipos.activo }).from(videoTipos).where(eq(videoTipos.slug, slug)).limit(1);
+  if (ya?.activo) return { ok: false, mensaje: `Ya hay un tipo de video «${slug}».` };
+  const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${videoTipos.orden}), 100)::int` }).from(videoTipos);
+  const fila = { nombre, descripcion: (p.descripcion ?? "").trim().slice(0, 300), alcance: a.clave, creadoPor: p.autor.slice(0, 120), activo: true };
+  if (ya) await db.update(videoTipos).set(fila).where(eq(videoTipos.slug, slug)); // estaba oculto: vuelve
+  else await db.insert(videoTipos).values({ slug, orden: max + 10, ...fila });
+  return { ok: true, slug };
+}
+
+/** Solo los que creó una persona: los de fábrica no se ocultan. */
+export async function ocultarTipo(db: Db, slug: string): Promise<boolean> {
+  const r = await db.update(videoTipos).set({ activo: false })
+    .where(and(eq(videoTipos.slug, norm(slug)), isNotNull(videoTipos.creadoPor))).returning({ slug: videoTipos.slug });
+  return r.length > 0;
 }
 
 /** Puro: valida la respuesta del modelo contra los tipos del catálogo. */
@@ -187,7 +284,8 @@ export async function clasificarTiposDeVideo(db: Db, max = 200): Promise<{ clasi
   if (clasificando) return { clasificados: 0, sinTexto: 0, fallas: 0 };
   clasificando = true;
   try {
-    const tipos = await tiposActivos(db);
+    // Los tipos de un cliente son suyos: no sirven para clasificar a la competencia.
+    const tipos = (await tiposActivos(db)).filter((t) => !t.alcance.startsWith(PREFIJO_CLIENTE));
     const pendientes = await db
       .select({ id: competenciaPosts.id, texto: competenciaPosts.texto })
       .from(competenciaPosts)
@@ -200,7 +298,7 @@ export async function clasificarTiposDeVideo(db: Db, max = 200): Promise<{ clasi
     const sistema = [
       "Clasificás videos de redes de pymes argentinas según su TIPO DE VIDEO: cómo está hecho, no el tema. Solo tenés el texto de la publicación.",
       "Tipos posibles (id: cómo se reconoce):",
-      ...tipos.map((t) => `- ${t.slug}: ${t.descripcion}`),
+      ...tipos.map((t) => `- ${t.slug}${t.alcance === TODOS ? "" : ` (solo rubro ${t.alcance})`}: ${t.descripcion}`),
       `- ${OTRO}: el texto no alcanza para saberlo, o no es ninguno de los anteriores. Ante la duda, ${OTRO}: no adivines.`,
       'Respondé SOLO con un array JSON, sin texto alrededor: [{"i":<número>,"tipo":"<id>"}]. Un elemento por video, con el mismo "i".',
     ].join("\n");
@@ -345,7 +443,7 @@ export function guiaDe(nicho: string, tipo: string, c: ContenidoPlantilla, viral
   if (c.objetivo) l.push(c.objetivo, "");
   if (c.duracion) l.push(`**Duración:** ${c.duracion[0]} a ${c.duracion[1]} s.`, "");
   const reglas = c.reglas ?? [];
-  if (reglas.length) l.push("## Reglas", ...reglas.map((r) => `- ${r.texto}${r.origen === "persona" ? " _(del equipo: no se negocia)_" : ""}`), "");
+  if (reglas.length) l.push("## Reglas", ...reglas.map((r) => `- ${r.texto}${r.origen === "persona" ? " _(del equipo: no se negocia)_" : ""}${(r as ReglaConAlcance).desde ? ` _(${(r as ReglaConAlcance).desde})_` : ""}`), "");
   if (c.estructura?.length) l.push("## Estructura", ...c.estructura.map((t) => `- **${t.tramo}** (${t.desde}–${t.hasta} s): ${t.que}`), "");
   if (c.ganchos?.length) l.push("## Gancho", ...c.ganchos.map((g) => `- ${g.formula}`), "");
   const e = c.edicion ?? {};
@@ -373,91 +471,160 @@ export function estadoVisible(p: FilaPlantilla | null, ahora = new Date()): "sin
   return p.estado === "aprobada" || p.estado === "lista" ? p.estado : "borrador";
 }
 
-async function versionesDe(db: Db, nicho: string, tipo: string): Promise<FilaPlantilla[]> {
-  return db.select().from(videoPlantillas).where(and(eq(videoPlantillas.nicho, norm(nicho)), eq(videoPlantillas.tipo, norm(tipo)))).orderBy(desc(videoPlantillas.version));
+async function versionesDe(db: Db, clave: string, tipo: string): Promise<FilaPlantilla[]> {
+  return db.select().from(videoPlantillas).where(and(eq(videoPlantillas.nicho, clave), eq(videoPlantillas.tipo, norm(tipo)))).orderBy(desc(videoPlantillas.version));
 }
+
+/** Puro: ¿la plantilla dice cómo editar, o solo trae reglas? */
+export function tieneCuerpo(c: ContenidoPlantilla | null | undefined): boolean {
+  if (!c) return false;
+  return !!(c.objetivo || c.estructura?.length || c.ganchos?.length || Object.keys(c.edicion ?? {}).length || c.promptIa || c.noHacer?.length);
+}
+
+/** Una regla con el nivel del que viene, cuando se hereda. */
+export type ReglaConAlcance = ReglaDeVideo & { alcance?: string; desde?: string };
 
 /** Si `nicho` es el nombre o el slug de un cliente, devuelve su rubro. */
 export async function resolverNicho(db: Db, nichoOCliente: string): Promise<string> {
-  const q = nichoOCliente.trim();
-  const [c] = await db.select({ industry: clients.industry }).from(clients)
-    .where(and(eq(clients.status, "active"), or(sql`lower(${clients.name}) = ${q.toLowerCase()}`, eq(clients.slug, q.toLowerCase()), ...(/^[0-9a-f-]{36}$/i.test(q) ? [eq(clients.id, q)] : [])))).limit(1);
-  return norm(c?.industry ?? q);
+  const a = await alcanceDe(db, nichoOCliente);
+  return a.nivel === "cliente" ? (a.nicho ?? TODOS) : a.clave;
+}
+
+/**
+ * Puro: con las versiones de cada nivel (de lo específico a lo general), la
+ * plantilla que vale y todas las reglas sumadas. Las del nivel más específico
+ * van primero; un texto repetido en un nivel más general no se repite.
+ */
+export function resolverCadena(niveles: Array<{ clave: string; nombre: string; versiones: FilaPlantilla[] }>) {
+  const vigentes = niveles.map((n) => ({ ...n, vigente: vigenteDe(n.versiones) }));
+  // Un nivel que solo tiene reglas (ej. el cliente sumó una) no tapa la plantilla de arriba: suma sus reglas.
+  const efectiva = vigentes.find((n) => n.vigente && tieneCuerpo(n.vigente.contenido)) ?? vigentes.find((n) => n.vigente) ?? null;
+  const vistas = new Set<string>();
+  const reglas: ReglaConAlcance[] = [];
+  for (const [i, n] of vigentes.entries()) {
+    for (const r of n.vigente?.contenido.reglas ?? []) {
+      if (vistas.has(norm(r.texto))) continue;
+      vistas.add(norm(r.texto));
+      reglas.push({ ...r, alcance: n.clave, ...(i > 0 ? { desde: n.nombre === "general" ? "general" : `de ${n.nombre}` } : {}) });
+    }
+  }
+  return { propia: vigentes[0]?.vigente ?? null, efectiva, heredada: vigentes.slice(1).find((n) => n.vigente) ?? null, reglas };
 }
 
 export async function plantillaDe(db: Db, nichoOCliente: string, tipo: string) {
-  const nicho = await resolverNicho(db, nichoOCliente);
-  const versiones = await versionesDe(db, nicho, tipo);
-  const p = vigenteDe(versiones);
-  const { virales, noVirales } = await viralesDe(db, { nicho, tipo: norm(tipo), limite: 30 });
+  const a = await alcanceDe(db, nichoOCliente);
+  const t = norm(tipo);
+  const filas = await db.select().from(videoPlantillas)
+    .where(and(inArray(videoPlantillas.nicho, a.cadena), eq(videoPlantillas.tipo, t))).orderBy(desc(videoPlantillas.version));
+  const niveles = a.cadena.map((clave) => ({ clave, nombre: clave === a.clave ? a.nombre : nombreAlcance(clave), versiones: filas.filter((f) => f.nicho === clave) }));
+  const { propia, efectiva, heredada, reglas } = resolverCadena(niveles);
+  const p = efectiva?.vigente ?? null;
+  const { virales, noVirales } = await viralesDe(db, { nicho: a.nicho, tipo: t, limite: 30 });
+  // El perfil se llama como lo pidieron (reno__promo aunque salga del rubro): es el que se guarda en la PC.
+  const contenido: ContenidoPlantilla | null = p ? {
+    ...p.contenido, reglas,
+    ...(p.contenido.perfil ? { perfil: { ...p.contenido.perfil, nombre: `${baseArchivo(a.clave)}__${t}` } } : {}),
+  } : null;
   return {
-    nicho, tipo: norm(tipo), estado: estadoVisible(p), version: p?.version ?? 0,
-    contenido: p?.contenido ?? null, evidencia: evidenciaDe(virales),
+    alcance: a.clave, nivel: a.nivel, nombreAlcance: a.nombre, cadena: a.cadena,
+    nicho: a.nicho ?? TODOS, cliente: a.cliente?.nombre ?? null, tipo: t,
+    /** De qué nivel sale la plantilla que vale (null = no hay en ninguno). */
+    desde: efectiva?.clave ?? null,
+    estado: estadoVisible(p), version: p?.version ?? 0,
+    contenido, evidencia: evidenciaDe(virales),
     autor: p?.autor ?? null, motivo: p?.motivo ?? null, aprobadaPor: p?.aprobadaPor ?? null, aprobadaAt: p?.aprobadaAt ?? null, actualizada: p?.createdAt ?? null,
-    guia: p ? guiaDe(nicho, norm(tipo), p.contenido, virales) : null,
+    guia: contenido ? guiaDe(a.nombre, t, contenido, virales) : null,
+    archivo: `${baseArchivo(a.clave)}__${t}`,
     virales, noVirales,
-    versiones: versiones.map((v) => ({ version: v.version, estado: v.estado, autor: v.autor, motivo: v.motivo, fecha: v.createdAt })),
+    /** La del nivel pedido, para editarla en el panel. */
+    propia: propia ? {
+      estado: estadoVisible(propia), version: propia.version, contenido: propia.contenido,
+      autor: propia.autor, motivo: propia.motivo, aprobadaPor: propia.aprobadaPor, actualizada: propia.createdAt,
+    } : null,
+    /** La del nivel de arriba más cercano (rubro o general), de la que se parte. */
+    heredada: heredada ? { alcance: heredada.clave, nombre: heredada.nombre, estado: estadoVisible(heredada.vigente), version: heredada.vigente!.version, contenido: heredada.vigente!.contenido } : null,
+    reglasHeredadas: reglas.filter((r) => r.alcance !== a.clave),
+    versiones: niveles[0].versiones.map((v) => ({ version: v.version, estado: v.estado, autor: v.autor, motivo: v.motivo, fecha: v.createdAt })),
   };
 }
 
 /**
- * Guarda una versión nueva. Un agente siempre deja borrador (o «lista» si hay
- * evidencia) y nunca pisa las reglas de las personas. Una persona que edita una
- * plantilla aprobada la deja aprobada: es quien aprueba.
+ * Guarda una versión nueva en el alcance pedido (general, rubro o cliente). Un
+ * agente siempre deja borrador (o «lista» si hay evidencia) y nunca pisa las
+ * reglas de las personas. Una persona que edita una plantilla aprobada la deja
+ * aprobada: es quien aprueba.
  */
 export async function guardarPlantilla(db: Db, p: {
+  /** El alcance: «todos», un rubro, «cliente:<slug>» o el nombre de un cliente. */
   nicho: string; tipo: string; contenido: unknown; autor: string; esPersona: boolean; motivo?: string;
-  /** Solo personas: las reglas tal como quedan (pueden editar y borrar cualquiera). */
+  /** Solo personas: las reglas PROPIAS de este nivel tal como quedan (pueden editar y borrar cualquiera). */
   reglas?: ReglaDeVideo[];
 }): Promise<{ ok: true; version: number; estado: string; evidencia: { virales: number; cuentas: number } } | { ok: false; mensaje: string }> {
-  const nicho = await resolverNicho(db, p.nicho), tipo = norm(p.tipo);
-  if (!(await tiposActivos(db)).some((t) => t.slug === tipo)) return { ok: false, mensaje: `Tipo de video desconocido: ${tipo}.` };
-  const versiones = await versionesDe(db, nicho, tipo);
+  const a = await alcanceDe(db, p.nicho), tipo = norm(p.tipo);
+  if (!tiposPara(await tiposActivos(db), a).some((t) => t.slug === tipo)) return { ok: false, mensaje: `Tipo de video desconocido para ${a.nombre}: ${tipo}.` };
+  const versiones = await versionesDe(db, a.clave, tipo);
   const anterior = versiones[0] ?? null;
-  const contenido = limpiarContenido(p.contenido, nicho, tipo);
+  const contenido = limpiarContenido(p.contenido, baseArchivo(a.clave), tipo);
   contenido.reglas = p.esPersona && p.reglas
     ? p.reglas.map((r) => ({ id: r.id || randomUUID(), texto: (r.texto ?? "").trim().slice(0, 400), origen: r.origen === "agente" ? "agente" as const : "persona" as const, ...(r.autor ? { autor: r.autor } : {}), ...(r.viral ? { viral: r.viral } : {}) })).filter((r) => r.texto)
     : mezclarReglas(anterior?.contenido.reglas, (p.contenido as { reglas?: unknown } | null)?.reglas);
-  const evidencia = evidenciaDe((await viralesDe(db, { nicho, tipo, limite: 100 })).virales);
+  const evidencia = evidenciaDe((await viralesDe(db, { nicho: a.nicho, tipo, limite: 100 })).virales);
   const alcanza = evidencia.virales >= MIN_VIRALES && evidencia.cuentas >= MIN_CUENTAS;
   const vigente = vigenteDe(versiones);
   const sigueAprobada = p.esPersona && vigente?.estado === "aprobada";
   const estado = sigueAprobada ? "aprobada" : alcanza ? "lista" : "borrador";
   const version = (anterior?.version ?? 0) + 1;
   await db.insert(videoPlantillas).values({
-    nicho, tipo, version, estado, contenido, evidencia, autor: p.autor.slice(0, 120), motivo: p.motivo?.slice(0, 400) ?? null,
+    nicho: a.clave, tipo, version, estado, contenido, evidencia, autor: p.autor.slice(0, 120), motivo: p.motivo?.slice(0, 400) ?? null,
     ...(sigueAprobada ? { aprobadaPor: p.autor.slice(0, 120), aprobadaAt: new Date() } : {}),
   });
   return { ok: true, version, estado, evidencia };
 }
 
-/** Solo una persona. Aprueba la última versión. */
+/** Solo una persona. Aprueba la última versión del alcance pedido. */
 export async function aprobarPlantilla(db: Db, nicho: string, tipo: string, quien: string): Promise<boolean> {
-  const [ultima] = await versionesDe(db, nicho, tipo);
+  const a = await alcanceDe(db, nicho);
+  const [ultima] = await versionesDe(db, a.clave, tipo);
   if (!ultima) return false;
   await db.update(videoPlantillas).set({ estado: "aprobada", aprobadaPor: quien.slice(0, 120), aprobadaAt: new Date() }).where(eq(videoPlantillas.id, ultima.id));
   return true;
 }
 
-/** La grilla nicho × tipo para el panel y para lmtmTiposDeVideo. */
-export async function grilla(db: Db, soloNicho?: string | null) {
+/**
+ * La grilla alcance × tipo para el panel y para lmtmTiposDeVideo. Sin filtro:
+ * general y los rubros (los clientes se piden de a uno, con `alcance`).
+ */
+export async function grilla(db: Db, soloAlcance?: string | null) {
   const tipos = await tiposActivos(db);
-  const porNicho = await db.select({ nicho: clients.industry, clientes: sql<number>`count(*)::int` }).from(clients)
-    .where(and(eq(clients.status, "active"), isNotNull(clients.industry))).groupBy(clients.industry);
-  const filtro = soloNicho ? await resolverNicho(db, soloNicho) : null;
-  const nichos = porNicho.map((n) => ({ nicho: norm(n.nicho), clientes: n.clientes })).filter((n) => n.nicho !== "interno-test" && (!filtro || n.nicho === filtro)).sort((a, b) => b.clientes - a.clientes);
+  const activos = await db.select({ slug: clients.slug, nombre: clients.name, nicho: clients.industry }).from(clients).where(eq(clients.status, "active"));
+  const conteo = new Map<string, number>();
+  for (const c of activos) if (c.nicho && norm(c.nicho) !== "interno-test") conteo.set(norm(c.nicho), (conteo.get(norm(c.nicho)) ?? 0) + 1);
+  const nichos = [...conteo.entries()].map(([nicho, clientes]) => ({ nicho, clientes })).sort((a, b) => b.clientes - a.clientes);
+  const clientes = activos.filter((c) => c.slug && norm(c.nicho) !== "interno-test")
+    .map((c) => ({ clave: `${PREFIJO_CLIENTE}${c.slug}`, nombre: c.nombre, nicho: c.nicho ? norm(c.nicho) : null }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const pedidos: Alcance[] = soloAlcance
+    ? [await alcanceDe(db, soloAlcance)]
+    : [{ clave: TODOS, nivel: "todos", nicho: null, cliente: null, cadena: [TODOS], nombre: "general" }, ...nichos.map((n): Alcance => ({ clave: n.nicho, nivel: "nicho", nicho: n.nicho, cliente: null, cadena: [n.nicho, TODOS], nombre: n.nicho }))];
   const plantillas = await db.select().from(videoPlantillas);
   const todos = await todosLosVirales(db);
-  const celdas = nichos.flatMap((n) => tipos.map((t) => {
-    const p = vigenteDe(plantillas.filter((x) => x.nicho === n.nicho && x.tipo === t.slug));
-    const ev = evidenciaDe(todos.filter((v) => v.nicho === n.nicho && v.tipo === t.slug));
-    return { nicho: n.nicho, tipo: t.slug, estado: estadoVisible(p), version: p?.version ?? 0, virales: ev.virales, cuentas: ev.cuentas, actualizada: p?.createdAt ?? null };
+  const celdas = pedidos.flatMap((a) => tiposPara(tipos, a).map((t) => {
+    const deTipo = plantillas.filter((x) => x.tipo === t.slug);
+    const { propia, efectiva } = resolverCadena(a.cadena.map((clave) => ({ clave, nombre: nombreAlcance(clave), versiones: deTipo.filter((x) => x.nicho === clave) })));
+    const ev = evidenciaDe(todos.filter((v) => (!a.nicho || v.nicho === a.nicho) && v.tipo === t.slug));
+    return {
+      alcance: a.clave, nicho: a.clave, tipo: t.slug, estado: estadoVisible(propia), version: propia?.version ?? 0,
+      /** Sin plantilla propia: la que se usa, heredada de arriba. */
+      ...(!propia && efectiva ? { hereda: { desde: efectiva.clave, estado: estadoVisible(efectiva.vigente) } } : {}),
+      virales: ev.virales, cuentas: ev.cuentas, actualizada: propia?.createdAt ?? null,
+    };
   }));
   const cuentasMedidas = new Map<string, Set<string>>();
   for (const v of todos) if (v.veces != null) cuentasMedidas.set(v.nicho, (cuentasMedidas.get(v.nicho) ?? new Set()).add(v.cuenta));
   return {
-    tipos: tipos.map((t) => ({ slug: t.slug, nombre: t.nombre, descripcion: t.descripcion })),
+    tipos: tipos.map((t) => ({ slug: t.slug, nombre: t.nombre, descripcion: t.descripcion, alcance: t.alcance, propio: !!t.creadoPor })),
     nichos: nichos.map((n) => ({ ...n, cuentasMedidas: cuentasMedidas.get(n.nicho)?.size ?? 0, sinTipo: todos.filter((v) => v.nicho === n.nicho && v.tipo === OTRO && (v.veces ?? 0) >= VIRAL_DESDE).length })),
+    clientes,
     celdas,
     reglas: { viralDesde: VIRAL_DESDE, ventanaDias: VENTANA_DIAS, minVirales: MIN_VIRALES, minCuentas: MIN_CUENTAS },
   };

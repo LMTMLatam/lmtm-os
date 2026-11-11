@@ -1,25 +1,31 @@
-// LMTM: Contenido → «Tipos de video» (pedido 09/11). Una plantilla de edición
-// por nicho y tipo de video, armada por los agentes con los virales medidos de
-// la competencia y aprobada por una persona. Acá el equipo la mira, agrega o
-// cambia reglas, edita, aprueba, carga virales y baja el perfil para el kit de
-// video de su PC (vtool --perfil). Datos de /api/video-tipos.
+// LMTM: Producción → «Tipos de video» (pedido 09/11; sección propia 11/11).
+// Una plantilla de edición por tipo de video, para todos (general), para un
+// rubro o para un cliente. La arman los agentes con los virales medidos de la
+// competencia y la aprueba una persona. Acá el equipo la mira, agrega o cambia
+// reglas, edita, aprueba, suma tipos de video propios, carga virales y baja el
+// perfil para el kit de video de su PC (vtool --perfil). Datos de /api/video-tipos.
+//
+// Herencia: un cliente sin plantilla propia usa la de su rubro, y un rubro sin
+// plantilla usa la general. Las reglas de los tres niveles se suman.
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, ExternalLink, Loader2, OctagonAlert, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Download, EyeOff, ExternalLink, Loader2, OctagonAlert, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { Boton } from "../lmtm/componentes";
 import { Tarjeta } from "./HoyApp";
 
 type Estado = "sin-plantilla" | "borrador" | "lista" | "aprobada" | "vieja";
-interface Celda { nicho: string; tipo: string; estado: Estado; version: number; virales: number; cuentas: number; actualizada: string | null }
+interface Celda { alcance: string; tipo: string; estado: Estado; version: number; hereda?: { desde: string; estado: Estado }; virales: number; cuentas: number; actualizada: string | null }
+interface Tipo { slug: string; nombre: string; descripcion: string; alcance: string; propio: boolean }
 interface Grilla {
-  tipos: Array<{ slug: string; nombre: string; descripcion: string }>;
+  tipos: Tipo[];
   nichos: Array<{ nicho: string; clientes: number; cuentasMedidas: number; sinTipo: number }>;
+  clientes: Array<{ clave: string; nombre: string; nicho: string | null }>;
   celdas: Celda[];
   reglas: { viralDesde: number; ventanaDias: number; minVirales: number; minCuentas: number };
 }
-interface Regla { id: string; texto: string; origen: "persona" | "agente"; autor?: string; viral?: string }
+interface Regla { id: string; texto: string; origen: "persona" | "agente"; autor?: string; viral?: string; alcance?: string; desde?: string }
 interface Contenido {
   objetivo?: string; duracion?: [number, number];
   estructura?: Array<{ tramo: string; desde: number; hasta: number; que: string }>;
@@ -30,12 +36,16 @@ interface Contenido {
 }
 interface Viral { id: string; url: string | null; cuenta: string; fecha: string; veces: number | null; texto: string; fuente: string; gancho?: string | null; notas?: string | null }
 interface Plantilla {
-  nicho: string; tipo: string; estado: Estado; version: number; contenido: Contenido | null;
-  evidencia: { virales: number; cuentas: number }; autor: string | null; motivo: string | null; aprobadaPor: string | null; actualizada: string | null;
-  guia: string | null; virales: Viral[]; noVirales: Viral[];
+  alcance: string; nombreAlcance: string; nicho: string; tipo: string; desde: string | null;
+  estado: Estado; version: number; contenido: Contenido | null; archivo: string;
+  evidencia: { virales: number; cuentas: number }; guia: string | null; virales: Viral[]; noVirales: Viral[];
+  propia: { estado: Estado; version: number; contenido: Contenido; autor: string; motivo: string | null; aprobadaPor: string | null; actualizada: string } | null;
+  heredada: { alcance: string; nombre: string; estado: Estado; version: number; contenido: Contenido } | null;
+  reglasHeredadas: Regla[];
   versiones: Array<{ version: number; estado: string; autor: string; motivo: string | null; fecha: string }>;
 }
 
+const TODOS = "todos";
 const ESTADOS: Record<Estado, { texto: string; clase: string }> = {
   "sin-plantilla": { texto: "Sin plantilla", clase: "text-l-tinta-3" },
   borrador: { texto: "Borrador", clase: "text-l-tinta-2" },
@@ -45,12 +55,15 @@ const ESTADOS: Record<Estado, { texto: string; clase: string }> = {
 };
 const EDICION: Array<[string, string]> = [["cortes", "Cortes"], ["subtitulos", "Subtítulos"], ["zoom", "Zoom"], ["sfx", "Efectos de sonido"], ["musica", "Música"], ["look", "Look"], ["planos", "Planos obligatorios"]];
 
+const enc = encodeURIComponent;
 const tiposApi = {
-  grilla: () => api.get<Grilla>("/video-tipos"),
-  plantilla: (n: string, t: string) => api.get<Plantilla>(`/video-tipos/${encodeURIComponent(n)}/${encodeURIComponent(t)}`),
-  guardar: (n: string, t: string, body: { contenido: Contenido; reglas: Regla[]; motivo: string }) => api.post<{ version: number; estado: string }>(`/video-tipos/${encodeURIComponent(n)}/${encodeURIComponent(t)}`, body),
-  aprobar: (n: string, t: string) => api.post<{ ok: true }>(`/video-tipos/${encodeURIComponent(n)}/${encodeURIComponent(t)}/aprobar`, {}),
+  grilla: (alcance: string) => api.get<Grilla>(`/video-tipos?alcance=${enc(alcance)}`),
+  plantilla: (a: string, t: string) => api.get<Plantilla>(`/video-tipos/${enc(a)}/${enc(t)}`),
+  guardar: (a: string, t: string, body: { contenido: Contenido; reglas: Regla[]; motivo: string }) => api.post<{ version: number; estado: string }>(`/video-tipos/${enc(a)}/${enc(t)}`, body),
+  aprobar: (a: string, t: string) => api.post<{ ok: true }>(`/video-tipos/${enc(a)}/${enc(t)}/aprobar`, {}),
   viral: (b: Record<string, string>) => api.post<{ mensaje: string }>("/video-tipos/virales", b),
+  crearTipo: (b: { nombre: string; descripcion: string; alcance: string }) => api.post<{ slug: string }>("/video-tipos/tipos", b),
+  ocultarTipo: (slug: string) => api.post<{ ok: true }>(`/video-tipos/tipos/${enc(slug)}/ocultar`, {}),
 };
 
 function bajar(nombre: string, texto: string, tipo: string) {
@@ -61,111 +74,176 @@ function bajar(nombre: string, texto: string, tipo: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/** El nombre de un alcance para leer: «general», el rubro o el cliente. */
+function nombreDe(clave: string, g?: Grilla): string {
+  if (clave === TODOS) return "general";
+  return g?.clientes.find((c) => c.clave === clave)?.nombre ?? clave.replace(/^cliente:/, "");
+}
+const sinReglas = (c: Contenido | null | undefined): Contenido => { const { reglas: _r, ...resto } = c ?? {}; return resto; };
+
 export function TiposDeVideo() {
-  const grilla = useQuery({ queryKey: ["lmtm", "video-tipos"], queryFn: tiposApi.grilla, staleTime: 5 * 60_000 });
-  const [nicho, setNicho] = useState<string | null>(null);
-  const [abierta, setAbierta] = useState<{ nicho: string; tipo: string } | null>(null);
+  const [alcance, setAlcance] = useState(TODOS);
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const grilla = useQuery({ queryKey: ["lmtm", "video-tipos", "grilla", alcance], queryFn: () => tiposApi.grilla(alcance), staleTime: 5 * 60_000, placeholderData: (prev) => prev });
   const g = grilla.data;
-  const nichoActual = nicho ?? g?.nichos[0]?.nicho ?? null;
-  const celdas = useMemo(() => (g?.celdas ?? []).filter((c) => c.nicho === nichoActual), [g, nichoActual]);
-  const info = g?.nichos.find((n) => n.nicho === nichoActual);
+  const elegir = (a: string) => { setAlcance(a); setAbierta(null); };
+  const celdas = useMemo(() => (g?.celdas ?? []).filter((c) => c.alcance === alcance), [g, alcance]);
+  const tipos = useMemo(() => (g?.tipos ?? []).filter((t) => celdas.some((c) => c.tipo === t.slug)), [g, celdas]);
+  const cliente = g?.clientes.find((c) => c.clave === alcance) ?? null;
+  const rubro = alcance === TODOS ? null : cliente ? cliente.nicho : alcance;
+  const info = g?.nichos.find((n) => n.nicho === rubro);
 
   if (grilla.isLoading) return <p className="flex items-center gap-2 text-[14px] text-l-tinta-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Leyendo las plantillas…</p>;
   if (grilla.error || !g) return <p className="text-[14px] text-l-critico-texto" role="alert">No se pudieron leer las plantillas: {grilla.error instanceof Error ? grilla.error.message : "error"}</p>;
 
   return (
     <div className="space-y-3">
-      <p className="-mt-1.5 text-[13px] text-l-tinta-3">
-        Cómo se edita cada tipo de video en cada rubro. La arman los agentes con los videos de la competencia que hicieron {g.reglas.viralDesde} veces o más lo normal de su propia cuenta (últimos {g.reglas.ventanaDias} días), y la aprueba una persona. Las reglas que cargues acá no las puede sacar un agente. Claude la usa desde cada PC con el conector del equipo.
+      <p className="text-[13px] text-l-tinta-3">
+        Cómo se edita cada tipo de video. Hay plantillas generales, por rubro y por cliente: un cliente sin plantilla propia usa la de su rubro, y un rubro sin plantilla usa la general; las reglas de los tres niveles se suman. Las arman los agentes con los videos de la competencia que hicieron {g.reglas.viralDesde} veces o más lo normal de su propia cuenta (últimos {g.reglas.ventanaDias} días), y las aprueba una persona. Las reglas que cargues acá no las puede sacar un agente. Claude las usa desde cada PC con el conector del equipo.
       </p>
-      <div className="flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Rubro">
+
+      <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Para quién">
+        <Chip activo={alcance === TODOS} onClick={() => elegir(TODOS)}>General</Chip>
         {g.nichos.map((n) => (
-          <button key={n.nicho} type="button" role="tab" aria-selected={n.nicho === nichoActual} onClick={() => { setNicho(n.nicho); setAbierta(null); }}
-            className={`shrink-0 rounded-full border px-3 py-1.5 text-[13px] ${n.nicho === nichoActual ? "border-l-tinta bg-l-tinta text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}>
-            {n.nicho} <span className="opacity-70">{n.clientes}</span>
-          </button>
+          <Chip key={n.nicho} activo={n.nicho === alcance} onClick={() => elegir(n.nicho)}>{n.nicho} <span className="opacity-70">{n.clientes}</span></Chip>
         ))}
+        <select
+          value={cliente ? alcance : ""}
+          onChange={(e) => e.target.value && elegir(e.target.value)}
+          className={`min-h-9 rounded-full border px-3 text-[13px] ${cliente ? "border-l-tinta bg-l-tinta text-l-papel" : "border-l-linea-2 bg-l-papel text-l-tinta-2"}`}
+          aria-label="Cliente"
+        >
+          <option value="">Por cliente…</option>
+          {g.clientes.map((c) => <option key={c.clave} value={c.clave}>{c.nombre}{c.nicho ? ` · ${c.nicho}` : ""}</option>)}
+        </select>
       </div>
-      {info && (
-        <p className="text-[13px] text-l-tinta-3">
-          {info.cuentasMedidas === 0
-            ? "Todavía no hay cuentas de la competencia medidas en este rubro: cargá competidores con su Instagram de empresa en la ficha de cada cliente, o un viral que encontraste."
-            : `${info.cuentasMedidas} cuentas de la competencia medidas.${info.sinTipo ? ` ${info.sinTipo} virales sin tipo claro (el texto no alcanzaba).` : ""}`}
-        </p>
-      )}
+
+      <p className="text-[13px] text-l-tinta-3">
+        {alcance === TODOS
+          ? "General: vale para todos los clientes que no tengan una plantilla de su rubro o propia."
+          : cliente
+            ? `Solo para ${cliente.nombre}. Lo que no tenga plantilla propia usa la de ${cliente.nicho ?? "general"}${cliente.nicho ? " (o la general)" : ""}.`
+            : info?.cuentasMedidas === 0
+              ? "Todavía no hay cuentas de la competencia medidas en este rubro: cargá competidores con su Instagram de empresa en la ficha de cada cliente, o un viral que encontraste."
+              : `${info?.cuentasMedidas ?? 0} cuentas de la competencia medidas.${info?.sinTipo ? ` ${info.sinTipo} virales sin tipo claro (el texto no alcanzaba).` : ""}`}
+        {grilla.isFetching && <Loader2 className="ml-1.5 inline h-3.5 w-3.5 animate-spin" aria-label="Actualizando" />}
+      </p>
+
       <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        {g.tipos.map((t) => {
+        {tipos.map((t) => {
           const c = celdas.find((x) => x.tipo === t.slug);
           const e = ESTADOS[c?.estado ?? "sin-plantilla"];
-          const activa = abierta?.tipo === t.slug && abierta.nicho === nichoActual;
+          const activa = abierta === t.slug;
           return (
             <li key={t.slug}>
-              <button type="button" onClick={() => setAbierta(activa ? null : { nicho: nichoActual!, tipo: t.slug })} title={t.descripcion}
-                className={`w-full rounded-xl border p-3 text-left ${activa ? "border-l-tinta" : "border-l-linea"} bg-l-sup hover:border-l-linea-2`}>
-                <div className="text-[14px] font-medium text-l-tinta">{t.nombre}</div>
-                <div className={`text-[12px] ${e.clase}`}>{e.texto}{c?.version ? ` · v${c.version}` : ""}</div>
+              <button type="button" onClick={() => setAbierta(activa ? null : t.slug)} title={t.descripcion}
+                className={`h-full w-full rounded-xl border p-3 text-left ${activa ? "border-l-tinta" : "border-l-linea"} bg-l-sup hover:border-l-linea-2`}>
+                <div className="text-[14px] font-medium text-l-tinta">{t.nombre}{t.alcance !== TODOS && <span className="ml-1.5 text-[11px] font-normal text-l-tinta-3">· propio de {nombreDe(t.alcance, g)}</span>}</div>
+                {c?.hereda
+                  ? <div className="text-[12px] text-l-tinta-2">Usa la de {nombreDe(c.hereda.desde, g)} · <span className={ESTADOS[c.hereda.estado].clase}>{ESTADOS[c.hereda.estado].texto.toLowerCase()}</span></div>
+                  : <div className={`text-[12px] ${e.clase}`}>{e.texto}{c?.version ? ` · v${c.version}` : ""}</div>}
                 <div className="mt-1 text-[12px] text-l-tinta-3">{c?.virales ? `${c.virales} virales de ${c.cuentas} cuentas` : "Sin virales medidos"}</div>
               </button>
             </li>
           );
         })}
       </ul>
-      {abierta && <Detalle key={`${abierta.nicho}/${abierta.tipo}`} nicho={abierta.nicho} tipo={abierta.tipo} nombreTipo={g.tipos.find((t) => t.slug === abierta.tipo)?.nombre ?? abierta.tipo} minimos={g.reglas} onCerrar={() => setAbierta(null)} />}
-      <CargarViral nichos={g.nichos.map((n) => n.nicho)} tipos={g.tipos} nicho={nichoActual} />
+
+      {abierta && (() => {
+        const t = g.tipos.find((x) => x.slug === abierta);
+        return <Detalle key={`${alcance}/${abierta}`} alcance={alcance} tipo={abierta} tipoInfo={t} grilla={g} onCerrar={() => setAbierta(null)} />;
+      })()}
+
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        <NuevoTipo grilla={g} alcance={alcance} />
+        <CargarViral nichos={g.nichos.map((n) => n.nicho)} tipos={tipos} nicho={rubro} />
+      </div>
     </div>
   );
 }
 
-function Detalle({ nicho, tipo, nombreTipo, minimos, onCerrar }: { nicho: string; tipo: string; nombreTipo: string; minimos: Grilla["reglas"]; onCerrar: () => void }) {
+function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" role="tab" aria-selected={activo} onClick={onClick}
+      className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${activo ? "border-l-tinta bg-l-tinta text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}>
+      {children}
+    </button>
+  );
+}
+
+function Detalle({ alcance, tipo, tipoInfo, grilla, onCerrar }: { alcance: string; tipo: string; tipoInfo?: Tipo; grilla: Grilla; onCerrar: () => void }) {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["lmtm", "video-tipos", nicho, tipo], queryFn: () => tiposApi.plantilla(nicho, tipo) });
+  const q = useQuery({ queryKey: ["lmtm", "video-tipos", "plantilla", alcance, tipo], queryFn: () => tiposApi.plantilla(alcance, tipo) });
   const [editando, setEditando] = useState(false);
   const refrescar = () => { void qc.invalidateQueries({ queryKey: ["lmtm", "video-tipos"] }); };
-  const aprobar = useMutation({ mutationFn: () => tiposApi.aprobar(nicho, tipo), onSuccess: refrescar });
+  const aprobar = useMutation({ mutationFn: () => tiposApi.aprobar(alcance, tipo), onSuccess: refrescar });
   const guardar = useMutation({
-    mutationFn: (b: { contenido: Contenido; reglas: Regla[]; motivo: string }) => tiposApi.guardar(nicho, tipo, b),
+    mutationFn: (b: { contenido: Contenido; reglas: Regla[]; motivo: string }) => tiposApi.guardar(alcance, tipo, b),
     onSuccess: () => { setEditando(false); refrescar(); },
   });
+  const ocultar = useMutation({ mutationFn: () => tiposApi.ocultarTipo(tipo), onSuccess: () => { onCerrar(); refrescar(); } });
   const p = q.data;
   if (q.isLoading || !p) return <Tarjeta><Loader2 className="h-4 w-4 animate-spin" aria-label="Cargando" /></Tarjeta>;
-  const c = p.contenido ?? {};
-  const reglas = c.reglas ?? [];
-  const guardarReglas = (nuevas: Regla[], motivo: string) => guardar.mutate({ contenido: c, reglas: nuevas, motivo });
+  const propia = p.propia;
+  const propias = propia?.contenido.reglas ?? [];
+  // Sumar o cambiar una regla no toca el resto de la plantilla propia (si no hay, queda solo con reglas y sigue usando la de arriba).
+  const guardarReglas = (nuevas: Regla[], motivo: string) => guardar.mutate({ contenido: sinReglas(propia?.contenido), reglas: nuevas, motivo });
+  const nombreTipo = tipoInfo?.nombre ?? tipo;
+  const heredaContenido = !!p.desde && p.desde !== alcance;
 
   return (
     <Tarjeta className="space-y-4">
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="text-[17px] font-semibold text-l-tinta">{nombreTipo} · {nicho}</h3>
+          <h3 className="text-[17px] font-semibold text-l-tinta">{nombreTipo} · {p.nombreAlcance}</h3>
           <p className="text-[13px] text-l-tinta-3">
-            <span className={ESTADOS[p.estado].clase}>{ESTADOS[p.estado].texto}</span>
-            {p.version ? ` · versión ${p.version}` : ""}
+            {propia
+              ? <><span className={ESTADOS[propia.estado].clase}>{ESTADOS[propia.estado].texto}</span> · versión {propia.version}</>
+              : "Sin plantilla propia"}
+            {heredaContenido && ` · cómo se edita sale de ${nombreDe(p.desde!, grilla)} (${ESTADOS[p.estado].texto.toLowerCase()})`}
             {` · ${p.evidencia.virales} virales medidos de ${p.evidencia.cuentas} cuentas`}
-            {p.estado === "borrador" && p.contenido && p.evidencia.virales < minimos.minVirales ? ` (para revisarla hacen falta ${minimos.minVirales} de ${minimos.minCuentas} cuentas)` : ""}
+            {propia?.estado === "borrador" && p.evidencia.virales < grilla.reglas.minVirales ? ` (para revisarla hacen falta ${grilla.reglas.minVirales} de ${grilla.reglas.minCuentas} cuentas)` : ""}
           </p>
-          {p.motivo && <p className="text-[13px] text-l-tinta-3">Último cambio: {p.motivo} ({p.autor})</p>}
+          {propia?.motivo && <p className="text-[13px] text-l-tinta-3">Último cambio: {propia.motivo} ({propia.autor})</p>}
+          {tipoInfo?.descripcion && <p className="text-[13px] text-l-tinta-3">{tipoInfo.descripcion}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
-          {p.contenido && p.estado !== "aprobada" && <Boton tipo="primario" onClick={() => aprobar.mutate()} disabled={aprobar.isPending}><Check className="mr-1 inline h-4 w-4" aria-hidden />Aprobar</Boton>}
-          <Boton tipo="secundario" onClick={() => setEditando(!editando)}><Pencil className="mr-1 inline h-4 w-4" aria-hidden />{editando ? "Cancelar" : p.contenido ? "Editar" : "Escribir a mano"}</Boton>
+          {propia && propia.estado !== "aprobada" && <Boton tipo="primario" onClick={() => aprobar.mutate()} disabled={aprobar.isPending}><Check className="mr-1 inline h-4 w-4" aria-hidden />Aprobar</Boton>}
+          <Boton tipo="secundario" onClick={() => setEditando(!editando)}>
+            <Pencil className="mr-1 inline h-4 w-4" aria-hidden />
+            {editando ? "Cancelar" : propia && heredaContenido === false ? "Editar" : p.heredada ? `Personalizar para ${p.nombreAlcance}` : "Escribir a mano"}
+          </Boton>
           {p.contenido?.perfil && p.guia && (
-            <Boton tipo="secundario" onClick={() => { bajar(`${nicho}__${tipo}.json`, JSON.stringify(c.perfil, null, 2), "application/json"); bajar(`${nicho}__${tipo}.md`, p.guia!, "text/markdown"); }}>
+            <Boton tipo="secundario" onClick={() => { bajar(`${p.archivo}.json`, JSON.stringify(p.contenido!.perfil, null, 2), "application/json"); bajar(`${p.archivo}.md`, p.guia!, "text/markdown"); }}>
               <Download className="mr-1 inline h-4 w-4" aria-hidden />Perfil vtool
+            </Boton>
+          )}
+          {tipoInfo?.propio && (
+            <Boton tipo="secundario" disabled={ocultar.isPending} onClick={() => { if (window.confirm(`¿Ocultar el tipo «${nombreTipo}»? Sus plantillas no se borran y vuelve si lo creás de nuevo con el mismo nombre.`)) ocultar.mutate(); }}>
+              <EyeOff className="mr-1 inline h-4 w-4" aria-hidden />Ocultar tipo
             </Boton>
           )}
           <button type="button" onClick={onCerrar} className="grid h-11 w-11 place-items-center rounded-[10px] text-l-tinta-2" aria-label="Cerrar"><X className="h-4 w-4" aria-hidden /></button>
         </div>
       </div>
-      {(guardar.error || aprobar.error) && <p className="text-[13px] text-l-critico-texto" role="alert"><OctagonAlert className="mr-1 inline h-4 w-4" aria-hidden />{((guardar.error ?? aprobar.error) as Error).message}</p>}
+      {(guardar.error || aprobar.error || ocultar.error) && <p className="text-[13px] text-l-critico-texto" role="alert"><OctagonAlert className="mr-1 inline h-4 w-4" aria-hidden />{((guardar.error ?? aprobar.error ?? ocultar.error) as Error).message}</p>}
 
-      <Reglas reglas={reglas} guardando={guardar.isPending} onCambiar={guardarReglas} />
+      <Reglas propias={propias} heredadas={p.reglasHeredadas} nombreAlcance={p.nombreAlcance} guardando={guardar.isPending} onCambiar={guardarReglas} />
 
       {editando ? (
-        <Editor inicial={c} guardando={guardar.isPending} onGuardar={(contenido, motivo) => guardar.mutate({ contenido, reglas, motivo })} />
-      ) : p.contenido ? (
-        <Vista c={c} />
+        <Editor
+          inicial={propia && !heredaContenido ? sinReglas(propia.contenido) : sinReglas(p.heredada?.contenido ?? propia?.contenido)}
+          aviso={!propia || heredaContenido ? (p.heredada ? `Parte de la plantilla de ${p.heredada.nombre}. Al guardar, ${p.nombreAlcance} tiene la suya y deja de seguir los cambios de ${p.heredada.nombre}.` : null) : null}
+          guardando={guardar.isPending}
+          onGuardar={(contenido, motivo) => guardar.mutate({ contenido, reglas: propias, motivo })}
+        />
+      ) : p.contenido && (p.contenido.objetivo || p.contenido.estructura?.length || p.contenido.edicion && Object.keys(p.contenido.edicion).length || p.contenido.promptIa) ? (
+        <>
+          {heredaContenido && <p className="text-[13px] text-l-tinta-3">Esta es la plantilla de {nombreDe(p.desde!, grilla)}. Para cambiarla solo para {p.nombreAlcance}, tocá «Personalizar».</p>}
+          <Vista c={p.contenido} />
+        </>
       ) : (
-        <p className="text-[14px] text-l-tinta-3">Todavía no hay plantilla. La arma el equipo de agentes cuando hay virales medidos, o la podés escribir a mano.</p>
+        <p className="text-[14px] text-l-tinta-3">Todavía no hay plantilla{alcance === TODOS ? " general" : ""}. La arma el equipo de agentes cuando hay virales medidos, o la podés escribir a mano.</p>
       )}
 
       <Ejemplos titulo="Virales" lista={p.virales} />
@@ -183,18 +261,18 @@ function Detalle({ nicho, tipo, nombreTipo, minimos, onCerrar }: { nicho: string
   );
 }
 
-function Reglas({ reglas, guardando, onCambiar }: { reglas: Regla[]; guardando: boolean; onCambiar: (r: Regla[], motivo: string) => void }) {
+function Reglas({ propias, heredadas, nombreAlcance, guardando, onCambiar }: { propias: Regla[]; heredadas: Regla[]; nombreAlcance: string; guardando: boolean; onCambiar: (r: Regla[], motivo: string) => void }) {
   const [nueva, setNueva] = useState("");
   const [editando, setEditando] = useState<{ id: string; texto: string } | null>(null);
   return (
     <section>
       <h4 className="mb-1.5 text-[13px] font-semibold text-l-tinta">Reglas</h4>
-      {reglas.length === 0 && <p className="mb-2 text-[13px] text-l-tinta-3">Sin reglas todavía.</p>}
+      {propias.length === 0 && heredadas.length === 0 && <p className="mb-2 text-[13px] text-l-tinta-3">Sin reglas todavía.</p>}
       <ul className="mb-2 space-y-1.5">
-        {reglas.map((r) => (
+        {propias.map((r) => (
           <li key={r.id} className="flex items-start gap-2 text-[14px]">
             {editando?.id === r.id ? (
-              <form className="flex flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); onCambiar(reglas.map((x) => x.id === r.id ? { ...x, texto: editando.texto, origen: "persona" } : x), `Regla editada: ${editando.texto.slice(0, 80)}`); setEditando(null); }}>
+              <form className="flex flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); onCambiar(propias.map((x) => x.id === r.id ? { ...x, texto: editando.texto, origen: "persona" } : x), `Regla editada: ${editando.texto.slice(0, 80)}`); setEditando(null); }}>
                 <input value={editando.texto} onChange={(e) => setEditando({ id: r.id, texto: e.target.value })} className="min-h-11 flex-1 rounded-[10px] border border-l-linea-2 bg-l-papel px-3 text-[14px]" aria-label="Texto de la regla" />
                 <Boton tipo="primario" type="submit" disabled={guardando || !editando.texto.trim()}>Guardar</Boton>
               </form>
@@ -202,14 +280,19 @@ function Reglas({ reglas, guardando, onCambiar }: { reglas: Regla[]; guardando: 
               <>
                 <span className="flex-1 text-l-tinta">{r.texto}<span className="ml-1.5 text-[12px] text-l-tinta-3">{r.origen === "persona" ? "· del equipo" : `· propuesta por un agente${r.viral ? `, sale del viral ${r.viral.slice(0, 8)}` : ""}`}</span></span>
                 <button type="button" onClick={() => setEditando({ id: r.id, texto: r.texto })} className="text-l-tinta-3 hover:text-l-tinta" aria-label="Editar regla"><Pencil className="h-4 w-4" aria-hidden /></button>
-                <button type="button" disabled={guardando} onClick={() => onCambiar(reglas.filter((x) => x.id !== r.id), `Regla borrada: ${r.texto.slice(0, 80)}`)} className="text-l-tinta-3 hover:text-l-critico" aria-label="Borrar regla"><Trash2 className="h-4 w-4" aria-hidden /></button>
+                <button type="button" disabled={guardando} onClick={() => onCambiar(propias.filter((x) => x.id !== r.id), `Regla borrada: ${r.texto.slice(0, 80)}`)} className="text-l-tinta-3 hover:text-l-critico" aria-label="Borrar regla"><Trash2 className="h-4 w-4" aria-hidden /></button>
               </>
             )}
           </li>
         ))}
+        {heredadas.map((r) => (
+          <li key={`${r.alcance}-${r.id}`} className="flex items-start gap-2 text-[14px] text-l-tinta-2">
+            <span className="flex-1">{r.texto}<span className="ml-1.5 text-[12px] text-l-tinta-3">· {r.desde ?? r.alcance} (se cambia en su nivel)</span></span>
+          </li>
+        ))}
       </ul>
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); onCambiar([...reglas, { id: crypto.randomUUID(), texto: nueva.trim(), origen: "persona" }], `Regla nueva: ${nueva.trim().slice(0, 80)}`); setNueva(""); }}>
-        <input value={nueva} onChange={(e) => setNueva(e.target.value)} placeholder="Ej.: el precio y la zona tienen que estar en pantalla antes del segundo 3" className="min-h-11 flex-1 rounded-[10px] border border-l-linea-2 bg-l-papel px-3 text-[14px]" aria-label="Regla nueva" />
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); onCambiar([...propias, { id: crypto.randomUUID(), texto: nueva.trim(), origen: "persona" }], `Regla nueva: ${nueva.trim().slice(0, 80)}`); setNueva(""); }}>
+        <input value={nueva} onChange={(e) => setNueva(e.target.value)} placeholder={`Regla para ${nombreAlcance}. Ej.: el precio y la zona en pantalla antes del segundo 3`} className="min-h-11 flex-1 rounded-[10px] border border-l-linea-2 bg-l-papel px-3 text-[14px]" aria-label="Regla nueva" />
         <Boton tipo="primario" type="submit" disabled={guardando || !nueva.trim()}><Plus className="mr-1 inline h-4 w-4" aria-hidden />Agregar</Boton>
       </form>
     </section>
@@ -239,7 +322,7 @@ function Bloque({ titulo, children }: { titulo: string; children: React.ReactNod
 }
 
 /** Edición a mano: un campo por parte; las listas, una por renglón. */
-function Editor({ inicial, guardando, onGuardar }: { inicial: Contenido; guardando: boolean; onGuardar: (c: Contenido, motivo: string) => void }) {
+function Editor({ inicial, aviso, guardando, onGuardar }: { inicial: Contenido; aviso: string | null; guardando: boolean; onGuardar: (c: Contenido, motivo: string) => void }) {
   const lineas = (xs?: string[]) => (xs ?? []).join("\n");
   const [f, setF] = useState({
     objetivo: inicial.objetivo ?? "", min: String(inicial.duracion?.[0] ?? ""), max: String(inicial.duracion?.[1] ?? ""),
@@ -265,6 +348,7 @@ function Editor({ inicial, guardando, onGuardar }: { inicial: Contenido; guardan
   };
   return (
     <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); enviar(); }}>
+      {aviso && <p className="rounded-lg bg-l-papel px-3 py-2 text-[13px] text-l-tinta-2 md:col-span-2">{aviso}</p>}
       <label className="text-[13px] text-l-tinta-2 md:col-span-2">Objetivo<input className={campo} value={f.objetivo} onChange={set("objetivo")} /></label>
       <label className="text-[13px] text-l-tinta-2">Duración mínima (s)<input className={campo} inputMode="numeric" value={f.min} onChange={set("min")} /></label>
       <label className="text-[13px] text-l-tinta-2">Duración máxima (s)<input className={campo} inputMode="numeric" value={f.max} onChange={set("max")} /></label>
@@ -297,20 +381,50 @@ function Ejemplos({ titulo, lista }: { titulo: string; lista: Viral[] }) {
   );
 }
 
-function CargarViral({ nichos, tipos, nicho }: { nichos: string[]; tipos: Grilla["tipos"]; nicho: string | null }) {
+function NuevoTipo({ grilla, alcance }: { grilla: Grilla; alcance: string }) {
   const qc = useQueryClient();
   const [abierto, setAbierto] = useState(false);
-  const [f, setF] = useState({ url: "", cuenta: "", nicho: nicho ?? "", tipo: tipos[0]?.slug ?? "", gancho: "", notas: "" });
-  const m = useMutation({ mutationFn: () => tiposApi.viral({ ...f, nicho: f.nicho || nicho || "" }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["lmtm", "video-tipos"] }); setF({ ...f, url: "", cuenta: "", gancho: "", notas: "" }); } });
+  const [f, setF] = useState({ nombre: "", descripcion: "", alcance });
+  const m = useMutation({
+    mutationFn: () => tiposApi.crearTipo(f),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["lmtm", "video-tipos"] }); setF({ ...f, nombre: "", descripcion: "" }); setAbierto(false); },
+  });
+  const campo = "min-h-11 w-full rounded-[10px] border border-l-linea-2 bg-l-papel px-3 text-[14px]";
+  if (!abierto) return <button type="button" onClick={() => { setF({ nombre: "", descripcion: "", alcance }); setAbierto(true); }} className="text-[13px] text-l-tinta-2 hover:text-l-marca"><Plus className="mr-1 inline h-4 w-4" aria-hidden />Nuevo tipo de video</button>;
+  return (
+    <Tarjeta className="w-full">
+      <form className="grid gap-2 md:grid-cols-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
+        <input className={campo} placeholder="Nombre (ej.: Recorrido de obra)" value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} aria-label="Nombre del tipo" required />
+        <input className={`${campo} md:col-span-2`} placeholder="Cómo se reconoce: qué se ve y cómo está hecho" value={f.descripcion} onChange={(e) => setF({ ...f, descripcion: e.target.value })} aria-label="Descripción" />
+        <select className={campo} value={f.alcance} onChange={(e) => setF({ ...f, alcance: e.target.value })} aria-label="Para quién">
+          <option value={TODOS}>Para todos</option>
+          <optgroup label="Para un rubro">{grilla.nichos.map((n) => <option key={n.nicho} value={n.nicho}>{n.nicho}</option>)}</optgroup>
+          <optgroup label="Para un cliente">{grilla.clientes.map((c) => <option key={c.clave} value={c.clave}>{c.nombre}</option>)}</optgroup>
+        </select>
+        <div className="flex gap-2 md:col-span-2"><Boton tipo="primario" type="submit" disabled={m.isPending || !f.nombre.trim()}>{m.isPending ? "Creando…" : "Crear tipo"}</Boton><Boton tipo="secundario" onClick={() => setAbierto(false)}>Cerrar</Boton></div>
+      </form>
+      <p className="mt-2 text-[12px] text-l-tinta-3">Los de todos y los de un rubro también se usan para clasificar los videos de la competencia; los de un cliente, no.</p>
+      {m.error && <p className="mt-2 text-[13px] text-l-critico-texto" role="alert">{(m.error as Error).message}</p>}
+    </Tarjeta>
+  );
+}
+
+function CargarViral({ nichos, tipos, nicho }: { nichos: string[]; tipos: Tipo[]; nicho: string | null }) {
+  const qc = useQueryClient();
+  const [abierto, setAbierto] = useState(false);
+  const [f, setF] = useState({ url: "", cuenta: "", nicho: "", tipo: "", gancho: "", notas: "" });
+  const nichoElegido = f.nicho || nicho || nichos[0] || "";
+  const tipoElegido = f.tipo || tipos[0]?.slug || "";
+  const m = useMutation({ mutationFn: () => tiposApi.viral({ ...f, nicho: nichoElegido, tipo: tipoElegido }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["lmtm", "video-tipos"] }); setF({ ...f, url: "", cuenta: "", gancho: "", notas: "" }); } });
   const campo = "min-h-11 w-full rounded-[10px] border border-l-linea-2 bg-l-papel px-3 text-[14px]";
   if (!abierto) return <button type="button" onClick={() => setAbierto(true)} className="text-[13px] text-l-tinta-2 hover:text-l-marca"><Plus className="mr-1 inline h-4 w-4" aria-hidden />Cargar un viral que encontraste</button>;
   return (
-    <Tarjeta>
+    <Tarjeta className="w-full">
       <form className="grid gap-2 md:grid-cols-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
         <input className={`${campo} md:col-span-2`} placeholder="Link del video" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} aria-label="Link del video" required />
         <input className={campo} placeholder="Cuenta (sin @)" value={f.cuenta} onChange={(e) => setF({ ...f, cuenta: e.target.value })} aria-label="Cuenta" required />
-        <select className={campo} value={f.nicho || nicho || ""} onChange={(e) => setF({ ...f, nicho: e.target.value })} aria-label="Rubro">{nichos.map((n) => <option key={n} value={n}>{n}</option>)}</select>
-        <select className={campo} value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} aria-label="Tipo de video">{tipos.map((t) => <option key={t.slug} value={t.slug}>{t.nombre}</option>)}</select>
+        <select className={campo} value={nichoElegido} onChange={(e) => setF({ ...f, nicho: e.target.value })} aria-label="Rubro">{nichos.map((n) => <option key={n} value={n}>{n}</option>)}</select>
+        <select className={campo} value={tipoElegido} onChange={(e) => setF({ ...f, tipo: e.target.value })} aria-label="Tipo de video">{tipos.map((t) => <option key={t.slug} value={t.slug}>{t.nombre}</option>)}</select>
         <input className={campo} placeholder="Gancho (lo que dice en los primeros 3 s)" value={f.gancho} onChange={(e) => setF({ ...f, gancho: e.target.value })} aria-label="Gancho" />
         <input className={`${campo} md:col-span-2`} placeholder="Qué lo hace funcionar (opcional)" value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} aria-label="Notas" />
         <div className="flex gap-2"><Boton tipo="primario" type="submit" disabled={m.isPending}>{m.isPending ? "Verificando…" : "Guardar"}</Boton><Boton tipo="secundario" onClick={() => setAbierto(false)}>Cerrar</Boton></div>

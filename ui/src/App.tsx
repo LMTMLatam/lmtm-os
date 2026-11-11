@@ -67,6 +67,7 @@ import { AgentesApp } from "./app/AgentesApp";
 import { ConfigApp } from "./app/ConfigApp";
 import { ContenidoApp } from "./app/ContenidoApp";
 import { ContenidoGeneradoApp } from "./app/ContenidoGeneradoApp";
+import { TiposDeVideoApp } from "./app/ProduccionApp";
 import { NichosApp } from "./app/NichosApp";
 import { LicitacionesApp } from "./app/LicitacionesApp";
 import { PautaApp } from "./app/PautaApp";
@@ -362,7 +363,10 @@ export function App() {
             <Route path="pauta" element={<PautaApp />} />
             <Route path="avisos" element={<AvisosApp />} />
             <Route path="contenido" element={<ContenidoApp />} />
-            <Route path="contenido/generado" element={<ContenidoGeneradoApp />} />
+            <Route path="contenido/generado" element={<Navigate to="/produccion/generado" replace />} />
+            <Route path="produccion" element={<Navigate to="/produccion/tipos" replace />} />
+            <Route path="produccion/tipos" element={<TiposDeVideoApp />} />
+            <Route path="produccion/generado" element={<ContenidoGeneradoApp />} />
             <Route path="nichos" element={<NichosApp />} />
             <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
             <Route path="licitaciones" element={<LicitacionesApp />} />

@@ -1002,6 +1002,13 @@
       "when": 1781800000161,
       "tag": "0161_video_tipos",
       "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1781800000162,
+      "tag": "0162_video_alcance",
+      "breakpoints": true
     }
   ]
 }

@@ -6,7 +6,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ClipboardCheck, Clapperboard, Inbox, Moon, Settings2, Sun, Users } from "lucide-react";
+import { Bot, ClipboardCheck, Clapperboard, Film, Inbox, Moon, Settings2, Sun, Users } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
@@ -18,13 +18,13 @@ const SECCIONES = [
   { to: "/clientes", label: "Clientes", Icono: Users },
   { to: "/trabajo", label: "Trabajo", Icono: ClipboardCheck },
   { to: "/contenido", label: "Contenido", Icono: Clapperboard },
+  { to: "/produccion", label: "Producción", Icono: Film },
   { to: "/agentes", label: "Agentes", Icono: Bot },
   { to: "/config", label: "Config", Icono: Settings2, soloAdmin: true },
 ] as const;
 
 /** Las demás pantallas propias: viven en el shell, con su diseño de antes hasta rehacerlas. */
 export const MAS = [
-  { to: "/contenido/generado", label: "Contenido generado" },
   { to: "/semaforo", label: "Semáforo de clientes" },
   { to: "/nichos", label: "Nichos" },
   { to: "/pauta", label: "Pauta" },

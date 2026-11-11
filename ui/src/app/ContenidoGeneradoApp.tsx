@@ -6,10 +6,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, ExternalLink, FolderOpen, Loader2, OctagonAlert, Search, Wand2 } from "lucide-react";
-import { Link } from "@/lib/router";
 import { api } from "../api/client";
 import { clientsApi } from "../api/clients";
 import { Encabezado } from "./Shell";
+import { PestanasProduccion } from "./ProduccionApp";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 
 interface TotalHerramienta {
@@ -119,8 +119,8 @@ export function ContenidoGeneradoApp() {
   return (
     <>
       <Encabezado
-        titulo="Contenido generado"
-        bajada={<>Pedile videos al Productor de contenido, pedile cambios a lo que hizo y mirá lo generado con su link de Drive · <Link to="/contenido" className="hover:text-l-marca">volver a Contenido</Link></>}
+        titulo="Producción"
+        bajada="Pedile videos al Productor de contenido, pedile cambios a lo que hizo y mirá lo generado con su link de Drive"
         derecha={
           <div className="flex gap-1" role="group" aria-label="Período">
             {PERIODOS.map((n) => (
@@ -137,6 +137,7 @@ export function ContenidoGeneradoApp() {
           </div>
         }
       />
+      <PestanasProduccion />
       <div className="space-y-8 px-4 pb-10 md:px-8">
         <PedirVideo />
         {q.isLoading && (

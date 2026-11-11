@@ -1,4 +1,4 @@
-// LMTM-OS: Contenido → «Tipos de video» (pedido 09/11). La grilla nicho × tipo,
+// LMTM-OS: Producción → «Tipos de video» (pedido 09/11; sección propia 11/11). La grilla alcance × tipo,
 // cada plantilla con sus virales, y la edición a mano: las personas agregan,
 // cambian o borran reglas y aprueban. Ver services/video-tipos.ts.
 
@@ -6,7 +6,7 @@ import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import type { ReglaDeVideo } from "@paperclipai/db";
 import { assertMiembro, getActorInfo } from "./authz.js";
-import { aprobarPlantilla, grilla, guardarPlantilla, guardarViral, plantillaDe } from "../services/video-tipos.js";
+import { aprobarPlantilla, crearTipo, grilla, guardarPlantilla, guardarViral, ocultarTipo, plantillaDe } from "../services/video-tipos.js";
 
 const quien = (req: Parameters<typeof getActorInfo>[0]) => {
   const a = getActorInfo(req);
@@ -19,8 +19,30 @@ export function videoTiposRoutes(db: Db): Router {
 
   router.get("/video-tipos", async (req, res) => {
     assertMiembro(req);
-    try { res.json(await grilla(db, typeof req.query.nicho === "string" ? req.query.nicho : null)); }
+    const q = req.query.alcance ?? req.query.nicho;
+    try { res.json(await grilla(db, typeof q === "string" && q ? q : null)); }
     catch (e) { res.status(500).json({ error: error(e) }); }
+  });
+
+  // Tipos propios: para todos, un rubro o un cliente. Solo personas.
+  router.post("/video-tipos/tipos", async (req, res) => {
+    assertMiembro(req);
+    if (req.actor.type !== "board") return res.status(403).json({ error: "Solo una persona crea tipos de video desde el panel." });
+    try {
+      const b = (req.body ?? {}) as Record<string, string>;
+      const r = await crearTipo(db, { nombre: b.nombre ?? "", descripcion: b.descripcion, alcance: b.alcance ?? "todos", autor: quien(req) });
+      if (!r.ok) return res.status(400).json({ error: r.mensaje });
+      res.json(r);
+    } catch (e) { res.status(400).json({ error: error(e) }); }
+  });
+
+  router.post("/video-tipos/tipos/:slug/ocultar", async (req, res) => {
+    assertMiembro(req);
+    if (req.actor.type !== "board") return res.status(403).json({ error: "Solo una persona." });
+    try {
+      if (!(await ocultarTipo(db, req.params.slug))) return res.status(404).json({ error: "Ese tipo no existe o es de fábrica (los de fábrica no se ocultan)." });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: error(e) }); }
   });
 
   router.get("/video-tipos/:nicho/:tipo", async (req, res) => {
