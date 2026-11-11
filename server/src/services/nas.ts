@@ -9,6 +9,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const NAS_URL = () => (process.env.NAS_URL?.trim() || "http://100.106.250.26:5000").replace(/\/+$/, "");
 const PROXY = () => process.env.NAS_PROXY?.trim() || "127.0.0.1:1055";
@@ -82,6 +83,46 @@ export async function listarNas(ruta: string): Promise<ItemNas[]> {
   if (res.statusCode === 404) throw new Error(`no existe ${ruta} en el NAS`);
   if (res.statusCode !== 207) throw new Error(`el NAS respondió ${res.statusCode} al listar ${ruta}`);
   return leerPropfind(cuerpo, ruta);
+}
+
+// ── links de descarga firmados (para Claude por el conector, 11/11) ─────────
+// Un token = UN archivo del NAS, vence en 6 h. Lo firma la herramienta nas_link y lo
+// valida GET /api/public/nas (routes/material.ts). Sin sesión, para `curl`.
+
+const VIGENCIA_LINK_S = 6 * 3600;
+const claveLink = () => {
+  const s = process.env.PAPERCLIP_AGENT_JWT_SECRET?.trim() || process.env.BETTER_AUTH_SECRET?.trim();
+  return s ? `lmtm-nas:${s}` : null;
+};
+
+export function firmarLinkNas(ruta: string, ahora = Date.now(), secreto = claveLink()): { token: string; vence: Date } | null {
+  if (!secreto) return null;
+  const exp = Math.floor(ahora / 1000) + VIGENCIA_LINK_S;
+  const cuerpo = Buffer.from(JSON.stringify({ r: ruta, e: exp })).toString("base64url");
+  const firma = createHmac("sha256", secreto).update(cuerpo).digest().subarray(0, 18).toString("base64url");
+  return { token: `${cuerpo}.${firma}`, vence: new Date(exp * 1000) };
+}
+
+/** La ruta del NAS del token si la firma es buena y no venció; si no, null. */
+export function verificarLinkNas(token: string, ahora = Date.now(), secreto = claveLink()): string | null {
+  if (!secreto || typeof token !== "string") return null;
+  const [cuerpo, firma] = token.split(".");
+  if (!cuerpo || !firma) return null;
+  const esperada = createHmac("sha256", secreto).update(cuerpo).digest().subarray(0, 18);
+  const dada = Buffer.from(firma, "base64url");
+  if (dada.length !== esperada.length || !timingSafeEqual(dada, esperada)) return null;
+  try {
+    const { r, e } = JSON.parse(Buffer.from(cuerpo, "base64url").toString()) as { r?: unknown; e?: unknown };
+    if (typeof r !== "string" || !(Number(e) * 1000 > ahora)) return null;
+    return rutaNas(r);
+  } catch {
+    return null;
+  }
+}
+
+/** GET de un archivo del NAS, pasando Range (para adelantar videos y retomar). */
+export function abrirNas(ruta: string, range?: string) {
+  return pedir("GET", ruta, range ? { Range: range } : {});
 }
 
 /** Baja un archivo del NAS a `destino` (carpeta). Devuelve la ruta local. */

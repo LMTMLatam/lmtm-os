@@ -75,6 +75,7 @@ export const TOOLS_DE_CONSULTA: ReadonlySet<string> = new Set([
   "google.script_processes",
   // NAS de LMTM por WebDAV (09/11): listar no cambia nada.
   "nas_listar",
+  "nas_link",
 ]);
 
 /** Prefijos de solo lectura para las tools de plugin, que son dinámicas. */

@@ -110,6 +110,8 @@ export const HERRAMIENTAS_EQUIPO = [
   "lmtmGetClientContentMatrix", "lmtmGetClientVideoTasks", "lmtmGetCadenaPublicacion", "lmtmGetNicheIntel",
   "lmtmGetTeamLessons", "lmtmSearchHooks", "lmtmTiposDeVideo", "lmtmPlantillaVideo", "lmtmBuscarVirales", "lmtmGuardarViral", "lmtmListDeliverables", "lmtmAnalisisSeo", "lmtmRendimientoWeb",
   "lmtmRedesPublicas", "lmtmContenidoGenerado", "lmtmEstadoGeneracion", "lmtmBuscarMaterial",
+  // NAS de LMTM: solo lectura (usuario RO sobre LMTM) y link de descarga por archivo.
+  "lmtmNasListar", "lmtmNasLink",
   // Lo que escribe: contenido, tareas y lo aprendido del cliente.
   "lmtmGenerarContenido", "lmtmGenerarPieza", "lmtmCreateClientTask", "lmtmRememberAboutClient", "lmtmSaveHook",
 ];

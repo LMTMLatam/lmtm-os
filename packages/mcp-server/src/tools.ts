@@ -1353,6 +1353,12 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "nas_bajar", parameters: p } }),
     ),
     makeTool(
+      "lmtmNasLink",
+      "LINK de descarga de UN archivo del NAS de LMTM (crudos y videos de clientes), que vence en 6 h. Usalo para bajarlo a tu máquina: curl -L -o <nombre> \"<link>\". Primero buscá la ruta con lmtmNasListar.",
+      z.object({ ruta: z.string().min(1).describe("Archivo del NAS, por ejemplo /LMTM/Clientes/Amoblamientos_Reno/VIDEO/TERMINADOS/SUBIDO/x.mp4.") }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "nas_link", parameters: p } }),
+    ),
+    makeTool(
       "lmtmEncargarAlProductor",
       "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo si no tenés terminal ni editor de imágenes.",
       z.object({

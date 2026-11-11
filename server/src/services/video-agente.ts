@@ -423,6 +423,9 @@ export const VIDEO_TOOLS: ToolDef[] = [
     tipo: { type: "string", enum: ["foto", "video", "todo"] },
     cantidad: { type: "number", description: "Máximo de archivos de una carpeta (por defecto 20)." },
   }, ["ruta", "carpeta"]),
+  def("nas_link", "LINK de descarga de UN archivo del NAS de LMTM, que vence en 6 h. Sirve para bajarlo fuera del servidor (curl -o, el navegador). Solo lectura.", {
+    ruta: { type: "string", description: "Archivo del NAS (de nas_listar)." },
+  }, ["ruta"]),
   def("encargar_al_productor", "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo: vos no tenés terminal ni editor de imágenes.", {
     cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
     pedido: { type: "string", description: "Lo que pidió la persona, completo, con los links que pasó." },
@@ -792,13 +795,24 @@ export async function ejecutarHerramientaVideo(
       return r.ok ? ok(r.mensaje) : mal(r.mensaje);
     }
 
-    if (tool === "nas_listar" || tool === "nas_bajar") {
+    if (tool === "nas_listar" || tool === "nas_bajar" || tool === "nas_link") {
       const nas = await import("./nas.js");
       const falta = nas.nasConfigurado();
       if (falta) return mal(falta);
       const ruta = nas.rutaNas(p.ruta);
       if (!ruta) return mal("ruta inválida (sin «..»)");
       try {
+        if (tool === "nas_link") {
+          const nombre = ruta.split("/").pop() ?? "";
+          const padre = ruta.slice(0, ruta.length - nombre.length - 1) || "/";
+          const item = (await nas.listarNas(padre)).find((i) => i.nombre === nombre);
+          if (!item) return mal(`no existe ${ruta} en el NAS`);
+          if (item.carpeta) return mal(`${ruta} es una carpeta: pedí un link por archivo (listalos con nas_listar)`);
+          const f = nas.firmarLinkNas(ruta);
+          if (!f) return mal("falta el secreto del servidor para firmar el link");
+          const { URL_BASE } = await import("./guia-contenido.js");
+          return ok(`${ruta}${item.mb != null ? ` · ${item.mb} MB` : ""}\nDescargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/nas?t=${f.token}`);
+        }
         if (tool === "nas_listar") {
           const items = await nas.listarNas(ruta);
           if (items.length === 0) return ok(`${ruta}: vacía`);

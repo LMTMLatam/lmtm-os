@@ -51,5 +51,31 @@ export function materialRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/public/nas?t=<token>: un archivo del NAS con link firmado (nas_link, 6 h).
+  router.get("/nas", async (req, res) => {
+    try {
+      const nas = await import("../services/nas.js");
+      const ruta = nas.verificarLinkNas(String(req.query.t ?? ""));
+      if (!ruta) return res.status(403).json({ error: "Link vencido o inválido: pedí otro con lmtmNasLink." });
+      const r = await nas.abrirNas(ruta, typeof req.headers.range === "string" ? req.headers.range : undefined);
+      if (r.statusCode !== 200 && r.statusCode !== 206) {
+        r.resume();
+        return res.status(r.statusCode === 416 ? 416 : r.statusCode === 404 ? 404 : 502).json({ error: `el NAS respondió ${r.statusCode}` });
+      }
+      res.status(r.statusCode);
+      for (const h of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+        const v = r.headers[h];
+        if (v) res.setHeader(h, v);
+      }
+      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(ruta.split("/").pop() || "archivo")}`);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Robots-Tag", "noindex");
+      res.on("close", () => r.destroy());
+      r.pipe(res);
+    } catch (e) {
+      if (!res.headersSent) res.status(502).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+    }
+  });
+
   return router;
 }

@@ -694,6 +694,14 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
     }
   }
 
+  // NAS de LMTM: carpetas del cliente (clients.metadata.nas, mapeadas a mano el 11/11)
+  const [conNas] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, r.id));
+  const carpetasNas = (conNas?.metadata as { nas?: unknown } | null)?.nas;
+  if (Array.isArray(carpetasNas) && carpetasNas.length) {
+    L.push("", `## Crudos y videos en el NAS: ${carpetasNas.join(" · ")}`);
+    L.push("Adentro: VIDEO/PROYECTOS, VIDEO/RECURSOS, VIDEO/TERMINADOS (SUBIDO / NO_SUBIDO), DISENO, PRODUCCION. Listá con lmtmNasListar; bajá con lmtmNasBajar o pedí un link por archivo con lmtmNasLink.");
+  }
+
   // La web
   if (web) {
     L.push("", `## Web: ${web.url}`);
