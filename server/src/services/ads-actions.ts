@@ -37,7 +37,7 @@ import { adsCampaigns, adsAdsets, adsConnections, agentActions, clients } from "
 import { and, eq } from "drizzle-orm";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
 import { mutate, searchStream } from "./ads/providers/google.js";
-import { esTerminoDeMarca } from "./ads-keywords.js";
+import { esTerminoDeMarca, variantesDeMarca } from "./ads-keywords.js";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -188,8 +188,8 @@ export async function agregarNegativas(
   if (!camp) return { ok: false, error: `No encontré la campaña ${campaignId} para este cliente (o no está sincronizada).` };
 
   // 2) Guard de marca: no se negativiza el nombre del propio cliente.
-  const [cli] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
-  const rechazadosPorMarca = cli ? pedidos.filter((t) => esTerminoDeMarca(cli.name, t)) : [];
+  const [cli] = await db.select({ name: clients.name, metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
+  const rechazadosPorMarca = cli ? pedidos.filter((t) => esTerminoDeMarca(cli.name, t, variantesDeMarca(cli.metadata))) : [];
   const aplicables = pedidos.filter((t) => !rechazadosPorMarca.includes(t));
   if (aplicables.length === 0) {
     return {
@@ -273,8 +273,8 @@ export async function pausarKeywords(
   }
 
   // Marca protegida, igual que en las negativas y por el mismo motivo.
-  const [cli] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
-  const protegidasPorMarca = cli ? pedidos.filter((t) => esTerminoDeMarca(cli.name, t)) : [];
+  const [cli] = await db.select({ name: clients.name, metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
+  const protegidasPorMarca = cli ? pedidos.filter((t) => esTerminoDeMarca(cli.name, t, variantesDeMarca(cli.metadata))) : [];
   const candidatas = pedidos.filter((t) => !protegidasPorMarca.includes(t));
   if (candidatas.length === 0) {
     return {

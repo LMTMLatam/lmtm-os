@@ -8,7 +8,7 @@ import type { Db } from "@paperclipai/db";
 import { adsAdsets, adsCampaigns, adsCreatives, adsInsights, agentActions } from "@paperclipai/db";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { deMenor } from "../services/ads-budget.js";
-import { esTerminoDeMarca } from "../services/ads-keywords.js";
+import { esCampanaDeMarca } from "../services/ads-keywords.js";
 import { metricasCliente } from "../metricas/index.js";
 import { esActiva, metricasCampanas, type MetricasCampana } from "../metricas/campanas.js";
 import { evaluarPropuesta, type ContextoEval } from "../metricas/eval-propuestas.js";
@@ -143,7 +143,7 @@ export async function contextoPauta(db: Db, cliente: { id: string; nombre: strin
   const g = propio(google.objetivo);
   return {
     // La misma vara que el evaluador del piloto (eval-propuestas-cli de A).
-    ctx: { tcpl: { meta: m.tcpl, google: g.tcpl }, esMarca: (n) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(cliente.nombre, n) },
+    ctx: { tcpl: { meta: m.tcpl, google: g.tcpl }, esMarca: (n) => esCampanaDeMarca(cliente.nombre, n) },
     fuente: { meta: m.fuente, google: g.fuente },
     campanas14: campanas14 ?? [],
     campanas3: campanas3 ?? [],

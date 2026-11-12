@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esTerminoDeMarca } from "../ads-keywords.js";
+import { esCampanaDeMarca, esTerminoDeMarca } from "../ads-keywords.js";
 
 // El caso real que motivó el guard: el 3/9/26 la auditoría de Distrillantas
 // proponía negativizar cinco búsquedas de marca + sucursal, todas con calidad
@@ -36,8 +36,33 @@ describe("esTerminoDeMarca", () => {
     // "de" y "sa" aparecen en medio internet: si contaran, todo sería marca y
     // la auditoría no propondría una sola negativa.
     expect(esTerminoDeMarca("Hotel de SA", "cabañas de montaña")).toBe(false);
-    // "hotel" sí tiene 4+ letras, así que ese término sí es de marca.
-    expect(esTerminoDeMarca("Hotel de SA", "hotel barato")).toBe(true);
+    // "hotel" es del rubro, no de la marca (12/11): "hotel barato" es desperdicio posible.
+    expect(esTerminoDeMarca("Hotel de SA", "hotel barato")).toBe(false);
+  });
+
+  it("palabras del rubro no son marca (revisión 12/11)", () => {
+    expect(esTerminoDeMarca("COSA PROPIEDADES", "espora propiedades")).toBe(false);
+    expect(esTerminoDeMarca("COSA PROPIEDADES", "cosa propiedades rosario")).toBe(true);
+    expect(esTerminoDeMarca("GRUPO ROIBAS", "grupo de whatsapp")).toBe(false);
+    expect(esTerminoDeMarca("GRUPO ROIBAS", "roibas hotel")).toBe(true);
+    // Si el nombre es todo palabras del rubro, la marca es el nombre entero.
+    expect(esTerminoDeMarca("Grupo Global", "grupo global sa")).toBe(true);
+    expect(esTerminoDeMarca("Grupo Global", "grupo de viajes")).toBe(false);
+  });
+
+  it("la marca mal escrita cargada como variante también es marca", () => {
+    expect(esTerminoDeMarca("INBELT", "imbelt cintas")).toBe(false);
+    expect(esTerminoDeMarca("INBELT", "imbelt cintas", ["imbelt"])).toBe(true);
+  });
+});
+
+describe("esCampanaDeMarca", () => {
+  it("una campaña que compra búsquedas genéricas no es de marca aunque lleve el nombre del cliente", () => {
+    expect(esCampanaDeMarca("INBELT", "Search Inbelt refurbished LMTM")).toBe(false);
+    expect(esCampanaDeMarca("INBELT", "Inbelt Branding Search LMTM n1 #2")).toBe(true);
+    expect(esCampanaDeMarca("Distrillantas", "Distrillantas")).toBe(true);
+    expect(esCampanaDeMarca("Distrillantas", "Marca - Distrillantas")).toBe(true);
+    expect(esCampanaDeMarca("COSA PROPIEDADES", "Campaign #1")).toBe(false);
   });
 
   it("sin nombre utilizable, no marca nada como marca", () => {

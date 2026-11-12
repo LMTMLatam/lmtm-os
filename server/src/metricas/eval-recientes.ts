@@ -10,7 +10,7 @@ import { metricasCliente } from "./index.js";
 import { metricasCampanas, type MetricasCampana } from "./campanas.js";
 import { evaluarPropuesta, type ContextoEval } from "./eval-propuestas.js";
 import { esAccionPauta, TIPO_ACCION_PAUTA } from "../services/ads-propuestas.js";
-import { esTerminoDeMarca } from "../services/ads-keywords.js";
+import { esCampanaDeMarca } from "../services/ads-keywords.js";
 
 export const ventanaEval = (hastaDate: Date) => ({
   desde: new Date(hastaDate.getTime() - 13 * 86_400_000).toISOString().slice(0, 10),
@@ -30,7 +30,7 @@ export async function contextoEval(db: Db, clientId: string, hastaDate: Date): P
   return {
     ctx: {
       tcpl: { meta: meta.objetivo.tcpl, google: google.objetivo.tcpl },
-      esMarca: (n) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(nombre, n),
+      esMarca: (n) => esCampanaDeMarca(nombre, n),
     },
     campanas: campanas ?? [],
   };

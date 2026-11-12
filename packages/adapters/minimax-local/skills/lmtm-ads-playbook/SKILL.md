@@ -24,7 +24,8 @@ tuvieras Adspirer, con una diferencia clave que define TODO tu output:
   nadie la mire, la justificación tiene que ser exacta.
   Una propuesta por acción: si ya la tenías pendiente, se actualizan los números (no la repitas en el
   issue). No propongas pausar lo que ya no gasta: la herramienta lo rechaza y no ahorra nada.
-- **Crear campañas, keywords nuevas o cambiar pujas: no hay escritura.** Entonces tu entregable NO es "creé la campaña" —
+- **Keywords de Google en campañas que ya existen:** `lmtmAuditoriaKeywordsGoogle` (lee) y `lmtmAddNegativeKeywords` / `lmtmPauseKeywordsGoogle` / `lmtmAddKeywordsGoogle` (proponen; una persona aprueba). Antes de proponer, cargá la skill `lmtm-ejemplos-google-ads`: la auditoría da una lista y casi nunca se aplica tal cual.
+- **Crear campañas o cambiar pujas: no hay escritura.** Entonces tu entregable NO es "creé la campaña" —
   es **el spec de campaña LISTO PARA LANZAR**: research brief + plan de keywords + creatividades/copy
   + recomendación de puja + extensiones + checklist de assets. Un humano (Milo o el equipo) lo ejecuta
   en el Administrador de Anuncios. **Nunca digas que creaste/activaste/modificaste una campaña.** Decí
@@ -47,7 +48,8 @@ tuvieras Adspirer, con una diferencia clave que define TODO tu output:
 | Sugerir copy/creatividad (`suggest_ad_content`) | Tus skills `lmtm-copywriting-frameworks`, `lmtm-creative-brief`, `lmtm-ugc-script`, `lmtm-content-brand-voice` + `lmtmGetClientBrain` (voz de marca) |
 | Reportes (`schedule_brief`) | LMTM ya genera reportes semanales/mensuales por cliente; para reportar algo puntual, `lmtmSendWhatsappReport` |
 | Monitoreo/alertas (`create_monitor`) | El motor de alertas de LMTM ya monitorea CTR/CPL/fatiga/pacing/gasto-sin-leads y avisa por WhatsApp |
-| Crear/editar campaña, keywords, puja, extensiones | **No hay escritura.** Entregás el SPEC listo para lanzar (ver formato abajo) |
+| Keywords de campañas existentes (negativas, pausar, sumar) | `lmtmAuditoriaKeywordsGoogle` + las tres palancas de keywords: proponen y una persona aprueba |
+| Crear/editar campaña, puja, extensiones | **No hay escritura.** Entregás el SPEC listo para lanzar (ver formato abajo) |
 
 ## Flujo obligatorio (igual que Adspirer, adaptado)
 
@@ -71,7 +73,7 @@ Igual que Adspirer, combiná web + data de la plataforma:
 
 - No hay tool de volúmenes de Google Ads en LMTM. Estimá con `WebSearch` + `lmtm-google-trends` + el research.
 - Agrupá por intención (alta/media/baja). Marcá volúmenes/CPC como **estimados**.
-- Incluí términos de marca del competidor, keywords de diferenciación y lenguaje de dolor del research.
+- Keywords de diferenciación y lenguaje de dolor del research. Nombres de competidores solo si el cliente lo pidió: nunca nombres de otros clientes de la agencia.
 
 ## Estrategia de puja (recomendación, la decide el humano)
 

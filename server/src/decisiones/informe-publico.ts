@@ -14,7 +14,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { metricasCliente } from "../metricas/index.js";
 import { metricasCampanas } from "../metricas/campanas.js";
 import { noSeMidePorCpl } from "../metricas/eval-propuestas.js";
-import { esTerminoDeMarca } from "../services/ads-keywords.js";
+import { esCampanaDeMarca } from "../services/ads-keywords.js";
 import {
   esSemanaValida,
   estadoContraObjetivo,
@@ -124,7 +124,7 @@ export async function informePublico(db: Db, clientId: string, semanaPedida?: st
   ]);
   const vara = {
     tcpl: { meta: objMeta.objetivo.tcpl, google: objGoogle.objetivo.tcpl },
-    esMarca: (n: string) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(cli?.name ?? "", n),
+    esMarca: (n: string) => esCampanaDeMarca(cli?.name ?? "", n),
   };
   const campanas = porCampana
     ? porCampana

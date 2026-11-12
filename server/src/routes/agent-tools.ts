@@ -1891,7 +1891,7 @@ export function agentToolsRoutes(
         const hasta = ayer.toISOString().slice(0, 10);
         const desde = new Date(ayer.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
         const { noSeMidePorCpl } = await import("../metricas/eval-propuestas.js");
-        const { esTerminoDeMarca } = await import("../services/ads-keywords.js");
+        const { esCampanaDeMarca } = await import("../services/ads-keywords.js");
         // El objetivo es POR PLATAFORMA, la misma vara que el evaluador del piloto
         // y el informe del cliente. Con el total (que mezcla Google), el 06/10 Milo
         // propuso escalar dos campañas de Distrillantas que estaban arriba del
@@ -1913,7 +1913,7 @@ export function agentToolsRoutes(
         }
         const vara = {
           tcpl: { meta: meta.objetivo.tcpl, google: google.objetivo.tcpl },
-          esMarca: (n: string) => /\b(brand|marca)\b/i.test(n) || esTerminoDeMarca(cl?.name ?? "", n),
+          esMarca: (n: string) => esCampanaDeMarca(cl?.name ?? "", n),
         };
         const r2 = (n: number | null) => (n == null ? null : Number(n.toFixed(2)));
         const numerosDe = (x: { inversion: number; impresiones: number; clics: number; leads: number; cpl: number | null }) => ({

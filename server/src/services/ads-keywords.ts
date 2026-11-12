@@ -21,7 +21,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsConnections, clients } from "@paperclipai/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { searchStream } from "./ads/providers/google.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
 import { issueService } from "./issues.js";
@@ -95,14 +95,46 @@ const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0
  * cortas ("de", "sa", "srl") aparecen en cualquier búsqueda y darían falsos
  * positivos que esconderían desperdicio real.
  */
-export function esTerminoDeMarca(nombreCliente: string, termino: string): boolean {
-  const tokens = normalizar(nombreCliente).split(/\s+/).filter((p) => p.length >= 4);
+export function esTerminoDeMarca(nombreCliente: string, termino: string, variantes: string[] = []): boolean {
+  // Palabras del rubro que vienen en el nombre pero no son la marca (12/11:
+  // «propiedades» hacía marca de COSA a «espora propiedades», y «grupo» a
+  // cualquier búsqueda de grupos).
+  const nombre = normalizar(nombreCliente);
+  const propias = nombre.split(/\s+/).filter((p) => p.length >= 4 && !PALABRAS_GENERICAS.has(p));
+  // Si el nombre es todo palabras del rubro, la marca es el nombre entero.
+  const tokens = [...(propias.length ? propias : [nombre.replace(/[^a-z0-9]/g, "")].filter((x) => x.length >= 4)), ...variantes.map(normalizar)];
   if (tokens.length === 0) return false;
   const t = normalizar(termino);
   // También sin espacios: "distri llantas" es la marca Distrillantas escrita
   // separada, y la auditoría la proponía como negativa (13/10).
   const junto = t.replace(/[^a-z0-9]/g, "");
   return tokens.some((tok) => t.includes(tok) || junto.includes(tok));
+}
+
+const PALABRAS_GENERICAS = new Set([
+  "propiedades", "inmobiliaria", "grupo", "hotel", "apart", "desarrollos", "global", "industrial", "materiales",
+  "agencia", "construcciones", "servicios", "soluciones", "argentina", "latam",
+]);
+
+/** Variantes de la marca cargadas a mano (clients.metadata.marcaVariantes): la
+ *  marca mal escrita («imbelt» para INBELT) también es marca. */
+export function variantesDeMarca(metadata: unknown): string[] {
+  const v = (metadata as { marcaVariantes?: unknown } | null)?.marcaVariantes;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length >= 4) : [];
+}
+
+/**
+ * ¿La CAMPAÑA es de marca? Por el nombre de la campaña, no por el del cliente:
+ * casi todas las campañas llevan el nombre del cliente («Search Inbelt
+ * refurbished» compra búsquedas genéricas y figuraba como de marca, 12/11). Es
+ * de marca si lo dice («brand», «branding», «marca», «institucional») o si se
+ * llama solo como el cliente.
+ */
+export function esCampanaDeMarca(nombreCliente: string, nombreCampana: string): boolean {
+  const c = normalizar(nombreCampana);
+  if (/\b(brand|branding|marca|institucional)\b/.test(c)) return true;
+  const sinRuido = c.replace(/\b(search|busqueda|lmtm|google|ads|meta|n\d+|#\d+|\d{4})\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  return sinRuido.length > 0 && sinRuido === normalizar(nombreCliente).replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 const num = (v: unknown): number => {
@@ -121,10 +153,20 @@ function anidado(row: Record<string, unknown>, ruta: string): unknown {
  * el token guardado suele estar vencido.
  */
 async function conexionGoogle(db: Db, clientId: string) {
-  const [m] = await db.select()
+  // Un cliente puede tener varias cuentas de Google mapeadas. Antes se tomaba la
+  // primera: en BOERO era la vacía y la auditoría decía «cuenta limpia» mientras
+  // la otra gastaba $512.591 (12/11). Se usa la que más gastó en 30 días.
+  const mapeos = await db.select()
     .from(adsAccountMappings)
-    .where(and(eq(adsAccountMappings.clientId, clientId), eq(adsAccountMappings.platform, "google")))
-    .limit(1);
+    .where(and(eq(adsAccountMappings.clientId, clientId), eq(adsAccountMappings.platform, "google")));
+  const gastos = await db.execute(sql`
+    select regexp_replace(ad_account_id, '^act_|-', '', 'g') cuenta, sum(spend) gasto
+    from ads_insights where client_id = ${clientId} and platform = 'google' and date >= current_date - 30
+    group by 1`);
+  const gastoDe = new Map(((Array.isArray(gastos) ? gastos : (gastos as { rows?: unknown[] }).rows ?? []) as Array<{ cuenta: string; gasto: string }>)
+    .map((g) => [g.cuenta, Number(g.gasto)]));
+  const [m] = [...mapeos].sort((a, b) =>
+    (gastoDe.get(b.adAccountId.replace(/^act_|-/g, "")) ?? 0) - (gastoDe.get(a.adAccountId.replace(/^act_|-/g, "")) ?? 0));
   if (!m?.connectionId) return null;
   const [conn] = await db.select().from(adsConnections).where(eq(adsConnections.id, m.connectionId));
   if (!conn) return null;
@@ -149,13 +191,15 @@ async function conexionGoogle(db: Db, clientId: string) {
  * conversiones suficientes para decidir, y más arrastra campañas ya cambiadas.
  */
 export async function auditarKeywords(db: Db, clientId: string, dias = 30): Promise<AuditoriaKeywords | null> {
-  const [cliente] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId));
+  const [cliente] = await db.select({ name: clients.name, metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId));
   const ctx = await conexionGoogle(db, clientId);
   if (!cliente || !ctx) return null;
   const { conn, customerId } = ctx;
+  const variantes = variantesDeMarca(cliente.metadata);
 
+  // Hasta ayer: el día de hoy está a medio cargar.
   const desde = new Date(Date.now() - dias * 86_400_000).toISOString().slice(0, 10);
-  const hasta = new Date().toISOString().slice(0, 10);
+  const hasta = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const rango = `segments.date BETWEEN '${desde}' AND '${hasta}'`;
 
   // searchStream ya resuelve developer-token, login-customer-id y el refresh
@@ -211,12 +255,23 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
   // Distrillantas, 3/9/26: la auditoría proponía negativizar "distrillantas
   // pilar", "distrillantas beiro", "distrillantas merlo", "distrillantas
   // liniers" y "distrillantas avellaneda" — todas con calidad 10/10 de Google.
-  const esMarca = (s: string) => esTerminoDeMarca(cliente.name, s);
+  const esMarca = (s: string) => esTerminoDeMarca(cliente.name, s, variantes);
+  // Nombres de otros clientes de la agencia: no se proponen como keyword nueva
+  // (COSA tenía 6 inmobiliarias competidoras en «nuevas», una era DUNOD).
+  const otros = (await db.select({ name: clients.name }).from(clients).where(ne(clients.id, clientId)))
+    .map((c) => normalizar(c.name)).filter((n) => n.length >= 5);
+  const nombraOtroCliente = (s: string) => { const t = normalizar(s); return otros.some((o) => t.includes(o)); };
+  const gastoCampana = new Map<string, number>();
+  for (const t of terminos) gastoCampana.set(t.campaignId, (gastoCampana.get(t.campaignId) ?? 0) + t.costo);
 
   // 1. Negativas: gastó, tuvo clics suficientes para juzgarlo, cero conversiones
-  //    y NO es una búsqueda de marca.
+  //    y NO es una búsqueda de marca. Además del piso fijo, un término que se
+  //    lleva el 2% de su campaña sin convertir (el desperdicio repartido nunca
+  //    llegaba a $3.000: ninguna de 8 cuentas daba negativas, 11/11).
   const negativas = terminos
-    .filter((t) => t.conversiones === 0 && t.costo >= GASTO_MIN_NEGATIVA && t.clics >= CLICS_MIN && !esMarca(t.termino))
+    .filter((t) => t.conversiones === 0 && !esMarca(t.termino) && (
+      (t.costo >= GASTO_MIN_NEGATIVA && t.clics >= CLICS_MIN) ||
+      (t.clics >= 3 && (gastoCampana.get(t.campaignId) ?? 0) > 0 && t.costo / (gastoCampana.get(t.campaignId) ?? 1) >= 0.02)))
     .sort((a, b) => b.costo - a.costo)
     .slice(0, 15);
 
@@ -229,8 +284,10 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
 
   // 2. Keywords nuevas: convirtió y todavía no está como keyword propia. Es la
   //    plata más barata de la cuenta — ya sabés que ese término trae clientes.
+  //    Con 2 conversiones o más (una sola es ruido), sin marca propia ni nombres
+  //    de otros clientes.
   const nuevas = terminos
-    .filter((t) => t.conversiones >= 1 && !yaSonKeyword.has(t.termino.toLowerCase().trim()))
+    .filter((t) => t.conversiones >= 2 && !yaSonKeyword.has(t.termino.toLowerCase().trim()) && !esMarca(t.termino) && !nombraOtroCliente(t.termino))
     .sort((a, b) => b.conversiones - a.conversiones)
     .slice(0, 12);
 
