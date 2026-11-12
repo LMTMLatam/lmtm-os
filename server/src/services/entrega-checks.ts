@@ -17,6 +17,16 @@ import { llmExtract } from "./client-tasks.js";
 
 export const NON_LATIN_RE = /[Ѐ-ӿ　-ヿ一-鿿가-힯]/;
 
+/** Texto que enseña a conseguir accesos o claves por fuera de las herramientas
+ *  (revisión 12/11: 5 lecciones de equipo enseñaban a leer tokens de la base,
+ *  editar adapter_config o entrar por SSH al VPS). Una lección o memoria así no
+ *  se guarda. */
+export const ENSENA_ACCESO_RE =
+  /\b(psql|DATABASE_URL|PGPASSWORD|printenv|crm_claude|claude-mcp\.json|adapter_config|LMTM_PERMITIR_\w+)\b|\/proc\/\S*environ|\/app\/\.ssh|ads_connections\b[^.\n]{0,80}\btoken|token de la fila|ssh\s+(-p\s*\d+\s+)?root@/i;
+
+export const MENSAJE_ACCESO =
+  "NO se guardó: una lección o memoria no puede enseñar a conseguir accesos o claves (base de datos, SSH, variables de entorno). Si te falta un acceso, decilo en la tarea y pasala a blocked.";
+
 const URL_RE = /https?:\/\/[^\s)\]"'<>]+/g;
 
 async function urlViva(url: string): Promise<boolean> {

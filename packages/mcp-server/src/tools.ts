@@ -669,7 +669,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmSql",
-      "LEER TODO: consulta SQL de solo lectura sobre la base de LMTM-OS (Postgres). Corre con el rol de solo lectura (no ve tokens ni secretos), 20 s de tope, hasta 500 filas. Para escribir usá las otras herramientas o paperclipApiRequest, nunca SQL. Solo admin del tablero.",
+      "LEER TODO: consulta SQL de solo lectura sobre la base de LMTM-OS (Postgres). Corre con el rol de solo lectura, 20 s de tope, hasta 500 filas. No ve tokens ni secretos: la configuración de los agentes se lee en la vista `agentes_config` (no en agents.adapter_config) y la salida de las corridas en `corridas_salida` (no en heartbeat_runs.stdout_excerpt), con las claves enmascaradas. Para escribir usá las otras herramientas o paperclipApiRequest, nunca SQL. Solo admin del tablero.",
       z.object({ sql: z.string().min(1).describe("Una sola sentencia SELECT/WITH.") }),
       async ({ sql }) => client.requestJson("POST", "/lectura/sql", { body: { sql } }),
     ),

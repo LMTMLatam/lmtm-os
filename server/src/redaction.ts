@@ -93,6 +93,26 @@ export function redactEventPayload(payload: Record<string, unknown> | null): Rec
   return sanitizeRecord(payload);
 }
 
+// Claves sueltas en la salida de las corridas (revisión 12/11: 124 corridas guardaron
+// cadenas de conexión, tokens de Meta/Google/ClickUp y VARIABLE_SECRET=valor). Mismos
+// patrones que la función SQL enmascarar_secretos (docs/rediseno/rol-solo-lectura-2026-11-12.sql).
+const CLAVES_SUELTAS: Array<[RegExp, string]> = [
+  [/postgres(ql)?:\/\/[^:@/\s]+:[^@\s]+@/gi, "postgres://<CRED>@"],
+  [/EAA[A-Za-z0-9]{20,}/g, "EAA<TOKEN>"],
+  [/ya29\.[A-Za-z0-9_-]{20,}/g, "ya29.<TOKEN>"],
+  [/1\/\/[0-9A-Za-z_-]{30,}/g, "1//<TOKEN>"],
+  [/pk_[0-9]{4,}_[A-Z0-9]{16,}/g, "pk_<TOKEN>"],
+  [/Bearer [A-Za-z0-9._~+/=-]{20,}/g, "Bearer <TOKEN>"],
+  [/\b(sk-|tskey-)[A-Za-z0-9_-]{16,}/g, "$1<TOKEN>"],
+  [/\b([A-Z][A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|APIKEY)[A-Z0-9_]*)(["']?\s*[:=]\s*["']?)[^\s"',]{6,}/g, "$1$2<SECRETO>"],
+];
+
+export function enmascararClaves(input: string): string {
+  let s = input;
+  for (const [re, rep] of CLAVES_SUELTAS) s = s.replace(re, rep);
+  return s;
+}
+
 export function redactSensitiveText(input: string): string {
   return redactCommandText(
     input
