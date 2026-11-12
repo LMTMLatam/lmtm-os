@@ -880,10 +880,11 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         issueId: z.string().optional(),
         clientId: z.string().optional(),
         url: z.string().optional(),
+        cambio: z.string().optional().describe("Solo para un plan de un cliente que ya tiene uno de menos de 7 días: qué cambió desde el anterior."),
       }),
-      async ({ kind, title, content, issueId, clientId, url }) =>
+      async ({ kind, title, content, issueId, clientId, url, cambio }) =>
         client.requestJson("POST", "/agent-tools/execute", {
-          body: { tool: "save_deliverable", parameters: { kind, title, content, ...(issueId ? { issueId } : {}), ...(clientId ? { clientId } : {}), ...(url ? { url } : {}) } },
+          body: { tool: "save_deliverable", parameters: { kind, title, content, ...(issueId ? { issueId } : {}), ...(clientId ? { clientId } : {}), ...(url ? { url } : {}), ...(cambio ? { cambio } : {}) } },
         }),
     ),
     makeTool(

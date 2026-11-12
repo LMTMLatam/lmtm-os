@@ -2618,6 +2618,19 @@ export function agentToolsRoutes(
         if (/^plan de acción/i.test(title) && !clientId) {
           return reply(false, "El plan NO se guardó: falta clientId. Verificá que los datos que leíste sean de ese cliente y volvé a guardarlo.");
         }
+        // Un plan por cliente por semana (12/11: 218 planes de Luna en 30 días y
+        // 132 sin tarea; solo 14 de 66 en una semana terminaron usados). Un plan
+        // nuevo antes de 7 días tiene que decir qué cambió.
+        if (kind === "plan" && clientId) {
+          const [previo] = await db.select({ createdAt: agentDeliverables.createdAt, title: agentDeliverables.title })
+            .from(agentDeliverables)
+            .where(and(eq(agentDeliverables.clientId, clientId), eq(agentDeliverables.kind, "plan"), gte(agentDeliverables.createdAt, new Date(Date.now() - 7 * 86_400_000))))
+            .orderBy(desc(agentDeliverables.createdAt)).limit(1);
+          const cambio = typeof params.cambio === "string" ? params.cambio.trim() : "";
+          if (previo && cambio.length < 20) {
+            return reply(false, `El plan NO se guardó: ya hay uno de este cliente del ${previo.createdAt.toISOString().slice(0, 10)} («${previo.title.slice(0, 80)}»). Un plan nuevo antes de 7 días solo si cambió algo: pasá \`cambio\` con qué cambió (gasto, CPL, alertas, pedido del cliente). Si no cambió nada, no hace falta otro plan.`);
+          }
+        }
         if (/^nota blog:/i.test(title)) {
           const previas = await db.select({ title: agentDeliverables.title }).from(agentDeliverables)
             .where(and(eq(agentDeliverables.companyId, ctx.companyId), sql`${agentDeliverables.title} ilike 'Nota blog:%'`))
