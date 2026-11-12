@@ -274,6 +274,18 @@ function readHeartbeatRunErrorFamily(
   return null;
 }
 
+/** ¿La corrida dejó algo para alguien? Un comentario suyo, un entregable o una
+ *  propuesta del agente desde que arrancó. */
+async function corridaDejoEfecto(db: Db, p: { runId: string; agentId: string; desde: Date | string }): Promise<boolean> {
+  const desde = new Date(p.desde).toISOString();
+  const r = await db.execute(sql`
+    select exists(select 1 from issue_comments where created_by_run_id = ${p.runId})
+        or exists(select 1 from agent_deliverables where agent_id = ${p.agentId} and created_at >= ${desde}::timestamptz)
+        or exists(select 1 from approvals where requested_by_agent_id = ${p.agentId} and created_at >= ${desde}::timestamptz) as hay`);
+  const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ hay: boolean }>;
+  return filas[0]?.hay === true;
+}
+
 function isMaxTurnExhaustionRun(
   run: Pick<typeof heartbeatRuns.$inferSelect, "errorCode" | "resultJson">,
 ) {
@@ -7840,6 +7852,19 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       } else {
         outcome = "failed";
       }
+      // Tope de turnos con trabajo hecho (revisión 12/11): 90 de 117 fallas de una
+      // semana eran esto, y muchas dejaban entregable o comentario. Contarlas como
+      // falla las reintentaba («max_turns_continuation») y quemaba tokens rehaciendo
+      // lo hecho. Si la corrida dejó algo, termina bien y marcada como parcial.
+      let parcialPorTope = false;
+      if (
+        outcome === "failed" &&
+        issueId &&
+        normalizeMaxTurnStopReason(adapterResult.errorCode ?? parseObject(adapterResult.resultJson).stopReason)
+      ) {
+        parcialPorTope = await corridaDejoEfecto(db, { runId: run.id, agentId: agent.id, desde: run.startedAt ?? run.createdAt });
+        if (parcialPorTope) outcome = "succeeded";
+      }
       const runErrorMessage =
         outcome === "cancelled"
           ? (latestRun?.error ?? adapterResult.errorMessage ?? "Cancelled")
@@ -7903,7 +7928,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             } as Record<string, unknown>)
           : null;
 
-      const persistedResultJson = mergeHeartbeatRunResultJson(
+      const resultJsonBase = mergeHeartbeatRunResultJson(
         mergeRunStopMetadataForAgent(agent, outcome, {
           resultJson: mergeModelProfileRunMetadata(
             mergeAdapterRecoveryMetadata({
@@ -7918,6 +7943,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         }),
         adapterResult.summary ?? null,
       );
+      const persistedResultJson = parcialPorTope
+        ? { ...(resultJsonBase ?? {}), parcial: "tope_de_turnos_con_efecto" }
+        : resultJsonBase;
 
       let persistedRun = await setRunStatus(run.id, status, {
         finishedAt: new Date(),
