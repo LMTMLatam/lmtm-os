@@ -174,9 +174,8 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
       where client_id = ${clientId} and date between ${desdeHist} and ${v.hasta} ${plat}
       group by platform`),
     db.execute(sql`
-      select c.metadata, b.evidence as benchmark
+      select c.metadata
       from clients c
-      left join learnings b on b.scope = 'niche_benchmark' and b.scope_key = c.industry
       where c.id = ${clientId}
       limit 1`),
   ]);
@@ -201,13 +200,13 @@ export async function metricasCliente(db: Db, clientId: string, v: VentanaMetric
     inversion: confiables.reduce((s, p) => s + n(p.inversion), 0),
     leads: confiables.reduce((s, p) => s + n(p.leads), 0),
   };
-  // Pedida solo la plataforma de leads dudosos, ni el historial ni el ideal del
-  // rubro sirven de vara: lo que se mediría con ellos son esos mismos leads.
-  const soloDudosa = v.plataforma != null && leadsDudosos.includes(v.plataforma as "google");
   const objetivo = elegirObjetivo({
     cplCliente: posNum(meta.cplObjetivo),
     historial: hayPauta ? h : null,
-    idealRubro: soloDudosa ? null : posNum((c.benchmark as Record<string, unknown> | null)?.idealCpl),
+    // Sin «ideal del rubro» (12/11, Naza): ese número sale de otros clientes
+    // nuestros y los clientes no se comparan entre sí. El objetivo es el que pidió
+    // el cliente o su propia historia; si no hay ninguno, no hay objetivo.
+    idealRubro: null,
   });
 
   return {

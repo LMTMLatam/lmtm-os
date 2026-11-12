@@ -694,6 +694,28 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
     }
   }
 
+  // La referencia es su nicho y su competencia, no otros clientes nuestros (12/11,
+  // Naza: «que se comparen con los competidores de su nicho… mejorar en base a lo viral»).
+  {
+    const { viralesDe, resolverNicho } = await import("./video-tipos.js");
+    const { competitors } = await import("@paperclipai/db");
+    const nicho = await resolverNicho(db, cliente.rubro || cliente.name).catch(() => null);
+    const virales = nicho ? (await viralesDe(db, { nicho, limite: 5 }).catch(() => ({ virales: [] }))).virales : [];
+    const comp = await db.select({ name: competitors.name, ig: competitors.igHandle, web: competitors.website })
+      .from(competitors).where(eq(competitors.clientId, r.id)).limit(8);
+    L.push("", `## Qué funciona en su nicho${nicho ? ` (${nicho})` : ""}`);
+    if (virales.length) {
+      L.push("Virales medidos (veces sobre lo normal de esa cuenta). Usalos de referencia de gancho y forma, no los copies:");
+      for (const v of virales) L.push(`- @${v.cuenta}${v.veces != null ? ` · ${v.veces}× su normal` : ""}${v.gancho ? ` · gancho: «${recortar(v.gancho, 90)}»` : ""}${v.url ? ` · ${v.url}` : ""}`);
+    } else {
+      L.push("Sin virales medidos de este nicho todavía: buscá con lmtmBuscarVirales o cargá uno que encuentres con lmtmGuardarViral.");
+    }
+    L.push(comp.length
+      ? `Competencia cargada: ${comp.map((c) => [c.name, c.ig ? `@${c.ig.replace(/^@/, "")}` : null, c.web].filter(Boolean).join(" ")).join(" · ")}`
+      : "Sin competidores cargados: sumalos con lmtmAddClientCompetitor (3 como mínimo).");
+    L.push("No compares a este cliente con otros clientes de la agencia: la vara es su competencia y lo viral del nicho.");
+  }
+
   // NAS de LMTM: carpetas del cliente (clients.metadata.nas, mapeadas a mano el 11/11)
   const [conNas] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, r.id));
   const carpetasNas = (conNas?.metadata as { nas?: unknown } | null)?.nas;

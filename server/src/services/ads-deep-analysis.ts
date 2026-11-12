@@ -60,22 +60,12 @@ export async function analisisProfundo(db: Db, client: { id: string; industry: s
   const cpl = Number(tot?.leads ?? 0) > 0 ? spend / Number(tot.leads) : null;
   const ctrPct = Number(tot?.impressions ?? 0) > 0 ? (Number(tot.clicks) / Number(tot.impressions)) * 100 : null;
 
-  let benchmark: AnalisisProfundo["benchmark"] = null;
-  if (client.industry) {
-    const [b] = await db.select({ evidence: learnings.evidence })
-      .from(learnings)
-      .where(and(eq(learnings.scope, "niche_benchmark"), eq(learnings.scopeKey, client.industry)));
-    const ev = (b?.evidence ?? null) as { avgCpl?: number; idealCpl?: number } | null;
-    if (ev?.avgCpl && cpl != null) {
-      const deltaPct = Math.round(((cpl - ev.avgCpl) / ev.avgCpl) * 100);
-      benchmark = { cpl, ctrPct, rubroCplProm: ev.avgCpl, rubroCplIdeal: ev.idealCpl ?? ev.avgCpl, deltaPct };
-      if (deltaPct <= -15) {
-        resumen.push(`Eficiencia vs el rubro: tu costo por consulta (${fmtMoney(cpl)}) está ${Math.abs(deltaPct)}% POR DEBAJO del promedio del rubro (${fmtMoney(ev.avgCpl)}) — la oferta funciona; es momento de escalar presupuesto.`);
-      } else if (deltaPct >= 15) {
-        resumen.push(`Eficiencia vs el rubro: tu costo por consulta (${fmtMoney(cpl)}) está ${deltaPct}% POR ARRIBA del promedio del rubro (${fmtMoney(ev.avgCpl)}); los mejores lo consiguen a ${fmtMoney(ev.idealCpl ?? ev.avgCpl)}. Hay que revisar creatividad y segmentación.`);
-      }
-    }
-  }
+  // Sin «eficiencia vs el rubro» (12/11, Naza): el promedio del rubro sale de
+  // otros clientes nuestros y los clientes no se comparan entre sí. La vara es el
+  // objetivo del cliente y su propia historia; la referencia externa, la
+  // competencia de su nicho.
+  const benchmark: AnalisisProfundo["benchmark"] = null;
+  void ctrPct;
 
   // ── 2. Cuello de botella de formatos (avisos activos) ─────────────────────
   const crs = await db.select({ status: adsCreatives.status, raw: adsCreatives.raw })
@@ -118,7 +108,7 @@ export async function analisisProfundo(db: Db, client: { id: string; industry: s
     arr.push({ name: String((c.raw as { name?: string } | null)?.name ?? ""), formato: clasificarFormato(c.raw) });
     creativosPorAdset.set(adsetId, arr);
   }
-  const rubroCpl = benchmark?.rubroCplProm ?? null;
+  const rubroCpl: number | null = null;
   const porConjunto: ConjuntoAnalisis[] = adsetAgg
     .map((a) => {
       const sp = Number(a.spend);

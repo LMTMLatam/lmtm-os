@@ -3044,7 +3044,8 @@ export function agentToolsRoutes(
 
       if (tool === "get_niche_intel") {
         const niche = typeof params.niche === "string" ? params.niche.trim().toLowerCase() : "";
-        const scopes = ["niche", "niche_benchmark", "niche_experiment", "niche_ads_format", "niche_actions"];
+        // Sin niche_benchmark (12/11, Naza): es el promedio de otros clientes nuestros y los clientes no se comparan entre si.
+        const scopes = ["niche", "niche_experiment", "niche_ads_format", "niche_actions"];
         const conds = [inArray(learnings.scope, scopes)];
         if (niche) conds.push(eq(learnings.scopeKey, niche));
         const rows = await db.select().from(learnings).where(and(...conds)).orderBy(learnings.scopeKey);

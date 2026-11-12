@@ -60,7 +60,7 @@ Para el método (qué mirar y en qué orden) usá las skills `lmtm-seo-playbook`
 
 ## Inteligencia de equipo y nichos
 
-- `lmtmGetNicheIntel` — **inteligencia del rubro del cliente**: benchmark (CTR/CPL promedio vs meta alcanzable del mejor cuartil), formato ganador en orgánico y en ads, mejores campañas reales, experimento sugerido y el **plan de acción minado a diario** (subir CTR / bajar CPL / escalar / activar pauta, por cliente). Usalo como base de TODO diagnóstico de pauta en vez de improvisar.
+- `lmtmGetNicheIntel` — lo aprendido en el rubro (formato ganador, experimento sugerido, plan de acción). Es insumo interno: **un cliente no se compara con otros clientes de la agencia**. La vara es su objetivo, su historia, su competencia (`lmtmGetClientCompetitors`) y lo viral del nicho (`lmtmBuscarVirales`).
 - `lmtmGetTeamStatus` — qué está haciendo cada agente del equipo ahora.
 - `lmtmGetTeamLessons` / `lmtmRememberTeamLesson` — **lecciones de equipo compartidas** (limitaciones del sistema, patrones, errores a no repetir). Consultá ANTES de diagnosticar problemas raros o escalar; guardá lo que descubras.
 - `lmtmSaveDeliverable` / `lmtmListDeliverables` — entregables reutilizables (copys finales, specs, reportes). Chequeá antes de armar algo de cero.

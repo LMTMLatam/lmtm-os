@@ -354,20 +354,6 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
     .from(adsInsights)
     .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${diaLocal(new Date())}`, cuentaEnPesos(adsInsights.adAccountId)))
     .groupBy(adsInsights.clientId, adsInsights.platform);
-  const campaignRows = await db
-    .select({
-      industry: clients.industry,
-      clientName: clients.name,
-      campaignName: adsInsights.campaignName,
-      impressions: sql<number>`coalesce(sum(${adsInsights.impressions}), 0)::int`,
-      clicks: sql<number>`coalesce(sum(${adsInsights.clicks}), 0)::int`,
-    })
-    .from(adsInsights)
-    .innerJoin(clients, eq(adsInsights.clientId, clients.id))
-    // Solo Meta: una campaña de búsqueda de Google siempre "gana" por CTR.
-    .where(and(gte(adsInsights.date, since), sql`${adsInsights.date} < ${diaLocal(new Date())}`, eq(adsInsights.platform, "meta"), cuentaEnPesos(adsInsights.adAccountId), eq(clients.status, "active"), isNotNull(clients.industry), isNotNull(adsInsights.campaignName)))
-    .groupBy(clients.industry, clients.name, adsInsights.campaignName)
-    .having(sql`sum(${adsInsights.impressions}) >= 500`);
 
   // Fresh learnings from this same pass (order in runLearningPass matters).
   const mined = await db.select().from(learnings).where(notInArray(learnings.scope, ["global"]));
@@ -394,13 +380,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
 
   let count = 0;
   for (const [niche, members] of byNiche) {
-    const bench = evOf("niche_benchmark", niche) as { avgCtr?: number; idealCtr?: number; avgCpl?: number; idealCpl?: number } | null;
-    if (!bench || (bench.idealCtr == null && bench.idealCpl == null)) continue; // sin benchmark no hay meta contra la cual accionar
     const fmtAds = (evOf("niche_ads_format", niche) as { ranked?: Array<{ format: string; ctr: number }> } | null)?.ranked?.[0] ?? null;
-    const topCampaign = campaignRows
-      .filter((c) => c.industry === niche && Number(c.impressions) > 0)
-      .map((c) => ({ name: c.campaignName!, clientName: c.clientName, ctr: Number(c.clicks) / Number(c.impressions) }))
-      .sort((a, b) => b.ctr - a.ctr)[0] ?? null;
 
     const actions: NicheAction[] = [];
     const sinPauta: string[] = [];
@@ -409,8 +389,6 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
       const d = perClient.get(m.id);
       if (otraMoneda.has(m.id)) continue;
       if ((impresiones.get(m.id) ?? 0) < 500) { sinPauta.push(m.name); continue; }
-      const ctr = d?.ctrMeta ?? null;
-      const cpl = d?.cplMeta ?? null;
       if (d?.leadsDudosos) {
         actions.push({
           priority: 1,
@@ -418,34 +396,13 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
           clientSlug: m.slug, kind: "accion",
         });
       }
-      const replicar = [
-        fmtAds ? `pasar la pauta a formato "${fmtAds.format}" (CTR ${(fmtAds.ctr * 100).toFixed(2)}% en el nicho)` : "",
-        topCampaign && topCampaign.clientName !== m.name ? `replicar la estructura de "${topCampaign.name}" (${topCampaign.clientName}, CTR ${(topCampaign.ctr * 100).toFixed(2)}%)` : "",
-      ].filter(Boolean).join(" y ");
-      if (ctr != null && bench.idealCtr != null && ctr < bench.idealCtr * 0.9) {
-        actions.push({
-          priority: bench.avgCtr != null && ctr < bench.avgCtr ? 1 : 2,
-          action: `Subir el CTR en Meta de ${m.name}: ${(ctr * 100).toFixed(2)}% hoy vs meta ${(bench.idealCtr * 100).toFixed(2)}%${replicar ? ` — ${replicar}` : ""}.`,
-          clientSlug: m.slug, kind: "accion",
-        });
-      } else if (cpl != null && bench.idealCpl != null && cpl > bench.idealCpl * 1.2) {
-        actions.push({
-          priority: bench.avgCpl != null && cpl > bench.avgCpl ? 1 : 2,
-          action: `Bajar el CPL de ${m.name}: $${Math.round(cpl)} hoy vs meta $${Math.round(bench.idealCpl)} — revisar segmentación y oferta; sus pares del nicho lo consiguen.`,
-          clientSlug: m.slug, kind: "accion",
-        });
-      } else if (ctr != null || cpl != null) {
-        actions.push({
-          priority: 2,
-          action: `Ver si conviene escalar ${m.name}: está en la meta del nicho (${[ctr != null ? `CTR en Meta ${(ctr * 100).toFixed(2)}%` : "", cpl != null ? `CPL ${Math.round(cpl)}` : ""].filter(Boolean).join(", ")}). Antes de subir, mirá campaña por campaña: si la plata está en una sola, si las mejores dejaron de gastar y si el CPL viene peor que el mes anterior.`,
-          clientSlug: m.slug, kind: "accion",
-        });
-      }
+      // (12/11, Naza) Sin «meta del nicho» ni «replicá la campaña de otro cliente»:
+      // los clientes no se comparan entre los nuestros.
     }
     if (sinPauta.length > 0) {
       actions.push({
         priority: 3,
-        action: `Activar pauta en ${sinPauta.slice(0, 4).join(", ")}${sinPauta.length > 4 ? ` (+${sinPauta.length - 4})` : ""}: el nicho tiene meta clara (${[bench.idealCtr != null ? `CTR en Meta ${(bench.idealCtr * 100).toFixed(2)}%` : "", bench.idealCpl != null ? `CPL ${Math.round(bench.idealCpl)}` : ""].filter(Boolean).join(", ")}) — proponer plan de medios.`,
+        action: `Activar pauta en ${sinPauta.slice(0, 4).join(", ")}${sinPauta.length > 4 ? ` (+${sinPauta.length - 4})` : ""}: no tienen pauta corriendo — proponer plan de medios mirando qué pauta su competencia.`,
         kind: "accion",
       });
     }
@@ -461,9 +418,7 @@ export async function mineNicheActions(db: Db): Promise<{ actions: number }> {
         ].join("\n"),
         [
           `Rubro: ${niche} (${members.length} clientes).`,
-          `Benchmark 30d: ${[bench.idealCtr != null ? `CTR en Meta prom ${((bench.avgCtr ?? 0) * 100).toFixed(2)}% / meta ${(bench.idealCtr * 100).toFixed(2)}%` : "", bench.idealCpl != null ? `CPL meta ${Math.round(bench.idealCpl)}` : ""].filter(Boolean).join("; ")}.`,
           fmtAds ? `Formato que gana en ads: ${fmtAds.format} (CTR ${(fmtAds.ctr * 100).toFixed(2)}%).` : "",
-          topCampaign ? `Mejor campaña real: "${topCampaign.name}" de ${topCampaign.clientName} (CTR ${(topCampaign.ctr * 100).toFixed(2)}%).` : "",
         ].filter(Boolean).join("\n"),
       );
       const s = raw?.indexOf("[") ?? -1, e = raw?.lastIndexOf("]") ?? -1;

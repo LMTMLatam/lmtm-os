@@ -9,7 +9,7 @@ Auditás el perfil de redes de un cliente en 5 dimensiones. El objetivo NO es re
 
 ## Herramientas base
 1. `lmtmGetClientContentMatrix` — la matriz profunda en una llamada: mix real de formatos, posts/semana, señal de repetición de copys, matriz planificada formato×objetivo (con huecos), tendencias del nicho.
-2. `lmtmGetNicheIntel` — benchmarks y plan de acción del rubro.
+2. `lmtmBuscarVirales` (su nicho) y `lmtmGetClientCompetitors` — qué está siendo viral y qué hace su competencia: esa es la vara, no otros clientes de la agencia.
 3. `lmtmGetClientBrain` — contexto y aprendizajes previos (leelo SIEMPRE primero).
 4. Navegación del perfil público (WebFetch/browser) — para lo que la API no ve: bio, link, destacadas, grilla.
 

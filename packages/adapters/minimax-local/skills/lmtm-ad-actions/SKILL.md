@@ -18,8 +18,8 @@ Señales claras, con números en la mano. Sacalos de `lmtmGetClientCampaigns`: e
 (`lmtmGetClientAdsPerformance` da solo el total del cliente, sin ids). Si una campaña
 viene con `leadsDudosos`, su CPL no sirve para decidir nada.
 - Aviso/adset con gasto y **0 (o casi 0) conversiones** sostenido.
-- CTR muy por debajo del promedio de su campaña y del benchmark del rubro (`lmtmGetNicheIntel`).
-- CPL disparado vs el rubro sin señal de mejora.
+- CTR muy por debajo del promedio de su propia campaña y de su propia historia.
+- CPL disparado contra el objetivo del cliente o su propia historia, sin señal de mejora. Nunca contra otros clientes de la agencia.
 
 No pauses por ruido de un día: mirá una ventana razonable (7-14d) antes de proponer.
 
