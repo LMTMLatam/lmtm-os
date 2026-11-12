@@ -2276,7 +2276,10 @@ export function routineService(
             and(
               eq(routineTriggers.id, row.trigger.id),
               eq(routineTriggers.enabled, true),
-              eq(routineTriggers.nextRunAt, row.trigger.nextRunAt),
+              // Postgres guarda microsegundos y un Date de JS solo milisegundos: con
+              // eq() a secas, un next_run_at con microsegundos no se reclamaba nunca
+              // («Auditoría de perfil y creatividad», trabada del 12/07 al 12/11).
+              sql`date_trunc('milliseconds', ${routineTriggers.nextRunAt}) = ${row.trigger.nextRunAt.toISOString()}::timestamptz`,
             ),
           )
           .returning({ id: routineTriggers.id })
