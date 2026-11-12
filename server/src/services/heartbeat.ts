@@ -6065,9 +6065,14 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           | "issue_not_in_progress"
           | "issue_execution_lock_changed"
           | "issue_review_participant_changed"
-          | "issue_continuation_waiting_on_review";
+          | "issue_continuation_waiting_on_review"
+          | "issue_budget_exceeded";
         details: Record<string, unknown>;
       };
+
+  /** Tokens que puede gastar una tarea en 14 días antes de pasar a una persona
+   *  (revisión 12/11: LMTM-6593 consumió 34 M y las de Esteban, más). */
+  const TOPE_TOKENS_POR_TAREA = 30_000_000;
 
   async function evaluateQueuedRunStaleness(
     run: typeof heartbeatRuns.$inferSelect,
@@ -6100,6 +6105,32 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     const resumeIntent = context.resumeIntent === true || context.followUpRequested === true;
     const wakeReason = readNonEmptyString(context.wakeReason);
     const retryReason = readNonEmptyString(context.retryReason) ?? run.scheduledRetryReason ?? null;
+
+    // Presupuesto por tarea: pasado el tope, no se despierta más al agente salvo
+    // que una persona comente (eso es un pedido explícito de seguir).
+    if (!wakeCommentId && issue.status !== "done" && issue.status !== "cancelled" && issue.status !== "blocked") {
+      const [gasto] = await db.select({
+        tokens: sql<string>`coalesce(sum(coalesce((${heartbeatRuns.usageJson}->>'inputTokens')::numeric,0) + coalesce((${heartbeatRuns.usageJson}->>'cachedInputTokens')::numeric,0) + coalesce((${heartbeatRuns.usageJson}->>'outputTokens')::numeric,0)),0)`,
+      }).from(heartbeatRuns).where(and(
+        sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${issueId}`,
+        sql`${heartbeatRuns.createdAt} > now() - interval '14 days'`,
+      ));
+      const tokens = Number(gasto?.tokens ?? 0);
+      if (tokens > TOPE_TOKENS_POR_TAREA) {
+        await db.update(issues).set({ status: "blocked", updatedAt: new Date() } as never).where(eq(issues.id, issueId));
+        await issuesSvc.addComment(
+          issueId,
+          `Frenada: esta tarea ya consumió ${Math.round(tokens / 1e6)} M de tokens en 14 días (tope ${TOPE_TOKENS_POR_TAREA / 1e6} M). La revisa una persona: si sigue, comentá qué hacer y el agente retoma.`,
+          {},
+        ).catch(() => {});
+        return {
+          stale: true,
+          errorCode: "issue_budget_exceeded",
+          reason: `Cancelled because the issue consumed ${Math.round(tokens / 1e6)}M tokens in 14 days (cap ${TOPE_TOKENS_POR_TAREA / 1e6}M)`,
+          details: { issueId, tokens },
+        };
+      }
+    }
 
     if (
       issue.status === "in_progress" &&
