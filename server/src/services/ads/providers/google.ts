@@ -227,6 +227,42 @@ function camelToSnakeDeep(v: unknown): unknown {
   return v;
 }
 
+/** Categorías de acción de conversión de Google que son una consulta real.
+ *  PURCHASE es venta; PAGE_VIEW, ENGAGEMENT, OUTBOUND_CLICK, DEFAULT, etc. no son leads. */
+export const CATEGORIAS_CONSULTA = new Set([
+  "SUBMIT_LEAD_FORM", "CONTACT", "PHONE_CALL_LEAD", "REQUEST_QUOTE", "BOOK_APPOINTMENT",
+  "IMPORTED_LEAD", "QUALIFIED_LEAD", "CONVERTED_LEAD", "SIGNUP", "LEAD", "GET_DIRECTIONS_LEAD",
+]);
+
+export interface DesgloseConversiones {
+  consultas: number;
+  /** nombre de la acción → { categoría, conversiones } */
+  acciones: Record<string, { categoria: string; n: number }>;
+}
+
+/** Agrupa las filas segmentadas por acción en `${fecha}|${campaña}`. Pura. */
+export function desglosarConversiones(filas: Array<Record<string, unknown>>): Map<string, DesgloseConversiones> {
+  const out = new Map<string, DesgloseConversiones>();
+  for (const row of filas) {
+    const seg = row.segments as Record<string, unknown> | undefined;
+    const camp = row.campaign as Record<string, unknown> | undefined;
+    const m = row.metrics as Record<string, unknown> | undefined;
+    const fecha = seg?.date as string | undefined;
+    if (!fecha) continue;
+    const n = num(m?.conversions) ?? 0;
+    if (n <= 0) continue;
+    const categoria = String(seg?.conversionActionCategory ?? seg?.conversion_action_category ?? "UNKNOWN");
+    const nombre = String(seg?.conversionActionName ?? seg?.conversion_action_name ?? categoria);
+    const clave = `${fecha}|${camp?.id ? String(camp.id) : ""}`;
+    const d = out.get(clave) ?? { consultas: 0, acciones: {} };
+    if (CATEGORIAS_CONSULTA.has(categoria)) d.consultas += n;
+    const previa = d.acciones[nombre];
+    d.acciones[nombre] = { categoria, n: (previa?.n ?? 0) + n };
+    out.set(clave, d);
+  }
+  return out;
+}
+
 export async function searchStream(
   connection: AdsConnection,
   customerId: string,
@@ -457,6 +493,23 @@ export const googleAdsProvider: AdsProvider = {
       WHERE segments.date BETWEEN '${sinceStr}' AND '${untilStr}'
     `.trim();
     const rows = await searchStream(connection, cid, query);
+    // Conversiones por tipo (12/11): `metrics.conversions` suma TODAS las acciones
+    // principales de la cuenta (vistas de página, clics en botones…). En MA
+    // PROPIEDADES eso daba 68% de los clics "convirtiendo". Solo las categorías de
+    // consulta cuentan como lead. Va aparte porque segmentar por acción no admite
+    // costo ni clics en la misma fila.
+    let porTipo: Map<string, DesgloseConversiones> | null = null;
+    try {
+      const filasTipo = await searchStream(connection, cid, `
+        SELECT segments.date, campaign.id, segments.conversion_action_category,
+               segments.conversion_action_name, metrics.conversions
+        FROM campaign
+        WHERE segments.date BETWEEN '${sinceStr}' AND '${untilStr}' AND metrics.conversions > 0
+      `.trim());
+      porTipo = desglosarConversiones(filasTipo);
+    } catch (e) {
+      console.warn(`[google] desglose de conversiones falló (${cid}):`, e instanceof Error ? e.message.slice(0, 200) : e);
+    }
     return rows
       .map((row) => {
         const m = row.metrics as Record<string, unknown> | undefined;
@@ -466,6 +519,7 @@ export const googleAdsProvider: AdsProvider = {
         if (!m || !seg) return null;
         const dateStr = seg.date as string | undefined;
         if (!dateStr) return null;
+        const desglose = porTipo ? porTipo.get(`${dateStr}|${camp?.id ? String(camp.id) : ""}`) ?? { consultas: 0, acciones: {} } : null;
         return {
           date: new Date(`${dateStr}T00:00:00Z`),
           campaignId: camp?.id ? String(camp.id) : undefined,
@@ -483,12 +537,13 @@ export const googleAdsProvider: AdsProvider = {
           // Google reparte conversiones fraccionarias (193.12) por atribución
           // — la columna es INTEGER, así que redondeamos (22P02 visto 23/7).
           conversions: Math.round(num(m.conversions) ?? 0),
-          // En Google el "lead" es la conversión (formulario/llamada/WhatsApp)
-          // — así el CPL del panel compara peras con peras contra Meta.
-          leads: Math.round(num(m.conversions) ?? 0),
+          // Lead = solo las conversiones de tipo consulta (formulario, llamada,
+          // contacto, cotización, turno). Si el desglose falló, queda el total
+          // como antes y `raw.leadsSinDesglose` lo marca.
+          leads: desglose ? Math.round(desglose.consultas) : Math.round(num(m.conversions) ?? 0),
           conversionValue: num(m.conversions_value),
           videoViews: intNum(m.video_views),
-          raw: row,
+          raw: desglose ? { ...row, conversionesPorAccion: desglose.acciones } : { ...row, leadsSinDesglose: true },
         } as NormalizedInsight;
       })
       .filter((x): x is NormalizedInsight => x !== null);

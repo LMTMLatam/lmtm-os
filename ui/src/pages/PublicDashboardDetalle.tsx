@@ -86,26 +86,27 @@ interface TimeseriesPoint {
 interface FunnelData {
   impressions: number;
   clicks: number;
-  landingVisits: number;
-  leads: number;
+  /** null = no hay consultas confiables (Google marca como conversión acciones que no lo son). */
+  leads: number | null;
+  /** Ventas reales (Meta con seguimiento de compras); 0 si no se miden. */
   conversions: number;
+  ventas: number | null;
   spend: number;
   revenue: number;
   reach: number;
   rates: {
     ctr: number;
-    clickToLanding: number;
-    landingToLead: number;
-    clickToLead: number;
-    leadToSale: number;
-    clickToSale: number;
+    clickToLead: number | null;
+    leadToSale: number | null;
+    clickToSale: number | null;
   };
   cpls: {
     cpc: number;
-    cpl: number;
-    cpa: number;
-    roas: number;
+    cpl: number | null;
+    cpa: number | null;
+    roas: number | null;
   };
+  medicion?: { plataformasSinConsultasConfiables: string[]; nota: string | null };
 }
 interface Campaign {
   id: string;
@@ -1314,26 +1315,29 @@ function PostsPublic({ posts, fmt }: { posts: OrganicPost[]; fmt: any }) {
 
 function LeadsPublic({ funnel, prevFunnel, fmt }: { funnel?: FunnelData; prevFunnel?: FunnelData; fmt: any }) {
   if (!funnel) return <Skeleton className="h-64 w-full" />;
+  // null = no se puede medir: no va al embudo ni se muestra como 0.
   const stages = [
     { label: "Impresiones", value: funnel.impressions },
     { label: "Clics", value: funnel.clicks },
     { label: "Leads", value: funnel.leads },
-    { label: "Ventas", value: funnel.conversions },
-  ].filter((s) => s.value > 0 || s.label !== "Ventas");
+    { label: "Ventas", value: funnel.ventas },
+  ].filter((s): s is { label: string; value: number } => s.value != null && (s.value > 0 || s.label !== "Ventas"));
+  const pct = (v: number | null) => (v == null ? "—" : fmt.fmtPct(v, 2));
   return (
     <div className="space-y-4">
       <Card className="p-4">
         <h3 className="text-sm font-semibold mb-4">Embudo de conversión</h3>
         <FunnelViz stages={stages} fmtValue={(n) => fmt.fmtInt(n)} />
+        {funnel.medicion?.nota && <p className="mt-3 text-xs text-muted-foreground">{funnel.medicion.nota}</p>}
       </Card>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi title="CTR" value={fmt.fmtPct(funnel.rates.ctr, 2)} icon={MousePointerClick} accent="blue"
           delta={<Delta curr={funnel.rates.ctr} prev={prevFunnel?.rates?.ctr ?? 0} goodWhen="up" />} />
-        <Kpi title="Clic → Lead" value={fmt.fmtPct(funnel.rates.clickToLead, 2)} icon={Target} accent="violet" />
-        <Kpi title="Lead → Venta" value={fmt.fmtPct(funnel.rates.leadToSale, 2)} icon={Target} accent="green" />
-        <Kpi title="CPL" value={funnel.cpls.cpl > 0 ? fmt.fmtMoney(funnel.cpls.cpl) : "—"} icon={DollarSign} accent="amber"
-          delta={<Delta curr={funnel.cpls.cpl} prev={prevFunnel?.cpls?.cpl ?? 0} goodWhen="down" />}
-          sub={funnel.cpls.cpa > 0 ? `CPA ${fmt.fmtMoney(funnel.cpls.cpa)}` : undefined} />
+        <Kpi title="Clic → Lead" value={pct(funnel.rates.clickToLead)} icon={Target} accent="violet" />
+        <Kpi title="Lead → Venta" value={pct(funnel.rates.leadToSale)} icon={Target} accent="green" />
+        <Kpi title="CPL" value={funnel.cpls.cpl ? fmt.fmtMoney(funnel.cpls.cpl) : "—"} icon={DollarSign} accent="amber"
+          delta={funnel.cpls.cpl != null && prevFunnel?.cpls?.cpl != null ? <Delta curr={funnel.cpls.cpl} prev={prevFunnel.cpls.cpl} goodWhen="down" /> : undefined}
+          sub={funnel.cpls.cpa ? `CPA ${fmt.fmtMoney(funnel.cpls.cpa)}` : undefined} />
       </div>
     </div>
   );

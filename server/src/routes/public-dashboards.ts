@@ -153,14 +153,18 @@ export function publicDashboardRoutes(db: Db): Router {
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
       const { since, until } = windowOf(req);
       const platform = platformOf(req);
-      const [agg] = await db
+      // Por plataforma, para no sumar consultas que no son consultas (12/11: MA
+      // PROPIEDADES mostraba 8.812 en 30 días; 8.541 eran conversiones de Google
+      // que no eran consultas). Ventas solo de Meta y solo con seguimiento real
+      // de compras (metricasCliente); las «conversiones» de Google no son ventas.
+      const porPlat = await db
         .select({
+          platform: adsInsights.platform,
           impressions: sql<number>`coalesce(sum(${adsInsights.impressions}),0)::int`,
           clicks: sql<number>`coalesce(sum(${adsInsights.clicks}),0)::int`,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0::numeric)`,
           leads: sql<number>`coalesce(sum(${adsInsights.leads}),0)::int`,
-          conversions: sql<number>`coalesce(sum(${adsInsights.conversions}),0)::int`,
-          conversionValue: sql<string>`coalesce(sum(${adsInsights.conversionValue})::numeric, 0::numeric)`,
+          conversionValue: sql<string>`coalesce(sum(${adsInsights.conversionValue}) filter (where ${adsInsights.platform} = 'meta')::numeric, 0::numeric)`,
           reach: sql<number>`coalesce(sum(${adsInsights.reach}),0)::int`,
         })
         .from(adsInsights)
@@ -169,33 +173,45 @@ export function publicDashboardRoutes(db: Db): Router {
           gte(adsInsights.date, since),
           lte(adsInsights.date, until),
           ...(platform ? [eq(adsInsights.platform, platform)] : []),
-        ));
-      const impressions = Number(agg?.impressions ?? 0);
-      const clicks = Number(agg?.clicks ?? 0);
-      const leads = Number(agg?.leads ?? 0);
-      const conversions = Number(agg?.conversions ?? 0);
-      const spend = Number(agg?.spend ?? 0);
-      const revenue = Number(agg?.conversionValue ?? 0);
-      const landingVisits = Math.round(clicks * 0.6);
+        ))
+        .groupBy(adsInsights.platform);
+      const { conversionesDudosas, metricasCliente } = await import("../metricas/index.js");
+      const m = await metricasCliente(db, r.client.id, { desde: since, hasta: until, ...(platform ? { plataforma: platform } : {}) });
+      const sum = (k: "impressions" | "clicks" | "spend" | "reach" | "conversionValue") => porPlat.reduce((s, p) => s + Number(p[k] ?? 0), 0);
+      const dudosas = porPlat.filter((p) => conversionesDudosas(String(p.platform), Number(p.leads), Number(p.clicks))).map((p) => String(p.platform));
+      const confiables = porPlat.filter((p) => !dudosas.includes(String(p.platform)));
+      const impressions = sum("impressions");
+      const clicks = sum("clicks");
+      const spend = sum("spend");
+      const revenue = sum("conversionValue");
+      // Si todas las plataformas pedidas son dudosas, no hay número de consultas: null.
+      const leads = confiables.length ? confiables.reduce((s, p) => s + Number(p.leads ?? 0), 0) : null;
+      const clicksConfiables = confiables.reduce((s, p) => s + Number(p.clicks ?? 0), 0);
+      const spendConfiable = confiables.reduce((s, p) => s + Number(p.spend ?? 0), 0);
+      const ventas = m.ventas;
       res.json({
         client: { id: r.client.id, slug: r.client.slug, name: r.client.name, currency: r.client.currency },
         since, until,
         funnel: {
-          impressions, clicks, landingVisits, leads, conversions, spend, revenue,
-          reach: Number(agg?.reach ?? 0),
+          impressions, clicks, leads, conversions: ventas ?? 0, ventas, spend, revenue,
+          reach: sum("reach"),
           rates: {
             ctr: impressions > 0 ? clicks / impressions : 0,
-            clickToLanding: clicks > 0 ? landingVisits / clicks : 0,
-            landingToLead: landingVisits > 0 ? leads / landingVisits : 0,
-            clickToLead: clicks > 0 ? leads / clicks : 0,
-            leadToSale: leads > 0 ? conversions / leads : 0,
-            clickToSale: clicks > 0 ? conversions / clicks : 0,
+            clickToLead: leads != null && clicksConfiables > 0 ? leads / clicksConfiables : null,
+            leadToSale: ventas != null && leads ? ventas / leads : null,
+            clickToSale: ventas != null && clicks > 0 ? ventas / clicks : null,
           },
           cpls: {
             cpc: clicks > 0 ? spend / clicks : 0,
-            cpl: leads > 0 ? spend / leads : 0,
-            cpa: conversions > 0 ? spend / conversions : 0,
-            roas: spend > 0 ? revenue / spend : 0,
+            cpl: leads ? spendConfiable / leads : null,
+            cpa: ventas ? spend / ventas : null,
+            roas: ventas != null && spend > 0 ? revenue / spend : null,
+          },
+          medicion: {
+            plataformasSinConsultasConfiables: dudosas,
+            nota: dudosas.length
+              ? "En Google la cuenta marca como conversión acciones que no son consultas: esas no se cuentan hasta corregir la medición."
+              : null,
           },
         },
       });

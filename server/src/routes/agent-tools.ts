@@ -18,7 +18,7 @@ import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import { clients, competitors, accountScores, organicPosts, adsAccountMappings, adsInsights, adsAlerts, learnings, agentDeliverables, hooks, issues, agents, trends, nicheReports, webPropiedades } from "@paperclipai/db";
 import { isNotNull, isNull, ne } from "drizzle-orm";
-import { desc, eq, and, gte, or, inArray, sql } from "drizzle-orm";
+import { desc, eq, and, gte, lte, or, inArray, sql } from "drizzle-orm";
 import { issueService } from "../services/issues.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { getBrainContext, upsertMemory, type MemoryKind } from "../services/customer-brain.js";
@@ -2311,22 +2311,41 @@ export function agentToolsRoutes(
       }
 
       if (tool === "portfolio_snapshot") {
+        // 12/11: daba 5.342 leads en 7 días y el 82% eran conversiones de Google que
+        // no eran consultas; además sumaba dólares con pesos e incluía el día de hoy.
+        const { conversionesDudosas, cuentaEnPesos, clientesEnOtraMoneda } = await import("../metricas/index.js");
         const since7 = dayStr(new Date(Date.now() - 7 * 86_400_000));
-        const [totals] = await db.select({
+        const hasta = dayStr(new Date(Date.now() - 86_400_000));
+        const porCliente = await db.select({
+          clientId: adsInsights.clientId,
+          platform: adsInsights.platform,
           spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric, 0)`,
           leads: sql<number>`coalesce(sum(${adsInsights.leads}), 0)::int`,
-          clientsWithData: sql<number>`count(distinct ${adsInsights.clientId})::int`,
-        }).from(adsInsights).where(gte(adsInsights.date, since7));
+          clicks: sql<number>`coalesce(sum(${adsInsights.clicks}), 0)::int`,
+        }).from(adsInsights)
+          .where(and(gte(adsInsights.date, since7), lte(adsInsights.date, hasta), cuentaEnPesos(adsInsights.adAccountId)))
+          .groupBy(adsInsights.clientId, adsInsights.platform);
+        const dudosos = porCliente.filter((p) => conversionesDudosas(p.platform, Number(p.leads), Number(p.clicks)));
+        const nombres = new Map((await db.select({ id: clients.id, name: clients.name }).from(clients)).map((c) => [c.id, c.name]));
+        const otraMoneda = await clientesEnOtraMoneda(db);
+        const totals = {
+          spend: porCliente.reduce((s, p) => s + Number(p.spend), 0),
+          leads: porCliente.filter((p) => !dudosos.includes(p)).reduce((s, p) => s + Number(p.leads), 0),
+          clientsWithData: new Set(porCliente.map((p) => p.clientId)).size,
+        };
         const [active] = await db.select({ n: sql<number>`count(*)::int` })
           .from(clients).where(eq(clients.status, "active"));
         const [alerting] = await db.select({ n: sql<number>`count(distinct ${adsAlerts.clientId})::int` })
           .from(adsAlerts).where(inArray(adsAlerts.status, ["pending", "acknowledged"]));
         return reply(true, JSON.stringify({
           windowDays: 7,
+          hasta,
           activeClients: Number(active?.n ?? 0),
-          clientsWithAdsData: Number(totals?.clientsWithData ?? 0),
-          totalSpend: Math.round(Number(totals?.spend ?? 0)),
-          totalLeads: Number(totals?.leads ?? 0),
+          clientsWithAdsData: totals.clientsWithData,
+          totalSpend: Math.round(totals.spend),
+          totalLeads: totals.leads,
+          leadsFueraDelTotal: dudosos.map((p) => `${nombres.get(p.clientId ?? "") ?? p.clientId} (${p.platform}: ${p.leads} conversiones que no son consultas)`),
+          clientesEnOtraMoneda: [...otraMoneda.keys()].map((id) => `${nombres.get(id) ?? id} (${otraMoneda.get(id)}, fuera del total)`),
           clientsWithOpenAlerts: Number(alerting?.n ?? 0),
           note: "Si tu cliente cayó pero el agregado está estable, el problema es de ESE cliente. Si cayó todo, es sistémico (verificá antes de escalar por cliente).",
         }));
