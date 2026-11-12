@@ -56,6 +56,10 @@ type ToolDef = {
 
 /** Con este número de tareas abiertas de agentes en un cliente, no se delegan más. */
 const TOPE_TAREAS_POR_CLIENTE = 12;
+/** delegate_to_agent (12/11): las tareas abiertas crecían ~44 por día. 40 es donde
+ *  ya arranca el rebalanceo de issue-router; 20 deja trabajar a quien delega. */
+const TOPE_COLA_DESTINO = 40;
+const TOPE_DELEGADAS_POR_AGENTE = 20;
 
 const CORE_TOOLS: ToolDef[] = [
   {
@@ -3076,7 +3080,18 @@ export function agentToolsRoutes(
         const matches = roster.filter((a) => a.name.toLowerCase().includes(q) || a.name.toLowerCase().split(/[\s(]+/)[0] === q);
         if (matches.length === 0) return reply(false, `No encontré al agente "${agentName}". Roster: ${roster.map((a) => a.name).join(", ")}.`);
         if (matches.length > 1) return reply(false, `"${agentName}" es ambiguo: ${matches.map((a) => a.name).join(", ")}. Usá el nombre completo.`);
-        const target = matches[0];
+        let target = matches[0];
+        // Pablo es el dueño del triage: el barrido de issue-router le saca cada 30 min
+        // lo que recibe y se lo pasa al especialista. 35 de 37 delegaciones a Pablo
+        // terminaron en Milo/Esteban mientras el comentario decía «Delegué a Pablo»
+        // (control 12/11). Se resuelve acá, y el comentario nombra al que queda.
+        const { resolveTriageOwnerId } = await import("../services/client-tasks.js");
+        if (target.id === (await resolveTriageOwnerId(db, ctx.companyId))) {
+          const { routeNewIssue } = await import("../services/issue-router.js");
+          const ruteado = await routeNewIssue(db, ctx.companyId, `${title}\n${detail}`);
+          const real = ruteado ? roster.find((a) => a.id === ruteado) : undefined;
+          if (real) target = real;
+        }
         if (target.id === ctx.agentId) return reply(false, "No podés delegarte trabajo a vos mismo — resolvelo o elegí a otro especialista.");
         const [me] = ctx.agentId
           ? await db.select({ name: agents.name }).from(agents).where(eq(agents.id, ctx.agentId)).limit(1)
@@ -3092,6 +3107,23 @@ export function agentToolsRoutes(
         const clientId = typeof params.clientId === "string" && params.clientId ? params.clientId : null;
         // El 04/11, DUNOD y Hiper tenían más de 30 tareas abiertas cada uno, muchas
         // recordando lo mismo. Con la cola llena, otra tarea no destraba nada.
+        // Sin cliente el tope de arriba no aplicaba: 68 de 200 delegaciones lo
+        // esquivaban (control 12/11). Tope por quien delega y por quien recibe.
+        const abiertasDe = async (cond: ReturnType<typeof eq>) => {
+          const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(issues)
+            .where(and(cond, sql`${issues.status} in ('todo','in_progress','blocked','backlog')`, sql`${issues.title} not like '[HUMANO]%'`));
+          return r?.n ?? 0;
+        };
+        if (ctx.agentId) {
+          const mias = await abiertasDe(and(eq(issues.createdByAgentId, ctx.agentId), eq(issues.originKind, "agent_delegated")) as never);
+          if (mias >= TOPE_DELEGADAS_POR_AGENTE) {
+            return reply(false, `No se creó: ya tenés ${mias} delegaciones abiertas. Esperá a que se resuelvan o dejalo escrito en tu tarea.`);
+          }
+        }
+        const carga = await abiertasDe(eq(issues.assigneeAgentId, target.id) as never);
+        if (carga >= TOPE_COLA_DESTINO) {
+          return reply(false, `No se creó: ${target.name} ya tiene ${carga} tareas abiertas. Otra tarea no destraba nada: resolvelo con lo que tengas o dejalo escrito en tu tarea.`);
+        }
         if (clientId) {
           const abiertas = await db.select({ identifier: issues.identifier, title: issues.title }).from(issues)
             .where(and(

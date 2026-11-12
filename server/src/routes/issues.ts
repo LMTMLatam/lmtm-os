@@ -2578,6 +2578,13 @@ export function issueRoutes(
     } = req.body;
     const shouldCancelActiveRunForCancelledStatus =
       existing.status !== "cancelled" && updateFields.status === "cancelled";
+    if (req.actor.type === "agent" && typeof commentBody === "string") {
+      const { NON_LATIN_RE } = await import("../services/entrega-checks.js");
+      if (NON_LATIN_RE.test(commentBody)) {
+        res.status(422).json({ error: "NO se guardó: el comentario tiene caracteres de otro alfabeto. Reescribilo en español y volvé a mandarlo." });
+        return;
+      }
+    }
     if (resumeRequested === true && !commentBody) {
       res.status(400).json({ error: "Follow-up intent requires a comment" });
       return;
@@ -4140,6 +4147,16 @@ export function issueRoutes(
     }
 
     const actor = getActorInfo(req);
+    // MiniMax mete tokens de otros alfabetos a mitad de frase («después de这两个
+    // bloqueos»): 30 de 461 comentarios de agentes (control del 12/11). Mismo filtro
+    // que la memoria y las lecciones.
+    if (req.actor.type === "agent" && typeof req.body.body === "string") {
+      const { NON_LATIN_RE } = await import("../services/entrega-checks.js");
+      if (NON_LATIN_RE.test(req.body.body)) {
+        res.status(422).json({ error: "NO se guardó el comentario: tiene caracteres de otro alfabeto. Reescribilo en español y volvé a mandarlo." });
+        return;
+      }
+    }
     const reopenRequested = req.body.reopen === true;
     const resumeRequested = req.body.resume === true;
     const interruptRequested = req.body.interrupt === true;
