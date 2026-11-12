@@ -15,9 +15,10 @@ describe("desglosarConversiones", () => {
       fila("2026-11-10", "1", "PHONE_CALL_LEAD", "Llamada", 1),
       fila("2026-11-10", "1", "ENGAGEMENT", "Clic WhatsApp flotante", 40),
       fila("2026-11-10", "2", "PURCHASE", "Compra", 2),
+      fila("2026-11-10", "2", "MESSAGE_LEAD", "Conversation started", 1),
     ]);
     expect(m.get("2026-11-10|1")?.consultas).toBe(4.5);
-    expect(m.get("2026-11-10|2")?.consultas).toBe(0);
+    expect(m.get("2026-11-10|2")?.consultas).toBe(1);
     expect(m.get("2026-11-10|1")?.acciones["Visita a /propiedades"]).toEqual({ categoria: "PAGE_VIEW", n: 120 });
   });
 

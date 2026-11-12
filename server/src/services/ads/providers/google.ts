@@ -232,6 +232,8 @@ function camelToSnakeDeep(v: unknown): unknown {
 export const CATEGORIAS_CONSULTA = new Set([
   "SUBMIT_LEAD_FORM", "CONTACT", "PHONE_CALL_LEAD", "REQUEST_QUOTE", "BOOK_APPOINTMENT",
   "IMPORTED_LEAD", "QUALIFIED_LEAD", "CONVERTED_LEAD", "SIGNUP", "LEAD", "GET_DIRECTIONS_LEAD",
+  // Conversación iniciada (WhatsApp/mensajes): en MA PROPIEDADES, «Conversation started».
+  "MESSAGE_LEAD",
 ]);
 
 export interface DesgloseConversiones {
