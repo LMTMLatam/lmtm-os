@@ -1468,6 +1468,24 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_web_contenido", parameters: p } }),
     ),
     makeTool(
+      "lmtmCambioCodigo",
+      "CÓDIGO del CRM propio (repo crm) o de LMTM-OS (repo lmtm-os). Es el ÚNICO camino para cambiar código: no hay SSH, ni escritura en /app, ni base directa. accion=leer: un archivo (ruta, desde, lineas) o búsqueda (buscar). accion=proponer: diff unificado + justificacion (qué arregla, por qué, riesgo) + prueba opcional (comando) + revertir; valida que aplique y deja una aprobación que se aplica SOLO cuando una persona la aprueba. Después de proponer: nombrá la aprobación en la tarea, pasala a in_review y pará. issueId = tu tarea.",
+      z.object({
+        accion: z.enum(["leer", "proponer"]),
+        repo: z.enum(["crm", "lmtm-os"]),
+        ruta: z.string().optional(),
+        buscar: z.string().optional(),
+        desde: z.number().int().min(1).optional(),
+        lineas: z.number().int().min(1).max(400).optional(),
+        diff: z.string().optional(),
+        justificacion: z.string().optional(),
+        prueba: z.string().optional(),
+        revertir: z.string().optional(),
+        issueId: z.string().optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "cambio_codigo", parameters: p } }),
+    ),
+    makeTool(
       "lmtmCambioWeb",
       "PROPONE un cambio en la web del cliente en Hostinger; se ejecuta solo cuando una persona lo aprueba. accion: actualizar_plugins (plugins), actualizar_temas (temas), desactivar_plugin (plugin), actualizar_wordpress (soloMenor), instalar_ssl, forzar_https, crear_redireccion (desde, hacia), purgar_cache, version_php (version), quitar_spam (postId o menuItemId), reemplazar_texto (postId, buscar, reemplazar), bajar_administrador (userId). justificacion obligatoria: vulnerabilidad o problema, qué se arregla y qué riesgo tiene.",
       z.object({

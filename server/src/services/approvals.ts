@@ -9,6 +9,7 @@ import { notifyHireApproved } from "./hire-hook.js";
 import { instanceSettingsService } from "./instance-settings.js";
 import { ejecutarAccionAprobada, esAccionPauta, TIPO_ACCION_PAUTA } from "./ads-propuestas.js";
 import { ejecutarCambioWeb, esAccionWeb, TIPO_ACCION_WEB } from "./hostinger.js";
+import { ejecutarCambioCodigo, esAccionCodigo, TIPO_ACCION_CODIGO } from "./cambio-codigo.js";
 
 export function approvalService(db: Db) {
   const agentsSvc = agentService(db);
@@ -119,13 +120,16 @@ export function approvalService(db: Db) {
       // El resultado se guarda en el propio payload: si la plataforma rechaza el
       // cambio, la aprobación queda aprobada igual (la persona dijo que sí) pero
       // con el motivo a la vista, en vez de aparentar que se hizo.
-      if (applied && (updated.type === TIPO_ACCION_PAUTA || updated.type === TIPO_ACCION_WEB)) {
-        // Cambio en la web del cliente (Hostinger, 08/11/26): mismo camino que la pauta.
+      if (applied && (updated.type === TIPO_ACCION_PAUTA || updated.type === TIPO_ACCION_WEB || updated.type === TIPO_ACCION_CODIGO)) {
+        // Cambio en la web del cliente (Hostinger, 08/11/26) y cambio de código
+        // (12/11, cambio-codigo.ts): mismo camino que la pauta.
         const r = esAccionPauta(updated.payload)
           ? await ejecutarAccionAprobada(db, updated.payload, updated.requestedByAgentId ?? null)
           : esAccionWeb(updated.payload)
             ? await ejecutarCambioWeb(db, updated.payload, updated.requestedByAgentId ?? null)
-            : null;
+            : updated.type === TIPO_ACCION_CODIGO && esAccionCodigo(updated.payload)
+              ? await ejecutarCambioCodigo(updated.payload)
+              : null;
         if (r) {
           const conResultado = {
             ...updated.payload,

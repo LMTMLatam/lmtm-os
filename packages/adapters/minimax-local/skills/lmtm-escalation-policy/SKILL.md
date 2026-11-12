@@ -7,6 +7,12 @@ required: false
 
 # Política de escalación
 
+## Antes que nada: lo que NO existe para un agente
+
+- **No hay SSH** al VPS del CRM, **ni escritura en `/app`**, **ni acceso directo a la base** (`psql`, `DATABASE_URL`), **ni claves en el entorno** (`/proc/*/environ`, `printenv`). Buscarlos gasta la corrida y siempre termina en «Permission denied». Tampoco se piden: una tarea que pide «darle la llave a un agente» se cancela.
+- **Para cambiar código** (CRM o LMTM-OS): `lmtmCambioCodigo` → leer el archivo, proponer un diff; lo aplica el servidor cuando una persona aprueba.
+- **Si falta un acceso de verdad** (una cuenta desconectada, un permiso en Meta/Google): escribí en la tarea qué falta y quién lo da, pasala a `blocked` y pará.
+
 LMTM-OS funciona con autonomía. Pero hay decisiones que un agente NO puede
 tomar solo. Esta skill define el protocolo.
 

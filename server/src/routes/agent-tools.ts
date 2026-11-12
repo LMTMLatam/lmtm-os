@@ -314,6 +314,30 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "cambio_codigo",
+      description:
+        "CÓDIGO del CRM propio (repo crm, en el VPS) o de LMTM-OS (repo lmtm-os). Es el ÚNICO camino para cambiar código: no existe SSH, ni escritura en /app, ni base directa. accion=leer: muestra un archivo (ruta, desde, lineas) o busca un texto (buscar). accion=proponer: recibe un diff unificado (diff), la justificacion (qué arregla, por qué, riesgo), la prueba (comando que confirma que anda, opcional) y cómo revertir; valida que aplique y deja una aprobación: se aplica SOLO cuando una persona la aprueba. Después de proponer, pasá la tarea a in_review y pará. Nunca toca .env, llaves ni secretos.",
+      parameters: {
+        type: "object",
+        properties: {
+          accion: { type: "string", enum: ["leer", "proponer"] },
+          repo: { type: "string", enum: ["crm", "lmtm-os"] },
+          ruta: { type: "string" },
+          buscar: { type: "string" },
+          desde: { type: "number" },
+          lineas: { type: "number" },
+          diff: { type: "string" },
+          justificacion: { type: "string" },
+          prueba: { type: "string" },
+          revertir: { type: "string" },
+        },
+        required: ["accion", "repo"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "proponer_cambio_web",
       description:
         "PROPONE un cambio en la web del cliente en Hostinger. NO lo ejecuta: deja una aprobación con el cambio exacto y se ejecuta solo cuando una persona la aprueba (actualizar un plugin puede tirar la web). Acciones: actualizar_plugins (plugins: slugs), actualizar_temas (temas: slugs), desactivar_plugin (plugin), actualizar_wordpress (soloMenor: true por defecto), instalar_ssl, forzar_https, crear_redireccion (desde, hacia), purgar_cache, version_php (version, ej. \"8.3\"); y de CONTENIDO: quitar_spam (postId o menuItemId: saca solo los bloques ocultos con enlaces ajenos; un ítem de menú se borra solo si ES el spam) y reemplazar_texto (postId, buscar: texto exacto, reemplazar: nuevo o vacío) y bajar_administrador (userId: pasa a suscriptor un administrador sospechoso, por ejemplo uno creado hace poco con un mail ajeno; nunca el único). Los slugs salen de get_web_hosting; postId/menuItemId de get_web_contenido. `justificacion` es lo que lee quien aprueba: vulnerabilidad, versión, qué se arregla y qué riesgo tiene.",
@@ -1636,6 +1660,35 @@ export function agentToolsRoutes(
         if (!justificacion) return reply(false, "Falta `justificacion`: es lo que lee la persona que aprueba.");
         const r = await h.proponerCambioWeb(db, { companyId: ctx.companyId, agentId: ctx.agentId || null, clientId, dominio, justificacion, accion });
         return reply(r.ok, r.mensaje);
+      }
+
+      if (tool === "cambio_codigo") {
+        const repo = params.repo === "crm" || params.repo === "lmtm-os" ? params.repo : null;
+        if (!repo) return reply(false, "Falta `repo`: crm o lmtm-os.");
+        const cc = await import("../services/cambio-codigo.js");
+        if (params.accion === "leer") {
+          const r = await cc.leerCodigo(repo, {
+            ruta: textoDe(params.ruta) || undefined,
+            buscar: textoDe(params.buscar) || undefined,
+            desde: Number(params.desde) || undefined,
+            lineas: Number(params.lineas) || undefined,
+          });
+          return reply(r.ok, r.texto.slice(0, 20000));
+        }
+        if (params.accion === "proponer") {
+          const r = await cc.proponerCambioCodigo(db, {
+            companyId: ctx.companyId,
+            agentId: ctx.agentId || null,
+            issueId: issueRef || null,
+            repo,
+            diff: typeof params.diff === "string" ? params.diff : "",
+            justificacion: textoDe(params.justificacion),
+            prueba: textoDe(params.prueba) || undefined,
+            revertir: textoDe(params.revertir) || undefined,
+          });
+          return reply(r.ok, r.mensaje);
+        }
+        return reply(false, "`accion` tiene que ser leer o proponer.");
       }
 
       if (tool === "get_rendimiento_web") {
