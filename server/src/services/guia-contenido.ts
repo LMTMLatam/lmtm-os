@@ -746,6 +746,7 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
       "2. 9:16: recortá cada plano a 608×1080 y escalá a 1080×1920 (lanczos). Evitá planos con logos o textos ajenos sobreimpresos.",
       "3. Guion de 25–40 s: gancho en los primeros 2 s, 3–4 frases con el diferencial, cierre con frase de marca y llamado (web o WhatsApp). Solo datos de esta guía.",
       "4. Voz: lmtmVideoVoz (español rioplatense), una frase por llamada; tiempos con lmtmVideoTranscribir. Música baja, tallada debajo de la voz.",
+      "   Lo que el material no tenga: un clip con lmtmVideoPlano (Seedance, primer cuadro = un link de arriba) o una imagen con lmtmContenidoImagen; música con lmtmVideoMusica. Todo generado pasa por LMTM, nunca por otros conectores de generación. Desde una PC: archivo bajo equipo/<cliente>/<pieza>/, lmtmVideoEstado hasta que termine y lmtmVideoLink + curl para bajarlo.",
       "5. Subtítulos palabra por palabra (la mayoría mira sin sonido) y placa final con logo, frase y llamado. `npx hyperframes check` antes de renderizar (skill lmtm-video).",
       "Sin terminal (claude.ai): pedile la pieza al agente «Productor de contenido» (issue asignado o la etiqueta «generar contenido» en ClickUp). La arma con este mismo material.",
     );

@@ -124,6 +124,27 @@ type Resultado = { ok: boolean; content: string };
 const ok = (content: string): Resultado => ({ ok: true, content });
 const mal = (content: string): Resultado => ({ ok: false, content });
 
+/**
+ * Lo que genera Claude desde una PC del equipo (13/11: «uno del equipo quiso
+ * hacer un video y no usó el conector LMTM como intermediario») va acá: no
+ * puede leer ni pisar los proyectos del Productor.
+ */
+export const CARPETA_EQUIPO = path.join(RAIZ, "equipo");
+
+/** Puro: si el conector del equipo pide una ruta fuera de su carpeta, el motivo; si no, null. */
+export function fueraDeEquipo(p: Record<string, unknown>): string | null {
+  for (const k of ["archivo", "imagen", "proyecto", "carpeta"]) {
+    const v = p[k];
+    if (v == null || v === "") continue;
+    if (k === "imagen" && typeof v === "string" && /^https:\/\//i.test(v.trim())) continue;
+    const abs = rutaSegura(v);
+    if (!abs || !abs.startsWith(CARPETA_EQUIPO + path.sep)) {
+      return `Desde el conector del equipo, «${k}» va bajo equipo/ (ej.: equipo/<cliente>/<pieza>/clip-1.mp4). Después bajalo con video_link.`;
+    }
+  }
+  return null;
+}
+
 /** Ruta absoluta bajo RAIZ, o null si se sale (`..`, otra raíz, vacía). */
 export function rutaSegura(p: unknown): string | null {
   if (typeof p !== "string" || !p.trim()) return null;
@@ -423,6 +444,9 @@ export const VIDEO_TOOLS: ToolDef[] = [
     tipo: { type: "string", enum: ["foto", "video", "todo"] },
     cantidad: { type: "number", description: "Máximo de archivos de una carpeta (por defecto 20)." },
   }, ["ruta", "carpeta"]),
+  def("video_link", "LINK de descarga (vence en 6 h) de UN archivo generado en el servidor: clip, voz, música o imagen. Sirve para bajarlo a la PC (curl.exe -L --fail -o). Pedilo cuando video_estado diga que terminó.", {
+    archivo: ARCHIVO,
+  }, ["archivo"]),
   def("nas_link", "LINK de descarga de UN archivo del NAS de LMTM, que vence en 6 h. Sirve para bajarlo fuera del servidor (curl -o, el navegador). Solo lectura.", {
     ruta: { type: "string", description: "Archivo del NAS (de nas_listar)." },
   }, ["ruta"]),
@@ -793,6 +817,20 @@ export async function ejecutarHerramientaVideo(
       if (!txt(p.pedido)) return mal("falta el pedido");
       const r = await encargarAlProductor(db, { companyId: ctx.companyId, clientId: c.id, clienteNombre: c.name, pedido: txt(p.pedido).slice(0, 4000) });
       return r.ok ? ok(r.mensaje) : mal(r.mensaje);
+    }
+
+    if (tool === "video_link") {
+      const archivo = rutaSegura(p.archivo);
+      if (!archivo || !fs.existsSync(archivo) || !fs.statSync(archivo).isFile()) {
+        return mal(`No existe ese archivo bajo ${RAIZ}/. Si lo pediste recién, esperá a que video_estado diga que terminó. Un deploy del servidor borra lo generado que no se bajó: en ese caso hay que pedirlo de nuevo.`);
+      }
+      const { firmarLinkArchivo } = await import("./nas.js");
+      const f = firmarLinkArchivo(archivo);
+      if (!f) return mal("falta el secreto del servidor para firmar el link");
+      const { URL_BASE } = await import("./guia-contenido.js");
+      const mb = (fs.statSync(archivo).size / 1e6).toFixed(1);
+      return ok(`${archivo} · ${mb} MB
+Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=${f.token}`);
     }
 
     if (tool === "nas_listar" || tool === "nas_bajar" || tool === "nas_link") {

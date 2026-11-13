@@ -40,7 +40,7 @@ import {
   MODO_POR_DEFECTO,
   type ModoAgente,
 } from "../services/agent-modo.js";
-import { ejecutarHerramientaVideo, VIDEO_TOOLS } from "../services/video-agente.js";
+import { ejecutarHerramientaVideo, fueraDeEquipo, NOMBRES_VIDEO, VIDEO_TOOLS } from "../services/video-agente.js";
 import { unauthorized } from "../errors.js";
 import { assertMiembro } from "./authz.js";
 import { AGENTE_EQUIPO } from "./conector-mcp.js";
@@ -1471,6 +1471,15 @@ export function agentToolsRoutes(
     // el nombre igual. Este es el que corta de verdad.
     const modo = await modoDelActor(req);
     if (!puedeUsar(modo, tool)) return reply(false, mensajeDeBloqueo(tool));
+
+    // El conector del equipo (Claude en las PC) genera y baja solo dentro de su carpeta.
+    if (NOMBRES_VIDEO.has(tool)) {
+      const [quien] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, ctx.agentId)).limit(1);
+      if (quien?.name === AGENTE_EQUIPO) {
+        const fuera = fueraDeEquipo(params);
+        if (fuera) return reply(false, fuera);
+      }
+    }
 
     const video = await ejecutarHerramientaVideo(db, ctx, tool, params);
     if (video) return reply(video.ok, video.content);

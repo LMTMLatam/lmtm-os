@@ -51,6 +51,21 @@ export function materialRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/public/archivo?t=<token>: un archivo generado en el servidor (video_link, 6 h),
+  // para bajarlo desde una PC del equipo con curl (13/11).
+  router.get("/archivo", async (req, res) => {
+    const { verificarLinkArchivo } = await import("../services/nas.js");
+    const { rutaSegura } = await import("../services/video-agente.js");
+    const firmada = verificarLinkArchivo(String(req.query.t ?? ""));
+    const ruta = firmada ? rutaSegura(firmada) : null;
+    if (!ruta || ruta !== firmada) return res.status(403).json({ error: "Link vencido o inválido: pedí otro con lmtmVideoLink." });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Robots-Tag", "noindex");
+    res.download(ruta, (e) => {
+      if (e && !res.headersSent) res.status(404).json({ error: "El archivo ya no está en el servidor (un deploy lo borra): pedilo de nuevo." });
+    });
+  });
+
   // GET /api/public/nas?t=<token>: un archivo del NAS con link firmado (nas_link, 6 h).
   router.get("/nas", async (req, res) => {
     try {

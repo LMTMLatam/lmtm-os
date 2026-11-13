@@ -90,12 +90,13 @@ export async function listarNas(ruta: string): Promise<ItemNas[]> {
 // valida GET /api/public/nas (routes/material.ts). Sin sesión, para `curl`.
 
 const VIGENCIA_LINK_S = 6 * 3600;
-const claveLink = () => {
+/** Cada espacio firma con su propia clave: un link del NAS no abre un archivo generado, ni al revés. */
+const claveLink = (espacio = "nas") => {
   const s = process.env.PAPERCLIP_AGENT_JWT_SECRET?.trim() || process.env.BETTER_AUTH_SECRET?.trim();
-  return s ? `lmtm-nas:${s}` : null;
+  return s ? `lmtm-${espacio}:${s}` : null;
 };
 
-export function firmarLinkNas(ruta: string, ahora = Date.now(), secreto = claveLink()): { token: string; vence: Date } | null {
+function firmarRuta(ruta: string, ahora: number, secreto: string | null): { token: string; vence: Date } | null {
   if (!secreto) return null;
   const exp = Math.floor(ahora / 1000) + VIGENCIA_LINK_S;
   const cuerpo = Buffer.from(JSON.stringify({ r: ruta, e: exp })).toString("base64url");
@@ -103,8 +104,8 @@ export function firmarLinkNas(ruta: string, ahora = Date.now(), secreto = claveL
   return { token: `${cuerpo}.${firma}`, vence: new Date(exp * 1000) };
 }
 
-/** La ruta del NAS del token si la firma es buena y no venció; si no, null. */
-export function verificarLinkNas(token: string, ahora = Date.now(), secreto = claveLink()): string | null {
+/** La ruta firmada si la firma es buena y no venció; si no, null. */
+function leerRuta(token: string, ahora: number, secreto: string | null): string | null {
   if (!secreto || typeof token !== "string") return null;
   const [cuerpo, firma] = token.split(".");
   if (!cuerpo || !firma) return null;
@@ -113,11 +114,29 @@ export function verificarLinkNas(token: string, ahora = Date.now(), secreto = cl
   if (dada.length !== esperada.length || !timingSafeEqual(dada, esperada)) return null;
   try {
     const { r, e } = JSON.parse(Buffer.from(cuerpo, "base64url").toString()) as { r?: unknown; e?: unknown };
-    if (typeof r !== "string" || !(Number(e) * 1000 > ahora)) return null;
-    return rutaNas(r);
+    return typeof r === "string" && Number(e) * 1000 > ahora ? r : null;
   } catch {
     return null;
   }
+}
+
+export function firmarLinkNas(ruta: string, ahora = Date.now(), secreto = claveLink()): { token: string; vence: Date } | null {
+  return firmarRuta(ruta, ahora, secreto);
+}
+
+/** La ruta del NAS del token si la firma es buena y no venció; si no, null. */
+export function verificarLinkNas(token: string, ahora = Date.now(), secreto = claveLink()): string | null {
+  const r = leerRuta(token, ahora, secreto);
+  return r == null ? null : rutaNas(r);
+}
+
+/** Un archivo generado en el servidor (clip, voz, música, imagen) para bajarlo desde una PC del equipo (13/11). */
+export function firmarLinkArchivo(ruta: string, ahora = Date.now(), secreto = claveLink("archivo")): { token: string; vence: Date } | null {
+  return firmarRuta(ruta, ahora, secreto);
+}
+
+export function verificarLinkArchivo(token: string, ahora = Date.now(), secreto = claveLink("archivo")): string | null {
+  return leerRuta(token, ahora, secreto);
 }
 
 /** GET de un archivo del NAS, pasando Range (para adelantar videos y retomar). */

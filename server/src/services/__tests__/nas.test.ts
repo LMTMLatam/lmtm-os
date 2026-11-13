@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { firmarLinkNas, rutaNas, verificarLinkNas } from "../nas.js";
+import { firmarLinkArchivo, firmarLinkNas, rutaNas, verificarLinkArchivo, verificarLinkNas } from "../nas.js";
+import { fueraDeEquipo, RAIZ } from "../video-agente.js";
 
 describe("link firmado del NAS", () => {
   const ahora = 1_800_000_000_000;
@@ -24,5 +25,25 @@ describe("link firmado del NAS", () => {
 
   it("no deja «..» en la ruta", () => {
     expect(rutaNas("/LMTM/../etc")).toBeNull();
+  });
+});
+
+describe("lo que genera el equipo (13/11)", () => {
+  const ahora = 1_800_000_000_000;
+
+  it("un link de archivo generado no abre el NAS ni al revés", () => {
+    const a = firmarLinkArchivo("/tmp/videos/equipo/x.mp4", ahora, "lmtm-archivo:s")!;
+    expect(verificarLinkArchivo(a.token, ahora, "lmtm-archivo:s")).toBe("/tmp/videos/equipo/x.mp4");
+    expect(verificarLinkNas(a.token, ahora, "lmtm-nas:s")).toBeNull();
+    expect(verificarLinkArchivo(a.token, ahora + 7 * 3600_000, "lmtm-archivo:s")).toBeNull();
+  });
+
+  it("el conector del equipo solo escribe y baja bajo equipo/", () => {
+    expect(fueraDeEquipo({ archivo: "equipo/brachetta/viernes13/clip-1.mp4", imagen: "https://x.com/a.jpg" })).toBeNull();
+    expect(fueraDeEquipo({ archivo: `${RAIZ}/equipo/brachetta/voz.wav` })).toBeNull();
+    expect(fueraDeEquipo({ archivo: "reno-placares/out.mp4" })).toMatch(/equipo\//);
+    expect(fueraDeEquipo({ archivo: "equipo/../reno/out.mp4" })).toMatch(/equipo\//);
+    expect(fueraDeEquipo({ archivo: "equipo/a.mp4", imagen: "reno/foto.jpg" })).toMatch(/imagen/);
+    expect(fueraDeEquipo({ archivo: "equipo" })).toMatch(/equipo\//);
   });
 });

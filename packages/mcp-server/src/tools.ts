@@ -1224,7 +1224,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     // La composición la escribe el agente con HyperFrames; ver la skill lmtm-video.
     makeTool(
       "lmtmVideoVoz",
-      "VOZ EN OFF en español rioplatense con ElevenLabs (voz Agustina por defecto; gasta un crédito por carácter). Gemini solo para los proyectos que ya la usan. Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Usá el MISMO estilo en todas las frases. Después sacale los tiempos con lmtmVideoTranscribir.",
+      "VOZ EN OFF en español rioplatense con ElevenLabs (voz Agustina por defecto; gasta un crédito por carácter). Gemini solo para los proyectos que ya la usan. Una frase por llamada; guarda un .wav bajo /tmp/videos/ y devuelve su duración. Usá el MISMO estilo en todas las frases. Después sacale los tiempos con lmtmVideoTranscribir. Desde una PC del equipo: archivo bajo equipo/<cliente>/<pieza>/ y después lmtmVideoLink para bajarlo.",
       z.object({
         texto: z.string().min(1).max(600),
         archivo: z.string().min(1).describe("Ruta .wav bajo /tmp/videos/."),
@@ -1243,7 +1243,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmVideoPlano",
-      "GENERA un plano de video vertical con Magnific (Seedance 2.5 Pro). GASTA CRÉDITOS: solo para lo que el material del cliente no tiene; nunca para mostrar su producto, local o gente como si fueran reales. En segundo plano: devuelve un id para lmtmVideoEstado.",
+      "GENERA un plano de video vertical con Magnific (Seedance 2.5 Pro). GASTA CRÉDITOS: solo para lo que el material del cliente no tiene; nunca para mostrar su producto, local o gente como si fueran reales. En segundo plano: devuelve un id para lmtmVideoEstado. Desde una PC del equipo: archivo bajo equipo/<cliente>/<pieza>/ y después lmtmVideoLink para bajarlo. Primer cuadro: una URL https (por ejemplo, un link de material de lmtmGuiaContenido).",
       z.object({
         prompt: z.string().min(10).max(4000).describe("En inglés: sujeto, lugar, luz, cámara, estilo. Sin texto ni logos."),
         archivo: z.string().min(1).describe("Ruta .mp4 bajo /tmp/videos/."),
@@ -1257,7 +1257,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmVideoMusica",
-      "GENERA música de fondo sin voces con Magnific (Lyria 3) o ElevenLabs. GASTA CRÉDITOS. En segundo plano: devuelve un id para lmtmVideoEstado.",
+      "GENERA música de fondo sin voces con Magnific (Lyria 3) o ElevenLabs. GASTA CRÉDITOS. En segundo plano: devuelve un id para lmtmVideoEstado. Desde una PC del equipo: archivo bajo equipo/<cliente>/<pieza>/ y después lmtmVideoLink para bajarlo.",
       z.object({
         proveedor: z.enum(["magnific", "elevenlabs"]).optional().describe("Por defecto Magnific."),
         duracion: z.number().int().min(3).max(300).optional().describe("ElevenLabs: segundos (por defecto 30)."),
@@ -1282,6 +1282,12 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       "ESTADO de un render, plano o música en curso. Espera hasta 90 s; si sigue en curso, volvé a consultar.",
       z.object({ id: z.string().min(1) }),
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_estado", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmVideoLink",
+      "LINK de descarga (vence en 6 h) de UN archivo generado en el servidor (clip, voz, música o imagen). Bajalo a la PC con `curl.exe -L --fail -o \"<carpeta>\\<nombre>\" \"<link>\"` y no pegues el link en el chat. Pedilo cuando lmtmVideoEstado diga que terminó: un deploy del servidor borra lo que no se bajó.",
+      z.object({ archivo: z.string().min(1).describe("Ruta bajo /tmp/videos/ (desde el equipo: equipo/...).") }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_link", parameters: p } }),
     ),
     makeTool(
       "lmtmVideoRevisar",
@@ -1370,7 +1376,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmContenidoImagen",
-      "GENERA una imagen con Magnific (Mystic) para fondo o ilustración de una placa o carrusel. GASTA CRÉDITOS. Sin texto ni logos (el texto va en HTML) y nunca haciéndola pasar por el producto o local real del cliente. Tarda hasta 2 min.",
+      "GENERA una imagen con Magnific (Mystic) para fondo o ilustración de una placa o carrusel. GASTA CRÉDITOS. Sin texto ni logos (el texto va en HTML) y nunca haciéndola pasar por el producto o local real del cliente. Tarda hasta 2 min. Desde una PC del equipo: archivo bajo equipo/<cliente>/<pieza>/ y después lmtmVideoLink para bajarlo.",
       z.object({
         prompt: z.string().min(10).max(3000).describe("En inglés: sujeto, lugar, luz, estilo. Sin texto ni logos."),
         archivo: z.string().min(1).describe("Ruta .jpg o .png bajo /tmp/videos/."),
