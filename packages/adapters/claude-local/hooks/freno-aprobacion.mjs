@@ -38,7 +38,32 @@ function marcaAprobado(texto) {
   return aprobado && /sheets\.googleapis\.com/i.test(texto);
 }
 
-const { tool_input: { old_string: _loQueSeBorra, ...entrada } = {} } = JSON.parse(readFileSync(0, "utf8"));
+// 13/11: los agentes no crean ni borran escenarios en Make (regla del 26/10; igual
+// crearon 17 entre el 29/10 y el 12/11, por el MCP y por la API con una clave copiada
+// de un blueprint). Editar y prender/apagar los existentes sigue permitido.
+const MCP_MAKE_CREA = /^mcp__make__(scenarios_create|scenarios_delete|hooks_create|hooks_delete|data-stores_create|data-stores_delete|data-structures_create|templates_create|tools_create|folders_create)$/;
+const API_MAKE_CREA = /make\.com\/api\/v\d+\/(scenarios|hooks|data-stores|data-structures|templates)(?![\w/-])/;
+const API_MAKE_UNO = /make\.com\/api\/v\d+\/(scenarios|hooks|data-stores)\/\d+(?![\w/-])/;
+const CREA = /\bPOST\b|--data|\s-d\s|method\s*[:=]\s*["'`]?post\b/i;
+const BORRA = /\bDELETE\b|method\s*[:=]\s*["'`]?delete\b/i;
+
+// ponytail: mira el texto (URL armada en partes pasa). El cierre de verdad es rotar la
+// clave de la API de Make que quedó escrita en dos blueprints.
+function creaEnMake(herramienta, texto) {
+  if (MCP_MAKE_CREA.test(herramienta)) return true;
+  return (API_MAKE_CREA.test(texto) && (CREA.test(texto) || BORRA.test(texto))) || (API_MAKE_UNO.test(texto) && BORRA.test(texto));
+}
+
+const { tool_name: herramienta = "", tool_input: { old_string: _loQueSeBorra, ...entrada } = {} } = JSON.parse(readFileSync(0, "utf8"));
+
+if (creaEnMake(herramienta, Object.values(entrada).join("\n"))) {
+  console.error(
+    "Frenado: los agentes no crean ni borran escenarios, webhooks ni datastores en Make (pedido de Naza). " +
+      "Si hace falta uno, dejá la especificación en la tarea y pedíselo a una persona con paperclipCreateApproval. " +
+      "Podés leer, editar un escenario existente y prenderlo o apagarlo.",
+  );
+  process.exit(2);
+}
 
 if (marcaAprobado(Object.values(entrada).join("\n"))) {
   console.error(

@@ -54,6 +54,33 @@ describe("freno de la aprobación del cliente", () => {
     expect(correr(entrada).status).toBe(0);
   });
 
+  const enMake = (tool_name: string, tool_input: Record<string, unknown>) =>
+    spawnSync(process.execPath, [FRENO], { input: JSON.stringify({ tool_name, tool_input }), encoding: "utf8" });
+  const API = "https://us2.make.com/api/v2";
+
+  it.each([
+    ["crear por el MCP", "mcp__make__scenarios_create", { teamId: 228071 }],
+    ["borrar por el MCP", "mcp__make__scenarios_delete", { scenarioId: 1 }],
+    ["crear un webhook", "mcp__make__hooks_create", {}],
+    ["crear por la API", "Bash", { command: `curl -X POST "${API}/scenarios?confirmed=true" -H "Authorization: Token x" -d @bp.json` }],
+    ["crear por la API desde node", "Bash", { command: `node -e 'fetch("${API}/scenarios", { method: "POST", body })'` }],
+    ["borrar por la API", "Bash", { command: `curl -X DELETE ${API}/scenarios/123` }],
+  ])("frena Make: %s", (_caso, herramienta, entrada) => {
+    const r = enMake(herramienta, entrada);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("no crean ni borran escenarios");
+  });
+
+  it.each([
+    ["leer escenarios", "mcp__make__scenarios_list", { teamId: 228071 }],
+    ["editar uno existente", "mcp__make__scenarios_update", { scenarioId: 1 }],
+    ["prenderlo", "mcp__make__scenarios_activate", { scenarioId: 1 }],
+    ["leer por la API", "Bash", { command: `curl -s "${API}/scenarios?teamId=228071"` }],
+    ["leer los logs", "Bash", { command: `curl -s ${API}/scenarios/123/logs` }],
+  ])("deja pasar Make: %s", (_caso, herramienta, entrada) => {
+    expect(enMake(herramienta, entrada).status).toBe(0);
+  });
+
   it("si el script se rompe no frena a la flota", () => {
     const r = spawnSync(process.execPath, [FRENO], { input: "esto no es JSON", encoding: "utf8" });
     expect(r.status).toBe(1);

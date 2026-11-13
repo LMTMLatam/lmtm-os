@@ -704,7 +704,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       args.push("--settings", JSON.stringify({
         hooks: {
           PreToolUse: [{
-            matcher: "Bash|Write|Edit",
+            matcher: "Bash|Write|Edit|mcp__make__.*",
             hooks: [{ type: "command", command: `"${process.execPath}" "${FRENO_APROBACION}"` }],
           }],
         },
