@@ -242,6 +242,10 @@ export async function createApp(
   app.use(llmRoutes(db));
   // Conector MCP para Claude (fase C): POST /mcp con clave de tablero de admin.
   app.use(conectorMcpRoutes({ serverPort: opts.serverPort }));
+  // Los conectores usan la clave en la URL, sin OAuth. Al reconectar, claude.ai busca
+  // OAuth en /.well-known: si cae al index.html del panel (200) cree que hay OAuth,
+  // intenta POST /register, recibe 404 y no conecta (13/11). Un 404 acá le dice que no hay.
+  app.all("/.well-known/{*resto}", (_req, res) => res.status(404).json({ error: "No hay OAuth: la clave va en la URL del conector." }));
   // Conector del equipo (16/10): herramientas acotadas, como el agente "Claude (equipo)".
   app.use(conectorEquipoRoutes(db, { serverPort: opts.serverPort }));
   // ClickUp webhook (client auto-provisioning). Unauthenticated by design —
