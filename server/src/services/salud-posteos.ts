@@ -99,7 +99,9 @@ export function conexionesEnRiesgo(
 /** El motivo de Make, en castellano y con qué hacer. Pura. */
 export function explicarFalla(reason: string | null): string {
   const r = reason ?? "";
-  if (/image format is not supported|36001/i.test(r)) return "el carrusel tiene algo que no es imagen JPG (un video, un PNG o un Thumbs.db): dejar solo JPG en la carpeta y el video como Reel aparte";
+  // 13/11: el texto anterior culpaba al archivo («no es JPG») y los JPG estaban bien. Instagram baja
+  // la imagen del link del adjunto de ClickUp, y esos links pasaron a pedir login (devuelven HTML).
+  if (/image format is not supported|36001/i.test(r)) return "Instagram no pudo leer la imagen: Make le pasa el link del adjunto de ClickUp y ese link pide iniciar sesión (adjuntos privados en ClickUp), así que recibe una página en vez de la foto. No es el archivo: no cambiar las fotos. Se arregla haciendo públicos los adjuntos en ClickUp; recién ahí reprocesar";
   // 19/10: "achicarlo o subirlo a mano" lo leyó un agente como permiso: pisó los
   // videos originales en el Drive y republicó con replay. El texto dice el cómo.
   if (/^\[5\d\d\]|internal error/i.test(r)) return "Instagram dio error interno al subir el archivo (casi siempre un video pesado o 4K); Make lo reintenta solo. Si se repite: pedir una versión liviana (1080p, menos de 25 MB) como archivo APARTE, sin pisar el original, y publicarla solo en Instagram. NO reprocesar ni hacer replay: republica en todas las redes";

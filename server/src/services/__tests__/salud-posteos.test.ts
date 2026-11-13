@@ -28,7 +28,7 @@ describe("conexiones de Make", () => {
 
 describe("posts fallidos", () => {
   it("el motivo de Make en castellano", () => {
-    expect(explicarFalla("The image format is not supported. (36001, OAuthException)")).toMatch(/JPG/);
+    expect(explicarFalla("The image format is not supported. (36001, OAuthException)")).toMatch(/adjunto de ClickUp/);
     expect(explicarFalla("[500] Internal error encountered.")).toMatch(/error interno/);
   });
   it("solo las recientes sin resolver son alarma; las viejas se cuentan", () => {
