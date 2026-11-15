@@ -95,6 +95,12 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
 - **Fase 6:** interfaz de paperclip retirada donde había reemplazo (commit `a34cf72`, −5.804 líneas). El motor, las
   tareas, rutinas y aprobaciones siguen: plan por pasos en `fase6-paperclip.md`. Corrección: el «código muerto» no
   lo era (plugins, environments, feedback y budgets los usa el motor).
+- **Último deploy del 15/11: `0f460ebb`** (commit `f6808fa`). Verificado con la clave de admin: `/cerebro/medicion`,
+  `/cerebro/cobertura` (promedio 81 %), `/biblioteca`, `/publicacion/trabadas` (el 410 ya no ofrece Reprocesar) y
+  `/equipo/conector` (sin personas cargadas todavía; el link compartido sigue activo). La interfaz no se vio en el
+  navegador: el panel pide login y eso lo hace una persona.
+- **Hallazgo nuevo:** el destino de Make del grupo MA (MISTOLES 3265 / CÁPSULA 3 CANNES) apunta al webhook muerto
+  `7ko1fm`: 3 posts perdidos entre el 05 y el 13/11. Hay que corregir el destino en el datastore 19767.
 - **Sigue (para otra sesión):** fase 4 (conector: registro único de herramientas, ~25 por intención, código por persona, entrega desde el
   conector del equipo), fase 5 (panel), sección 8 (flota), fase 6 (paperclip).
 - **U10:** paleta de BRACHETTA corregida en `client_brand` (antes `#37ca37,#188bf6,#e30613,#9ae6b4`, cargada 14/10 desde el
