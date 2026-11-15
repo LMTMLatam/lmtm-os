@@ -35,7 +35,9 @@ export function PublicacionTrabada() {
               <div className="text-[14px] font-medium">{t.cliente} <span className="font-normal text-l-tinta-3">· {cuando(t.creada)}{t.intentos ? ` · ${t.intentos} intentos` : ""}</span></div>
               <p className="text-[13px] text-l-tinta-2">{t.causa}</p>
             </div>
-            {confirmar === t.dlqId ? (
+            {/no sirve/i.test(t.causa) ? (
+              <span className="text-[12px] text-l-tinta-3">Reprocesar no lo arregla</span>
+            ) : confirmar === t.dlqId ? (
               <span className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="text-l-tinta-2">¿Publicarlo ahora en la cuenta de {t.cliente}?</span>
                 <button type="button" disabled={repro.isPending} onClick={() => repro.mutate(t.dlqId)} className="min-h-9 rounded-[8px] bg-l-marca px-3 font-semibold text-white disabled:opacity-50">Sí, reprocesar</button>

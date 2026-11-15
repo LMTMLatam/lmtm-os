@@ -101,7 +101,10 @@ export function explicarFalla(reason: string | null): string {
   const r = reason ?? "";
   // 13/11: el texto anterior culpaba al archivo («no es JPG») y los JPG estaban bien. Instagram baja
   // la imagen del link del adjunto de ClickUp, y esos links pasaron a pedir login (devuelven HTML).
-  if (/image format is not supported|36001/i.test(r)) return "Instagram no pudo leer la imagen: Make le pasa el link del adjunto de ClickUp y ese link pide iniciar sesión (adjuntos privados en ClickUp), así que recibe una página en vez de la foto. No es el archivo: no cambiar las fotos. Se arregla haciendo públicos los adjuntos en ClickUp; recién ahí reprocesar";
+  // 14/11: los adjuntos volvieron a ser públicos; si vuelve a pasar, es que se cerraron de nuevo.
+  if (/image format is not supported|36001/i.test(r)) return "Instagram no pudo leer la imagen: Make le pasa el link del adjunto de ClickUp y, cuando los adjuntos de ClickUp son privados, ese link devuelve una página de login en vez de la foto. No es el archivo: no cambiar las fotos. Los adjuntos volvieron a ser públicos el 14/11: se puede reprocesar. Si vuelve a pasar con posts nuevos, revisar que los adjuntos de ClickUp sigan públicos";
+  // 15/11: el despachador manda a un webhook de cliente que ya no existe (Randstad, LMTM-6826).
+  if (/410 Gone|webhook is no longer active/i.test(r)) return "El despachador mandó el post a un webhook de cliente que ya no existe (destino viejo en el datastore de Make). Reprocesar NO sirve: hay que corregir el destino del cliente en el datastore de destinos y volver a programar el post";
   // 19/10: "achicarlo o subirlo a mano" lo leyó un agente como permiso: pisó los
   // videos originales en el Drive y republicó con replay. El texto dice el cómo.
   if (/^\[5\d\d\]|internal error/i.test(r)) return "Instagram dio error interno al subir el archivo (casi siempre un video pesado o 4K); Make lo reintenta solo. Si se repite: pedir una versión liviana (1080p, menos de 25 MB) como archivo APARTE, sin pisar el original, y publicarla solo en Instagram. NO reprocesar ni hacer replay: republica en todas las redes";
