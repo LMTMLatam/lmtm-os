@@ -70,7 +70,32 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
   Clean Unity 2.760 archivos (817 videos, 631 fotos) indexados sin errores; búsqueda en 318 ms
   («mp4» → 808 resultados). Al cortar la sesión el primer índice seguía recorriendo los demás clientes.
   **Pendiente:** confirmar que terminaron los 50 clientes (`scratchpad/indice.sql`) y que nadie quedó `recortado`.
-- **Sigue:** fase 4 (conector: registro único de herramientas, ~25 por intención, código por persona, entrega desde el
+- **NAS (commit `7916d5a`):** el primer índice llegó a 21 clientes y 128.838 archivos antes del deploy. Arreglados:
+  `&amp;` en los href (nombres con «&» daban «no existe», bug también de `nas_listar`), reintento de 502, cachés de
+  Premiere/AE/Resolve y Thumbs.db fuera, topes 3000/40000, búsqueda en SQL (2–4 s sin acentos) e índice de los
+  clientes faltantes al arrancar.
+- **Fase 4 (commit `d3f7b26`, deploy `16c421ec`):** link del conector por persona (Config → «Conector de Claude»),
+  uso por persona en `activity_log` y en Actividad; test `herramientas-visibles` (encontró 2 invisibles:
+  `lmtmValidacionRedes`, `lmtmClienteListoParaProducir`, agregadas); `lmtmRegistrarPieza`. Verificado por el
+  conector del equipo (50 herramientas, las nuevas responden) y rutas protegidas (401/403 sin sesión).
+  **No se hizo:** bajar de 83 a ~25 herramientas: renombrar rompe a los agentes; se resolvió con el cerebro (3
+  llamadas que reemplazan a 6–10) y el test de visibilidad. **Conexión estable:** el servicio tiene volumen, Railway
+  lo apaga antes de prender el nuevo → cada deploy corta ~1 min; claude.ai puede pedir reconectar.
+- **Fase 5 (commits `ad4a7b9`, `176b412`, `707ed1b`, `442a701`; deploy `97a3fe90` + final):** Biblioteca, Actividad,
+  «Posts que no salieron» con Reprocesar (confirmación; solo personas), cobertura en la ficha, Preparación nueva
+  (operación + cerebro), menú nuevo (Finanzas fuera, D4), medición continua en Config.
+  **Quedan con diseño viejo:** Semáforo, Inteligencia, WhatsApp y Conexiones (ver `fase6-paperclip.md`).
+- **Sección 8 (commit `2f43888`):** cerebro en las listas de los 15 agentes (respaldo `respaldo_allowlist_20261115`)
+  y en los roles del motor propio; skill `lmtm-tool-reference` arranca por `lmtmCliente`. Pausados por valor casi
+  nulo en 30 días (respaldo `respaldo_estado_agentes_20261115`): Esteban (566 M tokens, 2 entregas útiles),
+  Dario (53 M, 0) y Roxana (33 M, 0); ninguno tenía rutinas. Productor: 16 tareas «bloqueadas» que ya tenían
+  entrega pasaron a `in_review` (respaldo `respaldo_productor_20261115`); 8 siguen bloqueadas por material/brief.
+  **No se hizo:** partir tareas grandes automáticamente (primero medir si el cerebro baja los «sin turnos») y el
+  costo en USD por modelo (no hay tarifas verificadas: no se inventan).
+- **Fase 6:** interfaz de paperclip retirada donde había reemplazo (commit `a34cf72`, −5.804 líneas). El motor, las
+  tareas, rutinas y aprobaciones siguen: plan por pasos en `fase6-paperclip.md`. Corrección: el «código muerto» no
+  lo era (plugins, environments, feedback y budgets los usa el motor).
+- **Sigue (para otra sesión):** fase 4 (conector: registro único de herramientas, ~25 por intención, código por persona, entrega desde el
   conector del equipo), fase 5 (panel), sección 8 (flota), fase 6 (paperclip).
 - **U10:** paleta de BRACHETTA corregida en `client_brand` (antes `#37ca37,#188bf6,#e30613,#9ae6b4`, cargada 14/10 desde el
   panel; ahora `#e30613,#111111,#ffffff,#1e8f3c` + nota de uso). `updated_by = plan-1511:naza` para que lo automático no la pise.
