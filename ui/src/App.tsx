@@ -76,6 +76,7 @@ import { FinanzasApp } from "./app/FinanzasApp";
 import { TrabajoApp } from "./app/Trabajo";
 import { BibliotecaApp } from "./app/BibliotecaApp";
 import { ActividadApp } from "./app/ActividadApp";
+import { PreparacionApp } from "./app/PreparacionApp";
 import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
@@ -378,7 +379,7 @@ export function App() {
             <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
             {/* Ajustes que se abrían en el layout de paperclip: ahora adentro de la app. */}
             <Route path="conexiones" element={<Pagina><AdsIntegrations /></Pagina>} />
-            <Route path="preparacion" element={<Pagina><Readiness /></Pagina>} />
+            <Route path="preparacion" element={<PreparacionApp />} />
           </Route>
           <Route path="cartera" element={<Navigate to="/clientes" replace />} />
           <Route path="dashboard" element={<Navigate to="/hoy" replace />} />
