@@ -3,7 +3,7 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
@@ -6569,7 +6569,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       })
       .from(heartbeatRuns)
       .innerJoin(agents, eq(heartbeatRuns.agentId, agents.id))
-      .where(eq(heartbeatRuns.status, "running"));
+      // Las corridas del motor propio (agentes/motor.ts) las vigila ese motor: acá no están en
+      // runningProcesses y se tomarían por perdidas y se reintentarían por el heartbeat (doble corrida).
+      .where(and(eq(heartbeatRuns.status, "running"), ne(heartbeatRuns.invocationSource, "motor_propio")));
 
     const reaped: string[] = [];
 

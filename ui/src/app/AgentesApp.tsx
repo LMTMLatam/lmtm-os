@@ -42,7 +42,7 @@ function ListaTrabajos() {
 
   return (
     <>
-      <Encabezado titulo="Agentes" bajada="Corren en el runner propio de LMTM: cada trabajo nace de un hecho y deja su registro." />
+      <Encabezado titulo="Agentes" bajada="Los roles del motor propio y la flota: cada trabajo deja su registro." />
       <Roles />
       <div className="grid gap-8 px-4 md:px-8 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0">
@@ -119,13 +119,25 @@ interface AgenteFlota {
  * mientras cada rol pasa al runner y le gana en el evaluador
  * (docs/rediseno/OPTIMIZACION-EQUIPO.md).
  */
+interface AgenteMotor { id: string; nombre: string; estado: string; enMotorPropio: boolean; corridas7d: number; bien7d: number; ultima: string | null }
+
 function Flota() {
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ["lmtm", "agentes", "flota"], queryFn: () => api.get<{ agentes: AgenteFlota[] }>("/agentes/flota"), staleTime: 5 * 60_000 });
+  const motor = useQuery({ queryKey: ["lmtm", "agentes", "motor"], queryFn: () => api.get<{ agentes: AgenteMotor[] }>("/agentes/motor"), refetchInterval: 60_000 });
+  const migrar = useMutation({
+    mutationFn: (b: { agentId: string; alMotor: boolean }) => api.post<{ ok: boolean; motivo?: string }>("/agentes/motor/migrar", b),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["lmtm", "agentes"] }),
+  });
   const as = q.data?.agentes ?? [];
+  const porNombre = new Map((motor.data?.agentes ?? []).map((m) => [m.nombre, m]));
   return (
     <Tarjeta>
-      <TituloFranja>Agentes heredados · 7 días</TituloFranja>
-      <p className="-mt-1.5 mb-2 text-[12px] leading-[1.45] text-l-tinta-3">Siguen corriendo mientras cada rol pasa al runner propio.</p>
+      <TituloFranja>La flota · 7 días</TituloFranja>
+      <p className="-mt-1.5 mb-2 text-[12px] leading-[1.45] text-l-tinta-3">
+        «Motor LMTM»: lo corre el motor propio (mismas herramientas y skills, topes de cuota y de 3 corridas por tarea por día). «Paperclip»: el heartbeat viejo.
+      </p>
+      {migrar.data && !migrar.data.ok && <p className="mb-2 text-[12px] text-l-critico-texto" role="alert">{migrar.data.motivo}</p>}
       {as.some((a) => a.frenadas > 0) && (
         <p className="mb-2 text-[12px] leading-[1.45] text-l-tinta-2">
           «Frenado por cuota»: el sistema no lo despertó para no pasarse del ritmo semanal del modelo. Es a propósito; por eso algunos corren poco.
@@ -150,6 +162,21 @@ function Flota() {
               {a.ultima ? ` · ${haceCuanto(a.ultima)}` : ""}
             </div>
             {a.frenadas > 0 && <div className="text-[12px] text-l-atencion-texto">Frenado por cuota {a.frenadas.toLocaleString("es-AR")} veces en 7 días</div>}
+            {porNombre.get(a.name) && (() => {
+              const m = porNombre.get(a.name)!;
+              return (
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px]">
+                  <span className={`rounded-full px-2 py-px font-semibold ${m.enMotorPropio ? "bg-l-marca-suave text-l-marca" : "bg-l-papel text-l-tinta-3"}`}>
+                    {m.enMotorPropio ? "Motor LMTM" : "Paperclip"}
+                  </span>
+                  {m.enMotorPropio && <span className="tabular-nums text-l-tinta-3">{m.bien7d}/{m.corridas7d} bien en el motor</span>}
+                  <button type="button" disabled={migrar.isPending} onClick={() => migrar.mutate({ agentId: m.id, alMotor: !m.enMotorPropio })}
+                    className="min-h-7 rounded-[8px] border border-l-linea-2 px-2 text-l-tinta-2 hover:text-l-tinta disabled:opacity-50">
+                    {m.enMotorPropio ? "Volver a paperclip" : "Pasar al motor LMTM"}
+                  </button>
+                </div>
+              );
+            })()}
           </li>
         ))}
       </ul>

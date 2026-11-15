@@ -10,7 +10,7 @@ import type { Db } from "@paperclipai/db";
 import { agents, agenteTrabajos, approvals, clients } from "@paperclipai/db";
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { TIPO_ACCION_PAUTA } from "../services/ads-propuestas.js";
-import { assertBoard, assertBoardOrgAccess, assertCompanyAccess } from "../routes/authz.js";
+import { assertBoard, assertBoardOrgAccess, assertCompanyAccess, assertInstanceAdmin } from "../routes/authz.js";
 import { unauthorized } from "../errors.js";
 import { empresaParaAcceso } from "../decisiones/store.js";
 import { responderError } from "../decisiones/rutas.js";
@@ -219,6 +219,46 @@ export function agentesRoutes(db: Db) {
     } catch (e) {
       responderError(res, e);
     }
+  });
+
+  // ── Motor propio (plan 15/11, fase 6): qué agentes corre y pasarlos ──────────
+  router.get("/agentes/motor", async (req, res) => {
+    try {
+      assertBoardOrgAccess(req);
+      const { estadoMotor } = await import("./motor.js");
+      res.json({ agentes: await estadoMotor(db) });
+    } catch (e) { responderError(res, e); }
+  });
+
+  // POST /api/agentes/motor/migrar { agentId, alMotor } — solo admins: cambia quién corre al agente.
+  router.post("/agentes/motor/migrar", async (req, res) => {
+    try {
+      assertInstanceAdmin(req);
+      const b = (req.body ?? {}) as { agentId?: string; alMotor?: unknown };
+      if (!b.agentId || !UUID.test(b.agentId) || typeof b.alMotor !== "boolean") return res.status(422).json({ ok: false, motivo: "Faltan agentId y alMotor." });
+      const { migrarAgente } = await import("./motor.js");
+      const r = await migrarAgente(db, b.agentId, b.alMotor);
+      res.status(r.ok ? 200 : 422).json(r);
+    } catch (e) { responderError(res, e); }
+  });
+
+  // POST /api/agentes/motor/correr { issueId } — solo admins: corre YA una tarea de un agente migrado (prueba).
+  router.post("/agentes/motor/correr", async (req, res) => {
+    try {
+      assertInstanceAdmin(req);
+      const issueId = String(req.body?.issueId ?? "");
+      if (!UUID.test(issueId)) return res.status(422).json({ ok: false, motivo: "Falta issueId." });
+      const { configMotor, correrTarea } = await import("./motor.js");
+      const { issues } = await import("@paperclipai/db");
+      const [i] = await db.select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, priority: issues.priority, agentId: issues.assigneeAgentId })
+        .from(issues).where(eq(issues.id, issueId)).limit(1);
+      if (!i?.agentId) return res.status(404).json({ ok: false, motivo: "La tarea no existe o no tiene agente." });
+      if (!(await configMotor(db)).agentes.includes(i.agentId)) return res.status(422).json({ ok: false, motivo: "Ese agente no está en el motor propio." });
+      // En segundo plano: una corrida dura minutos y el proxy corta antes.
+      void correrTarea(db, { issueId: i.id, identifier: i.identifier, title: i.title, status: i.status, priority: i.priority, agentId: i.agentId })
+        .then((r) => console.log(`[motor] manual ${i.identifier}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`));
+      res.status(202).json({ ok: true, mensaje: "Corriendo. Mirá el resultado en la tarea o en /api/agentes/motor." });
+    } catch (e) { responderError(res, e); }
   });
 
   router.post("/agentes/trabajos", async (req, res) => {

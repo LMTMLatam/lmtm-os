@@ -399,6 +399,9 @@ export async function createApp(
   try {
     const { iniciarRunner } = await import("./agentes/index.js");
     iniciarRunner(db, { serverPort: opts.serverPort });
+    // Motor propio que corre a los agentes migrados (plan 15/11, fase 6). Sin agentes migrados no hace nada.
+    const { iniciarMotor } = await import("./agentes/motor.js");
+    iniciarMotor(db);
   } catch (e) { console.warn("[agentes] init failed:", e); }
   // Licitaciones de Mercado Público (pedido 2026-07-22): sync diario.
   try {
