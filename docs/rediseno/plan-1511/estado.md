@@ -63,5 +63,14 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
   - Enfoque Técnico VACÍO: CAMPO TIMBO, CARVUK, CHARLOTT, Distrito Roldan, GRUPO MA, LoMasFundas, Workera
     (+ «Cliente Inmobiliario» y «TESTEO MARCOS», que parecen de prueba: ¿se archivan?).
   - Randstad y Clean Unity tienen el MISMO Enfoque de 1.691 caracteres (plantilla sin completar).
+- **Clientes de prueba archivados** (OK Naza): «Cliente Inmobiliario» y «TESTEO MARCOS» → archived; respaldo
+  `respaldo_clientes_archivados_20261115`. Quedan 57 activos.
+- **Fase 3 (commit `d174757`, deploy `afef4af5`):** índice del NAS (`nas-indice.ts`, client_context_cache
+  source `nas-indice`, nocturno a las 4 + primero a los 3 min) y `lmtmNasBuscar`. Verificado por el conector del equipo:
+  Clean Unity 2.760 archivos (817 videos, 631 fotos) indexados sin errores; búsqueda en 318 ms
+  («mp4» → 808 resultados). Al cortar la sesión el primer índice seguía recorriendo los demás clientes.
+  **Pendiente:** confirmar que terminaron los 50 clientes (`scratchpad/indice.sql`) y que nadie quedó `recortado`.
+- **Sigue:** fase 4 (conector: registro único de herramientas, ~25 por intención, código por persona, entrega desde el
+  conector del equipo), fase 5 (panel), sección 8 (flota), fase 6 (paperclip).
 - **U10:** paleta de BRACHETTA corregida en `client_brand` (antes `#37ca37,#188bf6,#e30613,#9ae6b4`, cargada 14/10 desde el
   panel; ahora `#e30613,#111111,#ffffff,#1e8f3c` + nota de uso). `updated_by = plan-1511:naza` para que lo automático no la pise.
