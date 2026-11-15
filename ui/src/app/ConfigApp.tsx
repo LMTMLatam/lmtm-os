@@ -19,7 +19,10 @@ interface Medida {
   piezasSemana: number; controlGuardado30d: number | null; veredictos: { sirvio: number; noSirvio: number };
   corridasSemana: { total: number; bien: number }; tareasBloqueadas: number; nas: { clientes: number; actualizado: string | null }; tablasSecas: string[];
 }
-const SECAS: Record<string, string> = { video_plantillas: "plantillas de video", video_virales: "virales de la competencia", pieza_metricas: "métricas de piezas publicadas" };
+const SECAS: Record<string, string> = {
+  video_plantillas: "plantillas de video (las arma el modelo de texto con los virales; estuvo caído hasta el 15/11)",
+  pieza_metricas: "métricas de piezas publicadas (nadie vinculó todavía un posteo a su pieza con «¿Ya se publicó?»)",
+};
 
 /** Medición continua del plan 15/11: si el sistema mejora y si algo se secó en silencio. */
 function Medicion() {
@@ -45,7 +48,7 @@ function Medicion() {
       </dl>
       {m.tablasSecas.length > 0 && (
         <p className="mt-3 border-t border-l-linea pt-2 text-[12px] text-l-atencion-texto">
-          Siguen vacías: {m.tablasSecas.map((t) => SECAS[t] ?? t).join(", ")}. Algo que debería llenarlas no está corriendo.
+          Siguen vacías: {m.tablasSecas.map((t) => SECAS[t] ?? t).join("; ")}.
         </p>
       )}
     </Tarjeta>

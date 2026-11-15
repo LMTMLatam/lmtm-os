@@ -115,7 +115,8 @@ export function cerebroRoutes(db: Db): Router {
       (select max(fetched_at) from client_context_cache where source = 'nas-indice') nas_al`);
     const [m] = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
     const n = (k: string) => Number(m?.[k] ?? 0);
-    const secas = ["video_plantillas", "video_virales", "pieza_metricas"].filter((k) => n(k) === 0);
+    // video_virales NO va: guarda solo los cargados a mano (los medidos salen de competencia_posts).
+    const secas = ["video_plantillas", "pieza_metricas"].filter((k) => n(k) === 0);
     res.json({
       piezasSemana: n("piezas7"),
       controlGuardado30d: n("piezas30") ? Math.round((100 * n("con_control30")) / n("piezas30")) : null,
