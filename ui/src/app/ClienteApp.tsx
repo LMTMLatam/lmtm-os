@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, OctagonAlert, Send } from "lucide-react";
 import { Link, useParams } from "@/lib/router";
+import { api } from "../api/client";
 import { clientsApi } from "../api/clients";
 import { SelectorCliente } from "../components/SelectorCliente";
 import { queryKeys } from "../lib/queryKeys";
@@ -67,6 +68,7 @@ export function ClienteApp() {
         {c && (
           <>
             <ClientResourcesPanel client={c} />
+            <CoberturaDelCerebro clientId={c.id} />
             <nav className="sticky top-0 z-10 -mx-4 mt-5 border-b border-l-linea bg-l-papel/95 px-4 backdrop-blur md:-mx-8 md:px-8" aria-label="Secciones del cliente">
               <ScrollLateral>
               <ul className="flex shrink-0 gap-1">
@@ -97,6 +99,28 @@ export function ClienteApp() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Qué tan completa está la ficha que leen los agentes y Claude (plan 15/11, fase 1/5):
+ * lo mismo que trae lmtmCliente. Lo que falta lo carga el equipo.
+ */
+function CoberturaDelCerebro({ clientId }: { clientId: string }) {
+  const q = useQuery({
+    queryKey: ["lmtm", "cerebro", "cliente", clientId],
+    queryFn: () => api.get<{ cobertura: { porcentaje: number; falta: string[] }; material?: { indiceNas?: { archivos: number; videos: number; fotos: number } | null } }>(`/cerebro/cliente?q=${clientId}`),
+    staleTime: 10 * 60_000,
+  });
+  const cb = q.data?.cobertura;
+  if (!cb) return null;
+  const nas = q.data?.material?.indiceNas;
+  return (
+    <p className={`mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-xl border-l-[3px] bg-l-sup px-3 py-2 text-[13px] ${cb.porcentaje >= 85 ? "border-l-l-bien" : "border-l-l-atencion"}`}>
+      <span className="font-semibold tabular-nums">Ficha completa al {cb.porcentaje} %</span>
+      <span className="text-l-tinta-2">{cb.falta.length ? `Falta: ${cb.falta.join(", ")}.` : "No le falta nada."}</span>
+      {nas && <span className="text-l-tinta-3">NAS: {nas.videos.toLocaleString("es-AR")} videos y {nas.fotos.toLocaleString("es-AR")} fotos indexados.</span>}
+    </p>
   );
 }
 

@@ -6,7 +6,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ClipboardCheck, Clapperboard, Film, Inbox, Moon, Settings2, Sun, Users } from "lucide-react";
+import { Activity, Bot, Clapperboard, Film, Inbox, Library, Moon, Settings2, Sun, Users } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
@@ -16,21 +16,26 @@ import { accessApi } from "../api/access";
 const SECCIONES = [
   { to: "/hoy", label: "Hoy", Icono: Inbox },
   { to: "/clientes", label: "Clientes", Icono: Users },
-  { to: "/trabajo", label: "Trabajo", Icono: ClipboardCheck },
   { to: "/contenido", label: "Contenido", Icono: Clapperboard },
+  { to: "/biblioteca", label: "Biblioteca", Icono: Library },
+  { to: "/actividad", label: "Actividad", Icono: Activity },
   { to: "/produccion", label: "Producción", Icono: Film },
   { to: "/agentes", label: "Agentes", Icono: Bot },
   { to: "/config", label: "Config", Icono: Settings2, soloAdmin: true },
 ] as const;
 
-/** Las demás pantallas propias: viven en el shell, con su diseño de antes hasta rehacerlas. */
+/**
+ * Las demás pantallas propias. Plan 15/11: Trabajo quedó acá (lo hecho por los
+ * agentes está también en Actividad y Biblioteca); Finanzas salió del menú (D4,
+ * sin datos) pero la ruta sigue.
+ */
 export const MAS = [
+  { to: "/pauta", label: "Pauta" },
+  { to: "/trabajo", label: "Trabajo de los agentes" },
   { to: "/semaforo", label: "Semáforo de clientes" },
   { to: "/nichos", label: "Nichos" },
-  { to: "/pauta", label: "Pauta" },
   { to: "/inteligencia", label: "Inteligencia" },
   { to: "/licitaciones", label: "Licitaciones", soloAdmin: true },
-  { to: "/finanzas", label: "Finanzas", soloAdmin: true },
   { to: "/whatsapp", label: "WhatsApp", soloAdmin: true },
 ] as const;
 
@@ -70,6 +75,8 @@ export function Shell() {
   const contadores = useContadores();
   const esAdmin = useEsAdmin();
   const secciones = SECCIONES.filter((s) => esAdmin || !("soloAdmin" in s));
+  // En el celular entran 6: Actividad y Producción quedan en el riel de escritorio y en Config.
+  const enCelular = secciones.filter((s) => ["/hoy", "/clientes", "/contenido", "/biblioteca", "/agentes", "/config"].includes(s.to));
   const mas = MAS.filter((m) => esAdmin || !("soloAdmin" in m));
   const { pathname } = useLocation();
   useEffect(() => {
@@ -132,9 +139,9 @@ export function Shell() {
       <nav
         className="fixed inset-x-0 bottom-0 z-30 grid border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
         aria-label="Secciones"
-        style={{ gridTemplateColumns: `repeat(${secciones.length}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${enCelular.length}, minmax(0, 1fr))` }}
       >
-        {secciones.map(({ to, label, Icono }) => (
+        {enCelular.map(({ to, label, Icono }) => (
           <NavLink
             key={to}
             to={to}

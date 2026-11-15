@@ -4,11 +4,40 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import { actividad, cliente, empresa, resolverCliente } from "../services/cerebro.js";
-import { assertMiembro } from "./authz.js";
+import { assertBoard, assertMiembro } from "./authz.js";
 
 export function cerebroRoutes(db: Db): Router {
   const router = Router();
   router.use("/cerebro", (req, _res, next) => { if (req.actor.type !== "agent") assertMiembro(req); next(); });
+
+  // GET /api/biblioteca?cliente=&tipo=&dias=&veredicto= — todo lo producido (fase 5): piezas, copys,
+  // informes, specs e investigaciones, con su control y veredicto. Los «planes» no entran (D7).
+  router.get("/biblioteca", async (req, res) => {
+    assertMiembro(req);
+    const { sql } = await import("drizzle-orm");
+    let clientId: string | null = null;
+    if (req.query.cliente) {
+      const r = await resolverCliente(db, String(req.query.cliente));
+      if ("error" in r) return res.status(404).json(r);
+      clientId = r.id;
+    }
+    const dias = Math.min(365, Math.max(1, Number(req.query.dias) || 30));
+    const tipo = typeof req.query.tipo === "string" && /^[a-z_]+$/.test(req.query.tipo) ? req.query.tipo : null;
+    const veredicto = req.query.veredicto === "sirve" ? "true" : req.query.veredicto === "no" ? "false" : req.query.veredicto === "sin" ? "sin" : null;
+    const r = await db.execute(sql`
+      select d.id, d.kind, d.title, d.url, d.created_at, d.metadata->'links' links, d.metadata->>'via' via,
+        d.metadata->'revision' revision, d.metadata->'veredicto' veredicto, left(d.content, 400) resumen,
+        c.name cliente, d.client_id, a.name agente
+      from agent_deliverables d left join clients c on c.id = d.client_id left join agents a on a.id = d.agent_id
+      where d.created_at > now() - make_interval(days => ${dias}) and d.kind not in ('plan', 'descartado')
+        ${clientId ? sql`and d.client_id = ${clientId}` : sql``}
+        ${tipo ? sql`and d.kind = ${tipo}` : sql``}
+        ${veredicto === "sin" ? sql`and d.metadata->'veredicto' is null and d.kind in ('placa','video','imagen')` : veredicto ? sql`and d.metadata->'veredicto'->>'sirve' = ${veredicto}` : sql``}
+      order by d.created_at desc limit 300`);
+    const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
+    const tipos = await db.execute(sql`select kind, count(*)::int n from agent_deliverables where created_at > now() - make_interval(days => ${dias}) and kind not in ('plan','descartado') ${clientId ? sql`and client_id = ${clientId}` : sql``} group by 1 order by 2 desc`);
+    res.json({ dias, piezas: filas, porTipo: Array.isArray(tipos) ? tipos : ((tipos as { rows?: unknown[] }).rows ?? []) });
+  });
 
   // GET /api/cerebro/empresa — cómo trabaja la agencia + equipo, rutinas y lecciones.
   router.get("/cerebro/empresa", async (_req, res) => { res.json(await empresa(db)); });
@@ -63,6 +92,27 @@ export function cerebroRoutes(db: Db): Router {
     }).sort((a, b) => a.porcentaje - b.porcentaje);
     const promedio = lista.length ? Math.round(lista.reduce((t, x) => t + x.porcentaje, 0) / lista.length) : null;
     res.json({ promedio, clientes: lista });
+  });
+
+  // GET /api/publicacion/trabadas — posts que Make no pudo publicar, con la causa (fase 5).
+  router.get("/publicacion/trabadas", async (req, res) => {
+    assertMiembro(req);
+    const { publicacionesTrabadas } = await import("../services/publicacion-trabada.js");
+    res.json(await publicacionesTrabadas(db, Math.min(30, Math.max(1, Number(req.query.dias) || 14))));
+  });
+
+  // POST /api/publicacion/reprocesar { dlqId } — lo decide una persona: publica en la cuenta del cliente.
+  router.post("/publicacion/reprocesar", async (req, res) => {
+    assertBoard(req);
+    const dlqId = String(req.body?.dlqId ?? "");
+    const { reprocesarTrabada } = await import("../services/publicacion-trabada.js");
+    const r = await reprocesarTrabada(dlqId);
+    if (r.ok) {
+      const { activityLog, companies } = await import("@paperclipai/db");
+      const [emp] = await db.select({ id: companies.id }).from(companies).limit(1);
+      if (emp) await db.insert(activityLog).values({ companyId: emp.id, actorType: "user", actorId: req.actor.userId ?? "panel", action: "publicacion.reprocesar", entityType: "make_dlq", entityId: dlqId, details: { dlqId } }).catch(() => undefined);
+    }
+    res.status(r.ok ? 200 : 502).json(r);
   });
 
   return router;

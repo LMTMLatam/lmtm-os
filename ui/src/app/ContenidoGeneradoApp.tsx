@@ -334,7 +334,7 @@ function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: 
  * persona (15/11). «No sirve» pide el porqué: queda como regla del cliente y el
  * agente la lee antes de la próxima pieza.
  */
-function Calidad({ p }: { p: PiezaGenerada }) {
+export function Calidad({ p }: { p: Pick<PiezaGenerada, "id" | "revision" | "veredicto"> }) {
   const qc = useQueryClient();
   const [abierto, setAbierto] = useState(false);
   const [porque, setPorque] = useState("");

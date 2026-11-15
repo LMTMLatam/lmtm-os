@@ -18,6 +18,7 @@ import { Boton } from "../lmtm/componentes";
 import { horaCorta } from "../lmtm/formato";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
+import { PublicacionTrabada } from "./PublicacionTrabada";
 import { QueFunciona } from "./QueFunciona";
 
 interface Pieza {
@@ -147,6 +148,7 @@ export function ContenidoApp() {
         }
       />
       <div className="space-y-8 px-4 pb-10 md:px-8">
+        <PublicacionTrabada />
         {e?.avisoSesion && (
           <p className={`flex gap-2 rounded-xl border-l-[3px] px-3 py-2.5 text-[14px] ${puedeGenerar ? "border-l-l-atencion bg-l-sup" : "border-l-l-critico bg-l-critico-suave"}`} role="status">
             <OctagonAlert className={`mt-0.5 h-4 w-4 shrink-0 ${puedeGenerar ? "text-l-atencion-texto" : "text-l-critico"}`} aria-hidden />

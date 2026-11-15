@@ -74,6 +74,9 @@ function LinksDelConector() {
 }
 
 const AJUSTES = [
+  { to: "/actividad", titulo: "Actividad", detalle: "Todo lo que se hizo, en una línea de tiempo" },
+  { to: "/produccion", titulo: "Producción", detalle: "Tipos de video y contenido generado" },
+  { to: "/finanzas", titulo: "Finanzas", detalle: "Sin datos cargados todavía" },
   { to: "/conexiones", titulo: "Conexiones de pauta", detalle: "Meta Ads y Google Ads de cada cliente" },
   { to: "/avisos", titulo: "Avisos de WhatsApp", detalle: "Qué se mandó, qué va al resumen y qué se descartó, con el motivo" },
   { to: "/whatsapp", titulo: "WhatsApp", detalle: "Grupos de clientes y bot" },
