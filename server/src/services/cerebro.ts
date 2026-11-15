@@ -147,7 +147,15 @@ export async function cliente(db: Db, clientId: string, ahora = new Date()) {
     productos: { total: productos.length, lista: productos.slice(0, 25).map((p) => ({ nombre: s(p.name), descripcion: corto(p.description, 160) || null, carpetaDrive: s(p.carpeta) || null })) },
     material: {
       nas, drive: meta.superRedes ?? null,
-      comoBuscar: "Drive: lmtmBuscarMaterial (por lo que se ve) o lmtmGuiaContenido. NAS: lmtmNasListar sobre la carpeta de arriba y lmtmNasLink.",
+      indiceNas: await (async () => {
+        const [x] = filas(await db.execute(sql`select payload->>'actualizado' al,
+            jsonb_array_length(coalesce(payload->'archivos', '[]'::jsonb)) archivos,
+            (select count(*) from jsonb_array_elements(coalesce(payload->'archivos', '[]'::jsonb)) a where a->>'tipo' = 'video') videos,
+            (select count(*) from jsonb_array_elements(coalesce(payload->'archivos', '[]'::jsonb)) a where a->>'tipo' = 'foto') fotos
+          from client_context_cache where client_id = ${clientId} and source = 'nas-indice'`));
+        return x ? { archivos: Number(x.archivos), videos: Number(x.videos), fotos: Number(x.fotos), actualizado: s(x.al).slice(0, 10) || null } : null;
+      })(),
+      comoBuscar: "Drive: lmtmBuscarMaterial (por lo que se ve) o lmtmGuiaContenido. NAS: lmtmNasBuscar con palabras (índice nocturno), lmtmNasListar para recorrer y lmtmNasLink para bajar.",
     },
     web: webs,
     redesYPauta: {

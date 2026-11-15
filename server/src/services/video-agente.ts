@@ -438,6 +438,12 @@ export const VIDEO_TOOLS: ToolDef[] = [
     tipo: { type: "string", enum: ["foto", "video", "todo"] },
     cantidad: { type: "number", description: "Máximo de archivos (por defecto 30)." },
   }, ["link", "carpeta"]),
+  def("nas_buscar", "BUSCA en el NAS de LMTM (crudos y videos de los clientes) por palabras, sin recorrer carpetas: usa el índice que se arma todas las noches. Todas las palabras tienen que estar en la ruta o el nombre (sin importar acentos). Devuelve la ruta (para nas_link o nas_bajar), el tipo, el peso y la fecha. Lo que NO dice el nombre (qué se ve) no se encuentra acá: bajá los candidatos y usá video_describir.", {
+    q: { type: "string", description: "Palabras: «fabrica», «drone obra», «testimonio cocina»." },
+    cliente: { type: "string", description: "Nombre (aunque sea parcial) o id. Sin cliente: todo el NAS indexado." },
+    tipo: { type: "string", enum: ["video", "foto", "audio", "diseño", "documento", "otro"] },
+    limite: { type: "number", description: "Cuántos devolver (por defecto 40, máximo 200)." },
+  }, ["q"]),
   def("nas_listar", "LISTA una carpeta del NAS de LMTM (crudos y videos de los clientes): carpetas y archivos con su peso en MB. Solo lectura. Empezá por «/» para ver las carpetas compartidas.", {
     ruta: { type: "string", description: "Ruta en el NAS, por ejemplo /LMTM/Clientes/RENO." },
   }, ["ruta"]),
@@ -834,6 +840,25 @@ export async function ejecutarHerramientaVideo(
       const mb = (fs.statSync(archivo).size / 1e6).toFixed(1);
       return ok(`${archivo} · ${mb} MB
 Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=${f.token}`);
+    }
+
+    if (tool === "nas_buscar") {
+      const { buscarEnNas } = await import("./nas-indice.js");
+      let clientIds: string[] | undefined;
+      if (txt(p.cliente)) {
+        const { resolverCliente } = await import("./cerebro.js");
+        const r = await resolverCliente(db, txt(p.cliente));
+        if ("error" in r) return mal(`${r.error}${r.opciones ? ` (${r.opciones.join(", ")})` : ""}`);
+        clientIds = [r.id];
+      }
+      const tipos = ["video", "foto", "audio", "diseño", "documento", "otro"] as const;
+      const tipo = tipos.find((t) => t === txt(p.tipo)) ?? null;
+      const r = await buscarEnNas(db, { q: txt(p.q), clientIds, tipo, limite: Number(p.limite) || 40 });
+      if (!r.indices.length) return mal(clientIds ? "Ese cliente no tiene índice del NAS (no tiene carpeta mapeada o todavía no se indexó): usá nas_listar sobre su carpeta." : "Todavía no hay índice del NAS: usá nas_listar.");
+      if (!r.resultados.length) return ok(`Nada en el NAS con «${txt(p.q)}»${tipo ? ` (${tipo})` : ""} en ${r.indices.map((i) => `${i.cliente} (${i.archivos} archivos, al ${i.actualizado?.slice(0, 10) ?? "?"})`).join(", ").slice(0, 600)}. Probá otras palabras o mirá las carpetas con nas_listar.`);
+      return ok(`${r.total} en el NAS con «${txt(p.q)}»${r.total > r.resultados.length ? ` (muestro ${r.resultados.length})` : ""}:\n` +
+        r.resultados.map((a) => `${a.ruta} · ${a.tipo}${a.mb != null ? ` · ${a.mb} MB` : ""}${a.fecha ? ` · ${a.fecha}` : ""}${clientIds ? "" : ` · ${a.cliente}`}`).join("\n") +
+        "\nPara bajarlo: nas_link (link a la PC) o nas_bajar (al servidor).");
     }
 
     if (tool === "nas_listar" || tool === "nas_bajar" || tool === "nas_link") {

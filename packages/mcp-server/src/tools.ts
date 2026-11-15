@@ -1343,6 +1343,17 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "drive_bajar", parameters: p } }),
     ),
     makeTool(
+      "lmtmNasBuscar",
+      "BUSCA en el NAS de LMTM (crudos y videos de los clientes) por palabras, sin recorrer carpetas (índice de todas las noches). Todas las palabras tienen que estar en la ruta o el nombre, sin importar acentos. Devuelve rutas para lmtmNasLink. Lo que se VE en un video no está en el índice: bajá los candidatos y describilos.",
+      z.object({
+        q: z.string().min(2).describe("Palabras: «fabrica», «drone obra», «testimonio cocina»."),
+        cliente: z.string().optional().describe("Nombre (aunque sea parcial) o id. Sin cliente: todo el NAS indexado."),
+        tipo: z.enum(["video", "foto", "audio", "diseño", "documento", "otro"]).optional(),
+        limite: z.number().int().min(1).max(200).optional(),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "nas_buscar", parameters: p } }),
+    ),
+    makeTool(
       "lmtmNasListar",
       "LISTA una carpeta del NAS de LMTM (crudos y videos de los clientes): carpetas y archivos con su peso. Solo lectura. Empezá por «/».",
       z.object({ ruta: z.string().min(1).describe("Ruta en el NAS, por ejemplo /LMTM/Clientes/RENO.") }),

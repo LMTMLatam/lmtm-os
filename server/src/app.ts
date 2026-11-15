@@ -457,6 +457,9 @@ export async function createApp(
         // El tipo de video de cada video de la competencia («Tipos de video»).
         const { initVideoTipos } = await import("./services/video-tipos.js");
         initVideoTipos(db);
+        // Índice del NAS (plan 15/11, fase 3): todas las noches, y el primero a los 3 minutos.
+        const { initNasIndice } = await import("./services/nas-indice.js");
+        initNasIndice(db);
       } catch (e) {
         console.warn("[contenido-angulos] init failed:", e);
       }

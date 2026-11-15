@@ -113,7 +113,7 @@ export const HERRAMIENTAS_EQUIPO = [
   "lmtmGetTeamLessons", "lmtmSearchHooks", "lmtmTiposDeVideo", "lmtmPlantillaVideo", "lmtmBuscarVirales", "lmtmGuardarViral", "lmtmListDeliverables", "lmtmAnalisisSeo", "lmtmRendimientoWeb",
   "lmtmRedesPublicas", "lmtmContenidoGenerado", "lmtmEstadoGeneracion", "lmtmBuscarMaterial",
   // NAS de LMTM: solo lectura (usuario RO sobre LMTM) y link de descarga por archivo.
-  "lmtmNasListar", "lmtmNasLink",
+  "lmtmNasBuscar", "lmtmNasListar", "lmtmNasLink",
   // Generar con las cuentas de la agencia (13/11): clips, imágenes, voz y música, bajo
   // /tmp/videos/equipo/ (agent-tools lo exige), con su gasto anotado; se bajan con lmtmVideoLink.
   "lmtmVideoPlano", "lmtmContenidoImagen", "lmtmVideoVoz", "lmtmVideoMusica", "lmtmVideoEstado", "lmtmVideoLink",
