@@ -20,6 +20,7 @@ import { avisosRoutes } from "./avisos/rutas.js";
 import { informesRoutes } from "./decisiones/informes-rutas.js";
 import { agentesRoutes } from "./agentes/rutas.js";
 import { videoRoutes } from "./routes/video.js";
+import { cerebroRoutes } from "./routes/cerebro.js";
 import { pautaGoogleRoutes } from "./routes/pauta-google.js";
 import { webGoogleRoutes } from "./routes/web-google.js";
 import { trabajoRoutes } from "./routes/trabajo.js";
@@ -276,6 +277,7 @@ export async function createApp(
   api.use(informesRoutes(db));
   api.use(agentesRoutes(db));
   api.use(videoRoutes(db));
+  api.use(cerebroRoutes(db));
   api.use(pautaGoogleRoutes(db));
   api.use(webGoogleRoutes(db));
   api.use(trabajoRoutes(db));

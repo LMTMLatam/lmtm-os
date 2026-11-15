@@ -104,6 +104,8 @@ export function conectorMcpRoutes(opts: { serverPort: number }) {
 export const AGENTE_EQUIPO = "Claude (equipo)";
 
 export const HERRAMIENTAS_EQUIPO = [
+  // El cerebro (15/11): la agencia, lo que se hizo y la ficha de cada cliente, en una llamada cada uno.
+  "lmtmEmpresa", "lmtmCliente", "lmtmActividad",
   "lmtmGuiaContenido", "lmtmListClients", "lmtmGetClientBrain", "lmtmGetClientAdsPerformance", "lmtmGetClientCampaigns",
   "lmtmGetClientCompetitors", "lmtmGetClientScores", "lmtmPortfolioSnapshot", "lmtmGetClientBalance",
   "lmtmGetClientMarketingPlan", "lmtmGetClientOrganicPosts", "lmtmGetClientScheduledContent",

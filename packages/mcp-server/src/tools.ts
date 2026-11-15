@@ -1443,6 +1443,40 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       },
     ),
     makeTool(
+      "lmtmEmpresa",
+      "EL CEREBRO DE LA AGENCIA, empezá acá si no conocés LMTM: cómo trabajamos (sistemas, procesos, convenciones, reglas de la casa, personas), los agentes con cómo vienen, las rutinas y las lecciones del equipo. Una llamada.",
+      z.object({}),
+      async () => client.requestJson("GET", "/cerebro/empresa"),
+    ),
+    makeTool(
+      "lmtmCliente",
+      "LA FICHA COMPLETA DE UN CLIENTE en una llamada: marca y tono, lo obligatorio, lo que el equipo dijo de piezas anteriores, productos, dónde está su material (Drive y NAS), web, cuentas y pauta de 30 días, competidores, decisiones abiertas, memoria curada (sin vencidas ni repetidas), informe y lo que se hizo en 14 días. Trae también su COBERTURA (qué le falta a la ficha). Usala antes de trabajar cualquier cliente. Para producir una pieza, después lmtmGuiaContenido.",
+      z.object({ cliente: z.string().min(1).describe("Nombre (aunque sea parcial), slug o id.") }),
+      async ({ cliente }) => client.requestJson("GET", `/cerebro/cliente?q=${encodeURIComponent(cliente)}`),
+    ),
+    makeTool(
+      "lmtmActividad",
+      "TODO LO QUE SE HIZO en un período, de todas las fuentes en una lista: piezas entregadas (con su control y veredicto), decisiones ejecutadas y verificadas, acciones de pauta, tareas terminadas, informes publicados y posts publicados en redes; con un resumen y el gasto de contenido. Para «qué se hizo esta semana», «qué se le hizo a X», «qué hizo la agencia hoy». Los planes de los agentes no entran salvo planes=true.",
+      z.object({
+        cliente: z.string().optional().describe("Nombre, slug o id. Sin cliente: toda la agencia."),
+        dias: z.number().int().min(1).max(90).optional().describe("Hacia atrás (default 7)."),
+        desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de inicio en vez de días."),
+        tipo: z.string().optional().describe("pieza | decision | accion | tarea | informe | publicacion (o pieza:video, accion:pause…)."),
+        limite: z.number().int().min(1).max(300).optional(),
+        planes: z.boolean().optional(),
+      }),
+      async ({ cliente, dias, desde, tipo, limite, planes }) => {
+        const q = new URLSearchParams();
+        if (cliente) q.set("cliente", cliente);
+        if (dias) q.set("dias", String(dias));
+        if (desde) q.set("desde", desde);
+        if (tipo) q.set("tipo", tipo);
+        if (limite) q.set("limite", String(limite));
+        if (planes) q.set("planes", "1");
+        return client.requestJson("GET", `/cerebro/actividad?${q.toString()}`);
+      },
+    ),
+    makeTool(
       "lmtmVeredictoPieza",
       "VEREDICTO de una persona sobre una pieza entregada (placa, carrusel o video): sirve o no sirve, y por qué. Usalo cuando alguien del equipo te dice que una pieza salió bien o mal. Si no sirvió, el porqué queda como regla fijada del cliente y el Productor la lee antes de la próxima pieza. El id sale de lmtmContenidoGenerado. No lo uses para juzgar tus propias piezas sin que una persona lo diga.",
       z.object({

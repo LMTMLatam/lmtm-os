@@ -9,7 +9,9 @@ import { createToolDefinitions } from "./tools.js";
  * gastar tokens en buscar al cliente, su memoria y su material por separado.
  */
 export const INSTRUCCIONES =
-  "LMTM-OS: datos y herramientas de la agencia LMTM (clientes, pauta, contenido). " +
+  "LMTM-OS: el cerebro de la agencia LMTM (clientes, pauta, contenido, todo lo que se hace). " +
+  "Para entender la agencia: lmtmEmpresa. Para un cliente: lmtmCliente (la ficha completa en una llamada). " +
+  "Para saber qué se hizo (esta semana, a un cliente, hoy): lmtmActividad. " +
   "Para cualquier pieza de contenido de un cliente («quiero un video / reel / placa de X para tal cliente»), " +
   "llamá PRIMERO a lmtmGuiaContenido con el cliente y el producto: en una sola llamada trae la marca, la memoria, " +
   "lo que se sabe del producto, el material real de Drive con links de descarga, la web y la receta para producirla. " +

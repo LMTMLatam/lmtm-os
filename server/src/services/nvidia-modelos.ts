@@ -28,7 +28,11 @@ export const MODELO_VISION = process.env.NVIDIA_MODEL_VISION?.trim() || "moonsho
  * no un 404, así que se ve claro en `detalle` si vuelve a pasar. El reemplazo
  * es flash, verificado el mismo día.
  */
-export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "nvidia/nemotron-3-super-120b-a12b";
+// 15/11/26: nemotron-3-super murió (404) y el respaldo gpt-oss-20b no contesta en
+// 120 s: completar marca, voz aprendida, ángulos, plantillas de video y agency-ops
+// devolvían null en silencio («el modelo no devolvió una marca legible (red)»).
+// Medido el 15/11 con el Enfoque Técnico de MONDINO: ultra 16 s, lightning 19 s, los dos bien.
+export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "nvidia/nemotron-3-ultra-550b-a55b";
 /**
  * 7/10/26: deepseek-v4-flash-0731 también murió (HTTP 410) y nadie se enteró:
  * aiNarrative caía a MiniMax en silencio y la voz de marca (marca-aprendida)
@@ -37,11 +41,16 @@ export const MODELO_TEXTO = process.env.NVIDIA_MODEL_TEXTO?.trim() || "nvidia/ne
  * (gpt-oss-20b, 3-11 s). deepseek-v4.1-flash y glm-5.3-flash no contestaban
  * en 180 s; kimi-k2.6 y mistral-large dan 404 para esta cuenta.
  */
-export const MODELO_TEXTO_RESPALDO = process.env.NVIDIA_MODEL_TEXTO_RESPALDO?.trim() || "openai/gpt-oss-20b";
+export const MODELO_TEXTO_RESPALDO = process.env.NVIDIA_MODEL_TEXTO_RESPALDO?.trim() || "nvidia/nemotron-3.5-lightning-30b-a3b";
 
 /** ¿El modelo ya no existe para esta cuenta? (fin de vida o no habilitado) */
 export function modeloMuerto(r: Pick<RespuestaModelo, "motivo" | "detalle">): boolean {
   return r.motivo === "http" && /^(404|410)\b/.test(r.detalle ?? "");
+}
+
+/** ¿Vale la pena probar con el respaldo? Muerto, o colgado (red = timeout o conexión caída). */
+export function probarRespaldo(r: Pick<RespuestaModelo, "motivo" | "detalle">): boolean {
+  return modeloMuerto(r) || r.motivo === "red";
 }
 
 /** Piso de tokens para un modelo de razonamiento. Por debajo de esto el
@@ -229,7 +238,7 @@ export async function analizarTexto(
   ];
   const modelo = opts.modelo ?? MODELO_TEXTO;
   const r = await llamar(modelo, clave, mensajes, { ...opts, esDeRazonamiento: true });
-  if (!modeloMuerto(r) || modelo === MODELO_TEXTO_RESPALDO) return r;
-  console.warn(`[nvidia] ${modelo} no existe más (${(r.detalle ?? "").slice(0, 80)}): uso ${MODELO_TEXTO_RESPALDO}`);
+  if (!probarRespaldo(r) || modelo === MODELO_TEXTO_RESPALDO) return r;
+  console.warn(`[nvidia] ${modelo} ${modeloMuerto(r) ? "no existe más" : "no contestó"} (${(r.detalle ?? "").slice(0, 80)}): uso ${MODELO_TEXTO_RESPALDO}`);
   return llamar(MODELO_TEXTO_RESPALDO, clave, mensajes, { ...opts, esDeRazonamiento: true });
 }
