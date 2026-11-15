@@ -11,7 +11,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Router, type Request } from "express";
 import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agents, companies } from "@paperclipai/db";
+import { activityLog, agents, companies } from "@paperclipai/db";
 import { ADAPTER_RUNNER, createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createPaperclipMcpServer } from "@paperclipai/mcp-server";
@@ -120,7 +120,9 @@ export const HERRAMIENTAS_EQUIPO = [
   // Lo que escribe: contenido, tareas y lo aprendido del cliente.
   "lmtmGenerarContenido", "lmtmGenerarPieza", "lmtmCreateClientTask", "lmtmRememberAboutClient", "lmtmSaveHook",
   // Calidad (15/11): el equipo dice si una pieza sirvió y por qué; queda como regla del cliente.
-  "lmtmVeredictoPieza",
+  "lmtmVeredictoPieza", "lmtmRegistrarPieza",
+  // Lo que antes era invisible (15/11): reglas de cada red y si tiene sentido producir.
+  "lmtmValidacionRedes", "lmtmClienteListoParaProducir",
 ];
 
 function mismoCodigo(dado: string, esperado: string | undefined): boolean {
@@ -145,10 +147,22 @@ async function agenteEquipo(db: Db): Promise<{ id: string; companyId: string }> 
 export function conectorEquipoRoutes(db: Db, opts: { serverPort: number }) {
   const router = Router();
   router.post("/mcp-equipo/:codigo", async (req, res) => {
-    if (!mismoCodigo(String(req.params.codigo ?? ""), process.env.LMTM_CONECTOR_EQUIPO)) {
+    const codigo = String(req.params.codigo ?? "");
+    // Un link por persona (15/11); el código compartido viejo sigue andando hasta que se saque de Railway.
+    const { personas, personaDelCodigo } = await import("../services/conector-personas.js");
+    const persona = personaDelCodigo(codigo, await personas(db)) ?? (mismoCodigo(codigo, process.env.LMTM_CONECTOR_EQUIPO) ? "link compartido" : null);
+    if (!persona) {
       return res.status(401).json({ error: "Link del conector del equipo inválido o revocado." });
     }
     const agente = await agenteEquipo(db);
+    // Quién usó qué herramienta: queda en la actividad (uso del conector por persona).
+    const cuerpo = req.body as { method?: string; params?: { name?: string } } | undefined;
+    if (cuerpo?.method === "tools/call") {
+      void db.insert(activityLog).values({
+        companyId: agente.companyId, actorType: "user", actorId: `conector:${persona}`, action: "conector.herramienta",
+        entityType: "agent", entityId: agente.id, agentId: agente.id, details: { persona, herramienta: cuerpo.params?.name ?? null },
+      }).catch(() => undefined);
+    }
     const jwt = createLocalAgentJwt(agente.id, agente.companyId, ADAPTER_RUNNER, "conector-equipo");
     if (!jwt) return res.status(500).json({ error: "Falta el secreto para firmar la identidad del agente." });
     const { server } = createPaperclipMcpServer(

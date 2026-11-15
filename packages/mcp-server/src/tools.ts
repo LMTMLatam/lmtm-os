@@ -1343,6 +1343,18 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "drive_bajar", parameters: p } }),
     ),
     makeTool(
+      "lmtmValidacionRedes",
+      "Qué posts del calendario de un cliente VAN A FALLAR al llegar su fecha por las reglas de la red (copy más largo que el tope, formato que la red no acepta, carrusel con demasiadas piezas, redes que el despachador no entrega). Make no lo chequea y los descarta en silencio. Usala antes de cerrar un calendario; al escribir copy respetá topeDeTexto.",
+      z.object({ clientId: z.string().min(1), dias: z.number().int().min(1).max(120).optional() }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_validacion_redes", parameters: p } }),
+    ),
+    makeTool(
+      "lmtmClienteListoParaProducir",
+      "¿Tiene sentido producir contenido para este cliente? listo=false si no tiene destino de publicación en Make: lo que se genere se descarta en silencio. Consultala antes de un plan de contenido, ideas, placas o calendario.",
+      z.object({ clientId: z.string().min(1) }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_cliente_listo_para_producir", parameters: p } }),
+    ),
+    makeTool(
       "lmtmNasBuscar",
       "BUSCA en el NAS de LMTM (crudos y videos de los clientes) por palabras, sin recorrer carpetas (índice de todas las noches). Todas las palabras tienen que estar en la ruta o el nombre, sin importar acentos. Devuelve rutas para lmtmNasLink. Lo que se VE en un video no está en el índice: bajá los candidatos y describilos.",
       z.object({
@@ -1486,6 +1498,19 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         if (planes) q.set("planes", "1");
         return client.requestJson("GET", `/cerebro/actividad?${q.toString()}`);
       },
+    ),
+    makeTool(
+      "lmtmRegistrarPieza",
+      "REGISTRA en el panel una pieza que armaste en la PC (placa, carrusel, video o imagen) y ya subiste a Drive: queda en Contenido generado y en la Actividad del cliente, y se le puede dar veredicto. Pasá los links de Drive (compartidos con la agencia), el cliente y un título. No publica nada.",
+      z.object({
+        cliente: z.string().min(1).describe("Nombre (aunque sea parcial), slug o id."),
+        titulo: z.string().min(3).max(150),
+        tipo: z.enum(["placa", "carrusel", "video", "imagen"]),
+        links: z.array(z.string().url()).min(1).max(20).describe("Links de Drive, en orden si es un carrusel."),
+        taskId: z.string().optional().describe("Tarea de ClickUp, si la pieza es de una."),
+        notas: z.string().max(4000).optional().describe("Textos de la pieza, copy sugerido, de dónde salió el material."),
+      }),
+      async (p) => client.requestJson("POST", "/contenido/registrar", { body: p }),
     ),
     makeTool(
       "lmtmVeredictoPieza",

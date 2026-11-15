@@ -1,11 +1,77 @@
 // LMTM: Config (fase C1). Por ahora, la puerta a cada ajuste que ya existe;
 // cada uno se muda a la app cuando se rehace.
 
-import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronRight, Copy } from "lucide-react";
 import { Link } from "@/lib/router";
+import { api } from "../api/client";
 import { MAS } from "./Shell";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
+
+interface PersonaConector { nombre: string; alta: string; link: string | null; llamadas30d: number; ultimoUso: string | null }
+interface Conector { personas: PersonaConector[]; linkCompartido: { activo: boolean; llamadas30d: number; ultimoUso: string | null } }
+
+const fechaCorta = (s: string | null) => (s ? new Date(s).toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : "nunca");
+
+/**
+ * Un link del conector de Claude por persona (15/11): así se sabe quién usó qué
+ * y se le puede cortar a una sola persona. El link ES el acceso: no se manda por
+ * un canal público.
+ */
+function LinksDelConector() {
+  const qc = useQueryClient();
+  const [nombre, setNombre] = useState("");
+  const [copiado, setCopiado] = useState<string | null>(null);
+  const q = useQuery({ queryKey: ["lmtm", "conector-personas"], queryFn: () => api.get<Conector>("/equipo/conector") });
+  const refrescar = () => void qc.invalidateQueries({ queryKey: ["lmtm", "conector-personas"] });
+  const agregar = useMutation({
+    mutationFn: () => api.post<{ ok: boolean; motivo?: string }>("/equipo/conector", { nombre }),
+    onSuccess: (r) => { if (r.ok) setNombre(""); refrescar(); },
+  });
+  const revocar = useMutation({
+    mutationFn: (b: { nombre: string; nuevo: boolean }) => api.post<{ ok: boolean }>("/equipo/conector/revocar", b),
+    onSuccess: refrescar,
+  });
+  const copiar = async (p: PersonaConector) => {
+    if (!p.link) return;
+    try { await navigator.clipboard.writeText(p.link); setCopiado(p.nombre); } catch { setCopiado(null); window.prompt("Copiá el link", p.link); }
+  };
+  if (q.error) return null; // no es admin
+  return (
+    <Tarjeta>
+      <TituloFranja>Conector de Claude: un link por persona</TituloFranja>
+      <p className="mb-2 text-[12px] text-l-tinta-3">Cada persona agrega su link en claude.ai → Conectores. Queda registrado quién usó qué; revocar le corta solo a esa persona.</p>
+      <ul>
+        {(q.data?.personas ?? []).map((p) => (
+          <li key={p.nombre} className="flex flex-wrap items-center gap-2 border-b border-l-linea py-2 text-[13px] last:border-b-0">
+            <span className="min-w-0 flex-1">
+              <span className="font-medium">{p.nombre}</span>
+              <span className="block text-[12px] text-l-tinta-3">{p.llamadas30d} usos en 30 días · último {fechaCorta(p.ultimoUso)}</span>
+            </span>
+            <button type="button" onClick={() => void copiar(p)} disabled={!p.link} className="inline-flex min-h-8 items-center gap-1 rounded-[8px] border border-l-linea-2 px-2 disabled:opacity-50">
+              <Copy className="h-3.5 w-3.5" aria-hidden /> {copiado === p.nombre ? "Copiado" : "Copiar link"}
+            </button>
+            <button type="button" onClick={() => revocar.mutate({ nombre: p.nombre, nuevo: true })} className="min-h-8 rounded-[8px] px-2 text-l-tinta-2 hover:text-l-tinta">Link nuevo</button>
+            <button type="button" onClick={() => revocar.mutate({ nombre: p.nombre, nuevo: false })} className="min-h-8 rounded-[8px] px-2 text-l-critico-texto">Quitar</button>
+          </li>
+        ))}
+      </ul>
+      <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (nombre.trim().length >= 2) agregar.mutate(); }}>
+        <label className="sr-only" htmlFor="persona-conector">Nombre</label>
+        <input id="persona-conector" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre (Marcos, Nazareno…)" className="min-h-9 min-w-0 flex-1 rounded-[8px] border border-l-linea-2 bg-transparent px-2 text-[13px]" />
+        <button type="submit" disabled={nombre.trim().length < 2 || agregar.isPending} className="min-h-9 rounded-[8px] bg-l-marca px-3 text-[13px] font-semibold text-white disabled:opacity-50">Dar link</button>
+      </form>
+      {agregar.data && !agregar.data.ok && <p className="mt-1 text-[12px] text-l-atencion-texto" role="alert">{agregar.data.motivo}</p>}
+      {q.data?.linkCompartido.activo && (
+        <p className="mt-3 border-t border-l-linea pt-2 text-[12px] text-l-tinta-3">
+          El link compartido viejo sigue activo ({q.data.linkCompartido.llamadas30d} usos en 30 días, último {fechaCorta(q.data.linkCompartido.ultimoUso)}). Cuando todos tengan el suyo, se apaga sacando LMTM_CONECTOR_EQUIPO de Railway.
+        </p>
+      )}
+    </Tarjeta>
+  );
+}
 
 const AJUSTES = [
   { to: "/conexiones", titulo: "Conexiones de pauta", detalle: "Meta Ads y Google Ads de cada cliente" },
@@ -37,6 +103,7 @@ export function ConfigApp() {
             ))}
           </ul>
         </Tarjeta>
+        <LinksDelConector />
         <Tarjeta>
           <TituloFranja>Pantallas que todavía no se mudaron</TituloFranja>
           <ul>

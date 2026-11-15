@@ -16,6 +16,7 @@ import { companies, invites } from "@paperclipai/db";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { accessService } from "../services/access.js";
 import { humanJoinGrantsFromDefaults } from "../services/invite-grants.js";
+import { assertInstanceAdmin } from "./authz.js";
 
 /** ¿Es el código del equipo? Comparación en tiempo constante; sin código cargado, nunca. */
 export function esCodigoEquipo(dado: unknown, esperado = process.env.LMTM_INVITACION_EQUIPO): boolean {
@@ -70,6 +71,37 @@ export function equipoRoutes(db: Db): Router {
       await access.setPrincipalGrants(empresa.id, "user", req.actor.userId, humanJoinGrantsFromDefaults(null, "operator"), null);
     }
     res.json({ ok: true, companyId: empresa.id, yaEra: yaEs });
+  });
+
+  // ── Links del conector de Claude por persona (15/11) ──────────────────────
+  // Solo admins: el link ES el acceso. GET lista con su link; POST agrega; POST revocar saca o renueva.
+  router.get("/equipo/conector", async (req, res) => {
+    assertInstanceAdmin(req);
+    const { personas, codigoDe } = await import("../services/conector-personas.js");
+    const { URL_BASE } = await import("../services/guia-contenido.js");
+    const { sql } = await import("drizzle-orm");
+    const uso = await db.execute(sql`select details->>'persona' persona, count(*) llamadas, max(created_at) ultima
+      from activity_log where action = 'conector.herramienta' and created_at > now() - interval '30 days' group by 1`);
+    const filasUso = (Array.isArray(uso) ? uso : ((uso as { rows?: unknown[] }).rows ?? [])) as Array<{ persona: string; llamadas: number; ultima: string }>;
+    const lista = (await personas(db)).map((p) => {
+      const u = filasUso.find((x) => x.persona === p.nombre);
+      const c = codigoDe(p);
+      return { nombre: p.nombre, alta: p.alta, link: c ? `${URL_BASE()}/mcp-equipo/${c}` : null, llamadas30d: Number(u?.llamadas ?? 0), ultimoUso: u?.ultima ?? null };
+    });
+    const compartido = filasUso.find((x) => x.persona === "link compartido");
+    res.json({ personas: lista, linkCompartido: { activo: !!process.env.LMTM_CONECTOR_EQUIPO, llamadas30d: Number(compartido?.llamadas ?? 0), ultimoUso: compartido?.ultima ?? null } });
+  });
+  router.post("/equipo/conector", async (req, res) => {
+    assertInstanceAdmin(req);
+    const { agregarPersona } = await import("../services/conector-personas.js");
+    const r = await agregarPersona(db, String(req.body?.nombre ?? ""));
+    res.status(r.ok ? 200 : 422).json(r);
+  });
+  router.post("/equipo/conector/revocar", async (req, res) => {
+    assertInstanceAdmin(req);
+    const { revocarPersona } = await import("../services/conector-personas.js");
+    const r = await revocarPersona(db, String(req.body?.nombre ?? ""), req.body?.nuevo === true);
+    res.status(r.ok ? 200 : 422).json(r);
   });
 
   return router;

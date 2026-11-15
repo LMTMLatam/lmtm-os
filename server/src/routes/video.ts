@@ -184,6 +184,39 @@ export function videoRoutes(db: Db): Router {
     res.status(r.ok ? 200 : 422).json(r);
   });
 
+  // POST /api/contenido/registrar { cliente, titulo, tipo, links[], taskId?, notas? } — una pieza que alguien del
+  // equipo armó en su PC (con Claude) y subió a Drive: queda en el panel, en la Actividad y se le puede dar veredicto (15/11).
+  router.post("/contenido/registrar", async (req, res) => {
+    let por: string;
+    let agentId: string | null = null;
+    if (req.actor.type === "agent") {
+      const [a] = await db.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.id, req.actor.agentId ?? "")).limit(1);
+      if (a?.name !== AGENTE_EQUIPO) throw forbidden("Los agentes entregan con sus herramientas de entrega.");
+      por = AGENTE_EQUIPO; agentId = a.id;
+    } else { assertBoard(req); por = req.actor.userId ? `panel:${req.actor.userId}` : "panel"; }
+    const b = (req.body ?? {}) as { cliente?: string; titulo?: string; tipo?: string; links?: unknown; taskId?: string; notas?: string };
+    const tipos = ["placa", "carrusel", "video", "imagen"];
+    const links = (Array.isArray(b.links) ? b.links : []).filter((l): l is string => typeof l === "string" && /^https:\/\//.test(l)).slice(0, 20);
+    if (!b.cliente || !b.titulo || !tipos.includes(String(b.tipo)) || !links.length) {
+      return res.status(422).json({ ok: false, motivo: `Faltan cliente, titulo, tipo (${tipos.join(" | ")}) o links (https).` });
+    }
+    const { resolverCliente } = await import("../services/cerebro.js");
+    const c = await resolverCliente(db, b.cliente);
+    if ("error" in c) return res.status(404).json({ ok: false, motivo: c.error, opciones: c.opciones });
+    // La empresa es la de la agencia (una sola): la del agente del equipo.
+    const [eq0] = await db.select({ companyId: agents.companyId }).from(agents).where(eq(agents.name, AGENTE_EQUIPO)).limit(1);
+    const companyId = eq0?.companyId ?? null;
+    if (!companyId) return res.status(503).json({ ok: false, motivo: "No está el agente del equipo." });
+    const kind = b.tipo === "carrusel" ? "placa" : String(b.tipo);
+    const [d] = await db.insert(agentDeliverables).values({
+      companyId, clientId: c.id, agentId, kind,
+      title: `${b.tipo === "carrusel" ? "Carrusel" : kind === "video" ? "Video" : kind === "imagen" ? "Imagen" : "Placa"}: ${String(b.titulo).slice(0, 150)}`,
+      content: typeof b.notas === "string" ? b.notas.slice(0, 4000) : String(b.titulo), url: links[0],
+      metadata: { via: "equipo", origen: req.actor.type === "agent" ? "claude" : "panel", por, links, piezas: links.length, taskId: b.taskId ?? null },
+    }).returning({ id: agentDeliverables.id });
+    res.json({ ok: true, deliverableId: d?.id, mensaje: `Registrada en el panel para ${c.name}. Se le puede dar veredicto con lmtmVeredictoPieza.` });
+  });
+
   // POST /api/contenido/productor/vincular { deliverableId, permalink } — ya se publicó: de acá salen sus métricas.
   router.post("/contenido/productor/vincular", async (req, res) => {
     assertBoard(req);

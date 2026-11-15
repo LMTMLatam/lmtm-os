@@ -198,7 +198,9 @@ export async function actividad(db: Db, o: { dias?: number; desde?: string; clie
       (select count(*) from agent_actions x where x.created_at >= ${desdeIso}::timestamptz ${porCliente("x.client_id")}) accion,
       (select count(*) from issues i where i.status = 'done' and i.completed_at >= ${desdeIso}::timestamptz ${porCliente("i.client_id")}) tarea,
       (select count(*) from informes_semanales s where s.publicado_at >= ${desdeIso}::timestamptz ${porCliente("s.client_id")}) informe,
-      (select count(*) from organic_posts p where p.created_time >= ${desdeIso}::timestamptz ${porCliente("p.client_id")}) publicacion`),
+      (select count(*) from organic_posts p where p.created_time >= ${desdeIso}::timestamptz ${porCliente("p.client_id")}) publicacion,
+      (select coalesce(jsonb_object_agg(persona, n), '{}'::jsonb) from (select details->>'persona' persona, count(*) n from activity_log
+        where action = 'conector.herramienta' and created_at >= ${desdeIso}::timestamptz group by 1) u) conector`),
     db.execute(sql`select d.created_at f, d.kind, d.title, d.url, d.metadata->'revision'->>'apto' apto, d.metadata->'veredicto'->>'sirve' sirve, cl.name cli, a.name quien
       from agent_deliverables d left join clients cl on cl.id = d.client_id left join agents a on a.id = d.agent_id
       where d.created_at >= ${desdeIso}::timestamptz ${porCliente("d.client_id")} ${o.conPlanes ? sql`` : sql`and d.kind not in ('plan','descartado')`}
@@ -250,6 +252,8 @@ export async function actividad(db: Db, o: { dias?: number; desde?: string; clie
       creditosContenido: Number(g?.creditos ?? 0),
       corridasDeAgentes: Number(cr?.total ?? 0),
       corridasBien: Number(cr?.bien ?? 0),
+      // Llamadas al conector de Claude por persona (desde los links por persona, 15/11).
+      usoDelConector: c ? undefined : (n?.conector ?? {}),
     },
     nota: "El resumen cuenta todo el período; la lista trae lo más reciente (tope por fuente). Publicaciones = posts reales de Instagram y Facebook sincronizados; pueden llegar con horas de atraso.",
     hechos: hechos.slice(0, limite).map((h) => ({ ...h, fecha: h.fecha.slice(0, 16).replace("T", " ") })),
