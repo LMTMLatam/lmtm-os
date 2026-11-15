@@ -141,6 +141,9 @@ export async function contenidoGenerado(db: Db, opts: { dias: number; clientId?:
         reemplaza: typeof m.reemplaza === "string" ? m.reemplaza : null,
         movimiento: typeof m.movimiento === "string" ? m.movimiento : null,
         postLink: typeof m.postLink === "string" ? m.postLink : null,
+        // Control de calidad guardado en la entrega y veredicto de una persona (15/11).
+        revision: (m.revision as { apto: boolean | null; nivel?: number | null; problemas?: Array<{ que: string }>; sinRevision?: string } | undefined) ?? null,
+        veredicto: (m.veredicto as { sirve: boolean; porque: string | null; fecha: string } | undefined) ?? null,
         medidas: medidas.filter((x) => x.deliverableId === p.id),
       };
     }),

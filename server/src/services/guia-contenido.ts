@@ -535,8 +535,20 @@ export function reglasObligatorias(memoria: Array<{ key: string; content: string
   return ["", "## Obligatorio en cada pieza", ...reglas.map((m) => (m.key === KEY_AVISO_LEGAL ? `- Aviso legal, tal cual (en un reel: cierre.legal): ${m.content}` : `- ${m.content}`))];
 }
 
+/**
+ * Lo que el equipo dijo de piezas anteriores (key pieza-veredicto:*, 15/11): lo
+ * que NO sirvió va primero y entero, sin competir con el resto de la memoria. Pura.
+ */
+export function veredictosDePiezas(memoria: Array<{ key: string; content: string; updatedAt?: Date | string | null }>, tope = 6): string[] {
+  const v = memoria.filter((m) => m.key.startsWith("pieza-veredicto:"));
+  if (!v.length) return [];
+  const orden = [...v].sort((a, b) => Number(/NO sirvió/.test(b.content)) - Number(/NO sirvió/.test(a.content))
+    || String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+  return ["", "## Lo que el equipo dijo de piezas anteriores (respetalo)", ...orden.slice(0, tope).map((m) => `- ${m.content}`)];
+}
+
 export function esDeContenido(m: { kind: string; key: string; content: string }): boolean {
-  if (m.key.startsWith("obligatorio-")) return false;
+  if (m.key.startsWith("obligatorio-") || m.key.startsWith("pieza-veredicto:")) return false;
   // "event" son bitácoras (corridas, resúmenes de WhatsApp): no son hechos del cliente.
   if (m.kind === "context" || m.kind === "event" || m.key === "decisor" || m.key === "identity") return false;
   if (m.kind === "preference" || m.kind === "decision") return true;
@@ -600,6 +612,7 @@ export async function guiaContenido(db: Db, p: PedidoGuia): Promise<string> {
 
   // El producto
   L.push(...reglasObligatorias(memoria));
+  L.push(...veredictosDePiezas(memoria));
   if (p.producto) {
     L.push("", `## El producto: «${p.producto}»`);
     const enCatalogo = productos.filter((x) => puntaje(`${x.name} ${x.description ?? ""}`, pedido) > 0);

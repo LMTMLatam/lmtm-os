@@ -382,9 +382,10 @@ export const VIDEO_TOOLS: ToolDef[] = [
   def("video_estado", "ESTADO de una tarea en segundo plano (render, plano, música). Espera hasta 90 s; si sigue en curso, volvé a consultar.", {
     id: { type: "string" },
   }, ["id"]),
-  def("video_revisar", "CONTROL DE CALIDAD con GPT contra el brief: de un video (saca cuadros) o de las placas de un carrusel/post (imagenes). Revisa texto legible, zona segura, texto que tapa caras o producto, logo, ortografía y que no diga nada que el brief no permite. Devuelve apto o la lista de problemas.", {
+  def("video_revisar", "CONTROL DE CALIDAD con GPT contra el brief: de un video (saca cuadros) o de las placas de un carrusel/post (imagenes). Revisa texto legible, zona segura, texto que tapa caras o producto, logo, ortografía, que no diga nada que el brief no permite y, en placas, que se vea el producto, que el lienzo esté bien ocupado y que esté al nivel de las referencias. Devuelve apto, un nivel de 1 a 5 y los problemas. El resultado QUEDA GUARDADO junto al archivo: la entrega lo exige y lo registra en la pieza.", {
     archivo: { type: "string", description: `Un .mp4 bajo ${RAIZ}/ (para video).` },
     imagenes: { type: "array", items: { type: "string" }, description: `PNG o JPG bajo ${RAIZ}/ (para placas y carruseles, en orden).` },
+    referencias: { type: "array", items: { type: "string" }, description: `Placas: hasta 3 imágenes de REFERENCIA bajo ${RAIZ}/ (la pieza que mandó el cliente o piezas aprobadas). La tuya tiene que estar a ese nivel o mejor.` },
     brief: { type: "string", description: "Qué tiene que decir y mostrar la pieza y qué no." },
     cuadros: { type: "number", description: "Video: cuántos cuadros mirar (4 a 12, por defecto 8)." },
     momentos: { type: "array", items: { type: "object", properties: { segundo: { type: "number" }, dice: { type: "string" } } }, description: "Video: un cuadro por frase ({segundo, dice}); revisa que lo que se ve muestre lo que dice la voz. armar.mjs --render lo manda solo." },
@@ -411,19 +412,21 @@ export const VIDEO_TOOLS: ToolDef[] = [
     formato: { type: "string", enum: ["retrato", "vertical", "cuadrado"], description: "retrato 2:3 (se recorta a 4:5 para feed, por defecto), vertical 9:16 (historia), cuadrado 1:1." },
     clientId: { type: "string" }, pieza: { type: "string" },
   }, ["prompt", "archivo"]),
-  def("contenido_entregar_imagenes", "ENTREGA una placa o un carrusel (PNG en orden): los sube a la carpeta PLACAS del cliente en Drive, deja la portada en la tarea de ClickUp si viene de una y lo registra. No publica.", {
+  def("contenido_entregar_imagenes", "ENTREGA una placa o un carrusel (PNG en orden): los sube a la carpeta PLACAS del cliente en Drive, deja la portada en la tarea de ClickUp si viene de una y lo registra con su control de calidad. EXIGE haber corrido lmtmVideoRevisar con esos mismos archivos (después del último cambio). No publica.", {
     archivos: { type: "array", items: { type: "string" }, description: `Los PNG en el orden del carrusel, bajo ${RAIZ}/` },
     clientId: { type: "string" }, titulo: { type: "string" },
     textos: { type: "string", description: "El texto de cada slide y el copy sugerido para el posteo." },
     issueId: { type: "string" }, clickupTaskId: { type: "string" },
+    sinRevision: { type: "string", description: "SOLO si el control no se pudo correr (falla de OpenAI): por qué. La pieza queda marcada «sin control»." },
   }, ["archivos", "clientId", "titulo"]),
   def("video_variedad", "CONTROL DE VARIEDAD de una pieza contra lo reciente de su cliente y de su rubro, antes de gastar. armar.mjs lo llama solo.", {
     idPieza: { type: "string" }, movimiento: { type: "string" }, ganchoTipo: { type: "string" }, pilar: { type: "string" },
     insertos: { type: "array", items: { type: "string" } }, clientId: { type: "string" },
     legal: { type: "string" }, forzado: { type: "boolean" },
   }, ["idPieza", "movimiento", "ganchoTipo", "pilar"]),
-  def("video_entregar", "ENTREGA el video: lo sube a la carpeta VIDEOS del cliente en Drive y lo registra. No publica ni toca el calendario. Devuelve el link para dejar en la tarea.", {
+  def("video_entregar", "ENTREGA el video: lo sube a la carpeta VIDEOS del cliente en Drive y lo registra con su control de calidad. EXIGE la revisión de ese .mp4 (armar.mjs --render la hace sola; si renderizaste a mano, lmtmVideoRevisar). No publica ni toca el calendario. Devuelve el link para dejar en la tarea.", {
     archivo: ARCHIVO, clientId: { type: "string" }, titulo: { type: "string" },
+    sinRevision: { type: "string", description: "SOLO si el control no se pudo correr (falla de OpenAI): por qué. El video queda marcado «sin control»." },
     guion: { type: "string", description: "El guion y de dónde salió cada plano (cliente o generado)." },
     issueId: { type: "string" },
     clickupTaskId: { type: "string", description: "Si el pedido vino de una tarea de ClickUp: ahí queda el link y la etiqueta «contenido generado»." },
@@ -1194,6 +1197,15 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
         }
         const hoja = esVideo && txt(p.hoja) ? rutaSegura(p.hoja) : null;
         if (hoja && fs.existsSync(hoja)) imagenes.push(fs.readFileSync(hoja).toString("base64"));
+        // Placas: las referencias van DESPUÉS de las placas, marcadas en el pedido.
+        const refs = !esVideo && Array.isArray(p.referencias)
+          ? (p.referencias as unknown[]).slice(0, 3).map(rutaSegura).filter((s): s is string => !!s && fs.existsSync(s))
+          : [];
+        for (const [i, ref] of refs.entries()) {
+          const jpg = path.join(dir, `ref${i}.jpg`);
+          await run("ffmpeg", ["-v", "error", "-y", "-i", ref, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", jpg]);
+          imagenes.push(fs.readFileSync(jpg).toString("base64"));
+        }
         const filmado = esVideo && p.formato === "filmado";
         const comun =
           "logo deformado o pixelado, faltas de ortografía, y que no se diga ni muestre nada que el brief no permite. No inventes problemas: si está bien, decilo. ";
@@ -1212,11 +1224,17 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
                 `(si dice «los fabricamos» y se ve una mujer en un local, es un problema). Lo que dice la voz en cada cuadro: ${dichos.map((m, i) => `cuadro ${i + 1} (${m.s.toFixed(1)} s): «${m.dice}»`).join("; ")}. `
               : "") +
             (hoja ? "La ÚLTIMA imagen es la hoja del reel entero, 2 cuadros por segundo, de izquierda a derecha y de arriba abajo: miralo como movimiento. Marcá texto cortado, un cuadro en negro o un fogonazo, un panel vacío más de 2 s, o la misma toma demasiado tiempo. Una palabra a medio entrar no es un problema. " : "") +
-            'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"segundo": n, "que": "...", "como_arreglarlo": "..."}]}'
-          : `Sos el control de calidad de placas de Instagram de una agencia. Te paso ${n === 1 ? "una placa" : `las ${n} placas de un carrusel, en orden`} y el brief. ` +
+            "Además poné un NIVEL de 1 a 5 como reel publicitario (1 = no se puede publicar, 3 = correcto, 5 = excelente). " +
+            'Respondé SOLO JSON: {"apto": true|false, "nivel": 1-5, "problemas": [{"segundo": n, "que": "...", "como_arreglarlo": "..."}]}'
+          : `Sos el director de arte y control de calidad de placas de Instagram de una agencia. Te paso ${n === 1 ? "una placa" : `las ${n} placas de un carrusel, en orden`}` +
+            (refs.length ? ` y, DESPUÉS, ${refs.length} imagen(es) de REFERENCIA (lo que mandó el cliente o piezas aprobadas: no se revisan, son la vara)` : "") + " y el brief. " +
             "Revisá: texto legible en el celular (tamaño y contraste), texto cortado o pegado al borde, jerarquía clara (se entiende en 2 segundos), " +
-            "que el carrusel tenga gancho en la portada y llamado al final, coherencia visual entre placas, texto que tapa caras o el producto, " + comun +
-            'Respondé SOLO JSON: {"apto": true|false, "problemas": [{"placa": n, "que": "...", "como_arreglarlo": "..."}]}') +
+            "que el carrusel tenga gancho en la portada y llamado al final, coherencia visual entre placas, texto que tapa caras o el producto, " +
+            "si es la promo o el precio de un PRODUCTO: que el producto SE VEA (foto real); una promo de producto sin el producto es un problema grave, " +
+            "que el lienzo esté bien ocupado (una franja vacía de más de un cuarto de la placa es un problema), " +
+            "que parezca una pieza publicitaria terminada y atractiva, no un documento con texto" + (refs.length ? ", y que esté AL NIVEL de las referencias o mejor (si es más pobre que la referencia, es un problema)" : "") + ", " + comun +
+            "Poné un NIVEL de 1 a 5 como pieza publicitaria (1 = no se puede publicar, 3 = correcta, 5 = excelente); con nivel 1 o 2 no es apta. " +
+            'Respondé SOLO JSON: {"apto": true|false, "nivel": 1-5, "problemas": [{"placa": n, "que": "...", "como_arreglarlo": "..."}]}') +
           "\n\nBRIEF:\n" + txt(p.brief);
         const r = await fetch(`${OPENAI}/chat/completions`, {
           method: "POST",
@@ -1230,7 +1248,13 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
         });
         if (!r.ok) return mal(`OpenAI revisión ${r.status}: ${(await r.text()).slice(0, 300)}`);
         const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        return ok(`Revisión de ${n} ${esVideo ? "cuadros" : "placas"} (${MODELO_REVISION}): ${j.choices?.[0]?.message?.content ?? "(sin respuesta)"}. ` +
+        const contenido = j.choices?.[0]?.message?.content ?? "";
+        // El resultado queda al lado de cada archivo: la entrega lo exige y lo guarda en la pieza (15/11).
+        const { parsearRevision, guardarRevision } = await import("./calidad-piezas.js");
+        const rev = parsearRevision(contenido, new Date(), MODELO_REVISION);
+        if (rev) guardarRevision(esVideo ? [archivo] : (sueltas as string[]), rev);
+        return ok(`Revisión de ${n} ${esVideo ? "cuadros" : "placas"} (${MODELO_REVISION}): ${contenido || "(sin respuesta)"}. ` +
+          (rev ? `Quedó guardada${rev.apto ? "" : ": NO es apta, corregí y volvé a revisar (como mucho dos vueltas)"}. ` : "No se pudo leer el veredicto: volvé a revisar. ") +
           "Esto complementa a `hyperframes check` (contraste y diseño medidos), no lo reemplaza.");
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -1244,6 +1268,11 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       }
       const [c] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.id, txt(p.clientId))).limit(1);
       if (!c) return mal("no encuentro ese clientId");
+      const calidad = await import("./calidad-piezas.js");
+      const rev = calidad.revisionVigente(lista as string[]);
+      if (!rev && !txt(p.sinRevision)) {
+        return mal("Falta el control de calidad de estos archivos (o cambiaron después de revisarlos): corré lmtmVideoRevisar con `imagenes` = estos mismos archivos, en orden, y el brief. Si la placa es la promo de un producto, pasale también la pieza del cliente en `referencias`.");
+      }
       const titulo = (txt(p.titulo) || "Placa").replace(/[\\/:*?"<>|]/g, "-").slice(0, 70);
       const sello = new Date().toISOString().slice(0, 10);
       const { subirDesdeUrl } = await import("./contenido-drive.js");
@@ -1260,14 +1289,14 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
         const { escribirEnlacePublicacion } = await import("./video-entrega.js");
         const e = await escribirEnlacePublicacion(clickupTaskId, links[0]);
         enlace = e.ok ? " La portada quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.motivo}.`;
-        await avisarEnClickUp(clickupTaskId, `🖼️ ${lista.length > 1 ? `Carrusel de ${lista.length} placas` : "Placa"} lista (Productor de contenido):\n${links.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\n${txt(p.textos).slice(0, 1500)}`, true);
+        await avisarEnClickUp(clickupTaskId, `🖼️ ${lista.length > 1 ? `Carrusel de ${lista.length} placas` : "Placa"} lista (Productor de contenido):\n${links.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\n${calidad.lineaDeRevision(rev, txt(p.sinRevision))}\n\n${txt(p.textos).slice(0, 1500)}`, true);
       }
       await db.insert(agentDeliverables).values({
         companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "placa",
         title: `${lista.length > 1 ? "Carrusel" : "Placa"}: ${titulo}`.slice(0, 200), content: txt(p.textos) || titulo, url: links[0],
-        metadata: { via: "productor-contenido", piezas: lista.length, links, issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null },
+        metadata: { via: "productor-contenido", piezas: lista.length, links, issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, revision: calidad.revisionParaPieza(rev, txt(p.sinRevision)) },
       });
-      return ok(`Entregado en Drive (Super Redes/${c.name}/PLACAS): ${links.join(" ")}.${enlace} Dejá los links y los textos en el issue. No se publicó nada.`);
+      return ok(`Entregado en Drive (Super Redes/${c.name}/PLACAS): ${links.join(" ")}.${enlace} ${calidad.lineaDeRevision(rev, txt(p.sinRevision))} Dejá los links, los textos y esa línea del control en el issue. No se publicó nada.`);
     }
 
     if (tool === "video_variedad") {
@@ -1287,6 +1316,11 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       if (!archivo || !fs.existsSync(archivo) || !/\.mp4$/i.test(archivo)) return mal(`archivo tiene que ser un .mp4 bajo ${RAIZ}/`);
       const [c] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.id, txt(p.clientId))).limit(1);
       if (!c) return mal("no encuentro ese clientId");
+      const calidad = await import("./calidad-piezas.js");
+      const rev = calidad.revisionVigente([archivo]);
+      if (!rev && !txt(p.sinRevision)) {
+        return mal("Falta el control de calidad de este .mp4 (o se volvió a renderizar después): armar.mjs --render lo hace solo; si lo renderizaste a mano, corré lmtmVideoRevisar con `archivo` = este mismo .mp4 y el brief.");
+      }
       const titulo = txt(p.titulo).slice(0, 120) || "Video";
       const clickupTaskId = txt(p.clickupTaskId) || undefined;
       // La misma entrega que el resto del contenido: Super Redes/<cliente>/VIDEOS
@@ -1301,11 +1335,11 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       await db.insert(agentDeliverables).values({
         companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "video",
         title: `Video: ${titulo}`.slice(0, 200), content: txt(p.guion) || titulo, url: e.driveLink,
-        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null, ...fichaDeProyecto(archivo) },
+        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null, ...fichaDeProyecto(archivo), revision: calidad.revisionParaPieza(rev, txt(p.sinRevision)) },
       });
-      if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${txt(p.guion).slice(0, 1500)}`, true);
+      if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${calidad.lineaDeRevision(rev, txt(p.sinRevision))}\n\n${txt(p.guion).slice(0, 1500)}`, true);
       const enlace = e.enlace ? (e.enlace.ok ? " Quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.enlace.motivo}.`) : "";
-      return ok(`Entregado en Drive (Super Redes/${c.name}/VIDEOS): ${e.driveLink}.${enlace} Dejá el link y el guion en el issue. No se publicó nada.`);
+      return ok(`Entregado en Drive (Super Redes/${c.name}/VIDEOS): ${e.driveLink}.${enlace} ${calidad.lineaDeRevision(rev, txt(p.sinRevision))} Dejá el link, el guion y esa línea del control en el issue. No se publicó nada.`);
     }
   } catch (e) {
     return mal(`${tool} falló: ${e instanceof Error ? e.message : String(e)}`);

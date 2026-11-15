@@ -165,6 +165,25 @@ export function videoRoutes(db: Db): Router {
     res.status(r.ok ? 200 : 404).json(r);
   });
 
+  // POST /api/contenido/veredicto { deliverableId, sirve, porque } — una persona dice si la pieza sirvió (15/11).
+  // Si no sirvió, el porqué queda como regla fijada del cliente para la próxima pieza. El conector del equipo también.
+  router.post("/contenido/veredicto", async (req, res) => {
+    let por: string;
+    if (req.actor.type === "agent") {
+      const [a] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, req.actor.agentId ?? "")).limit(1);
+      if (a?.name !== AGENTE_EQUIPO) throw forbidden("Los agentes no juzgan sus propias piezas.");
+      por = AGENTE_EQUIPO;
+    } else {
+      assertBoard(req);
+      por = req.actor.userId ? `panel:${req.actor.userId}` : "panel";
+    }
+    const b = (req.body ?? {}) as { deliverableId?: string; sirve?: unknown; porque?: string };
+    if (!b.deliverableId || typeof b.sirve !== "boolean") return res.status(422).json({ ok: false, motivo: "Faltan deliverableId y sirve (true/false)." });
+    const { registrarVeredicto } = await import("../services/calidad-piezas.js");
+    const r = await registrarVeredicto(db, b.deliverableId, { sirve: b.sirve, porque: typeof b.porque === "string" ? b.porque : "", por });
+    res.status(r.ok ? 200 : 422).json(r);
+  });
+
   // POST /api/contenido/productor/vincular { deliverableId, permalink } — ya se publicó: de acá salen sus métricas.
   router.post("/contenido/productor/vincular", async (req, res) => {
     assertBoard(req);

@@ -1443,6 +1443,16 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       },
     ),
     makeTool(
+      "lmtmVeredictoPieza",
+      "VEREDICTO de una persona sobre una pieza entregada (placa, carrusel o video): sirve o no sirve, y por qué. Usalo cuando alguien del equipo te dice que una pieza salió bien o mal. Si no sirvió, el porqué queda como regla fijada del cliente y el Productor la lee antes de la próxima pieza. El id sale de lmtmContenidoGenerado. No lo uses para juzgar tus propias piezas sin que una persona lo diga.",
+      z.object({
+        deliverableId: z.string().describe("Id de la pieza (de lmtmContenidoGenerado)."),
+        sirve: z.boolean(),
+        porque: z.string().max(1000).optional().describe("Obligatorio si no sirve: qué estuvo mal, en palabras de la persona."),
+      }),
+      async ({ deliverableId, sirve, porque }) => client.requestJson("POST", "/contenido/veredicto", { body: { deliverableId, sirve, porque: porque ?? "" } }),
+    ),
+    makeTool(
       "lmtmEstadoGeneracion",
       "Si se puede generar ahora: créditos que le quedan al plan de Higgsfield, por qué vía saldría (plan o API), si Magnific está configurado, y la cola de tareas con la etiqueta 'generar contenido'. Consultalo antes de generar.",
       z.object({}),

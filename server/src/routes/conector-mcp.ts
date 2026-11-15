@@ -117,6 +117,8 @@ export const HERRAMIENTAS_EQUIPO = [
   "lmtmVideoPlano", "lmtmContenidoImagen", "lmtmVideoVoz", "lmtmVideoMusica", "lmtmVideoEstado", "lmtmVideoLink",
   // Lo que escribe: contenido, tareas y lo aprendido del cliente.
   "lmtmGenerarContenido", "lmtmGenerarPieza", "lmtmCreateClientTask", "lmtmRememberAboutClient", "lmtmSaveHook",
+  // Calidad (15/11): el equipo dice si una pieza sirvió y por qué; queda como regla del cliente.
+  "lmtmVeredictoPieza",
 ];
 
 function mismoCodigo(dado: string, esperado: string | undefined): boolean {

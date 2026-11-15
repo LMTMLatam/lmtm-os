@@ -37,6 +37,8 @@ interface PiezaGenerada {
   reemplaza?: string | null;
   movimiento?: string | null;
   postLink?: string | null;
+  revision?: { apto: boolean | null; nivel?: number | null; problemas?: Array<{ que: string }>; sinRevision?: string } | null;
+  veredicto?: { sirve: boolean; porque: string | null; fecha: string } | null;
   medidas?: Array<{ momento: string; horas: number; alcance: number | null; guardados: number | null; compartidos: number | null; comentarios: number | null; reacciones: number | null }>;
 }
 interface PedidoProductor {
@@ -327,6 +329,51 @@ function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: 
   );
 }
 
+/**
+ * Control de calidad que hizo el agente al entregar y el veredicto de una
+ * persona (15/11). «No sirve» pide el porqué: queda como regla del cliente y el
+ * agente la lee antes de la próxima pieza.
+ */
+function Calidad({ p }: { p: PiezaGenerada }) {
+  const qc = useQueryClient();
+  const [abierto, setAbierto] = useState(false);
+  const [porque, setPorque] = useState("");
+  const juzgar = useMutation({
+    mutationFn: (sirve: boolean) => api.post<{ ok: boolean; motivo?: string }>("/contenido/veredicto", { deliverableId: p.id, sirve, porque: porque.trim() }),
+    onSuccess: (r) => { if (r.ok) { setAbierto(false); setPorque(""); void qc.invalidateQueries({ queryKey: ["lmtm", "contenido"] }); } },
+  });
+  const r = p.revision;
+  const control = !r ? null
+    : r.apto === null ? <span className="text-l-atencion-texto">Sin control de calidad{r.sinRevision ? `: ${r.sinRevision}` : ""}</span>
+    : r.apto ? <span>Pasó el control{r.nivel ? ` · nivel ${r.nivel}/5` : ""}</span>
+    : <span className="text-l-atencion-texto" title={(r.problemas ?? []).map((x) => x.que).join("\n")}>No pasó el control{r.nivel ? ` · nivel ${r.nivel}/5` : ""}{r.problemas?.length ? ` · ${r.problemas[0].que}` : ""}</span>;
+  const v = p.veredicto;
+  return (
+    <div className="mt-1 flex flex-col gap-1 text-[12px] text-l-tinta-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {control}
+        {v ? (
+          <span className={v.sirve ? "" : "text-l-critico-texto"}>{v.sirve ? "Sirvió" : "No sirvió"}{v.porque ? `: ${v.porque}` : ""}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-l-tinta-3">¿Sirve?</span>
+            <button type="button" disabled={juzgar.isPending} onClick={() => juzgar.mutate(true)} className="min-h-8 rounded-[8px] border border-l-linea-2 px-2 disabled:opacity-50">Sí</button>
+            <button type="button" disabled={juzgar.isPending} onClick={() => setAbierto((x) => !x)} aria-expanded={abierto} className="min-h-8 rounded-[8px] border border-l-linea-2 px-2 disabled:opacity-50">No</button>
+          </span>
+        )}
+      </div>
+      {abierto && !v && (
+        <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (porque.trim().length >= 5) juzgar.mutate(false); }}>
+          <label className="sr-only" htmlFor={`porque-${p.id}`}>Por qué no sirve</label>
+          <input id={`porque-${p.id}`} value={porque} onChange={(e) => setPorque(e.target.value)} placeholder="Por qué no sirve (lo va a leer el agente la próxima vez)" className="min-h-8 min-w-0 flex-1 rounded-[8px] border border-l-linea-2 bg-transparent px-2 text-[12px]" />
+          <button type="submit" disabled={porque.trim().length < 5 || juzgar.isPending} className="min-h-8 rounded-[8px] bg-l-marca px-2 text-[12px] font-semibold text-white disabled:opacity-50">Guardar</button>
+        </form>
+      )}
+      {juzgar.data && !juzgar.data.ok && <span className="text-l-atencion-texto" role="alert">{juzgar.data.motivo}</span>}
+    </div>
+  );
+}
+
 function FilaPieza({ p }: { p: PiezaGenerada }) {
   const archivos = p.links.length > 1 ? p.links : p.driveLink ? [p.driveLink] : [];
   const qc = useQueryClient();
@@ -357,6 +404,7 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
             ? "Gasto sin registrar (generado antes del 11/10)"
             : p.gasto.map((g) => `${nombreHerramienta(g.herramienta)}: ${g.generaciones > 1 ? `${g.generaciones} generaciones, ` : ""}${costo(g)}`).join(" · ")}
         </div>
+        <Calidad p={p} />
         {p.medidas?.map((m) => (
           <div key={m.momento} className="text-[12px] tabular-nums text-l-tinta-2">
             A {m.momento === "7d" ? "7 días" : "24 h"}: {[["alcance", m.alcance], ["guardados", m.guardados], ["compartidos", m.compartidos], ["comentarios", m.comentarios], ["reacciones", m.reacciones]].map(([n, v]) => `${v ?? "s/d"} ${n}`).join(" · ")}

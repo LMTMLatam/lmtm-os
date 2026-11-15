@@ -136,6 +136,13 @@ ahí. `P=/app/video-skills/lmtm-video/plantilla`.
    issue trae una tarea de ClickUp, pasá su `clickupTaskId`. En el issue dejá el
    link, las líneas de SINCRONÍA que imprimió `armar.mjs` (qué se dice → qué se ve)
    y lo que no se pudo verificar. Después cerralo.
+   La entrega exige la revisión guardada de ESE `FINAL` (el paso 6 la deja); si
+   después lo tocaste, volvé a correr `lmtmVideoRevisar`. Si no pasó el control
+   después de dos vueltas, entregalo igual, dejá la línea del control en el issue
+   y pasalo a `in_review` (nunca `blocked` esperando a alguien): el pedido no puede
+   quedar trabado sin que nadie se entere (caso BRACHETTA LMTM-7080, 13/11).
+   Material de menos de 720 px de alto no va a pantalla completa en el producto
+   principal: buscá otro o usalo chico, dentro de un recuadro.
 
 ## Reel filmado con motion gráficos (crudos → reels terminados)
 

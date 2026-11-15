@@ -13,6 +13,30 @@ Nunca se publica solo.
 Valen las mismas reglas que en `lmtm-video`: nada inventado, la voz del cliente,
 material real primero, no se publica ni se programa nada, y Magnific gasta créditos.
 
+## Reglas que salieron de piezas que no sirvieron (15/11)
+
+Caso BRACHETTA (promo de batería): el pedido decía «ese link solo tiene la info
+dura, no contemples el diseño» y salió una placa de puro texto, sin la batería,
+con medio lienzo vacío. El cliente tenía las fotos de la batería en Drive.
+
+- **«No copies el diseño» NO significa «sin imágenes».** Significa: usá la info
+  (precio, condiciones, dirección) y hacé un diseño mejor. Nunca más pobre.
+- **Una promo de un producto lleva SIEMPRE la foto real del producto, grande.**
+  Si no la encontrás (`lmtmGuiaContenido`, `lmtmBuscarMaterial`, la pieza que
+  mandó el cliente), frená y pedila en el issue: no la reemplaces con texto.
+- **Pieza publicitaria, no documento:** producto recortado o en contexto real +
+  fondo (foto del local o de uso, o un fondo de `lmtmContenidoImagen` SIN el
+  producto) + precio y textos en HTML, con jerarquía de afiche: producto y precio
+  dominan. El lienzo se ocupa entero: nada de franjas vacías de un cuarto.
+- **Si el cliente mandó una pieza, esa es la vara.** La tuya tiene que estar a ese
+  nivel o mejor. Pasala en `referencias` al revisar.
+- **Promos: 2 o 3 variantes** (por ejemplo: producto en primer plano / producto
+  en uso / versión historia), cada una revisada. El equipo elige.
+- **Colores de la marca, no inventados.** Si la paleta cargada no coincide con el
+  logo (BRACHETTA tenía azul y no es de la marca), mandá el logo y decilo en el issue.
+- **Antes de empezar, leé las reglas fijadas del cliente** que trae
+  `lmtmGuiaContenido` (memoria): ahí está lo que el equipo marcó como «no sirvió».
+
 ## Formatos
 
 | Pieza | Tamaño | Notas |
@@ -59,12 +83,18 @@ material real primero, no se publica ni se programa nada, y Magnific gasta créd
    de `.hyperframes/artifacts/snapshots/<id>/`.
 7. **Exportar:** copiá esos PNG a `entrega/slide-01.png`, `slide-02.png`, ... en
    orden.
-8. **Revisión:** `lmtmVideoRevisar` con `imagenes` (los PNG en orden) y el brief.
-   Corregí lo que marque de verdad: como mucho dos vueltas.
-9. **Entrega:** `lmtmContenidoEntregarImagenes` con los PNG en orden, el texto de
-   cada placa y el copy sugerido en `textos`, y el `clickupTaskId` si el issue lo
-   trae. En el issue dejá los links, los textos y de dónde salió cada imagen
-   (cliente o generada). Después cerralo.
+8. **Revisión (obligatoria):** `lmtmVideoRevisar` con `imagenes` (los PNG en
+   orden), el brief y, si el cliente mandó una pieza o hay placas aprobadas,
+   `referencias`. Devuelve apto, un nivel de 1 a 5 y los problemas, y queda
+   guardado: la entrega no anda sin él. Corregí lo que marque de verdad y volvé a
+   revisar: como mucho dos vueltas. Con nivel 1 o 2 no se entrega como lista.
+9. **Entrega:** `lmtmContenidoEntregarImagenes` con los MISMOS PNG revisados, en
+   orden, el texto de cada placa y el copy sugerido en `textos`, y el
+   `clickupTaskId` si el issue lo trae. En el issue dejá los links, los textos,
+   de dónde salió cada imagen (cliente o generada) y la línea del control que
+   devuelve la entrega. Si no pasó el control después de dos vueltas, entregala
+   igual para que una persona decida, dejá el issue en `in_review` (no
+   `blocked`) y nombrá en el comentario quién la pidió.
 
 ## Fotos del cliente con su logo (sin diseñar una placa)
 
@@ -97,5 +127,7 @@ recorte, ni texto, ni filtro. Solo el logo, igual en todas.
 4. **Mirar:** abrí 2 o 3 resultados. El logo tiene que leerse y no tapar nada.
    Si una foto sale de costado, venía rotada por el celular (EXIF): enderezala
    con `-vf transpose=1` (o `2`) antes de ponerle el logo.
-5. **Entrega:** `lmtmContenidoEntregarImagenes` con los JPG (titulo «<Cliente>
+5. **Revisión:** `lmtmVideoRevisar` con `imagenes` = los JPG y el brief «fotos
+   con el logo del cliente, sin texto ni recorte» (la entrega la exige).
+6. **Entrega:** `lmtmContenidoEntregarImagenes` con los JPG (titulo «<Cliente>
    con logo») y dejá los links en el issue.
