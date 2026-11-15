@@ -1,7 +1,7 @@
 // LMTM: Config (fase C1). Por ahora, la puerta a cada ajuste que ya existe;
 // cada uno se muda a la app cuando se rehace.
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Copy } from "lucide-react";
 import { Link } from "@/lib/router";
@@ -14,6 +14,43 @@ interface PersonaConector { nombre: string; alta: string; link: string | null; l
 interface Conector { personas: PersonaConector[]; linkCompartido: { activo: boolean; llamadas30d: number; ultimoUso: string | null } }
 
 const fechaCorta = (s: string | null) => (s ? new Date(s).toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : "nunca");
+
+interface Medida {
+  piezasSemana: number; controlGuardado30d: number | null; veredictos: { sirvio: number; noSirvio: number };
+  corridasSemana: { total: number; bien: number }; tareasBloqueadas: number; nas: { clientes: number; actualizado: string | null }; tablasSecas: string[];
+}
+const SECAS: Record<string, string> = { video_plantillas: "plantillas de video", video_virales: "virales de la competencia", pieza_metricas: "métricas de piezas publicadas" };
+
+/** Medición continua del plan 15/11: si el sistema mejora y si algo se secó en silencio. */
+function Medicion() {
+  const q = useQuery({ queryKey: ["lmtm", "cerebro", "medicion"], queryFn: () => api.get<Medida>("/cerebro/medicion"), staleTime: 5 * 60_000 });
+  const cob = useQuery({ queryKey: ["lmtm", "cerebro", "cobertura"], queryFn: () => api.get<{ promedio: number | null }>("/cerebro/cobertura"), staleTime: 5 * 60_000 });
+  const m = q.data;
+  if (!m) return null;
+  const pct = m.corridasSemana.total ? Math.round((100 * m.corridasSemana.bien) / m.corridasSemana.total) : null;
+  const filas: Array<[string, string]> = [
+    ["Ficha del cerebro (promedio)", cob.data?.promedio != null ? `${cob.data.promedio} %` : "—"],
+    ["Piezas producidas esta semana", String(m.piezasSemana)],
+    ["Piezas con control guardado (30 días)", m.controlGuardado30d != null ? `${m.controlGuardado30d} %` : "—"],
+    ["Veredictos: sirvió / no sirvió", `${m.veredictos.sirvio} / ${m.veredictos.noSirvio}`],
+    ["Corridas de agentes bien (7 días)", pct != null ? `${pct} % de ${m.corridasSemana.total}` : "—"],
+    ["Tareas bloqueadas", String(m.tareasBloqueadas)],
+    ["NAS indexado", `${m.nas.clientes} clientes${m.nas.actualizado ? ` · ${new Date(m.nas.actualizado).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}` : ""}`],
+  ];
+  return (
+    <Tarjeta>
+      <TituloFranja>Cómo viene el sistema</TituloFranja>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-[13px]">
+        {filas.map(([k, v]) => (<Fragment key={k}><dt className="text-l-tinta-2">{k}</dt><dd className="text-right font-medium tabular-nums">{v}</dd></Fragment>))}
+      </dl>
+      {m.tablasSecas.length > 0 && (
+        <p className="mt-3 border-t border-l-linea pt-2 text-[12px] text-l-atencion-texto">
+          Siguen vacías: {m.tablasSecas.map((t) => SECAS[t] ?? t).join(", ")}. Algo que debería llenarlas no está corriendo.
+        </p>
+      )}
+    </Tarjeta>
+  );
+}
 
 /**
  * Un link del conector de Claude por persona (15/11): así se sabe quién usó qué
@@ -106,6 +143,7 @@ export function ConfigApp() {
             ))}
           </ul>
         </Tarjeta>
+        <Medicion />
         <LinksDelConector />
         <Tarjeta>
           <TituloFranja>Pantallas que todavía no se mudaron</TituloFranja>

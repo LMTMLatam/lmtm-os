@@ -94,6 +94,39 @@ export function cerebroRoutes(db: Db): Router {
     res.json({ promedio, clientes: lista });
   });
 
+  // GET /api/cerebro/medicion — medición continua del plan 15/11: lo que dice si el sistema mejora
+  // o si algo se secó en silencio (tablas que deberían llenarse y siguen en cero).
+  router.get("/cerebro/medicion", async (req, res) => {
+    assertMiembro(req);
+    const { sql } = await import("drizzle-orm");
+    const r = await db.execute(sql`select
+      (select count(*) from agent_deliverables where created_at > now() - interval '7 days' and kind in ('placa','video','imagen')) piezas7,
+      (select count(*) from agent_deliverables where created_at > now() - interval '30 days' and kind in ('placa','video','imagen') and metadata ? 'revision') con_control30,
+      (select count(*) from agent_deliverables where created_at > now() - interval '30 days' and kind in ('placa','video','imagen')) piezas30,
+      (select count(*) from agent_deliverables where metadata->'veredicto'->>'sirve' = 'true') sirvio,
+      (select count(*) from agent_deliverables where metadata->'veredicto'->>'sirve' = 'false') no_sirvio,
+      (select count(*) from heartbeat_runs where created_at > now() - interval '7 days') corridas7,
+      (select count(*) from heartbeat_runs where created_at > now() - interval '7 days' and status = 'succeeded') bien7,
+      (select count(*) from issues where status = 'blocked') bloqueadas,
+      (select count(*) from video_plantillas) video_plantillas,
+      (select count(*) from video_virales) video_virales,
+      (select count(*) from pieza_metricas) pieza_metricas,
+      (select count(*) from client_context_cache where source = 'nas-indice') nas_clientes,
+      (select max(fetched_at) from client_context_cache where source = 'nas-indice') nas_al`);
+    const [m] = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
+    const n = (k: string) => Number(m?.[k] ?? 0);
+    const secas = ["video_plantillas", "video_virales", "pieza_metricas"].filter((k) => n(k) === 0);
+    res.json({
+      piezasSemana: n("piezas7"),
+      controlGuardado30d: n("piezas30") ? Math.round((100 * n("con_control30")) / n("piezas30")) : null,
+      veredictos: { sirvio: n("sirvio"), noSirvio: n("no_sirvio") },
+      corridasSemana: { total: n("corridas7"), bien: n("bien7") },
+      tareasBloqueadas: n("bloqueadas"),
+      nas: { clientes: n("nas_clientes"), actualizado: m?.nas_al ?? null },
+      tablasSecas: secas,
+    });
+  });
+
   // GET /api/publicacion/trabadas — posts que Make no pudo publicar, con la causa (fase 5).
   router.get("/publicacion/trabadas", async (req, res) => {
     assertMiembro(req);
