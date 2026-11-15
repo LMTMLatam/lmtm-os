@@ -67,6 +67,20 @@ describe("la web del cliente", () => {
     expect(s).toContain("Familias");
     expect(s).not.toContain("ERP");
   });
+  it("trae las subsecciones de un título de marca (caso MONDINO, 15/11)", () => {
+    const md = [
+      "## Herramientas", "### ERP", "SAP",
+      "## Tono de marca", "### ¿Cómo habla actualmente?", "Experta, industrial y cercana.", "### Palabras que debe usar", "fabricamos, a medida",
+      "## Principales diferenciadores", "### ¿Por qué debería elegirlos un cliente?", "Fabricación propia hace 35 años.",
+      "## Archivos disponibles", "### Logos", "logo.png",
+    ].join("\n");
+    const s = seccionesDeMarca(md);
+    expect(s).toContain("Experta, industrial y cercana.");
+    expect(s).toContain("fabricamos, a medida");
+    expect(s).toContain("Fabricación propia hace 35 años.");
+    expect(s).not.toContain("SAP");
+    expect(s).not.toContain("logo.png");
+  });
 });
 
 describe("SEO", () => {

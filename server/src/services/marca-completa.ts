@@ -226,9 +226,25 @@ export function paletaDelEnfoque(md: string): string[] {
 }
 
 /** Las secciones que hablan de la marca (el documento entero no entra: la mediana son 15 mil caracteres). */
-export function seccionesDeMarca(md: string, max = 9_000): string {
+const TITULO_DE_MARCA = /^#{1,4}[^\n]*(marca|tono|voz|personalidad|identidad|estilo|lenguaje|valores|branding|resumen|tipograf|paleta|color|cliente ideal|quién|quienes|público|publico|diferencia|posicionamiento|propuesta|mensaje|comunica|objetivo|motivacion|objecion|problema|lineamientos|empresa|qué hace|que hace)/i;
+
+/**
+ * Las secciones del Enfoque que hablan de la marca, CON sus subsecciones.
+ * 15/11: «## Tono de marca» traía el texto en «### ¿Cómo habla actualmente?» y el
+ * filtro miraba cada parte suelta: quedaba el título y se perdía el contenido. Así,
+ * 10 clientes con Enfoque completo no tenían tono. Tope 9k → 16k. Pura.
+ */
+export function seccionesDeMarca(md: string, max = 16_000): string {
   const partes = md.split(/\n(?=#{1,4}\s)/);
-  const utiles = partes.filter((p) => /^#{1,4}[^\n]*(marca|tono|tipograf|paleta|color|cliente ideal|quién|quienes|público|publico|diferencia|posicionamiento|propuesta|mensaje|comunica|objetivo|motivacion|objecion|problema|lineamientos|empresa|qué hace|que hace)/i.test(p));
+  const nivel = (p: string) => /^(#{1,4})\s/.exec(p)?.[1]?.length ?? 99;
+  const utiles: string[] = [];
+  let dentroDe = 0; // nivel del título elegido que se está arrastrando (0 = ninguno)
+  for (const p of partes) {
+    const n = nivel(p);
+    if (dentroDe && n > dentroDe) { utiles.push(p); continue; }
+    dentroDe = TITULO_DE_MARCA.test(p) ? n : 0;
+    if (dentroDe) utiles.push(p);
+  }
   const texto = (utiles.length ? utiles.join("\n") : md).slice(0, max);
   return texto;
 }
