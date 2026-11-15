@@ -5,6 +5,7 @@ import { waBotApi, type WaBotStatus, type WaGroupConfig } from "../api/waBot";
 import { clientsApi } from "../api/clients";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Encabezado } from "../app/Shell";
 import { MessageCircle, Smartphone, CheckCircle2, RefreshCw, Unlink, Clock, Users, MessageSquare } from "lucide-react";
 
 function timeAgo(iso: string): string {
@@ -18,9 +19,9 @@ function timeAgo(iso: string): string {
 }
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
-  connected: { label: "Conectado", cls: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
-  connecting: { label: "Esperando vinculación", cls: "bg-amber-500/10 text-amber-700 dark:text-amber-300" },
-  disconnected: { label: "Desconectado", cls: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300" },
+  connected: { label: "Conectado", cls: "bg-l-bien/10 text-l-bien-texto" },
+  connecting: { label: "Esperando vinculación", cls: "bg-l-atencion/10 text-l-atencion-texto" },
+  disconnected: { label: "Desconectado", cls: "bg-l-papel text-l-tinta-3" },
 };
 
 export function WhatsApp() {
@@ -51,19 +52,13 @@ export function WhatsApp() {
   const meta = STATUS_META[status] ?? STATUS_META.disconnected;
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div className="flex items-end justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <MessageCircle className="h-6 w-6 text-emerald-600" />
-            WhatsApp
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Bot de resúmenes de grupos. Vinculá un número para que lea los grupos y genere resúmenes automáticos con IA.
-          </p>
-        </div>
-        <Badge className={`text-xs px-2 py-0.5 ${meta.cls}`}>{meta.label}</Badge>
-      </div>
+    <>
+    <Encabezado
+      titulo="WhatsApp"
+      bajada="El bot que lee los grupos de los clientes y arma los resúmenes. Vinculá un número para que empiece."
+      derecha={<Badge className={`text-xs px-2 py-0.5 ${meta.cls}`}>{meta.label}</Badge>}
+    />
+    <div className="max-w-[860px] space-y-6 px-4 pb-10 md:px-8">
 
       {s && !s.openwaAvailable && (
         <Card className="p-4 border-destructive/20 bg-destructive/5">
@@ -76,7 +71,7 @@ export function WhatsApp() {
       {/* Connected */}
       {status === "connected" && (
         <Card className="p-6 flex flex-col items-center text-center gap-3">
-          <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+          <CheckCircle2 className="h-12 w-12 text-l-bien-texto" />
           <div>
             <p className="font-medium">WhatsApp vinculado</p>
             {s?.connectedPhone && (
@@ -104,7 +99,7 @@ export function WhatsApp() {
             {s?.qr ? (
               <img src={s.qr} alt="QR de vinculación de WhatsApp" className="w-[280px] h-[280px]" />
             ) : (
-              <span className="text-sm text-zinc-500 flex items-center gap-2">
+              <span className="text-sm text-l-tinta-3 flex items-center gap-2">
                 <RefreshCw className="h-4 w-4 animate-spin" /> Generando QR…
               </span>
             )}
@@ -147,7 +142,7 @@ export function WhatsApp() {
             {start.isPending ? "Generando QR…" : s?.wasEverConnected ? "Reconectar WhatsApp" : "Conectar WhatsApp"}
           </button>
           {start.data?.error && (
-            <p className="text-xs text-rose-500">{start.data.error}</p>
+            <p className="text-xs text-l-critico-texto">{start.data.error}</p>
           )}
         </Card>
       )}
@@ -158,6 +153,7 @@ export function WhatsApp() {
 
       <ConversationsPanel />
     </div>
+    </>
   );
 }
 
@@ -248,7 +244,7 @@ function ConversationsPanel() {
                 <span className="truncate block">{g.name ?? g.jid}</span>
                 <span className="flex items-center gap-1.5">
                   {g.cfg?.clientId ? (
-                    <span className="text-[10px] text-emerald-500">vinculado</span>
+                    <span className="text-[10px] text-l-bien-texto">vinculado</span>
                   ) : (
                     <span className="text-[10px] text-muted-foreground/60">sin vincular</span>
                   )}
@@ -256,7 +252,7 @@ function ConversationsPanel() {
                     <span className="text-[10px] text-muted-foreground/50">· sin actividad</span>
                   )}
                   {g.cfg && !g.cfg.enabled && (
-                    <span className="text-[10px] text-amber-500">· pausado</span>
+                    <span className="text-[10px] text-l-atencion-texto">· pausado</span>
                   )}
                 </span>
               </button>
@@ -320,9 +316,9 @@ function ConversationsPanel() {
                     {s.messageCount} mensajes · {timeAgo(s.createdAt)}
                   </span>
                   {s.sentAt ? (
-                    <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] px-1.5 py-0">enviado</Badge>
+                    <Badge className="bg-l-bien/10 text-l-bien-texto text-[10px] px-1.5 py-0">enviado</Badge>
                   ) : (
-                    <Badge className="bg-zinc-500/10 text-zinc-600 dark:text-zinc-300 text-[10px] px-1.5 py-0">solo panel</Badge>
+                    <Badge className="bg-l-papel text-l-tinta-3 text-[10px] px-1.5 py-0">solo panel</Badge>
                   )}
                 </div>
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{s.content}</p>

@@ -149,7 +149,7 @@ export function ConfigApp() {
         <Medicion />
         <LinksDelConector />
         <Tarjeta>
-          <TituloFranja>Pantallas que todavía no se mudaron</TituloFranja>
+          <TituloFranja>Más pantallas</TituloFranja>
           <ul>
             {MAS.map((m) => (
               <li key={m.to} className="border-b border-l-linea last:border-b-0">

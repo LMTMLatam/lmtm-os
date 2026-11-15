@@ -10,6 +10,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { Button } from "@/components/ui/button";
 import { queryKeys } from "../lib/queryKeys";
 import { WebGoogleCard } from "../components/WebGoogleCard";
+import { Encabezado } from "../app/Shell";
 
 interface PlatformDescriptor {
   id: AdsPlatform;
@@ -25,7 +26,7 @@ const PLATFORMS: PlatformDescriptor[] = [
     id: "meta",
     name: "Meta (Facebook + Instagram)",
     description:
-      "Read and write campaigns, ad sets, and ads. Pull performance insights (spend, impressions, CTR, ROAS). Requires a Facebook user with access to the relevant Business Manager / ad accounts.",
+      "Lee y escribe campañas, conjuntos y anuncios, y trae el rendimiento (gasto, impresiones, CTR, ROAS). Hace falta un usuario de Facebook con acceso al Business Manager y a las cuentas publicitarias.",
     scopes: ["ads_read", "ads_management", "pages_show_list", "leads_retrieval"],
     ready: true,
   },
@@ -33,55 +34,55 @@ const PLATFORMS: PlatformDescriptor[] = [
     id: "google",
     name: "Google Ads",
     description:
-      "Read Google Ads campaigns, ad groups, and pull performance insights (spend, impressions, CTR, conversions, cost-per-conversion). Authorize with the Google account that owns the MCC (453-458-4343) — one authorization brings every client account under the manager.",
+      "Lee campañas y grupos de anuncios de Google Ads y trae el rendimiento (gasto, impresiones, CTR, conversiones, costo por conversión). Se autoriza con la cuenta de Google dueña del MCC (453-458-4343): una sola autorización trae todas las cuentas de clientes del administrador.",
     scopes: ["https://www.googleapis.com/auth/adwords"],
     ready: true,
   },
   {
     id: "tiktok",
     name: "TikTok Ads",
-    description: "OAuth flow not configured in this build yet. Requires a TikTok Business account and an app registered at ads.tiktok.com.",
+    description: "Todavía no está habilitada: hace falta una cuenta de TikTok Business y una app registrada en ads.tiktok.com.",
     scopes: ["user.info.basic", "user.info.email", "ads.read", "ads.write"],
     ready: false,
-    reason: "Awaiting TikTok Ads app registration",
+    reason: "Falta registrar la app de TikTok Ads",
   },
   {
     id: "linkedin",
     name: "LinkedIn Ads",
-    description: "OAuth flow not configured in this build yet. Requires a LinkedIn Marketing Developer Platform (MDP) application.",
+    description: "Todavía no está habilitada: hace falta una app de LinkedIn Marketing Developer Platform.",
     scopes: ["r_ads", "rw_ads", "r_ads_reporting", "r_organization_social"],
     ready: false,
-    reason: "Awaiting LinkedIn Marketing Developer Platform app",
+    reason: "Falta la app de LinkedIn Marketing Developer Platform",
   },
 ];
 
 function StatusPill({ status }: { status: AdsConnection["status"] }) {
   if (status === "active") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-l-bien/30 bg-l-bien/10 px-2 py-0.5 text-xs text-l-bien-texto">
         <CheckCircle2 className="h-3 w-3" />
-        Active
+        Activa
       </span>
     );
   }
   if (status === "expired") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-l-atencion/30 bg-l-atencion/10 px-2 py-0.5 text-xs text-l-atencion-texto">
         <XCircle className="h-3 w-3" />
-        Expired
+        Vencida
       </span>
     );
   }
   if (status === "revoked") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-700 dark:text-red-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-l-critico/30 bg-l-critico-suave px-2 py-0.5 text-xs text-l-critico-texto">
         <XCircle className="h-3 w-3" />
-        Revoked
+        Revocada
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-zinc-500/30 bg-zinc-500/10 px-2 py-0.5 text-xs text-zinc-700 dark:text-zinc-300">
+    <span className="inline-flex items-center gap-1 rounded-full border border-l-linea bg-l-papel px-2 py-0.5 text-xs text-l-tinta-3">
       <XCircle className="h-3 w-3" />
       {status}
     </span>
@@ -118,7 +119,7 @@ function ConnectionRow({
           {connection.adAccountId ? (
             <>
               <span>·</span>
-              <span>ad account: {connection.adAccountId}</span>
+              <span>cuenta: {connection.adAccountId}</span>
             </>
           ) : null}
           {connection.expiresAt ? (
@@ -129,7 +130,7 @@ function ConnectionRow({
           ) : null}
         </div>
         {connection.lastError ? (
-          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+          <p className="mt-2 text-xs text-l-critico-texto">
             Last error: {connection.lastError}
           </p>
         ) : null}
@@ -161,7 +162,7 @@ function ConnectionRow({
           ) : (
             <Trash2 className="h-3.5 w-3.5" />
           )}
-          <span className="ml-1.5">Disconnect</span>
+          <span className="ml-1.5">Desconectar</span>
         </Button>
       </div>
     </div>
@@ -216,12 +217,12 @@ function ConnectionMappings({ connection, companyId, abrir }: { connection: AdsC
       {open && (
         <div className="mt-2 space-y-1">
           {accountsQuery.isLoading && <p className="text-xs text-muted-foreground">Cargando cuentas de {connection.platform}…</p>}
-          {accountsQuery.isError && <p className="text-xs text-rose-500">No se pudieron listar: {(accountsQuery.error as Error).message.slice(0, 200)}</p>}
+          {accountsQuery.isError && <p className="text-xs text-l-critico-texto">No se pudieron listar: {(accountsQuery.error as Error).message.slice(0, 200)}</p>}
           {accounts.map((a) => {
             const m = mappingByAccount.get(normId(a.id));
             return (
               <div key={a.id} className="flex items-center gap-2 text-xs">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${a.status === "active" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                <span className={`w-2 h-2 rounded-full shrink-0 ${a.status === "active" ? "bg-l-bien" : "bg-muted-foreground/40"}`} />
                 <span className="flex-1 truncate" title={a.id}>{a.name} <span className="text-muted-foreground">({a.id})</span></span>
                 <select
                   value={m?.clientId ?? ""}
@@ -231,11 +232,11 @@ function ConnectionMappings({ connection, companyId, abrir }: { connection: AdsC
                   <option value="">— sin mapear —</option>
                   {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                {m?.clientId && <span className="text-emerald-500 text-[10px]">✓</span>}
+                {m?.clientId && <span className="text-l-bien-texto text-[10px]">✓</span>}
               </div>
             );
           })}
-          {save.isError && <p className="text-[11px] text-rose-500">Error al guardar: {(save.error as Error).message.slice(0, 150)}</p>}
+          {save.isError && <p className="text-[11px] text-l-critico-texto">Error al guardar: {(save.error as Error).message.slice(0, 150)}</p>}
           {connection.platform === "meta" && (
             <p className="text-[11px] text-muted-foreground pt-1">Para el mapeo completo de Meta (páginas + conjuntos estilo Make): <a className="underline" href={`/connect-ads?connectionId=${connection.id}`}>abrir asistente</a>.</p>
           )}
@@ -278,20 +279,20 @@ function PlatformCard({
         {platform.ready ? (
           <Button onClick={onConnect} size="sm">
             <ExternalLink className="h-3.5 w-3.5" />
-            <span className="ml-1.5">Connect</span>
+            <span className="ml-1.5">Conectar</span>
           </Button>
         ) : (
-          <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-700 dark:text-amber-300">
+          <span className="inline-flex items-center rounded-full border border-l-atencion/30 bg-l-atencion/10 px-2.5 py-1 text-xs text-l-atencion-texto">
             Coming soon
           </span>
         )}
       </div>
       <div className="text-xs text-muted-foreground mb-3">
-        <span className="font-medium text-foreground/70">Scopes:</span> {platform.scopes.join(", ")}
+        <span className="font-medium text-foreground/70">Permisos:</span> {platform.scopes.join(", ")}
       </div>
       {platform.ready && active.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          No active connection. Click <em>Connect</em> to start the OAuth flow.
+          Sin conexión activa. Tocá <em>Conectar</em> para autorizarla.
         </div>
       ) : null}
       <div className="mt-3 flex flex-col gap-2">
@@ -459,7 +460,7 @@ function PipelineCard({
           <p className="mt-1 text-sm text-muted-foreground max-w-prose">{descriptor.description}</p>
         </div>
         {connected ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300">
+          <span className="inline-flex items-center gap-1 rounded-full border border-l-bien/30 bg-l-bien/10 px-2.5 py-1 text-xs text-l-bien-texto">
             <CheckCircle2 className="h-3.5 w-3.5" />
             Connected
           </span>
@@ -467,14 +468,14 @@ function PipelineCard({
       </div>
       {descriptor.scopesNote ? (
         <div className="text-xs text-muted-foreground mb-3">
-          <span className="font-medium text-foreground/70">Scopes:</span> {descriptor.scopesNote}
+          <span className="font-medium text-foreground/70">Permisos:</span> {descriptor.scopesNote}
         </div>
       ) : null}
 
       {!open ? (
         <Button variant={connected ? "outline" : "default"} size="sm" onClick={() => setOpen(true)}>
           <Plug className="h-3.5 w-3.5" />
-          <span className="ml-1.5">{connected ? "Reconnect / update" : "Connect"}</span>
+          <span className="ml-1.5">{connected ? "Reconectar o actualizar" : "Conectar"}</span>
         </Button>
       ) : (
         <div className="mt-2 flex flex-col gap-3 rounded-md border border-dashed border-border bg-muted/30 p-3">
@@ -499,7 +500,7 @@ function PipelineCard({
               )}
             </label>
           ))}
-          {error ? <p className="text-xs text-red-600 dark:text-red-400">{error}</p> : null}
+          {error ? <p className="text-xs text-l-critico-texto">{error}</p> : null}
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -565,7 +566,7 @@ export function AdsIntegrations() {
   };
 
   const handleDisconnect = (id: string) => {
-    if (window.confirm("Disconnect this ad account? Tools that depend on it will fail until a new connection is created.")) {
+    if (window.confirm("¿Desconectar esta cuenta? Las herramientas que la usan van a fallar hasta que se conecte de nuevo.")) {
       disconnectMutation.mutate(id);
     }
   };
@@ -573,7 +574,7 @@ export function AdsIntegrations() {
   if (!selectedCompany) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
-        Select a company first.
+        Cargando la empresa…
       </div>
     );
   }
@@ -593,13 +594,9 @@ export function AdsIntegrations() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Integrations</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect {selectedCompany.name} to its tools so LMTM-OS agents can read data, manage campaigns and run the content pipeline (Sheets → ClickUp → Make → publicación).
-        </p>
-      </header>
+    <>
+    <Encabezado titulo="Conexiones" bajada={`Las cuentas de ${selectedCompany.name} con las que trabajan LMTM-OS y los agentes: pauta, web y publicación (planilla → ClickUp → Make → redes).`} />
+    <div className="max-w-[960px] px-4 pb-10 md:px-8">
 
       {/* Acceso directo al mapeo: hasta ahora había que adivinar que estaba
           adentro del acordeón de cada conexión (pedido 11/8). */}
@@ -636,11 +633,11 @@ export function AdsIntegrations() {
         </div>
       </div>
 
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Ad Platforms</h2>
+      <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-l-tinta-2">Plataformas de pauta</h2>
       {connectionsQuery.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading connections...
+          Cargando conexiones…
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -659,26 +656,24 @@ export function AdsIntegrations() {
         </div>
       )}
 
-      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Web</h2>
+      <h2 className="mb-3 mt-8 text-[12px] font-semibold uppercase tracking-[0.08em] text-l-tinta-2">Web</h2>
       <WebGoogleCard companyId={selectedCompanyId!} />
 
-      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        Pipeline &amp; Automatización
+      <h2 className="mb-3 mt-8 text-[12px] font-semibold uppercase tracking-[0.08em] text-l-tinta-2">
+        Publicación y automatización
       </h2>
       <PipelineIntegrations companyId={selectedCompanyId!} />
 
-      <section className="mt-8 rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground">
-        <h4 className="mb-1 text-sm font-semibold text-foreground">How OAuth works</h4>
+      <section className="mt-8 rounded-2xl border border-dashed border-l-linea bg-l-sup p-4 text-xs text-l-tinta-3">
+        <h4 className="mb-1 text-sm font-semibold text-l-tinta">Cómo funciona la conexión</h4>
         <p>
-          When you click <em>Connect</em>, a new tab opens to the platform's authorization screen.
-          After granting access, the platform redirects back to the LMTM-OS callback, which
-          exchanges the auth code for a long-lived access token and stores it in the
-          {" "}<code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">ads_connections</code>{" "}
-          table scoped to this company. Plugin tools (e.g.{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">lmtm-meta-ads:meta-list-ad-accounts</code>
-          ) resolve the token at call time via <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">ctx.ads.resolveToken(&quot;meta&quot;, companyId)</code>.
+          Al tocar <em>Conectar</em> se abre la pantalla de autorización de la plataforma. Cuando das el permiso, la
+          plataforma vuelve a LMTM-OS, que cambia ese permiso por un token de larga duración y lo guarda en
+          {" "}<code className="rounded bg-l-papel px-1 py-0.5 font-mono text-[11px]">ads_connections</code>{" "}
+          para esta empresa. Las herramientas de los agentes lo leen en el momento de usarlo: nadie ve el token.
         </p>
       </section>
     </div>
+    </>
   );
 }

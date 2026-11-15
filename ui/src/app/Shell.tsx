@@ -39,11 +39,6 @@ export const MAS = [
   { to: "/whatsapp", label: "WhatsApp", soloAdmin: true },
 ] as const;
 
-/** Margen de una pantalla de antes montada en el shell (traen su propio encabezado). */
-export function Pagina({ children }: { children: ReactNode }) {
-  return <div className="px-4 pb-10 pt-6 md:px-8">{children}</div>;
-}
-
 function useContadores() {
   const hoy = useQuery({ queryKey: ["lmtm", "hoy"], queryFn: () => decisionesApi.hoy(), staleTime: 60_000, refetchInterval: 5 * 60_000 });
   const corriendo = useQuery({

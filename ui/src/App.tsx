@@ -68,7 +68,6 @@ import { TrabajoApp } from "./app/Trabajo";
 import { BibliotecaApp } from "./app/BibliotecaApp";
 import { ActividadApp } from "./app/ActividadApp";
 import { PreparacionApp } from "./app/PreparacionApp";
-import { Pagina } from "./app/Shell";
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
@@ -343,7 +342,7 @@ export function App() {
             <Route path="agentes" element={<AgentesApp />} />
             <Route path="agentes/:id" element={<AgentesApp />} />
             <Route path="config" element={<ConfigApp />} />
-            <Route path="semaforo" element={<Pagina><Growth /></Pagina>} />
+            <Route path="semaforo" element={<Growth />} />
             <Route path="pauta" element={<PautaApp />} />
             <Route path="avisos" element={<AvisosApp />} />
             <Route path="contenido" element={<ContenidoApp />} />
@@ -352,12 +351,12 @@ export function App() {
             <Route path="produccion/tipos" element={<TiposDeVideoApp />} />
             <Route path="produccion/generado" element={<ContenidoGeneradoApp />} />
             <Route path="nichos" element={<NichosApp />} />
-            <Route path="inteligencia" element={<Pagina><Intelligence /></Pagina>} />
+            <Route path="inteligencia" element={<Intelligence />} />
             <Route path="licitaciones" element={<LicitacionesApp />} />
             <Route path="finanzas" element={<FinanzasApp />} />
-            <Route path="whatsapp" element={<Pagina><WhatsApp /></Pagina>} />
+            <Route path="whatsapp" element={<WhatsApp />} />
             {/* Ajustes que se abrían en el layout de paperclip: ahora adentro de la app. */}
-            <Route path="conexiones" element={<Pagina><AdsIntegrations /></Pagina>} />
+            <Route path="conexiones" element={<AdsIntegrations />} />
             <Route path="preparacion" element={<PreparacionApp />} />
           </Route>
           <Route path="cartera" element={<Navigate to="/clientes" replace />} />

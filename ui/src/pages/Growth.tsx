@@ -17,7 +17,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { statusBadge, statusBadgeDefault } from "@/lib/status-colors";
-import { TrendingUp, Building2, DollarSign, Filter, CheckCircle2, Lightbulb } from "lucide-react";
+import { Building2, DollarSign, Filter, CheckCircle2, Lightbulb } from "lucide-react";
+import { Encabezado } from "../app/Shell";
 
 // Spend is a cross-client sum, only meaningful in a single currency; the server
 // sends the shared currency (or null if clients bill in mixed currencies).
@@ -62,8 +63,8 @@ function ThroughputChart({ points }: { points: GrowthThroughputPoint[] }) {
     <div className="flex items-end gap-2" style={{ height: 72 }}>
       {points.map((p, i) => (
         <div key={i} className="flex-1 flex items-end gap-[2px]" title={`Semana ${p.week}: creados ${p.created}, cerrados ${p.done}`}>
-          <div className="flex-1 rounded-sm bg-sky-500/70" style={{ height: `${Math.max((p.created / max) * 100, 2)}%` }} />
-          <div className="flex-1 rounded-sm bg-emerald-500/70" style={{ height: `${Math.max((p.done / max) * 100, 2)}%` }} />
+          <div className="flex-1 rounded-sm bg-l-marca/70" style={{ height: `${Math.max((p.created / max) * 100, 2)}%` }} />
+          <div className="flex-1 rounded-sm bg-l-bien/70" style={{ height: `${Math.max((p.done / max) * 100, 2)}%` }} />
         </div>
       ))}
     </div>
@@ -94,13 +95,13 @@ function CotizadoVsRealizado() {
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const pctColor = (p: number | null) => p == null ? "text-muted-foreground/50" : p >= 85 ? "text-emerald-500" : p >= 50 ? "text-amber-500" : "text-rose-500";
+  const pctColor = (p: number | null) => p == null ? "text-muted-foreground/50" : p >= 85 ? "text-l-bien-texto" : p >= 50 ? "text-l-atencion-texto" : "text-l-critico-texto";
   // "Debíamos X, hicimos Y": ✓ si cumplió (≥85% del cotizado), ✗ si no.
   const hechoVsCotizado = (hecho: number, cotizado: number) => {
     if (cotizado <= 0) return <span className="text-muted-foreground/50">—</span>;
     const ok = hecho >= cotizado * 0.85;
     return (
-      <span className={ok ? "text-emerald-500" : hecho >= cotizado * 0.5 ? "text-amber-500" : "text-rose-500"}>
+      <span className={ok ? "text-l-bien-texto" : hecho >= cotizado * 0.5 ? "text-l-atencion-texto" : "text-l-critico-texto"}>
         {hecho}/{cotizado} {ok ? "✓" : "✗"}
       </span>
     );
@@ -111,12 +112,12 @@ function CotizadoVsRealizado() {
         <h2 className="font-medium">Cotizado vs Realizado</h2>
         <span className="text-[11px] text-muted-foreground">lo vendido (planilla) contra lo que salió de verdad</span>
         <div className="ml-auto flex gap-1">
-          <button onClick={() => setMonths(1)} className={`text-[11px] px-2 py-0.5 rounded-md border ${months === 1 ? "border-emerald-500 text-emerald-600" : "border-border hover:bg-muted"}`}>Mes</button>
-          <button onClick={() => setMonths(3)} className={`text-[11px] px-2 py-0.5 rounded-md border ${months === 3 ? "border-emerald-500 text-emerald-600" : "border-border hover:bg-muted"}`}>Trimestre</button>
+          <button onClick={() => setMonths(1)} className={`text-[11px] px-2 py-0.5 rounded-md border ${months === 1 ? "border-l-bien text-l-bien-texto" : "border-border hover:bg-muted"}`}>Mes</button>
+          <button onClick={() => setMonths(3)} className={`text-[11px] px-2 py-0.5 rounded-md border ${months === 3 ? "border-l-bien text-l-bien-texto" : "border-border hover:bg-muted"}`}>Trimestre</button>
         </div>
       </div>
       {isLoading && <Skeleton className="h-24 w-full" />}
-      {isError && <div className="text-xs text-rose-500">No se pudo leer la planilla: {(error as Error).message}</div>}
+      {isError && <div className="text-xs text-l-critico-texto">No se pudo leer la planilla: {(error as Error).message}</div>}
       {data && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -136,15 +137,15 @@ function CotizadoVsRealizado() {
               {data.rows.filter((r) => r.clientName).map((r, i) => (
                 <tr key={i} className="border-b border-border/50">
                   <td className="py-1.5 pr-2">
-                    {r.slug ? <Link to={`/c/${r.slug}`} className="hover:underline">{r.clientName}</Link> : r.clienteSheet}
+                    {r.slug ? <Link to={`/clientes/${r.slug}`} className="hover:underline">{r.clientName}</Link> : r.clienteSheet}
                   </td>
                   <td className="pr-2 text-right">{r.sinListaClickup ? <span className="text-muted-foreground/50">sin lista</span> : hechoVsCotizado(r.realizado.posteosMes, r.esperadoMes.posteos)}</td>
                   <td className="pr-2 text-right">{r.sinListaClickup ? <span className="text-muted-foreground/50">—</span> : hechoVsCotizado(r.realizado.videosMes, r.esperadoMes.videos)}</td>
                   <td className="pr-2 text-right text-muted-foreground">{r.sinListaClickup || !r.esperadoMes.stories ? "—" : `${r.realizado.storiesMes}/${r.esperadoMes.stories}`}</td>
                   <td className={`pr-2 text-right font-semibold ${pctColor(r.cumplimientoPct)}`}>{r.cumplimientoPct != null ? `${r.cumplimientoPct}%` : r.sinListaClickup ? "sin lista" : "—"}</td>
                   <td className="pr-2 text-muted-foreground" title={r.fuente === "clickup" ? "Etiqueta 'mandado a make' de ClickUp: no confirma que se haya publicado" : undefined}>{r.fuente === "instagram" ? "Instagram" : r.fuente === "clickup" ? "ClickUp (sin verificar)" : "—"}</td>
-                  <td className="pr-2 text-right text-muted-foreground">{r.realizado.spendMeta ? `$${r.realizado.spendMeta.toLocaleString("es-AR")}` : (r.cotizado.pautaMeta || r.cotizado.pautaIg) ? <span className="text-amber-500">cotizada, $0</span> : "—"}</td>
-                  <td className="pr-2 text-right text-muted-foreground">{r.realizado.spendGoogle ? `$${r.realizado.spendGoogle.toLocaleString("es-AR")}` : r.cotizado.pautaGoogle ? <span className="text-amber-500">cotizada, $0</span> : "—"}</td>
+                  <td className="pr-2 text-right text-muted-foreground">{r.realizado.spendMeta ? `$${r.realizado.spendMeta.toLocaleString("es-AR")}` : (r.cotizado.pautaMeta || r.cotizado.pautaIg) ? <span className="text-l-atencion-texto">cotizada, $0</span> : "—"}</td>
+                  <td className="pr-2 text-right text-muted-foreground">{r.realizado.spendGoogle ? `$${r.realizado.spendGoogle.toLocaleString("es-AR")}` : r.cotizado.pautaGoogle ? <span className="text-l-atencion-texto">cotizada, $0</span> : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -184,9 +185,9 @@ function SemaforoGeneral() {
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
   const secciones: Array<{ key: "rojo" | "amarillo" | "verde" | "sin-datos"; titulo: string; sub: string; borde: string; dot: string; rows: TriageCliente[] }> = [
-    { key: "rojo", titulo: "Rojo — atender ya", sub: "incumplimiento, problemas abiertos o pauta rota", borde: "border-rose-500/40", dot: "bg-rose-500", rows: data.rojo },
-    { key: "amarillo", titulo: "Amarillo — seguimiento", sub: "algo flojea: no dejar que caiga a rojo", borde: "border-amber-500/40", dot: "bg-amber-500", rows: data.amarillo },
-    { key: "verde", titulo: "Verde — sostener", sub: "en orden: buscar la próxima palanca de crecimiento", borde: "border-emerald-500/40", dot: "bg-emerald-500", rows: data.verde },
+    { key: "rojo", titulo: "Rojo — atender ya", sub: "incumplimiento, problemas abiertos o pauta rota", borde: "border-l-critico/40", dot: "bg-l-critico", rows: data.rojo },
+    { key: "amarillo", titulo: "Amarillo — seguimiento", sub: "algo flojea: no dejar que caiga a rojo", borde: "border-l-atencion/40", dot: "bg-l-atencion", rows: data.amarillo },
+    { key: "verde", titulo: "Verde — sostener", sub: "en orden: buscar la próxima palanca de crecimiento", borde: "border-l-bien/40", dot: "bg-l-bien", rows: data.verde },
     { key: "sin-datos", titulo: "Sin datos para juzgar", sub: "no hay pauta corriendo, ni cuenta leída, ni calendario con fechas: no se puede decir si está bien", borde: "border-border", dot: "bg-muted-foreground/40", rows: data.sinDatos ?? [] },
   ];
   return (
@@ -223,7 +224,7 @@ function SemaforoGeneral() {
                       <p className="font-medium text-muted-foreground mb-0.5">Plan de acción</p>
                       <ul className="list-disc ml-4 space-y-0.5">{c.acciones.map((a, i) => <li key={i}>{a}</li>)}</ul>
                     </div>
-                    <Link to={`/c/${c.slug}`} className="inline-block text-[11px] underline text-muted-foreground">Ver ficha y plan estratégico →</Link>
+                    <Link to={`/clientes/${c.slug}`} className="inline-block text-[11px] underline text-muted-foreground">Ver ficha y plan estratégico →</Link>
                   </div>
                 )}
               </div>
@@ -264,9 +265,9 @@ function CargaEquipo() {
               <button onClick={() => setExpandida(expandida === p.nombre ? null : p.nombre)} className="w-full flex items-center gap-2 text-left">
                 <span className="w-24 truncate font-medium">{p.nombre}</span>
                 <div className="flex-1 h-3 rounded bg-muted overflow-hidden">
-                  <div className={`h-full ${sobrecarga ? "bg-rose-500" : "bg-emerald-500"}`} style={{ width: `${Math.round((p.cuentas / max) * 100)}%` }} />
+                  <div className={`h-full ${sobrecarga ? "bg-l-critico" : "bg-l-bien"}`} style={{ width: `${Math.round((p.cuentas / max) * 100)}%` }} />
                 </div>
-                <span className={`w-20 text-right ${sobrecarga ? "text-rose-500 font-semibold" : "text-muted-foreground"}`}>
+                <span className={`w-20 text-right ${sobrecarga ? "text-l-critico-texto font-semibold" : "text-muted-foreground"}`}>
                   {p.cuentas} cuentas{sobrecarga ? " ⚠" : ""}
                 </span>
               </button>
@@ -299,7 +300,7 @@ function SemaforoPauta() {
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const dot = (s: string) => s === "verde" ? "bg-emerald-500" : s === "amarillo" ? "bg-amber-500" : s === "sin-pauta" || s === "sin-datos" ? "bg-muted-foreground/40" : "bg-rose-500";
+  const dot = (s: string) => s === "verde" ? "bg-l-bien" : s === "amarillo" ? "bg-l-atencion" : s === "sin-pauta" || s === "sin-datos" ? "bg-muted-foreground/40" : "bg-l-critico";
   const copiar = async (slug: string, name: string) => {
     const a = await api.get<{ resumen: string[] }>(`/clients/${slug}/analisis-estrategico`);
     await navigator.clipboard.writeText([`📊 Análisis de pauta — ${name}`, "", ...(a.resumen ?? [])].join("\n"));
@@ -316,7 +317,7 @@ function SemaforoPauta() {
           <div key={c.id} className="rounded-md border border-border p-2 text-xs">
             <div className="flex items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${dot(c.semaforo)}`} />
-              <Link to={`/c/${c.slug}`} className="font-medium hover:underline truncate">{c.name}</Link>
+              <Link to={`/clientes/${c.slug}`} className="font-medium hover:underline truncate">{c.name}</Link>
               <span className="text-muted-foreground">{c.score != null ? `${c.score}/100` : c.semaforo === "sin-datos" ? "sin dato" : "sin pauta"}</span>
               <button onClick={() => void copiar(c.slug, c.name)} className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">Copiar</button>
               {c.oportunidades.length > 0 && (
@@ -344,16 +345,9 @@ export function Growth() {
   const { data, isLoading } = useQuery({ queryKey: ["growth", "overview"], queryFn: () => growthApi.overview(), staleTime: 10 * 60_000 });
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <TrendingUp className="h-6 w-6 text-emerald-500" /> Growth
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Rojo: atender ya. Amarillo: seguimiento. Verde: sostener. Cada cliente con sus problemas y su plan. El detalle completo, abajo.
-        </p>
-      </div>
-
+    <>
+    <Encabezado titulo="Semáforo de clientes" bajada="Rojo: atender ya. Amarillo: seguimiento. Verde: sostener. Cada cliente con sus problemas y su plan; el detalle completo, abajo." />
+    <div className="max-w-[1100px] space-y-6 px-4 pb-10 md:px-8">
       <SemaforoGeneral />
 
       {isLoading && <Skeleton className="h-40 w-full" />}
@@ -381,11 +375,11 @@ export function Growth() {
             <div className="grid grid-cols-2 gap-6">
               <div>
                 <p className="text-[11px] text-muted-foreground mb-1">Spend</p>
-                <BarRow points={data.spendTrend} metric="spend" color="bg-blue-500" currency={data.kpis.spendCurrency} />
+                <BarRow points={data.spendTrend} metric="spend" color="bg-l-marca" currency={data.kpis.spendCurrency} />
               </div>
               <div>
                 <p className="text-[11px] text-muted-foreground mb-1">Leads</p>
-                <BarRow points={data.spendTrend} metric="leads" color="bg-emerald-500" currency={data.kpis.spendCurrency} />
+                <BarRow points={data.spendTrend} metric="leads" color="bg-l-bien" currency={data.kpis.spendCurrency} />
               </div>
             </div>
           </Card>
@@ -394,8 +388,8 @@ export function Growth() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-medium">Pulso operativo — issues por semana (últimas 8)</h2>
               <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-sky-500/70" />creados</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-emerald-500/70" />cerrados</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-l-marca/70" />creados</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-l-bien/70" />cerrados</span>
               </div>
             </div>
             <ThroughputChart points={data.issuesThroughput} />
@@ -404,7 +398,7 @@ export function Growth() {
           <AgentEfficiencyCard />
 
           <div>
-            <h2 className="font-medium flex items-center gap-2 mb-3"><Lightbulb className="h-4 w-4 text-amber-500" />Ideas de la mesa redonda semanal</h2>
+            <h2 className="font-medium flex items-center gap-2 mb-3"><Lightbulb className="h-4 w-4 text-l-atencion-texto" />Ideas de la mesa redonda semanal</h2>
             {data.roundtables.length === 0 ? (
               <p className="text-sm text-muted-foreground">Todavía no corrió ninguna mesa redonda.</p>
             ) : (
@@ -437,5 +431,6 @@ export function Growth() {
         </details>
       )}
     </div>
+    </>
   );
 }
