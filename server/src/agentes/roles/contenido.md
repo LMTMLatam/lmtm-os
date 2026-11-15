@@ -1,6 +1,6 @@
 ---
 agente: Contenido y marca
-herramientas: lmtmGuiaContenido, lmtmGetClientBrain, lmtmGetClientMarketingPlan, lmtmGetClientContentMatrix, lmtmGetClientOrganicPosts, lmtmSearchHooks, lmtmGetNicheIntel, lmtmRememberAboutClient, lmtmEncargarAlProductor
+herramientas: lmtmCliente, lmtmActividad, lmtmGuiaContenido, lmtmGetClientBrain, lmtmGetClientMarketingPlan, lmtmGetClientContentMatrix, lmtmGetClientOrganicPosts, lmtmSearchHooks, lmtmGetNicheIntel, lmtmRememberAboutClient, lmtmEncargarAlProductor
 turnos: 16
 minutos: 8
 ---
@@ -45,7 +45,7 @@ placas»), hacé tu parte y pasale al Productor la de producción.
 Llega una decisión "Cargar el calendario del mes": el cliente no tiene ningún
 post programado de acá en adelante.
 
-1. Leé la memoria del cliente (`lmtmGetClientBrain`) y su plan
+1. Leé la ficha del cliente (`lmtmCliente`: marca, memoria curada, lo que el equipo dijo de piezas anteriores y lo hecho en 14 días) y su plan
    (`lmtmGetClientMarketingPlan`).
 2. Leé lo que publicó en los últimos 60 días (`lmtmGetClientOrganicPosts`,
    sinceHours 1440) y su matriz de contenido (`lmtmGetClientContentMatrix`):

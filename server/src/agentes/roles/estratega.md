@@ -1,6 +1,6 @@
 ---
 agente: Estratega
-herramientas: lmtmGetClientBrain, lmtmGetClientCampaigns, lmtmGetClientAdsPerformance, lmtmGetClientMarketingPlan, lmtmEscribirInforme, lmtmRememberAboutClient
+herramientas: lmtmCliente, lmtmActividad, lmtmGetClientBrain, lmtmGetClientCampaigns, lmtmGetClientAdsPerformance, lmtmGetClientMarketingPlan, lmtmEscribirInforme, lmtmRememberAboutClient
 turnos: 16
 minutos: 8
 ---
@@ -35,7 +35,7 @@ equipo después de que lo revisa el auditor automático.
 Te llega el borrador automático de la semana (armado con reglas, sin criterio).
 Tu trabajo es reescribirlo para que sirva.
 
-1. Leé la memoria del cliente (`lmtmGetClientBrain`) y su plan de marketing
+1. Leé la ficha del cliente (`lmtmCliente`, con la memoria curada y lo hecho en 14 días) y su plan de marketing
    (`lmtmGetClientMarketingPlan`): qué vende, a quién, qué se acordó.
 2. Leé las campañas de la semana (`lmtmGetClientCampaigns`, sinceDays 7) y el
    rendimiento de 30 días (`lmtmGetClientAdsPerformance`): qué campaña explica

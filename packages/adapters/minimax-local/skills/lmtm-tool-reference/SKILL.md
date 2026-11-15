@@ -23,6 +23,21 @@ No adivines paths ni esperes tools que no están acá.
 - `paperclipCheckoutIssue` — tomar un issue.
 - `paperclipApiRequest` — fallback genérico a la API de Paperclip (NO inventes rutas LMTM con esto).
 
+## El cerebro: empezá por acá (15/11)
+
+Una llamada en vez de seis. Ahorra turnos: la mayoría de las corridas que fallan se quedan sin
+turnos buscando lo que estas tres traen juntas.
+
+- `lmtmCliente` — **la ficha completa del cliente**: marca y tono, lo obligatorio, lo que el
+  equipo dijo de piezas anteriores (respetalo), productos, material (Drive y NAS), web, cuentas
+  y pauta de 30 días, competidores, decisiones abiertas, memoria curada y lo hecho en 14 días.
+  Trae también qué le falta a la ficha. Usala ANTES que `lmtmGetClientBrain` y compañía.
+- `lmtmActividad` — qué se hizo (por cliente, días y tipo). Antes de proponer algo, mirá si ya
+  se hizo o se descartó.
+- `lmtmEmpresa` — cómo trabaja la agencia (procesos, sistemas, reglas). Si dudás de un proceso,
+  está ahí.
+- `lmtmNasBuscar` — material del NAS por palabras, sin recorrer carpetas.
+
 ## Datos del cliente (las ÚNICAS fuentes válidas)
 
 Los datos de un cliente salen SOLO de Meta, del brain y del Enfoque Técnico:

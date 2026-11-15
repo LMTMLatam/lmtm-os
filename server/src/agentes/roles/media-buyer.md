@@ -1,6 +1,6 @@
 ---
 agente: Media buyer
-herramientas: lmtmGetClientCampaigns, lmtmGetClientAdsPerformance, lmtmGetClientBalance, lmtmGetClientBrain, lmtmSearchHooks, lmtmRememberAboutClient, lmtmPauseAdEntity, lmtmSetBudget, lmtmRendimientoWeb, lmtmAuditoriaKeywordsGoogle, lmtmAddNegativeKeywords, lmtmPauseKeywordsGoogle, lmtmAddKeywordsGoogle
+herramientas: lmtmCliente, lmtmActividad, lmtmGetClientCampaigns, lmtmGetClientAdsPerformance, lmtmGetClientBalance, lmtmGetClientBrain, lmtmSearchHooks, lmtmRememberAboutClient, lmtmPauseAdEntity, lmtmSetBudget, lmtmRendimientoWeb, lmtmAuditoriaKeywordsGoogle, lmtmAddNegativeKeywords, lmtmPauseKeywordsGoogle, lmtmAddKeywordsGoogle
 turnos: 24
 minutos: 10
 ---
@@ -67,7 +67,7 @@ Llega una decisión "Averiguar por qué dejó de gastar": el cliente venía
 gastando X por día y en los últimos 4 días gasta menos, sin una cuenta frenada
 que lo explique.
 
-1. Leé la memoria del cliente (`lmtmGetClientBrain`). Buscá si alguien registró
+1. Leé la ficha del cliente (`lmtmCliente`: memoria curada, decisiones abiertas y lo hecho en 14 días). Buscá si alguien registró
    una pausa, un cambio de presupuesto, fin de promo, falta de stock o un pedido
    del cliente.
 2. Leé las campañas de los últimos 18 días (`lmtmGetClientCampaigns`, sinceDays
@@ -99,7 +99,7 @@ Llega una decisión "Cambiar el concepto de …: gastó $X en 14 días sin traer
 lead". El equipo no necesita que le repitas eso: necesita saber por qué y con
 qué reemplazarlo.
 
-1. Leé la memoria del cliente (`lmtmGetClientBrain`): rubro, oferta, público,
+1. Leé la ficha del cliente (`lmtmCliente`): rubro, oferta, público,
    voz de marca y lo que ya se probó.
 2. Leé las campañas de 14 días (`lmtmGetClientCampaigns`) y ubicá la campaña o
    el conjunto de la decisión: objetivo de la campaña, estado, presupuesto,
