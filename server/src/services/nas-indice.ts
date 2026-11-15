@@ -30,7 +30,11 @@ export function tipoDe(nombre: string): TipoArchivo {
 }
 
 /** Carpetas que el QNAP llena solo (papelera, miniaturas, snapshots): no se recorren. */
-export const esCarpetaDeSistema = (nombre: string) => /^(@|\.)|^(#recycle|\$recycle\.bin|system volume information)$/i.test(nombre);
+export const esCarpetaDeSistema = (nombre: string) =>
+  /^(@|\.)|^(#recycle|\$recycle\.bin|system volume information)$/i.test(nombre) ||
+  // Cachés de los editores (Premiere, After Effects, Resolve): miles de archivos que no son material (15/11).
+  /^(adobe premiere pro (video|audio) previews|adobe premiere pro auto-save|media cache( files)?|peak files|motion graphics template media|render files|cachéclip|cacheclip|proxy|proxies)$/i.test(nombre) ||
+  / masks$/i.test(nombre);
 
 /** Minúsculas, sin acentos, separadores como espacios. Pura. */
 export const normalizar = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[_\-./\\()[\],+]+/g, " ").replace(/\s+/g, " ").trim();
@@ -54,11 +58,11 @@ export function puntaje(a: Pick<ArchivoNas, "ruta" | "nombre">, palabras: string
  */
 export async function rastrear(
   raiz: string,
-  o: { maxCarpetas?: number; maxArchivos?: number; listar?: (ruta: string) => Promise<ItemNas[]> } = {},
+  o: { maxCarpetas?: number; maxArchivos?: number; esperaReintentoMs?: number; listar?: (ruta: string) => Promise<ItemNas[]> } = {},
 ): Promise<{ archivos: ArchivoNas[]; carpetas: number; recortado: boolean; errores: string[] }> {
   const listar = o.listar ?? listarNas;
-  const maxCarpetas = o.maxCarpetas ?? 1500;
-  const maxArchivos = o.maxArchivos ?? 20_000;
+  const maxCarpetas = o.maxCarpetas ?? 3000;
+  const maxArchivos = o.maxArchivos ?? 40_000;
   const cola = [raiz];
   const archivos: ArchivoNas[] = [];
   const errores: string[] = [];
@@ -67,12 +71,16 @@ export async function rastrear(
     // De a 3 carpetas por vez: el NAS va por Tailscale userspace y no aguanta mucho más.
     const tanda = cola.splice(0, 3);
     const res = await Promise.all(tanda.map(async (c) => {
-      try { return await listar(c); } catch (e) { errores.push(`${c}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200)); return []; }
+      try { return await listar(c); } catch {
+        // El NAS devuelve 502 suelto cuando está cargado: un reintento a los 2 s.
+        await new Promise((r) => setTimeout(r, o.esperaReintentoMs ?? 2000));
+        try { return await listar(c); } catch (e) { errores.push(`${c}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200)); return []; }
+      }
     }));
     carpetas += tanda.length;
     for (const items of res) for (const i of items) {
       if (i.carpeta) { if (!esCarpetaDeSistema(i.nombre)) cola.push(i.ruta); continue; }
-      if (esCarpetaDeSistema(i.nombre)) continue;
+      if (esCarpetaDeSistema(i.nombre) || /^(thumbs\.db|desktop\.ini|\.ds_store)$/i.test(i.nombre)) continue;
       archivos.push({ ruta: i.ruta, nombre: i.nombre, tipo: tipoDe(i.nombre), mb: i.mb, fecha: i.modificado ? new Date(i.modificado).toISOString().slice(0, 10) : null });
     }
   }
@@ -80,11 +88,15 @@ export async function rastrear(
 }
 
 /** Reindexa el NAS de un cliente (o de todos los que tienen carpeta). */
-export async function reindexarNas(db: Db, o: { clientId?: string } = {}): Promise<Array<{ cliente: string; archivos: number; videos: number; fotos: number; carpetas: number; recortado: boolean; errores: number }>> {
+export async function reindexarNas(db: Db, o: { clientId?: string; soloFaltantes?: boolean } = {}): Promise<Array<{ cliente: string; archivos: number; videos: number; fotos: number; carpetas: number; recortado: boolean; errores: number }>> {
   const falta = nasConfigurado();
   if (falta) throw new Error(falta);
   const lista = await db.select({ id: clients.id, name: clients.name, metadata: clients.metadata }).from(clients)
-    .where(o.clientId ? eq(clients.id, o.clientId) : and(eq(clients.status, "active"), sql`jsonb_array_length(coalesce(${clients.metadata}->'nas', '[]'::jsonb)) > 0`));
+    .where(o.clientId ? eq(clients.id, o.clientId) : and(
+      eq(clients.status, "active"),
+      sql`jsonb_array_length(coalesce(${clients.metadata}->'nas', '[]'::jsonb)) > 0`,
+      ...(o.soloFaltantes ? [sql`not exists (select 1 from client_context_cache x where x.client_id = ${clients.id} and x.source = ${FUENTE_INDICE})`] : []),
+    ));
   const out = [];
   for (const c of lista) {
     const raices = ((c.metadata as { nas?: unknown } | null)?.nas as string[] | undefined) ?? [];
@@ -108,24 +120,33 @@ export interface Encontrado extends ArchivoNas { cliente: string; clientId: stri
 
 /** Busca en el índice por palabras (todas tienen que estar en la ruta). */
 export async function buscarEnNas(db: Db, o: { q: string; clientIds?: string[]; tipo?: TipoArchivo | null; limite?: number }): Promise<{ resultados: Encontrado[]; total: number; indices: Array<{ cliente: string; actualizado: string | null; archivos: number }> }> {
-  const filas = await db.select({ clientId: clientContextCache.clientId, payload: clientContextCache.payload, cliente: clients.name })
+  // ponytail: jsonb_array_elements sobre todo el índice (2-4 s con 130 mil archivos, 15/11); si pasa de
+  // ~10 s, mudar el índice a una tabla propia con un índice trigram sobre la ruta normalizada.
+  // El filtro grueso va en la base (el índice entero pesa megas: traerlo en cada búsqueda era caro);
+  // el puntaje fino, acá. La ruta se normaliza igual que `normalizar` (minúsculas, sin acentos).
+  const palabras = normalizar(o.q).split(" ").filter((w) => w.length >= 2);
+  const filtroCliente = o.clientIds?.length ? sql`and x.client_id in (${sql.join(o.clientIds.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
+  const rutaNorm = sql`translate(lower(a->>'ruta'), 'áéíóúüñàèìòùâêîôû_-./\\()[],+', 'aeiouunaeiouaeiou           ')`;
+  const condiciones = palabras.map((w) => sql`and ${rutaNorm} like ${"%" + w + "%"}`);
+  const r = await db.execute(sql`
+    select x.client_id, c.name cliente, a.value archivo
+    from client_context_cache x join clients c on c.id = x.client_id, jsonb_array_elements(x.payload->'archivos') a
+    where x.source = ${FUENTE_INDICE} ${filtroCliente} ${o.tipo ? sql`and a->>'tipo' = ${o.tipo}` : sql``} ${sql.join(condiciones, sql` `)}
+    limit 5000`);
+  const filasBusqueda = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ client_id: string; cliente: string; archivo: ArchivoNas }>;
+  const todos: Array<Encontrado & { p: number }> = [];
+  for (const f of filasBusqueda) {
+    const p = puntaje(f.archivo, palabras);
+    if (p > 0) todos.push({ ...f.archivo, cliente: String(f.cliente).trim(), clientId: f.client_id, p });
+  }
+  const filas = await db.select({ clientId: clientContextCache.clientId, cliente: clients.name, actualizado: sql<string | null>`${clientContextCache.payload}->>'actualizado'`, archivos: sql<number>`jsonb_array_length(coalesce(${clientContextCache.payload}->'archivos', '[]'::jsonb))` })
     .from(clientContextCache).innerJoin(clients, eq(clients.id, clientContextCache.clientId))
     .where(and(eq(clientContextCache.source, FUENTE_INDICE), ...(o.clientIds?.length ? [inArray(clientContextCache.clientId, o.clientIds)] : [])));
-  const palabras = normalizar(o.q).split(" ").filter((w) => w.length >= 2);
-  const todos: Array<Encontrado & { p: number }> = [];
-  for (const f of filas) {
-    const archivos = ((f.payload as { archivos?: ArchivoNas[] }).archivos ?? []);
-    for (const a of archivos) {
-      if (o.tipo && a.tipo !== o.tipo) continue;
-      const p = puntaje(a, palabras);
-      if (p > 0) todos.push({ ...a, cliente: f.cliente.trim(), clientId: f.clientId, p });
-    }
-  }
   todos.sort((a, b) => b.p - a.p || String(b.fecha ?? "").localeCompare(String(a.fecha ?? "")));
   return {
     resultados: todos.slice(0, Math.min(200, o.limite ?? 40)).map(({ p: _p, ...r }) => r),
     total: todos.length,
-    indices: filas.map((f) => ({ cliente: f.cliente.trim(), actualizado: (f.payload as { actualizado?: string }).actualizado ?? null, archivos: ((f.payload as { archivos?: unknown[] }).archivos ?? []).length })),
+    indices: filas.map((f) => ({ cliente: f.cliente.trim(), actualizado: f.actualizado, archivos: Number(f.archivos) })),
   };
 }
 
@@ -145,13 +166,13 @@ export function initNasIndice(db: Db): void {
     }
   };
   setInterval(() => void tick(), 15 * 60_000).unref();
-  // Primera vez (no hay ningún índice): se arma a los 3 minutos de arrancar, sin esperar a la noche.
+  // Los clientes que todavía no tienen índice (un cliente nuevo, o un deploy que cortó la
+  // pasada): a los 3 minutos de arrancar, sin esperar a la noche.
   setTimeout(async () => {
     try {
-      const [h] = await db.select({ n: sql<number>`count(*)::int` }).from(clientContextCache).where(eq(clientContextCache.source, FUENTE_INDICE));
-      if ((h?.n ?? 0) > 0) return;
-      const r = await reindexarNas(db);
-      console.log(`[nas-indice] primer índice: ${r.length} clientes, ${r.reduce((t, x) => t + x.archivos, 0)} archivos`);
+      const r = await reindexarNas(db, { soloFaltantes: true });
+      if (!r.length) return;
+      console.log(`[nas-indice] clientes sin índice: ${r.length}, ${r.reduce((t, x) => t + x.archivos, 0)} archivos`);
     } catch (e) {
       console.warn("[nas-indice] primer índice falló:", e instanceof Error ? e.message : e);
     }

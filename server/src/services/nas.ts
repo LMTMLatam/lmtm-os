@@ -60,7 +60,9 @@ export function leerPropfind(xml: string, rutaPedida: string): ItemNas[] {
     const tag = (n: string) => new RegExp(`<(?:\\w+:)?${n}\\b[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${n}>`, "i").exec(bloque)?.[1]?.trim() ?? null;
     const href = tag("href");
     if (!href) continue;
-    let ruta = decodeURIComponent(href.replace(/^https?:\/\/[^/]+/i, "")).replace(/\/+$/, "");
+    // El href viene escapado como XML (&amp;): sin esto «Bv. Avellaneda 100 Bis & Junín» daba «no existe» (15/11).
+    const xml = href.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
+    let ruta = decodeURIComponent(xml.replace(/^https?:\/\/[^/]+/i, "")).replace(/\/+$/, "");
     if (ruta === base || ruta === "") continue; // la carpeta misma
     const carpeta = /<(?:\w+:)?collection\b/i.test(bloque);
     const largo = tag("getcontentlength");

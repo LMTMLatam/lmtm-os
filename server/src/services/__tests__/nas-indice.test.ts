@@ -46,14 +46,27 @@ describe("rastrear", () => {
   const listar = async (r: string) => { if (r === "/C/Obra/Rota") throw new Error("403"); return arbol[r] ?? []; };
 
   it("recorre subcarpetas, saltea las del sistema y anota errores sin cortar", async () => {
-    const r = await rastrear("/C", { listar });
+    const r = await rastrear("/C", { listar, esperaReintentoMs: 1 });
     expect(r.archivos.map((a) => a.ruta).sort()).toEqual(["/C/Obra/drone.mp4", "/C/logo.png"]);
     expect(r.archivos.find((a) => a.nombre === "logo.png")).toMatchObject({ tipo: "foto", fecha: "2026-11-10" });
     expect(r.errores).toHaveLength(1);
     expect(r.recortado).toBe(false);
   });
+  it("reintenta un 502 suelto", async () => {
+    let veces = 0;
+    const flojo = async (r: string) => { if (r === "/C/Obra" && veces++ === 0) throw new Error("502"); return arbol[r] ?? []; };
+    const r = await rastrear("/C", { listar: async (x) => (x === "/C/Obra/Rota" ? [] : flojo(x)), esperaReintentoMs: 1 });
+    expect(r.archivos.map((a) => a.nombre)).toContain("drone.mp4");
+    expect(r.errores).toHaveLength(0);
+  });
+  it("saltea las cachés de los editores", () => {
+    expect(esCarpetaDeSistema("Adobe Premiere Pro Video Previews")).toBe(true);
+    expect(esCarpetaDeSistema("Rodaje_Oficina_08_26_DUNOD Masks")).toBe(true);
+    expect(esCarpetaDeSistema("Media Cache Files")).toBe(true);
+    expect(esCarpetaDeSistema("Proyecto Final")).toBe(false);
+  });
   it("respeta el tope de carpetas", async () => {
-    const r = await rastrear("/C", { listar, maxCarpetas: 1 });
+    const r = await rastrear("/C", { listar, maxCarpetas: 1, esperaReintentoMs: 1 });
     expect(r.recortado).toBe(true);
   });
 });
