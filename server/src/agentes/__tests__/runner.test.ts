@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { parsearRol, cargarRol } from "../roles.js";
 import { armarPedido, compuerta, resumirCorrida } from "../correr.js";
-import { DISPARADORES, HORARIOS, relojLocal } from "../cola.js";
+import { DISPARADORES, HORARIOS, relojLocal, turnoDelDia } from "../cola.js";
+
+describe("turnoDelDia (media buyer rotando)", () => {
+  it("cada cliente cae en un solo día hábil y el fin de semana no hay nadie", () => {
+    const todos = Array.from({ length: 12 }, (_, i) => ({ id: `id-${String(i).padStart(2, "0")}` }));
+    const porDia = [1, 2, 3, 4, 5].map((d) => turnoDelDia(todos, d).map((c) => c.id));
+    expect(porDia.flat().sort()).toEqual(todos.map((c) => c.id));
+    expect(Math.max(...porDia.map((d) => d.length)) - Math.min(...porDia.map((d) => d.length))).toBeLessThanOrEqual(1);
+    expect(turnoDelDia(todos, 6)).toEqual([]);
+    expect(turnoDelDia(todos, 7)).toEqual([]);
+  });
+});
 
 describe("notaPorAgente", () => {
   it("cuenta propuestas y defendibles por agente", async () => {

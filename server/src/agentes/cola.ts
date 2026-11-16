@@ -126,27 +126,38 @@ export const HORARIOS: ReadonlyArray<{
   procedimiento: string;
   hora: number;
   dias: number[];
-  /** Nombres de clientes, o "con_borrador": los que tienen el informe automático de la semana que terminó. */
-  clientes: string[] | "con_borrador";
+  /**
+   * Nombres de clientes; "con_borrador": los que tienen el informe automático de la semana que terminó;
+   * "con_pauta_rotando": los que gastaron en pauta en 7 días, un quinto por día hábil (cada uno, una vez por semana).
+   */
+  clientes: string[] | "con_borrador" | "con_pauta_rotando";
 }> = [
-  {
-    rol: "media-buyer",
-    procedimiento: "revision-diaria",
-    hora: 11,
-    dias: [1, 2, 3, 4, 5],
-    clientes: ["distrillantas", "ma propiedades", "sebastian ramasco padilla"],
-  },
+  // 16/11: el piloto cubría 3 clientes por día (17/17 propuestas defendibles). Ahora todos los que tienen
+  // pauta, una vez por semana cada uno: ~4 por día, el mismo gasto de modelo que el piloto.
+  { rol: "media-buyer", procedimiento: "revision-diaria", hora: 11, dias: [1, 2, 3, 4, 5], clientes: "con_pauta_rotando" },
   // El informe automático sale los lunes desde las 10 (informes-store.ts); el
   // estratega lo reescribe con criterio a partir de las 11.
   { rol: "estratega", procedimiento: "informe-semanal", hora: 11, dias: [1], clientes: "con_borrador" },
 ];
 
 /** Los clientes de un horario, con lo que el trabajo necesita de entrada. */
+/** Puro: los de este día hábil (1 = lunes … 5 = viernes), en un orden fijo por id. */
+export function turnoDelDia<T extends { id: string }>(todos: T[], dia: number): T[] {
+  if (dia < 1 || dia > 5) return [];
+  return [...todos].sort((a, b) => a.id.localeCompare(b.id)).filter((_, i) => i % 5 === dia - 1);
+}
+
 async function clientesDelHorario(
   db: Db,
-  clientes: string[] | "con_borrador",
+  clientes: string[] | "con_borrador" | "con_pauta_rotando",
   ahora: Date,
 ): Promise<Array<{ id: string; nombre: string; extra: Record<string, unknown> }>> {
+  if (clientes === "con_pauta_rotando") {
+    const r = await db.execute(sql`select c.id, c.name nombre from clients c where c.status = 'active'
+      and exists (select 1 from ads_insights i where i.client_id = c.id and i.date > current_date - 7 and i.spend > 0)`);
+    const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ id: string; nombre: string }>;
+    return turnoDelDia(filas.map((f) => ({ id: String(f.id), nombre: String(f.nombre) })), relojLocal(ahora).dia).map((f) => ({ ...f, extra: {} }));
+  }
   if (clientes === "con_borrador") {
     const semana = ultimaSemana(ahora).desde;
     const filas = await db
