@@ -112,14 +112,16 @@ async function comentariosRecientes(db: Db, issueId: string) {
 }
 
 /** Corre UNA tarea con el adaptador del agente. Devuelve el estado de la corrida. */
-export async function correrTarea(db: Db, p: Pendiente): Promise<{ runId: string | null; estado: string; motivo?: string }> {
+export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean } = {}): Promise<{ runId: string | null; estado: string; motivo?: string }> {
   const [agent] = await db.select().from(agents).where(eq(agents.id, p.agentId)).limit(1);
   if (!agent) return { runId: null, estado: "omitida", motivo: "agente inexistente" };
   if (agent.status === "paused" || agent.status === "terminated") return { runId: null, estado: "omitida", motivo: `agente ${agent.status}` };
 
   const { corteParaDespertar, registrarCuotaAgotada } = await import("../services/cuota-llm.js");
-  const corte = await corteParaDespertar(db, agent.adapterConfig, "motor_propio");
+  // Pedida por una persona = a pedido (como en paperclip): el ritmo semanal no la frena; la cuota agotada sí.
+  const corte = await corteParaDespertar(db, agent.adapterConfig, opts.manual ? "on_demand" : FUENTE);
   if (corte) return { runId: null, estado: "omitida", motivo: corte };
+  console.log(`[motor] corre ${p.identifier ?? p.issueId} (${agent.name})${opts.manual ? " a pedido" : ""}`);
 
   const comentarios = await comentariosRecientes(db, p.issueId);
   const contexto: Record<string, unknown> = {
@@ -206,9 +208,9 @@ export function iniciarMotor(db: Db): void {
       for (const p of await pendientes(db, libres)) {
         if (enCurso.size >= concurrencia) break;
         enCurso.add(p.agentId);
-        console.log(`[motor] corre ${p.identifier ?? p.issueId} (${p.agentId})`);
         void correrTarea(db, p)
-          .then((r) => console.log(`[motor] ${p.identifier ?? p.issueId}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`))
+          // Las omitidas (cuota, ritmo) se repiten cada minuto: no se loguean.
+          .then((r) => { if (r.estado !== "omitida") console.log(`[motor] ${p.identifier ?? p.issueId}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`); })
           .catch((e) => console.warn("[motor] falló:", e instanceof Error ? e.message : e))
           .finally(() => enCurso.delete(p.agentId));
       }

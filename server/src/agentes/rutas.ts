@@ -255,7 +255,7 @@ export function agentesRoutes(db: Db) {
       if (!i?.agentId) return res.status(404).json({ ok: false, motivo: "La tarea no existe o no tiene agente." });
       if (!(await configMotor(db)).agentes.includes(i.agentId)) return res.status(422).json({ ok: false, motivo: "Ese agente no está en el motor propio." });
       // En segundo plano: una corrida dura minutos y el proxy corta antes.
-      void correrTarea(db, { issueId: i.id, identifier: i.identifier, title: i.title, status: i.status, priority: i.priority, agentId: i.agentId })
+      void correrTarea(db, { issueId: i.id, identifier: i.identifier, title: i.title, status: i.status, priority: i.priority, agentId: i.agentId }, { manual: true })
         .then((r) => console.log(`[motor] manual ${i.identifier}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`));
       res.status(202).json({ ok: true, mensaje: "Corriendo. Mirá el resultado en la tarea o en /api/agentes/motor." });
     } catch (e) { responderError(res, e); }
