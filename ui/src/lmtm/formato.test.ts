@@ -2,7 +2,20 @@
 // plata y las acciones como las diría una persona, y que "no sé" nunca se
 // muestre como 0.
 import { describe, expect, it } from "vitest";
-import { etiquetaAccion, fechaLarga, formatoDato, haceCuanto, pesos, tocaLaPauta } from "./formato";
+import { cronLegible, etiquetaAccion, fechaLarga, formatoDato, haceCuanto, pesos, tocaLaPauta } from "./formato";
+
+describe("cronLegible", () => {
+  it("dice el horario de una rutina como una persona", () => {
+    expect(cronLegible("30 9 * * 1-5")).toBe("lun a vie 9:30");
+    expect(cronLegible("0 7 * * *")).toBe("todos los días 7:00");
+    expect(cronLegible("30 9 * * 2,5")).toBe("mar y vie 9:30");
+    expect(cronLegible("0 10 * * 0")).toBe("dom 10:00");
+  });
+  it("lo que no entiende lo muestra tal cual", () => {
+    expect(cronLegible("*/15 * * * *")).toBe("*/15 * * * *");
+    expect(cronLegible(null)).toBe("");
+  });
+});
 
 describe("formato LMTM", () => {
   it("pesos con punto de miles y sin decimales", () => {

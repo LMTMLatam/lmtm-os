@@ -8,7 +8,7 @@ import { ArrowLeft, ChevronDown, OctagonAlert, Send } from "lucide-react";
 import { Link, useParams } from "@/lib/router";
 import { api } from "../api/client";
 import { carteraApi } from "../api/informes";
-import { haceCuanto } from "../lmtm/formato";
+import { cronLegible, haceCuanto } from "../lmtm/formato";
 import { agentesApi, nombreRol, ROLES, type EstadoTrabajo, type PasoAgente, type Trabajo } from "./api";
 import { EstadoPunto, HallazgoAgente, Tarjeta, TituloFranja } from "./HoyApp";
 import { Encabezado } from "./Shell";
@@ -157,8 +157,9 @@ function Flota() {
               </span>
             </div>
             <div className="text-[12px] text-l-tinta-3">
-              {a.rutinas.length > 0 ? a.rutinas.map((r) => r.titulo).join(" · ") : "sin rutinas"}
-              {a.latido ? ` · latido cada ${Math.round(a.latido / 3600)} h` : ""}
+              {a.rutinas.length > 0 ? a.rutinas.map((r) => (r.cron ? `${r.titulo} (${cronLegible(r.cron)})` : r.titulo)).join(" · ") : "sin rutinas"}
+              {/* En el motor propio no hay latido de paperclip: el intervalo guardado ya no corre. */}
+              {a.latido && !porNombre.get(a.name)?.enMotorPropio ? ` · latido cada ${Math.round(a.latido / 3600)} h` : ""}
               {a.ultima ? ` · ${haceCuanto(a.ultima)}` : ""}
             </div>
             {a.frenadas > 0 && <div className="text-[12px] text-l-atencion-texto">Frenado por cuota {a.frenadas.toLocaleString("es-AR")} veces en 7 días</div>}

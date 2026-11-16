@@ -62,6 +62,25 @@ export function haceCuanto(iso: string | null, ahora = new Date()): string {
   return `hace ${dias} días`;
 }
 
+const CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+/**
+ * "lun a vie 9:30", "todos los días 7:00", "mié 10:00" — el horario de una rutina
+ * (cron «m h * * días», en hora de Buenos Aires). Lo que no tenga esa forma se
+ * muestra tal cual: mejor el cron que un horario inventado.
+ */
+export function cronLegible(cron: string | null): string {
+  if (!cron) return "";
+  const m = /^(\d{1,2}) (\d{1,2}) \* \* (\*|[0-6](?:-[0-6])?(?:,[0-6])*)$/.exec(cron.trim());
+  if (!m) return cron;
+  const hora = `${Number(m[2])}:${m[1].padStart(2, "0")}`;
+  const d = m[3];
+  if (d === "*") return `todos los días ${hora}`;
+  const rango = /^([0-6])-([0-6])$/.exec(d);
+  const dias = rango ? `${CORTOS[+rango[1]]} a ${CORTOS[+rango[2]]}` : d.split(",").map((x) => CORTOS[+x]).join(" y ");
+  return `${dias} ${hora}`;
+}
+
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
