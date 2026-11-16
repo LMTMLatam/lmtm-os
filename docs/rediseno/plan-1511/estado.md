@@ -105,3 +105,20 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
   conector del equipo), fase 5 (panel), sección 8 (flota), fase 6 (paperclip).
 - **U10:** paleta de BRACHETTA corregida en `client_brand` (antes `#37ca37,#188bf6,#e30613,#9ae6b4`, cargada 14/10 desde el
   panel; ahora `#e30613,#111111,#ffffff,#1e8f3c` + nota de uso). `updated_by = plan-1511:naza` para que lo automático no la pise.
+- **16/11 — motor propio en producción** (commits `754b2f5`, `2d7147c`, deploy `abf34513`; arreglo `90918c1`). Las 4
+  pantallas viejas (Semáforo, Inteligencia, WhatsApp, Conexiones) pasaron al diseño nuevo. **Carlos es el piloto** del
+  motor (14:10 UTC; paperclip ya no lo despierta, el heartbeat anterior quedó en `heartbeatAntesDelMotor`).
+  **Hallazgo de cuota:** al 16/11 14:08 UTC ya se había gastado el 23 % de la semana de MiniMax con 18 corridas. La causa
+  es el reintento de paperclip: Nicolás corrió 5 veces seguidas LMTM-6911 (tope de 45 turnos) y agotó la ventana de 5 h
+  a las 09:10. El freno de ritmo (`llm.ritmo_semanal`) frena desde entonces a toda la flota: es lo esperado. Se libera
+  cuando lo transcurrido de la semana alcance lo gastado menos el margen (~21:50 UTC si no se gasta más).
+  **Arreglo `90918c1`:** el `correr` manual decía «Corriendo» pero el ritmo lo omitía; ahora cuenta como a pedido. Se
+  dejaron de loguear las omitidas, que se repetían cada minuto.
+  **Piloto OK** (LMTM-7136, 14:19 UTC): 1 corrida `motor_propio`, 44 s, 73k tokens de entrada, 3 licitaciones descartadas
+  con motivo, tarea cerrada, sin doble ejecución. **14:20: migrados los 12 activos** (Ana, Bianca, Carla, Carlos, Caro,
+  Delfina, Luna, Milo, Nicolás, Pablo, Sergio, Productor); los 3 pausados no se tocaron. `0e222e7`: el motor actualiza
+  el estado del agente (antes quedaba «error» después de una corrida buena). `0b64b27`: las pantallas viejas pisaban
+  el título de la pestaña («Growth», «Integrations • Company») con las migas de paperclip.
+  **Interfaz verificada en el navegador (16/11, logueado Naza):** Hoy, Biblioteca (262 piezas), Actividad, Agentes
+  (Flota con Motor LMTM/Paperclip), Config, Semáforo, Inteligencia, WhatsApp (vinculado), Conexiones, Preparación y
+  Contenido («Posts que no salieron · 5»: 3 del grupo MA con 410 y MAERS 12/11 + INBELT 09/11 viejos, sin reprocesar).
