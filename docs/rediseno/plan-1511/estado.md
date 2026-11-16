@@ -140,3 +140,25 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
   - Datos: «Ba�l de Ganchos» (U+FFFD guardado) → «Baúl» en 1 rutina y 19 tareas (respaldo
     `respaldo_titulos_baul_20261116`); Carlos de `error` a `idle` (su última corrida, la del motor, salió bien).
   - Verificado en el navegador: Hoy muestra «Webs y pedidos de los agentes · 10»; la Flota, los horarios legibles.
+- **16/11 tarde — prueba de corridas reales por sector (pedido de Naza: clientes, competencia, Google, avisos):**
+  - **Motor:** tomaba toda `todo` sin importar la antigüedad (~100 tareas de 7 a 30 días habrían corrido en fila al
+    liberarse el ritmo). Ahora vigencia de 7 días como paperclip (`7b5e8ee`).
+  - **Informes de clientes:** 17 de 62 resultados del Estratega y 2 informes APROBADOS traían chino o palabras partidas
+    («se定义的», «seZnpresenta»); 0 de 161 informes publicados en 30 días (nadie del equipo los publica). El auditor
+    ahora rechaza texto roto y re-audita al publicar (`7b5e8ee`). PENDIENTE DEL EQUIPO: revisar y publicar informes.
+  - **Avisos:** el resumen de las 9 suma «Lo que hicieron los agentes en 24 h» (`3840835`), verificado con
+    `/avisos/resumen/ensayo` en producción.
+  - **Competencia:** había datos (475 competidores, ~5.000 posts) pero ningún análisis por cliente; Carlos no hizo
+    ninguno en 14 días. Nuevo `lmtmCompetenciaCliente` (`competencia-cliente.ts`, `84a5e64`): el cliente contra SUS
+    competidores, índice contra la cuenta propia, oportunidades (ángulo ≥ 1,5× no usado), «sin dato» si no hay redes
+    sincronizadas, competidores que son clientes de la agencia marcados. Todas las herramientas aceptan slug/nombre de
+    cliente (antes `brachetta` rompía la consulta). Rutina de Carlos reescrita («Revisión de competencia por cliente
+    (medida)», respaldo `respaldo_competencia_20261116`); le faltaban lmtmSaveHook/SearchHooks/SaveTrend que la
+    rutina le pedía. El informe semanal del Estratega mira la competencia (`8d13b60`). **Prueba LMTM-7138:** 1 corrida,
+    90 s, 93k tokens, 2 revisiones con números y links (COSA: 9 vs 30 publicaciones y 100 % vidriera; BRACHETTA:
+    8,5× más volumen, la competencia gana con «el dolor que resuelve»), sin citar clientes de la agencia.
+  - **Google Ads:** la conexión se marcaba «caída» ante `internal_failure` (pasajero) y nunca se reactivaba: bloqueaba
+    toda la auditoría de keywords. Ahora solo revocación real la marca, y se reactiva sola (`047ad56`).
+  - **Media buyer:** de 3 clientes de piloto a los 18 con pauta, una vez por semana cada uno (`445e570`).
+  - Hallazgos para el equipo: DUNOD publica 15 por mes en Instagram pero sus redes no están sincronizadas; Hotel
+    Libertador 0 publicaciones en 14 días; 18 propuestas de pauta sin decidir (desde el 09/11).
