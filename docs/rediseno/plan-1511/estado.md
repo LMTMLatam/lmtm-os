@@ -124,3 +124,19 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
   Contenido («Posts que no salieron · 5»: 3 del grupo MA con 410 y MAERS 12/11 + INBELT 09/11 viejos, sin reprocesar).
   **Decisión de Naza (16/11): no se reprocesan ni se toca el datastore; quedan anotados.** Pendiente del equipo: webhook
   correcto del grupo MA para el datastore 19767 de Make (hoy apunta al muerto `7ko1fm`).
+- **16/11 — fase 6, pasos 2 y 5:**
+  - **Rutinas (paso 2):** NO hace falta disparador propio. El de paperclip crea la tarea (`todo`) y el despertar
+    del agente migrado se saltea sin error (`heartbeat.wakeOnDemand.disabled` devuelve null, no tira; la rutina no
+    borra la tarea). El motor la toma en el minuto siguiente. A confirmar con la primera rutina real: Tendencias
+    diarias, 17/11 07:00 (Caro). En Agentes → Flota, cada rutina muestra su horario legible (`cronLegible`) y se sacó
+    el «latido cada 12 h» de los agentes del motor (ya no corre). Commit `9cceb56`.
+  - **Aprobaciones (paso 5):** las de web, código y pedidos al equipo NO se veían en ninguna pantalla desde que salió
+    la de paperclip: 7 de web (WordPress de Santa Rosa con 106 vulnerabilidades, plugins de PKT/Campo Timbó/Santa
+    Rosa, redirección de Hotel Lescano, spam de casinos en Hotel Libertador) y 4 pedidos de Esteban (SKYGARDEN,
+    INBELT, HANSHI, DOMINGO BISIO), algunas desde el 06/11. Ahora van en Hoy («Webs y pedidos de los agentes»,
+    filtros Todo / Web / Te esperan) con aprobar y rechazar con motivo, agrupadas. Commit `511fcf4`. La tabla
+    `approvals` se queda: mudarla a `decisiones` no le suma nada a nadie y toca la ejecución de pauta y web.
+  - **Pasos 4 y 6 (tareas y borrado de heartbeat/issues):** esperan una semana del motor en producción (plan).
+  - Datos: «Ba�l de Ganchos» (U+FFFD guardado) → «Baúl» en 1 rutina y 19 tareas (respaldo
+    `respaldo_titulos_baul_20261116`); Carlos de `error` a `idle` (su última corrida, la del motor, salió bien).
+  - Verificado en el navegador: Hoy muestra «Webs y pedidos de los agentes · 10»; la Flota, los horarios legibles.
