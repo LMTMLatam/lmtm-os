@@ -4,7 +4,28 @@ import { describe, expect, it } from "vitest";
 import { decidirAviso, nivelEfectivo, TOPE_INTERRUPCIONES_DIA } from "../politica.js";
 import { medirInterrupciones, type FilaOutbox } from "../medir.js";
 import { armarMensajeIncidentes } from "../incidentes.js";
-import { armarPendientesCortos, armarResumen, elegirTendencias, esUrlDeNota, fechaLarga, tocaResumen } from "../resumen.js";
+import { armarLoHecho, armarPendientesCortos, armarResumen, elegirTendencias, esUrlDeNota, fechaLarga, tocaResumen } from "../resumen.js";
+
+describe("lo que hicieron los agentes (resumen de las 9)", () => {
+  const url = "https://x.app/hoy";
+  it("cuenta lo hecho con quién, qué y para quién, y linkea a Actividad", () => {
+    const t = armarLoHecho({
+      tareas: [{ quien: "Carlos (Competitor)", que: "LMTM-7136 Curador de licitaciones", cliente: null }, { quien: "Caro (Content)", que: "LMTM-6882 Enfoque corregido", cliente: "LoMasFundas" }],
+      informesEscritos: 12, propuestasNuevas: [{ tipo: "accion_pauta", n: 3 }, { tipo: "accion_web", n: 0 }], cambiosHechos: 1, corridas: { total: 10, bien: 8 },
+    }, url)!;
+    expect(t).toContain("2 tareas cerradas");
+    expect(t).toContain("Carlos: LMTM-7136 Curador de licitaciones");
+    expect(t).toContain("(LoMasFundas)");
+    expect(t).toContain("12 informes semanales escritos");
+    expect(t).toContain("3 de pauta");
+    expect(t).not.toContain("de web");
+    expect(t).toContain("8 de 10 bien (80 %)");
+    expect(t).toContain("https://x.app/actividad");
+  });
+  it("si no pasó nada no manda una sección vacía", () => {
+    expect(armarLoHecho({ tareas: [], informesEscritos: 0, propuestasNuevas: [], cambiosHechos: 0, corridas: { total: 3, bien: 0 } }, url)).toBeNull();
+  });
+});
 
 describe("política", () => {
   it("solo los incidentes y los envíos manuales pueden ser nivel 5", () => {

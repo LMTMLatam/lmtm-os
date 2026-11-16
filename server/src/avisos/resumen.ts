@@ -286,6 +286,62 @@ export function armarPendientesCortos(todas: Array<{ origen: string; nivel: numb
   return partes.join("\n");
 }
 
+// ── Lo que hicieron los agentes (16/11) ──────────────────────────────────────
+// Pedido de Naza: «notificaciones de lo que se hace». El resumen decía qué decidir,
+// no qué se hizo. Una sección corta con lo hecho en 24 h, de las mismas tablas que
+// lmtmActividad: tareas cerradas, informes escritos, propuestas y cambios, corridas.
+
+export interface LoHecho {
+  tareas: Array<{ quien: string | null; que: string; cliente: string | null }>;
+  informesEscritos: number;
+  propuestasNuevas: Array<{ tipo: string; n: number }>;
+  cambiosHechos: number;
+  corridas: { total: number; bien: number };
+}
+
+const NOMBRE_PROPUESTA: Record<string, string> = { accion_pauta: "de pauta", accion_web: "de web", accion_codigo: "de código", request_board_approval: "pedidos al equipo" };
+
+/** Puro: el bloque del resumen. null si en 24 h no pasó nada (no se manda una sección vacía). */
+export function armarLoHecho(h: LoHecho, url: string): string | null {
+  const lineas: string[] = [];
+  if (h.tareas.length) {
+    lineas.push(`• ${h.tareas.length} ${h.tareas.length === 1 ? "tarea cerrada" : "tareas cerradas"}:`);
+    for (const t of h.tareas.slice(0, 6)) lineas.push(`   – ${t.quien ? `${t.quien.replace(/\s*\(.*\)$/, "")}: ` : ""}${t.que}${t.cliente ? ` (${t.cliente})` : ""}`);
+    if (h.tareas.length > 6) lineas.push(`   _y ${h.tareas.length - 6} más._`);
+  }
+  if (h.informesEscritos) lineas.push(`• ${h.informesEscritos} ${h.informesEscritos === 1 ? "informe semanal escrito" : "informes semanales escritos"}: esperan que alguien los revise y publique.`);
+  const props = h.propuestasNuevas.filter((p) => p.n > 0);
+  if (props.length) lineas.push(`• Propuestas nuevas para aprobar: ${props.map((p) => `${p.n} ${NOMBRE_PROPUESTA[p.tipo] ?? p.tipo}`).join(", ")}.`);
+  if (h.cambiosHechos) lineas.push(`• ${h.cambiosHechos} ${h.cambiosHechos === 1 ? "cambio hecho" : "cambios hechos"} en cuentas o webs (aprobados por una persona).`);
+  if (!lineas.length) return null;
+  const pct = h.corridas.total ? Math.round((100 * h.corridas.bien) / h.corridas.total) : null;
+  const pie = pct != null ? `Corridas de agentes: ${h.corridas.bien} de ${h.corridas.total} bien (${pct} %).` : "";
+  return [`*Lo que hicieron los agentes en 24 h:*`, ...lineas, pie, `Todo, con detalle: ${url.replace(/\/hoy$/, "/actividad")}`].filter(Boolean).join("\n");
+}
+
+async function loHechoAyer(db: Db, ahora: Date): Promise<string | null> {
+  try {
+    const { actividad } = await import("../services/cerebro.js");
+    const a = await actividad(db, { dias: 1, tipo: "tarea", limite: 100, ahora });
+    const desde = new Date(ahora.getTime() - 86_400_000).toISOString();
+    const filas = (r: unknown) => (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
+    const [inf] = filas(await db.execute(sql`select count(*)::int n from informes_semanales where created_at >= ${desde}::timestamptz`));
+    const props = filas(await db.execute(sql`select type, count(*)::int n from approvals where created_at >= ${desde}::timestamptz group by 1`));
+    const [camb] = filas(await db.execute(sql`select count(*)::int n from approvals where status = 'approved' and decided_at >= ${desde}::timestamptz`));
+    return armarLoHecho({
+      tareas: a.hechos.map((x) => ({ quien: x.quien, que: x.que, cliente: x.cliente })),
+      informesEscritos: Number(inf?.n ?? 0),
+      propuestasNuevas: props.map((p) => ({ tipo: String(p.type), n: Number(p.n) })),
+      cambiosHechos: Number(camb?.n ?? 0),
+      corridas: { total: a.resumen.corridasDeAgentes, bien: a.resumen.corridasBien },
+    }, await urlDeHoy(db));
+  } catch (e) {
+    // Sin esta sección el resumen sale igual: no se inventa una.
+    console.warn("[resumen] sin lo hecho:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 /** ¿Ya salió el resumen de hoy? Se mira el registro, no la memoria: sobrevive a un deploy. */
 async function yaSalioHoy(db: Db, ahora: Date): Promise<boolean> {
   const [r] = await db
@@ -310,7 +366,7 @@ async function contenidoDelLunes(db: Db, ahora: Date): Promise<string | null> {
 export async function mandarResumen(db: Db, ahora = new Date()): Promise<{ enviado: boolean; motivo?: string }> {
   if (await yaSalioHoy(db, ahora)) return { enviado: false, motivo: "ya salió hoy" };
   const hoy = await datosDeHoy(db);
-  const encabezado = armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora));
+  const encabezado = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora)), await loHechoAyer(db, ahora)].filter(Boolean).join("\n\n");
   // Una sola lectura de lo pendiente: lo que se resume es exactamente lo que
   // después se marca como agrupado.
   const todas = await db
@@ -335,7 +391,7 @@ export async function ensayarResumen(db: Db, ahora = new Date()): Promise<{ text
       .orderBy(desc(waOutbox.nivel), asc(waOutbox.createdAt)),
     ahora,
   );
-  const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora)), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
+  const texto = [armarResumen(hoy, await urlDeHoy(db), ahora, await tendenciasDelDia(db, ahora), await hallazgos(db, hoy), await contenidoDelLunes(db, ahora)), await loHechoAyer(db, ahora), armarPendientesCortos(filas)].filter(Boolean).join("\n\n———\n\n");
   return { texto, pendientes: filas.length };
 }
 
