@@ -122,3 +122,5 @@ Plan: `PLAN.md` (copia del aprobado). Inventario: `inventario.md`. Consultas de 
   **Interfaz verificada en el navegador (16/11, logueado Naza):** Hoy, Biblioteca (262 piezas), Actividad, Agentes
   (Flota con Motor LMTM/Paperclip), Config, Semáforo, Inteligencia, WhatsApp (vinculado), Conexiones, Preparación y
   Contenido («Posts que no salieron · 5»: 3 del grupo MA con 410 y MAERS 12/11 + INBELT 09/11 viejos, sin reprocesar).
+  **Decisión de Naza (16/11): no se reprocesan ni se toca el datastore; quedan anotados.** Pendiente del equipo: webhook
+  correcto del grupo MA para el datastore 19767 de Make (hoy apunta al muerto `7ko1fm`).
