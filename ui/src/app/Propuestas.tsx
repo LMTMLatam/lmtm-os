@@ -20,17 +20,34 @@ interface Propuesta {
   clave: string;
   ids: string[];
   agentes: string[];
-  clientId: string;
-  cliente: string;
-  slug: string;
+  clientId: string | null;
+  cliente: string | null;
+  slug: string | null;
   resumen: string;
   justificacion: string;
   createdAt: string;
 }
 
 type Resultado = { ok: boolean; detalle: string };
+type Grupo = "pauta" | "otras";
 
-const propuestasApi = { listar: () => api.get<{ propuestas: Propuesta[] }>("/agentes/propuestas") };
+const propuestasApi = {
+  listar: (grupo: Grupo) => api.get<{ propuestas: Propuesta[] }>(grupo === "otras" ? "/agentes/propuestas?grupo=otras" : "/agentes/propuestas"),
+};
+
+// 16/11: web, código y pedidos al equipo no tenían pantalla desde que salió la de Aprobaciones de paperclip.
+const TEXTOS: Record<Grupo, { titulo: string; bajada: string; tanda: (n: number) => string }> = {
+  pauta: {
+    titulo: "Cambios en las cuentas que proponen los agentes",
+    bajada: "Aprobar las ejecuta en la cuenta, con los mismos topes de siempre (20% por vez, una vez por día).",
+    tanda: (n) => `¿Ejecutar las ${n} en la cuenta?`,
+  },
+  otras: {
+    titulo: "Webs y pedidos de los agentes",
+    bajada: "Los cambios de web se ejecutan al aprobar; los pedidos le dan el OK al agente para seguir. Rechazar le deja el motivo.",
+    tanda: (n) => `¿Aprobar las ${n}?`,
+  },
+};
 
 /** Aprueba la primera copia y descarta las repetidas: se ejecuta una sola vez. */
 async function aprobar(p: Propuesta): Promise<Resultado> {
@@ -40,26 +57,27 @@ async function aprobar(p: Propuesta): Promise<Resultado> {
   return r.payload?.resultado ?? { ok: true, detalle: "Aprobada." };
 }
 
-export function PropuestasAgentes() {
-  const q = useQuery({ queryKey: ["lmtm", "propuestas"], queryFn: () => propuestasApi.listar(), refetchInterval: 60_000 });
+export function PropuestasAgentes({ grupo = "pauta" }: { grupo?: Grupo }) {
+  const q = useQuery({ queryKey: ["lmtm", "propuestas", grupo], queryFn: () => propuestasApi.listar(grupo), refetchInterval: 60_000 });
   const ps = q.data?.propuestas ?? [];
   if (ps.length === 0) return null;
+  const t = TEXTOS[grupo];
   const porCliente = new Map<string, Propuesta[]>();
-  for (const p of ps) porCliente.set(p.slug, [...(porCliente.get(p.slug) ?? []), p]);
+  for (const p of ps) porCliente.set(p.slug ?? "", [...(porCliente.get(p.slug ?? "") ?? []), p]);
   return (
     <section className="mt-7">
-      <TituloFranja>Cambios en las cuentas que proponen los agentes · {ps.length}</TituloFranja>
-      <p className="-mt-1.5 mb-3 text-[13px] text-l-tinta-3">Aprobar las ejecuta en la cuenta, con los mismos topes de siempre (20% por vez, una vez por día).</p>
+      <TituloFranja>{t.titulo} · {ps.length}</TituloFranja>
+      <p className="-mt-1.5 mb-3 text-[13px] text-l-tinta-3">{t.bajada}</p>
       <div className="space-y-4">
         {[...porCliente.values()].map((lista) => (
-          <GrupoCliente key={lista[0].slug} lista={lista} />
+          <GrupoCliente key={lista[0].slug ?? ""} lista={lista} pregunta={t.tanda(lista.length)} />
         ))}
       </div>
     </section>
   );
 }
 
-function GrupoCliente({ lista }: { lista: Propuesta[] }) {
+function GrupoCliente({ lista, pregunta }: { lista: Propuesta[]; pregunta: string }) {
   const qc = useQueryClient();
   const [confirmando, setConfirmando] = useState(false);
   const [resultados, setResultados] = useState<Record<string, Resultado>>({});
@@ -78,13 +96,17 @@ function GrupoCliente({ lista }: { lista: Propuesta[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-l-linea bg-l-sup">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-l-linea px-4 py-2.5">
-        <Link to={`/clientes/${lista[0].slug}`} className="text-[13px] font-semibold uppercase tracking-[0.06em] text-l-tinta hover:text-l-marca">
-          {lista[0].cliente}
-        </Link>
+        {lista[0].slug ? (
+          <Link to={`/clientes/${lista[0].slug}`} className="text-[13px] font-semibold uppercase tracking-[0.06em] text-l-tinta hover:text-l-marca">
+            {lista[0].cliente}
+          </Link>
+        ) : (
+          <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-l-tinta">Agencia</span>
+        )}
         {lista.length > 1 &&
           (confirmando ? (
             <span className="flex items-center gap-2 text-[13px]">
-              <span className="text-l-tinta-2">¿Ejecutar las {lista.length} en la cuenta?</span>
+              <span className="text-l-tinta-2">{pregunta}</span>
               <Boton tipo="primario" onClick={() => tanda.mutate()} disabled={tanda.isPending}>
                 {tanda.isPending ? "Ejecutando…" : "Confirmar"}
               </Boton>

@@ -233,6 +233,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
         {/* Los cambios en cuentas que proponen los agentes van después de lo que
             hay que decidir: arriba de todo parecía que Hoy era pausar campañas. */}
         {(filtro === "todo" || filtro === "plata") && <PropuestasAgentes />}
+        {(filtro === "todo" || filtro === "web" || filtro === "esperan") && <PropuestasAgentes grupo="otras" />}
 
         {h.esperando.length > 0 && (
           <section className="mt-8">

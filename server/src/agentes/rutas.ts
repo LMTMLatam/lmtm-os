@@ -8,7 +8,7 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import { agents, agenteTrabajos, approvals, clients } from "@paperclipai/db";
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { TIPO_ACCION_PAUTA } from "../services/ads-propuestas.js";
 import { assertBoard, assertBoardOrgAccess, assertCompanyAccess, assertInstanceAdmin } from "../routes/authz.js";
 import { unauthorized } from "../errors.js";
@@ -23,24 +23,37 @@ export interface PropuestaAgrupada {
   clave: string;
   ids: string[];
   agentes: string[];
-  clientId: string;
-  cliente: string;
-  slug: string;
+  clientId: string | null;
+  cliente: string | null;
+  slug: string | null;
   resumen: string;
   justificacion: string;
   accion: unknown;
   createdAt: string;
 }
 
+/** Aprobaciones que esperan a una persona y no son de pauta (16/11: sin pantalla desde que salió la de paperclip). */
+export const TIPOS_OTRAS_APROBACIONES = ["accion_web", "accion_codigo", "request_board_approval"] as const;
+
+type Payload = { clientId?: string; resumen?: string; justificacion?: string; accion?: Record<string, unknown>; title?: string; summary?: string; instructions?: string } | null;
+
+/** Puro: lleva cada tipo de aprobación a resumen + justificación + acción. Los pedidos al equipo no traen acción. */
+function normalizar(p: Payload): { clientId: string | null; resumen: string; justificacion: string; accion: unknown } | null {
+  if (!p) return null;
+  if (p.accion) return { clientId: p.clientId ?? null, resumen: p.resumen ?? "", justificacion: p.justificacion ?? "", accion: p.accion };
+  if (p.title) return { clientId: p.clientId ?? null, resumen: p.title, justificacion: p.summary ?? p.instructions ?? "", accion: { pedido: p.title } };
+  return null;
+}
+
 /** Puro: una fila por cliente + acción (tipo, entidad, monto), en el orden en que llegaron. */
 export function agruparPropuestas(
-  filas: Array<{ id: string; payload: unknown; createdAt: Date | string; agente: string | null; cliente: string; slug: string }>,
+  filas: Array<{ id: string; payload: unknown; createdAt: Date | string; agente: string | null; cliente: string | null; slug: string | null }>,
 ): PropuestaAgrupada[] {
   const porClave = new Map<string, PropuestaAgrupada>();
   for (const f of filas) {
-    const p = f.payload as { clientId?: string; resumen?: string; justificacion?: string; accion?: Record<string, unknown> } | null;
-    if (!p?.clientId || !p.accion) continue;
-    const clave = `${p.clientId}|${JSON.stringify(p.accion)}`;
+    const p = normalizar(f.payload as Payload);
+    if (!p) continue;
+    const clave = `${p.clientId ?? "agencia"}|${JSON.stringify(p.accion)}`;
     const ya = porClave.get(clave);
     if (ya) {
       ya.ids.push(f.id);
@@ -52,10 +65,10 @@ export function agruparPropuestas(
       ids: [f.id],
       agentes: f.agente ? [f.agente] : [],
       clientId: p.clientId,
-      cliente: f.cliente.trim(),
+      cliente: f.cliente?.trim() ?? null,
       slug: f.slug,
-      resumen: p.resumen ?? "",
-      justificacion: p.justificacion ?? "",
+      resumen: p.resumen,
+      justificacion: p.justificacion,
       accion: p.accion,
       createdAt: new Date(f.createdAt).toISOString(),
     });
@@ -132,9 +145,11 @@ export function agentesRoutes(db: Db) {
   // Las propuestas de pauta de los agentes (approvals accion_pauta pendientes),
   // una por acción: si dos agentes propusieron lo mismo (Milo y el media buyer
   // en paralelo durante el piloto) va una sola fila con todos los ids.
+  // ?grupo=otras: web, código y pedidos al equipo (con o sin cliente).
   router.get("/agentes/propuestas", async (req, res) => {
     try {
       assertBoardOrgAccess(req);
+      const otras = req.query.grupo === "otras";
       const filas = await db
         .select({
           id: approvals.id,
@@ -146,8 +161,11 @@ export function agentesRoutes(db: Db) {
         })
         .from(approvals)
         .leftJoin(agents, eq(agents.id, approvals.requestedByAgentId))
-        .innerJoin(clients, sql`${clients.id}::text = ${approvals.payload}->>'clientId'`)
-        .where(and(eq(approvals.type, TIPO_ACCION_PAUTA), eq(approvals.status, "pending")))
+        .leftJoin(clients, sql`${clients.id}::text = ${approvals.payload}->>'clientId'`)
+        .where(and(
+          otras ? inArray(approvals.type, [...TIPOS_OTRAS_APROBACIONES]) : and(eq(approvals.type, TIPO_ACCION_PAUTA), sql`${clients.id} is not null`),
+          eq(approvals.status, "pending"),
+        ))
         .orderBy(approvals.createdAt);
       res.json({ propuestas: agruparPropuestas(filas) });
     } catch (e) {

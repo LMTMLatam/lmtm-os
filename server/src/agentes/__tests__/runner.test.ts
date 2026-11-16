@@ -27,6 +27,15 @@ describe("agruparPropuestas", () => {
     expect(r[0].agentes).toEqual(["Milo", "Media buyer"]);
     expect(r[0].cliente).toBe("MA");
   });
+  it("los pedidos al equipo (sin acción ni cliente) entran con su título; lo que no se entiende se omite", async () => {
+    const { agruparPropuestas } = await import("../rutas.js");
+    const r = agruparPropuestas([
+      { id: "p", agente: "Esteban", cliente: null, slug: null, createdAt: "2026-11-09T15:00:00Z", payload: { title: "INBELT: OK para crear el tenant", summary: "No tiene empresa en el CRM" } },
+      { id: "x", agente: "Esteban", cliente: null, slug: null, createdAt: "2026-11-09T15:00:00Z", payload: { foo: 1 } },
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ ids: ["p"], clientId: null, cliente: null, resumen: "INBELT: OK para crear el tenant", justificacion: "No tiene empresa en el CRM" });
+  });
 });
 
 describe("compuerta", () => {
