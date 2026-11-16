@@ -146,6 +146,8 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     startedAt: sql`coalesce(${issues.startedAt}, now())`, updatedAt: new Date(),
   }).where(eq(issues.id, p.issueId));
 
+  await ponerEstado(db, agent.id, "running");
+
   let salida = "";
   let errores = "";
   const onLog = async (stream: "stdout" | "stderr", chunk: string) => {
@@ -186,8 +188,17 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     // Se suelta la tarea; si el agente no la cerró, queda como la dejó.
     await db.update(issues).set({ executionRunId: null, executionLockedAt: null })
       .where(and(eq(issues.id, p.issueId), eq(issues.executionRunId, run.id)));
+    // Estado del agente en el panel, como lo dejaba paperclip (finalizeAgentStatus); no pisa pausado/terminado.
+    await ponerEstado(db, agent.id, estado === "succeeded" ? "idle" : "error", true);
   }
   return { runId: run.id, estado, ...(error ? { motivo: error.slice(0, 200) } : {}) };
+}
+
+async function ponerEstado(db: Db, agentId: string, status: "running" | "idle" | "error", latido = false): Promise<void> {
+  await db.update(agents)
+    .set({ status, updatedAt: new Date(), ...(latido ? { lastHeartbeatAt: new Date() } : {}) })
+    .where(and(eq(agents.id, agentId), sql`${agents.status} not in ('paused', 'terminated')`))
+    .catch(() => undefined);
 }
 
 let reloj: ReturnType<typeof setInterval> | null = null;
