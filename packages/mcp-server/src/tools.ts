@@ -1355,6 +1355,15 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_cliente_listo_para_producir", parameters: p } }),
     ),
     makeTool(
+      "lmtmCompetenciaCliente",
+      "El CLIENTE contra SUS competidores: cuánto publicó cada uno en la ventana, la mejor publicación de cada competidor contra lo normal de SU cuenta (índice 2 = el doble) y los ángulos que la competencia usa con éxito y el cliente no tocó, con link de ejemplo. Base de cualquier revisión de competencia. Los marcados esClienteDeLaAgencia nunca se nombran frente a un cliente.",
+      z.object({
+        clientId: z.string().min(1).describe("Id, slug o nombre del cliente."),
+        dias: z.number().int().min(7).max(60).optional().describe("Ventana en días (por defecto 30)."),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "get_competencia_cliente", parameters: p } }),
+    ),
+    makeTool(
       "lmtmNasBuscar",
       "BUSCA en el NAS de LMTM (crudos y videos de los clientes) por palabras, sin recorrer carpetas (índice de todas las noches). Todas las palabras tienen que estar en la ruta o el nombre, sin importar acentos. Devuelve rutas para lmtmNasLink. Lo que se VE en un video no está en el índice: bajá los candidatos y describilos.",
       z.object({

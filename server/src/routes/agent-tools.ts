@@ -925,6 +925,22 @@ const CORE_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "get_competencia_cliente",
+      description:
+        "El CLIENTE contra SUS competidores en las últimas semanas: cuánto publicó cada uno, la mejor publicación de cada competidor medida contra lo normal de SU propia cuenta (índice 2 = el doble), y los ángulos que la competencia usa con éxito y el cliente no tocó (oportunidades, con link de ejemplo). Es la base de una revisión de competencia: usala antes de opinar sobre la competencia de un cliente. Los competidores con esClienteDeLaAgencia=true también son clientes de LMTM: sirven para el análisis, nunca se nombran frente a un cliente. Sin modelo: números y links reales.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientId: { type: "string", description: "Id, slug o nombre del cliente." },
+          dias: { type: "number", description: "Ventana en días (por defecto 30, máximo 60)." },
+        },
+        required: ["clientId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_cliente_listo_para_producir",
       description:
         "Verificar si tiene sentido producir contenido para un cliente ANTES de generarlo. Devuelve listo=false cuando el cliente no tiene destino de publicación en Make: en ese caso lo que se genere se descarta en silencio al llegar su fecha, así que NO hay que producir — hay que abrir un issue para dar de alta el destino y avisar. Consultala siempre antes de armar un plan de contenido, ideas, placas o calendario. Si devuelve sinVerificar=true no se pudo comprobar y se puede producir igual.",
@@ -1350,6 +1366,15 @@ export function agentToolsRoutes(
     const body = (req.body ?? {}) as { tool?: unknown; parameters?: unknown };
     const tool = typeof body.tool === "string" ? body.tool : "";
     const params = (body.parameters ?? {}) as Record<string, unknown>;
+    // 16/11: casi todas las herramientas tomaban `clientId` crudo y un slug o nombre («brachetta») rompía la
+    // consulta (uuid inválido). Se traduce una vez acá, antes de cualquier chequeo de acceso, con el mismo
+    // resolvedor que lmtmCliente; si es ambiguo o no existe, se dice cuál.
+    if (typeof params.clientId === "string" && params.clientId.trim() && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(params.clientId.trim())) {
+      const { resolverCliente } = await import("../services/cerebro.js");
+      const r = await resolverCliente(db, params.clientId);
+      if ("error" in r) return res.json({ ok: false, content: `${r.error}${r.opciones ? ` Opciones: ${r.opciones.join(", ")}.` : ""}` });
+      params.clientId = r.id;
+    }
     // La firma humana de la pauta (approved=true) solo vale si la manda una
     // persona (el conector de Claude de un admin). Un agente que se la pone a
     // sí mismo deja la propuesta armada, como si no la hubiera mandado (20/10).
@@ -1574,6 +1599,9 @@ export function agentToolsRoutes(
           name: c.name,
           fbPageUrl: c.fbPageUrl,
           igHandle: c.igHandle,
+          // Si se pudo leer su Instagram (no_encontrada = el handle está mal; nunca revisado = sin dato).
+          igEstado: c.igEstado ?? "sin revisar",
+          igSeguidores: c.igSeguidores,
           website: c.website,
           notes: c.notes,
           sampleAds: (c.sampleAds ?? []).length,
@@ -2868,6 +2896,19 @@ export function agentToolsRoutes(
           }));
         } catch (e) {
           return reply(false, `get_validacion_redes: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (tool === "get_competencia_cliente") {
+        const clientId = typeof params.clientId === "string" ? params.clientId : "";
+        if (!clientId) return reply(false, "Falta clientId.");
+        // 30 por defecto: la competencia de muchos rubros publica 1-4 veces por mes; en 14 días no hay con qué comparar.
+        const dias = Math.min(60, Math.max(7, Number(params.dias) || 30));
+        try {
+          const { competenciaDeCliente } = await import("../services/competencia-cliente.js");
+          return reply(true, JSON.stringify(await competenciaDeCliente(db, clientId, dias)));
+        } catch (e) {
+          return reply(false, `get_competencia_cliente: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
 

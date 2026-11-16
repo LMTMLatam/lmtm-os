@@ -107,7 +107,7 @@ export const HERRAMIENTAS_EQUIPO = [
   // El cerebro (15/11): la agencia, lo que se hizo y la ficha de cada cliente, en una llamada cada uno.
   "lmtmEmpresa", "lmtmCliente", "lmtmActividad",
   "lmtmGuiaContenido", "lmtmListClients", "lmtmGetClientBrain", "lmtmGetClientAdsPerformance", "lmtmGetClientCampaigns",
-  "lmtmGetClientCompetitors", "lmtmGetClientScores", "lmtmPortfolioSnapshot", "lmtmGetClientBalance",
+  "lmtmGetClientCompetitors", "lmtmCompetenciaCliente", "lmtmGetClientScores", "lmtmPortfolioSnapshot", "lmtmGetClientBalance",
   "lmtmGetClientMarketingPlan", "lmtmGetClientOrganicPosts", "lmtmGetClientScheduledContent",
   "lmtmGetClientContentMatrix", "lmtmGetClientVideoTasks", "lmtmGetCadenaPublicacion", "lmtmGetNicheIntel",
   "lmtmGetTeamLessons", "lmtmSearchHooks", "lmtmTiposDeVideo", "lmtmPlantillaVideo", "lmtmBuscarVirales", "lmtmGuardarViral", "lmtmListDeliverables", "lmtmAnalisisSeo", "lmtmRendimientoWeb",
