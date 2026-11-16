@@ -382,6 +382,15 @@ export async function publicarInforme(db: Db, id: string, actor: Actor, ahora = 
   if (i.estado !== "aprobado" || !i.auditoria?.ok) {
     throw new ErrorDecision(409, "Solo se publica un informe que pasó el auditor. Corregí lo que marcó y volvé a guardarlo.");
   }
+  // Se vuelve a auditar al publicar (16/11): una aprobación vieja no conoce las reglas nuevas (texto roto
+  // aprobado en SERRAT y LMTM antes de que existiera esa regla). Si ya no pasa, queda observado.
+  const auditoria = { ...auditarInforme(i.narrativa, i.numeros, await otrosClientes(db, i.clientId)), at: ahora.toISOString() };
+  if (!auditoria.ok) {
+    await db.update(informesSemanales).set({ estado: "observado", auditoria, updatedAt: ahora })
+      .where(and(eq(informesSemanales.id, id), eq(informesSemanales.estado, "aprobado")));
+    olvidarCaches(i.clientId);
+    throw new ErrorDecision(409, `El auditor ya no lo aprueba: ${auditoria.fallas.join(" ")}`);
+  }
   const [fila] = await db
     .update(informesSemanales)
     .set({ estado: "publicado", publicadoAt: ahora, publicadoPor: actor.actorId, updatedAt: ahora })

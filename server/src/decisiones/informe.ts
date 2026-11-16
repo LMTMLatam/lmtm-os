@@ -185,6 +185,11 @@ export function validarNarrativa(x: unknown): { ok: true; narrativa: Narrativa }
  */
 const JERGA = /\b(CTR|CPM|CPC|TCPL|ROAS|sync|sincroniz\w*|API|token|payload|mapping|pixel|píxel|adset|ad ?set|engagement)\b/i;
 
+/** Escrituras que no son del castellano (CJK, hangul, cirílico, árabe, tailandés) y el carácter de reemplazo. */
+export const TEXTO_ROTO = /.{0,12}[Ѐ-ӿ؀-ۿ฀-๿぀-ヿ㐀-鿿가-힯＀-￯�].{0,12}/u;
+/** Mayúscula metida en medio de una palabra en minúscula («seZnpresenta»). iPhone/eCommerce son de marca. */
+const PALABRA_PARTIDA = /(?<![A-Za-zÁÉÍÓÚÑáéíóúñ])(?!iPhone|iPad|eCommerce|eBay)[a-záéíóúñ]+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/;
+
 const normalizar = (s: string) =>
   s
     .normalize("NFD")
@@ -262,6 +267,12 @@ export function auditarInforme(nar: Narrativa, n: NumerosInforme, otrosClientes:
 
   // 6. Accionable.
   if (nar.proximos.length === 0) fallas.push("Falta qué se hace la semana que viene (`proximos`): un informe sin próximo paso no sirve para decidir.");
+
+  // 7. Texto roto (16/11): el modelo a veces mete caracteres chinos/coreanos/cirílicos o parte una palabra
+  // («se定义的», «seZnpresenta»). Pasó en 2 informes aprobados. Sin marcadores ni «nombres», que son camelCase o ajenos.
+  const limpio = partes.map((p) => sinNombres(p.replace(MARCADOR, ""))).join("\n");
+  const roto = limpio.match(TEXTO_ROTO) ?? limpio.match(PALABRA_PARTIDA);
+  if (roto) fallas.push(`Hay texto roto ("${roto[0].trim()}"): reescribí esa frase en castellano, sin caracteres de otro idioma ni palabras partidas.`);
 
   return { ok: fallas.length === 0, fallas };
 }

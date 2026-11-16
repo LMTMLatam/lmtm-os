@@ -21,6 +21,8 @@ import { enmascararClaves } from "../redaction.js";
 export const FUENTE = "motor_propio";
 /** Corridas por tarea en 24 h: si no la resolvió en 3, que la mire una persona. */
 export const MAX_CORRIDAS_POR_TAREA_DIA = 3;
+/** Días sin movimiento después de los cuales una tarea ya no se corre sola. */
+export const DIAS_VIGENTE = 7;
 
 export interface ConfigMotor { agentes: string[] }
 
@@ -88,6 +90,9 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
       from issues i
       where i.assignee_agent_id in (${sql.join(agentesIds.map((id) => sql`${id}::uuid`), sql`, `)})
         and i.status in ('todo', 'in_progress', 'blocked', 'in_review') and i.hidden_at is null
+        -- Vigencia, como el reloj de paperclip (DIAS_ISSUE_VIGENTE): una tarea que nadie toca hace más de
+        -- DIAS_VIGENTE días no se revive sola (16/11: ~100 tareas de 7 a 30 días habrían corrido en fila).
+        and i.updated_at > now() - make_interval(days => ${DIAS_VIGENTE})
         and not exists (select 1 from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.status in ('queued', 'running'))
         and (select count(*) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text
              and r.invocation_source = ${FUENTE} and r.created_at > now() - interval '24 hours') < ${MAX_CORRIDAS_POR_TAREA_DIA}

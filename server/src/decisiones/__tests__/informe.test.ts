@@ -100,6 +100,15 @@ describe("auditor", () => {
     expect(auditarInforme(narrativa({ aprendimos: ["Cosa de todos los días: el reno no aparece."] }), numeros(), otros).ok).toBe(true);
   });
 
+  it("texto roto no pasa: caracteres de otro idioma o palabras partidas (casos reales del 16/11)", () => {
+    for (const roto of ["el costo se定义的 por las piezas", "piezas que hoy主导an la pauta", "se lo seZnpresenta como objetivo", "Ba�l de Ganchos"]) {
+      const a = auditarInforme(narrativa({ aprendimos: [roto] }), numeros(), otros);
+      expect(a.fallas.some((f) => f.startsWith("Hay texto roto")), roto).toBe(true);
+    }
+    // Los marcadores son camelCase y los «nombres» son del que los puso: no son texto roto.
+    expect(auditarInforme(narrativa({ aprendimos: ["Contra la semana anterior: {variacionCpl}.", "La campaña «WhatsApp eCommerce» rindió."] }), numeros(), otros).fallas.filter((f) => f.startsWith("Hay texto roto"))).toEqual([]);
+  });
+
   it("si los leads incluyen Google dudoso, citarlos exige aclararlo", () => {
     const n = numeros({ leadsDudosos: true });
     expect(auditarInforme(narrativa(), n, otros).ok).toBe(false);

@@ -29,6 +29,8 @@ equipo después de que lo revisa el auditor automático.
    anterior (están los marcadores). Si no hay objetivo, se dice; no se inventa.
 7. Lo planeado no es lo entregado: si la inversión fue menor a la de la semana
    anterior o a la acordada, decilo antes de explicar el costo por consulta.
+8. Solo castellano: ni un carácter chino, coreano o de otro alfabeto, ni palabras
+   partidas. Releé cada frase antes de guardar; el auditor rechaza el texto roto.
 
 ## Procedimiento: informe-semanal
 
