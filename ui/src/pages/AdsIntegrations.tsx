@@ -6,7 +6,6 @@ import { adsApi, type AdsConnection, type AdsPlatform } from "../api/ads";
 import { clientsApi, type Client } from "../api/clients";
 import { secretsApi } from "../api/secrets";
 import { useCompany } from "../context/CompanyContext";
-import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { Button } from "@/components/ui/button";
 import { queryKeys } from "../lib/queryKeys";
 import { WebGoogleCard } from "../components/WebGoogleCard";
@@ -521,16 +520,8 @@ function PipelineCard({
 
 export function AdsIntegrations() {
   const { selectedCompany, selectedCompanyId } = useCompany();
-  const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [mapeoAbierto, setMapeoAbierto] = useState<AdsPlatform | null>(null);
-
-  useEffect(() => {
-    setBreadcrumbs([
-      { label: "Company", href: "/company/settings" },
-      { label: "Integrations" },
-    ]);
-  }, [setBreadcrumbs]);
 
   const connectionsQuery = useQuery({
     queryKey: queryKeys.ads.connections(selectedCompanyId ?? ""),

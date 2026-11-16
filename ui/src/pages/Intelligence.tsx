@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { clientsApi, type Client } from "../api/clients";
 import { intelCenterApi, type Intervention } from "../api/intel-center";
 import { Card } from "@/components/ui/card";
@@ -103,11 +102,8 @@ function CentroDeInteligencia() {
 }
 
 export function Intelligence() {
-  const { setBreadcrumbs } = useBreadcrumbs();
   const qc = useQueryClient();
   const [slug, setSlug] = useState<string>("");
-
-  useEffect(() => { setBreadcrumbs([{ label: "Inteligencia" }]); }, [setBreadcrumbs]);
 
   const clientsQuery = useQuery({ queryKey: ["clients", "list", "active"], queryFn: () => clientsApi.list("active") });
   const clients: Client[] = clientsQuery.data?.clients ?? [];

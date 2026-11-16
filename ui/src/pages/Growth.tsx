@@ -6,10 +6,9 @@
 // services/growth-roundtable.ts) and their follow-up proposals, which are
 // real child issues (issues.parentId), not text-matched guesses.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { growthApi, type GrowthSpendPoint, type GrowthThroughputPoint } from "../api/growth";
 import { api } from "../api/client";
 import { AgentEfficiencyCard } from "../components/AgentEfficiencyCard";
@@ -337,8 +336,6 @@ function SemaforoPauta() {
 }
 
 export function Growth() {
-  const { setBreadcrumbs } = useBreadcrumbs();
-  useEffect(() => { setBreadcrumbs([{ label: "Growth" }]); }, [setBreadcrumbs]);
 
   // Data changes at most daily (ads sync) / hourly (issues); a 10-min staleTime
   // avoids re-running the 6-query aggregate on every window refocus.

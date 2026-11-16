@@ -39,6 +39,14 @@ export const MAS = [
   { to: "/whatsapp", label: "WhatsApp", soloAdmin: true },
 ] as const;
 
+/** Pantallas que se abren desde Config: solo para el título de la pestaña. */
+const OTRAS = [
+  { to: "/preparacion", label: "Preparación" },
+  { to: "/conexiones", label: "Conexiones" },
+  { to: "/avisos", label: "Avisos" },
+  { to: "/finanzas", label: "Finanzas" },
+] as const;
+
 function useContadores() {
   const hoy = useQuery({ queryKey: ["lmtm", "hoy"], queryFn: () => decisionesApi.hoy(), staleTime: 60_000, refetchInterval: 5 * 60_000 });
   const corriendo = useQuery({
@@ -75,7 +83,7 @@ export function Shell() {
   const mas = MAS.filter((m) => esAdmin || !("soloAdmin" in m));
   const { pathname } = useLocation();
   useEffect(() => {
-    const s = [...SECCIONES, ...MAS].find((x) => pathname.startsWith(x.to));
+    const s = [...SECCIONES, ...MAS, ...OTRAS].find((x) => pathname.startsWith(x.to));
     document.title = s ? `${s.label} · LMTM` : "LMTM";
   }, [pathname]);
   return (

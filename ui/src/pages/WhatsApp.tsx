@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { waBotApi, type WaBotStatus, type WaGroupConfig } from "../api/waBot";
 import { clientsApi } from "../api/clients";
 import { Card } from "@/components/ui/card";
@@ -25,12 +24,7 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 };
 
 export function WhatsApp() {
-  const { setBreadcrumbs } = useBreadcrumbs();
   const qc = useQueryClient();
-
-  useEffect(() => {
-    setBreadcrumbs([{ label: "WhatsApp" }]);
-  }, [setBreadcrumbs]);
 
   const statusQuery = useQuery({
     queryKey: ["wa-bot", "status"],
