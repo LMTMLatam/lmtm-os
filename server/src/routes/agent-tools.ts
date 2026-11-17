@@ -1967,6 +1967,7 @@ export function agentToolsRoutes(
               "Entran las campañas que gastaron en la ventana y las activas aunque no hayan gastado (activa con gasto 0 = prendida sin entregar: es un hallazgo).",
               "cpl null = 0 leads: no hay CPL, mirá el gasto. gastoSobreObjetivo = gasto / objetivoCpl (cuántos leads 'deberías' tener).",
               "noSeMidePorCpl con texto = esa campaña NO se juzga por CPL (objetivo que no es leads, marca, Google dudoso o sin objetivo): no la pauses ni la escales por su CPL.",
+              "Las consultas (leads) solo miden lo que OPTIMIZA consultas: en Meta, conjuntos de CONVERSATIONS, LEAD_GENERATION o QUALITY_LEAD; en Google, campañas cuyas conversiones principales son consultas. Un conjunto que optimiza LINK_CLICKS, PROFILE_VISIT, REACH o compras, o una campaña de Google que optimiza visitas o compras o no registra ninguna conversión, trae noSeMidePorCpl: con 0 consultas NO está fallando, persigue otra cosa o no se mide. Ahí no propongas pausar; si no registra conversiones, lo que hay que arreglar es la medición. En una campaña mezclada, el conjunto que sí optimiza consultas se juzga solo.",
               "presupuestoDiario null: en Google vive fuera de la campaña; en Meta, si la campaña no lo tiene, lo tienen sus conjuntos.",
               "destino = adónde manda la campaña (whatsapp, formulario de Meta, mensajes, perfil, llamada, web, o publicacion = posteo promocionado que no lleva a ningún lado: se juzga por interacción, no por CPL). Si es web, landing trae lo que dice Google Analytics de ESA página con tráfico pago en 28 días: visitas, % que interactúa y eventos clave. Con CPL alto y destino web: si la landing tiene interacción baja (compará con el resto del sitio en lmtmRendimientoWeb) o 0 eventos clave, el problema está después del clic: decilo y proponé arreglar la página antes de (o además de) pausar. landing null con destino web = Analytics no vinculado o esa página no recibió tráfico pago medido: no es cero.",
               "categoriasEspeciales (Meta): con HOUSING no se puede segmentar ni excluir por edad, género ni código postal — no propongas cortes por edad en esas campañas. En Argentina declararla no es obligatorio (sí en EE. UU., Canadá y parte de Europa). Si el campo no está, no se sabe todavía.",
@@ -1993,6 +1994,8 @@ export function agentToolsRoutes(
               destino: destinoParaAgente(destinos.get(c.campaignId), landings),
               conjuntos: c.conjuntos.map((a) => ({
                 adsetId: a.adsetId, nombre: a.nombre, estado: a.estado, presupuestoDiario: a.presupuestoDiario, ...numerosDe(a),
+                ...(a.optimizacion ? { optimizacion: a.optimizacion } : {}),
+                ...(a.noSeMide ? { noSeMidePorCpl: a.noSeMide } : {}),
               })),
               };
             }),

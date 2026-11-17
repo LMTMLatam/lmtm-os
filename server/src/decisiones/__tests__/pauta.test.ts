@@ -105,6 +105,7 @@ describe("qué se puede juzgar por leads (la misma vara que el evaluador de A)",
     diasConGasto: 14,
     ultimoDiaConGasto: "2026-10-04",
     leadsDudosos: false,
+    medicion: null,
     inversion: 60_000,
     impresiones: 50_000,
     clics: 900,
@@ -143,8 +144,8 @@ describe("qué se puede juzgar por leads (la misma vara que el evaluador de A)",
 
   it("con conjuntos, se juzga cada conjunto y no la campaña entera", () => {
     const conjuntos = [
-      { adsetId: "s-1", nombre: "Muerto", estado: "ACTIVE", presupuestoDiario: 5_000, inversion: 40_000, impresiones: 1, clics: 1, leads: 0, cpl: null },
-      { adsetId: "s-2", nombre: "Vivo", estado: "ACTIVE", presupuestoDiario: 5_000, inversion: 20_000, impresiones: 1, clics: 1, leads: 4, cpl: 5_000 },
+      { adsetId: "s-1", nombre: "Muerto", estado: "ACTIVE", presupuestoDiario: 5_000, optimizacion: null, noSeMide: null, inversion: 40_000, impresiones: 1, clics: 1, leads: 0, cpl: null },
+      { adsetId: "s-2", nombre: "Vivo", estado: "ACTIVE", presupuestoDiario: 5_000, optimizacion: null, noSeMide: null, inversion: 20_000, impresiones: 1, clics: 1, leads: 4, cpl: 5_000 },
     ];
     const us = unidadesSinLeads(contexto([camp({ leads: 4, conjuntos })]), "meta");
     expect(us.map((u) => u.id)).toEqual(["s-1"]);

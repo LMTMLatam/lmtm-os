@@ -14,6 +14,7 @@ import type { Db } from "@paperclipai/db";
 import { sql } from "drizzle-orm";
 import { saludFuentes } from "../ingest/salud.js";
 import { conversionesDudosas, hayPautaConectada, razon, type VentanaMetricas } from "./index.js";
+import { CATEGORIAS_CONSULTA } from "../services/ads/providers/google.js";
 
 type Plataforma = "meta" | "google";
 
@@ -32,6 +33,10 @@ export interface MetricasConjunto extends NumerosPauta {
   estado: string | null;
   /** En la moneda de la cuenta. null = el presupuesto no vive acá (campaña con CBO) o no lo traemos. */
   presupuestoDiario: number | null;
+  /** Meta: lo que optimiza el conjunto (CONVERSATIONS, LINK_CLICKS, PROFILE_VISIT…). null = no sincronizado. */
+  optimizacion: string | null;
+  /** Por qué el CPL no mide este conjunto (optimiza otra cosa que consultas), o null si lo mide. */
+  noSeMide: string | null;
 }
 
 export interface MetricasCampana extends NumerosPauta {
@@ -50,6 +55,13 @@ export interface MetricasCampana extends NumerosPauta {
   leadsDudosos: boolean;
   /** Meta: categorías especiales declaradas (HOUSING, …). Ausente = todavía no sincronizado, no "ninguna". */
   categoriasEspeciales?: string[];
+  /**
+   * Por qué las consultas no miden esta campaña, o null si la miden (17/11). Meta: algún conjunto
+   * que gasta optimiza otra cosa (clics, visitas al perfil, alcance). Google: sus conversiones
+   * principales no son consultas (visitas, compras, interacción) o no registra ninguna.
+   * Con esto el CPL no sirve para pausarla ni escalarla.
+   */
+  medicion: string | null;
   conjuntos: MetricasConjunto[];
 }
 
@@ -76,6 +88,40 @@ export interface FilaEntidad {
   /** YYYY-MM-DD. Meta sigue diciendo ACTIVE después de la fecha de fin. */
   fin?: string | null;
   categorias?: string[] | null;
+  /** Meta, conjuntos: optimization_goal y evento del pixel (promoted_object.custom_event_type). */
+  optimizacion?: string | null;
+  evento?: string | null;
+}
+
+/** Google, por campaña en la ventana: conversiones principales por categoría (de raw.conversionesPorAccion). */
+export type ConversionesGoogle = Map<string, Record<string, number>>;
+
+/** Meta: lo que optimiza el conjunto y cuenta como consulta en `leads` (conversaciones o formularios). */
+export const META_OPTIMIZA_CONSULTAS = new Set(["CONVERSATIONS", "LEAD_GENERATION", "QUALITY_LEAD"]);
+
+/** Puro. Por qué las consultas no miden un conjunto de Meta, o null si lo miden. Sin dato no se afirma nada. */
+export function metaNoMideConsultas(optimizacion: string | null | undefined, evento: string | null | undefined): string | null {
+  if (!optimizacion || META_OPTIMIZA_CONSULTAS.has(optimizacion)) return null;
+  if (optimizacion === "OFFSITE_CONVERSIONS" && (evento ?? "").toUpperCase() === "LEAD") return null;
+  return `optimiza ${optimizacion}${evento ? ` (${evento})` : ""}, no consultas: el CPL no lo mide`;
+}
+
+/**
+ * Puro. Por qué las consultas no miden una campaña de Google, o null si la miden.
+ * `metrics.conversions` solo trae las acciones principales, las que Google usa para pujar: si
+ * la mayoría no son consultas (visitas, compras, interacción), la campaña persigue otra cosa.
+ * Y con clics y CERO conversiones de cualquier tipo, lo que falla es la medición.
+ */
+export function googleNoMideConsultas(consultas: number, porCategoria: Record<string, number> | undefined, clics: number): string | null {
+  if (clics <= 0) return null;
+  const otras = Object.entries(porCategoria ?? {}).filter(([cat]) => !CATEGORIAS_CONSULTA.has(cat));
+  const todas = consultas + otras.reduce((a, [, n]) => a + n, 0);
+  if (todas === 0) return "no registra ninguna conversión: primero hay que revisar la medición, no la campaña";
+  if (consultas < todas * 0.5) {
+    const top = otras.sort((a, b) => b[1] - a[1]).slice(0, 2).map(([c, n]) => `${c} ${Math.round(n)}`).join(", ");
+    return `sus conversiones principales no son consultas (${top} contra ${Math.round(consultas)} consultas): el CPL no la mide`;
+  }
+  return null;
 }
 
 /** Google pone 2037-12-30 como fecha de fin de las campañas que no tienen. */
@@ -104,7 +150,7 @@ const numeros = (filas: FilaInsight[]): NumerosPauta => {
  * haya gastado: prendida sin entregar es un hallazgo, no un hueco), salvo las
  * que ya terminaron antes de `hasta`: Meta las sigue marcando ACTIVE.
  */
-export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], conjuntos: FilaEntidad[], hasta: string): MetricasCampana[] {
+export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], conjuntos: FilaEntidad[], hasta: string, convGoogle: ConversionesGoogle = new Map()): MetricasCampana[] {
   const vigente = (c: FilaEntidad) => esActiva(c.estado) && !(c.fin && c.fin < hasta);
   const clave = (p: string, id: string) => `${p}:${id}`;
   const camp = new Map(campanas.map((c) => [clave(c.plataforma, c.id), c]));
@@ -140,11 +186,18 @@ export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], 
       return {
         adsetId, nombre: a?.nombre ?? null, estado: a?.estado ?? null,
         presupuestoDiario: presupuestoEnMoneda(plataforma, a?.presupuestoMenor ?? null),
+        optimizacion: a?.optimizacion ?? null,
+        noSeMide: plataforma === "meta" ? metaNoMideConsultas(a?.optimizacion, a?.evento) : null,
         ...numeros(fs),
       };
     }).sort((x, y) => y.inversion - x.inversion);
 
     const totales = numeros(filas);
+    // Meta: la campaña la miden las consultas solo si TODO lo que gasta optimiza consultas.
+    const quienGasta = conjuntosCamp.some((x) => x.inversion > 0) ? conjuntosCamp.filter((x) => x.inversion > 0) : conjuntosCamp;
+    const medicion = plataforma === "google"
+      ? googleNoMideConsultas(totales.leads, convGoogle.get(campaignId), totales.clics)
+      : quienGasta.find((x) => x.noSeMide)?.noSeMide ?? null;
     salida.push({
       plataforma, campaignId,
       nombre: c?.nombre ?? filas.find((f) => f.campaignName)?.campaignName ?? null,
@@ -156,6 +209,7 @@ export function armarCampanas(insights: FilaInsight[], campanas: FilaEntidad[], 
       diasConGasto: dias.length,
       ultimoDiaConGasto: dias.at(-1) ?? null,
       leadsDudosos: cuentaDudosa[plataforma] || conversionesDudosas(plataforma, totales.leads, totales.clics),
+      medicion,
       ...(c?.categorias ? { categoriasEspeciales: c.categorias } : {}),
       conjuntos: conjuntosCamp,
     });
@@ -180,7 +234,7 @@ export async function metricasCampanas(db: Db, clientId: string, v: VentanaMetri
   if (plataformas.length === 0) return null;
   const enPlat = sql.join(plataformas.map((p) => sql`${p}`), sql`, `);
 
-  const [ins, camp, sets] = await Promise.all([
+  const [ins, camp, sets, conv] = await Promise.all([
     db.execute(sql`
       select platform, campaign_id, max(campaign_name) as campaign_name, adset_id,
              coalesce(sum(spend), 0) as inversion, coalesce(sum(impressions), 0) as impresiones,
@@ -199,13 +253,24 @@ export async function metricasCampanas(db: Db, clientId: string, v: VentanaMetri
           select distinct campaign_id from ads_insights
           where client_id = ${clientId} and date between ${v.desde} and ${v.hasta}))`),
     db.execute(sql`
-      select id, platform, campaign_id, name, status, daily_budget
+      select id, platform, campaign_id, name, status, daily_budget,
+             raw->>'optimization_goal' as optimizacion, raw->'promoted_object'->>'custom_event_type' as evento
       from ads_adsets
       where client_id = ${clientId} and platform in (${enPlat})
         and (lower(status) in ('active', 'enabled') or id in (
           select distinct adset_id from ads_insights
           where client_id = ${clientId} and date between ${v.desde} and ${v.hasta}))`),
+    db.execute(sql`
+      select i.campaign_id, e.value->>'categoria' as categoria, sum((e.value->>'n')::numeric) as n
+      from ads_insights i, jsonb_each(case when jsonb_typeof(i.raw->'conversionesPorAccion') = 'object' then i.raw->'conversionesPorAccion' else '{}'::jsonb end) e
+      where i.client_id = ${clientId} and i.date between ${v.desde} and ${v.hasta} and i.platform = 'google'
+      group by 1, 2`),
   ]);
+  const convGoogle: ConversionesGoogle = new Map();
+  for (const f of filas(conv)) {
+    const k = String(f.campaign_id);
+    convGoogle.set(k, { ...(convGoogle.get(k) ?? {}), [String(f.categoria)]: Number(f.n) });
+  }
 
   return armarCampanas(
     filas(ins).map((f) => ({
@@ -223,7 +288,9 @@ export async function metricasCampanas(db: Db, clientId: string, v: VentanaMetri
     filas(sets).map((a) => ({
       id: String(a.id), plataforma: a.platform as Plataforma, campaignId: (a.campaign_id as string) ?? null,
       nombre: (a.name as string) ?? null, estado: (a.status as string) ?? null, presupuestoMenor: numOrNull(a.daily_budget),
+      optimizacion: (a.optimizacion as string) ?? null, evento: (a.evento as string) ?? null,
     })),
     v.hasta,
+    convGoogle,
   );
 }

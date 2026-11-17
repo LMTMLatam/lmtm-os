@@ -5,7 +5,7 @@ import type { MetricasCampana } from "../campanas.js";
 const camp = (p: Partial<MetricasCampana>): MetricasCampana => ({
   plataforma: "meta", campaignId: "c", nombre: "C", estado: "ACTIVE", objetivoCampana: null,
   presupuestoDiario: 10_000, fin: null, inversion: 0, impresiones: 0, clics: 0, leads: 0, cpl: null,
-  diasConGasto: 14, ultimoDiaConGasto: "2026-10-04", leadsDudosos: false, conjuntos: [], ...p,
+  diasConGasto: 14, ultimoDiaConGasto: "2026-10-04", leadsDudosos: false, medicion: null, conjuntos: [], ...p,
 });
 const TCPL = { tcpl: { meta: 1000, google: 1000 } };
 

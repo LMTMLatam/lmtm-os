@@ -57,7 +57,7 @@ export interface Veredicto {
   fallas: string[];
 }
 
-export interface Numeros { inversion: number; leads: number; cpl: number | null; presupuestoDiario: number | null }
+export interface Numeros { inversion: number; leads: number; cpl: number | null; presupuestoDiario: number | null; adsetId?: string; noSeMide?: string | null }
 
 export function buscar(campanas: MetricasCampana[], entityType: "campaign" | "adset", id: string): { campana: MetricasCampana; numeros: Numeros } | null {
   for (const c of campanas) {
@@ -75,10 +75,21 @@ export function buscar(campanas: MetricasCampana[], entityType: "campaign" | "ad
  */
 export function noSeMidePorCpl(c: MetricasCampana, ctx: ContextoEval): string | null {
   if (c.leadsDudosos) return "decide sobre leads de Google que no son confiables";
+  if (c.medicion) return c.medicion;
   if (c.objetivoCampana && OBJETIVOS_SIN_LEADS.has(c.objetivoCampana)) return `su objetivo es ${c.objetivoCampana}, no leads: el CPL no la mide`;
   if (c.nombre && ctx.esMarca?.(c.nombre)) return "es la campaña de marca: no se corta por CPL";
   if (ctx.tcpl[c.plataforma] == null) return `sin objetivo de CPL en ${c.plataforma} no hay contra qué medir`;
   return null;
+}
+
+/**
+ * Lo que impide juzgar por CPL a la entidad de la propuesta. Un conjunto se juzga por lo que
+ * optimiza ÉL (17/11): en una campaña que mezcla conversaciones con clics, el conjunto de
+ * conversaciones sí se mide y el de clics no; la mezcla de la campaña no aplica a ninguno.
+ */
+function impideJuzgar(e: { campana: MetricasCampana; numeros: Numeros }, ctx: ContextoEval): string | null {
+  if (e.numeros.adsetId) return e.numeros.noSeMide ?? noSeMidePorCpl({ ...e.campana, medicion: null }, ctx);
+  return noSeMidePorCpl(e.campana, ctx);
 }
 
 /** Pura. `campanas` y `ctx` son los de la ventana que vio el agente. */
@@ -89,7 +100,7 @@ export function evaluarPropuesta(accion: AccionPauta, campanas: MetricasCampana[
   if (accion.accion === "pause") {
     const e = buscar(campanas, accion.entityType, accion.entityId);
     if (!e) return noEsta;
-    const impide = noSeMidePorCpl(e.campana, ctx);
+    const impide = impideJuzgar(e, ctx);
     if (impide) fallas.push(impide);
     else {
       const tcpl = ctx.tcpl[e.campana.plataforma]!;
@@ -116,7 +127,7 @@ export function evaluarPropuesta(accion: AccionPauta, campanas: MetricasCampana[
       if (accion.nuevoDiario > actual * (1 + ESCALON_MAXIMO) + 1) {
         fallas.push(`sube ${Math.round((accion.nuevoDiario / actual - 1) * 100)}%: el playbook escala de a ${ESCALON_MAXIMO * 100}% como máximo`);
       }
-      const impide = noSeMidePorCpl(e.campana, ctx);
+      const impide = impideJuzgar(e, ctx);
       const tcpl = ctx.tcpl[e.campana.plataforma];
       if (impide && !impide.startsWith("es la campaña de marca")) fallas.push(impide);
       else if (!impide && tcpl != null && (e.numeros.cpl == null || e.numeros.cpl > tcpl)) {
@@ -131,7 +142,7 @@ export function evaluarPropuesta(accion: AccionPauta, campanas: MetricasCampana[
     if (!desde || !hacia) return { ok: false, fallas: ["alguna de las dos entidades no está entre las campañas del cliente"] };
     if (desde.campana.plataforma !== hacia.campana.plataforma) fallas.push("compara CPL entre Meta y Google, que no son comparables");
     else {
-      const impide = noSeMidePorCpl(desde.campana, ctx) ?? noSeMidePorCpl(hacia.campana, ctx);
+      const impide = impideJuzgar(desde, ctx) ?? impideJuzgar(hacia, ctx);
       if (impide) fallas.push(impide);
       else if (desde.numeros.cpl != null && hacia.numeros.cpl != null && hacia.numeros.cpl >= desde.numeros.cpl) {
         fallas.push(`mueve plata hacia lo más caro (CPL ${Math.round(hacia.numeros.cpl)} vs ${Math.round(desde.numeros.cpl)})`);
