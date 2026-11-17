@@ -28,6 +28,7 @@ import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsConnections, approvals } from "@paperclipai/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { esAccionPauta, ejecutarAccionAprobada, TIPO_ACCION_PAUTA, type AccionPauta, type PayloadAccionPauta } from "./ads-propuestas.js";
+import { EVIDENCIA_PAUSA, probPocosLeads } from "../metricas/eval-propuestas.js";
 
 export const OPTIMIZA = {
   minLeads: 5,
@@ -71,6 +72,97 @@ export function puedeIrSola(accion: AccionPauta, d: DatosDecision): { ok: true }
 }
 
 export interface ResultadoOptimiza { ejecutadas: number; fallas: number; quedanParaPersona: number; lineas: string[] }
+
+/** Lo que se guarda al ejecutar para poder juzgarlo y deshacerlo. */
+export interface Seguimiento {
+  /** La entidad que recibió la plata (set_budget: la misma; shift_budget: `hacia`). */
+  entidad: { entityType: "campaign" | "adset"; entityId: string } | null;
+  presupuestoAntes: number | null;
+  cplAntes: number | null;
+  revisada?: { at: string; gasto: number; leads: number; esperadas: number; revertida: boolean; detalle: string };
+}
+
+/** Horas que se le dan a un cambio antes de juzgarlo. */
+export const HORAS_PARA_JUZGAR = 72;
+
+/**
+ * Puro. ¿El cambio empeoró? Con el gasto de después y el CPL de antes, la entidad "debería"
+ * haber traído `esperadas` consultas. Si trajo tan pocas que a su CPL de antes pasaría menos
+ * de 1 vez cada 10 (la misma vara que una pausa con evidencia), el cambio salió mal.
+ * Con menos de 3 esperadas no hay datos para decir nada.
+ */
+export function empeoro(gastoDespues: number, leadsDespues: number, cplAntes: number | null): { empeoro: boolean; esperadas: number } {
+  if (cplAntes == null || !(cplAntes > 0)) return { empeoro: false, esperadas: 0 };
+  const esperadas = gastoDespues / cplAntes;
+  if (esperadas < 3) return { empeoro: false, esperadas };
+  return { empeoro: probPocosLeads(leadsDespues, esperadas) < EVIDENCIA_PAUSA, esperadas };
+}
+
+/**
+ * A las 72 h de cada cambio automático: si empeoró, lo deshace (vuelve el presupuesto a como
+ * estaba, o devuelve la plata movida) y avisa. Deshacer vuelve al nivel que había decidido el
+ * equipo, no frena más que eso. Cada cambio se revisa una sola vez.
+ */
+export async function revisarOptimizaciones(db: Db, ahora = new Date()): Promise<{ revisadas: number; revertidas: number }> {
+  const out = { revisadas: 0, revertidas: 0 };
+  const limite = new Date(ahora.getTime() - HORAS_PARA_JUZGAR * 3600_000);
+  const filas = await db
+    .select({ id: approvals.id, payload: approvals.payload, decidedAt: approvals.decidedAt })
+    .from(approvals)
+    .where(and(eq(approvals.type, TIPO_ACCION_PAUTA), eq(approvals.status, "approved"),
+      sql`${approvals.decisionNote} like ${NOTA + "%"}`, sql`${approvals.decidedAt} < ${limite.toISOString()}::timestamptz`,
+      sql`(${approvals.payload}->'resultado'->>'ok')::boolean`, sql`${approvals.payload}->'seguimiento'->'revisada' is null`));
+  const lineas: string[] = [];
+  for (const f of filas) {
+    const p = f.payload as unknown as PayloadAccionPauta & { seguimiento?: Seguimiento };
+    const s = p.seguimiento;
+    if (!s?.entidad || !f.decidedAt) continue;
+    // Los días COMPLETOS después del cambio (el día del cambio quedó a medias).
+    const desde = new Date(f.decidedAt.getTime() + 86_400_000).toISOString().slice(0, 10);
+    const hasta = new Date(ahora.getTime() - 86_400_000).toISOString().slice(0, 10);
+    const col = s.entidad.entityType === "adset" ? sql`adset_id` : sql`campaign_id`;
+    const r = await db.execute(sql`select coalesce(sum(spend), 0) as gasto, coalesce(sum(leads), 0) as leads
+      from ads_insights where client_id = ${p.clientId} and ${col} = ${s.entidad.entityId} and date between ${desde} and ${hasta}`);
+    const fila = ((Array.isArray(r) ? r : (r as { rows?: unknown[] }).rows ?? []) as Array<{ gasto: unknown; leads: unknown }>)[0];
+    const gasto = Number(fila?.gasto ?? 0);
+    const leads = Number(fila?.leads ?? 0);
+    const v = empeoro(gasto, leads, s.cplAntes);
+
+    let detalle = v.esperadas < 3 ? "sin gasto suficiente para juzgarlo" : v.empeoro ? "" : "no empeoró";
+    let revertida = false;
+    if (v.empeoro) {
+      const a = p.accion;
+      const deshacer = a.accion === "set_budget" && s.presupuestoAntes != null
+        ? await import("./ads-budget.js").then(({ setBudget }) => setBudget(db, {
+            clientId: p.clientId, entityType: a.entityType, entityId: a.entityId, nuevoDiario: s.presupuestoAntes!, agentId: null, approved: true,
+          })).then((x) => ({ ok: x.ok, error: x.error }))
+        : a.accion === "shift_budget"
+          ? await import("./ads-budget.js").then(({ shiftBudget }) => shiftBudget(db, {
+              clientId: p.clientId, desde: a.hacia, hacia: a.desde, monto: a.monto, agentId: null, approved: true,
+            })).then((x) => ({ ok: x.ok, error: x.error }))
+          : { ok: false, error: "no se guardó cómo estaba antes" };
+      revertida = deshacer.ok;
+      detalle = deshacer.ok ? "empeoró: se deshizo" : `empeoró y NO se pudo deshacer: ${deshacer.error ?? "error"}`;
+      lineas.push(`${deshacer.ok ? "↩" : "✗"} ${p.resumen}: trajo ${leads} consultas con $${Math.round(gasto)} (a su costo anterior eran ${v.esperadas.toFixed(1)}). ${detalle}.`);
+      if (deshacer.ok) out.revertidas += 1;
+    }
+    const revisada = { at: ahora.toISOString(), gasto: Math.round(gasto), leads, esperadas: Number(v.esperadas.toFixed(1)), revertida, detalle };
+    await db.update(approvals)
+      .set({ payload: { ...p, seguimiento: { ...s, revisada } } as unknown as Record<string, unknown>, updatedAt: new Date() })
+      .where(eq(approvals.id, f.id));
+    out.revisadas += 1;
+  }
+  if (lineas.length) {
+    const { avisarAlEquipo } = await import("./wa-embudo.js");
+    await avisarAlEquipo(db, {
+      origen: "pauta",
+      nivel: lineas.some((l) => l.startsWith("✗")) ? 4 : 3,
+      clave: `pauta-deshace:${ahora.toISOString().slice(0, 13)}`,
+      texto: `*Pauta: cambios automáticos que empeoraron*\n\n${lineas.join("\n")}`,
+    }).catch((e) => console.warn("[pauta-optimiza] no se pudo avisar:", e instanceof Error ? e.message : e));
+  }
+  return out;
+}
 
 /** Pasa por las propuestas pendientes de presupuesto y ejecuta las que puede hacer solo. */
 export async function optimizarSolo(db: Db, ahora = new Date()): Promise<ResultadoOptimiza> {
@@ -137,8 +229,11 @@ export async function optimizarSolo(db: Db, ahora = new Date()): Promise<Resulta
     if (!tomada.length) continue;
 
     const res = await ejecutarAccionAprobada(db, p, f.agente ?? null);
+    // Lo que hace falta para deshacerlo a las 72 h si empeora (revisarOptimizaciones).
+    const entidad = a.accion === "set_budget" ? { entityType: a.entityType, entityId: a.entityId } : a.accion === "shift_budget" ? a.hacia : null;
+    const seguimiento: Seguimiento = { entidad, presupuestoAntes: ent?.numeros.presupuestoDiario ?? null, cplAntes: ent?.numeros.cpl ?? null };
     await db.update(approvals)
-      .set({ payload: { ...p, resultado: { ok: res.ok, detalle: res.detalle, ejecutadoAt: ahora.toISOString() } } as unknown as Record<string, unknown>, updatedAt: new Date() })
+      .set({ payload: { ...p, resultado: { ok: res.ok, detalle: res.detalle, ejecutadoAt: ahora.toISOString() }, seguimiento } as unknown as Record<string, unknown>, updatedAt: new Date() })
       .where(eq(approvals.id, f.id));
     if (res.ok) r.ejecutadas += 1;
     else r.fallas += 1;

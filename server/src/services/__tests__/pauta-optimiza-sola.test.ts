@@ -1,7 +1,22 @@
 // La regla de Naza (17/11): el departamento de pauta optimiza solo, pero nunca
 // frena ni apaga. Estos tests fallan si alguna vez se cuela una pausa o una baja.
 import { describe, expect, it } from "vitest";
-import { OPTIMIZA, puedeIrSola } from "../pauta-optimiza-sola.js";
+import { empeoro, OPTIMIZA, puedeIrSola } from "../pauta-optimiza-sola.js";
+
+describe("empeoro (deshacer a las 72 h)", () => {
+  it("si a su costo anterior debía traer 10 y trajo 2, empeoró", () => {
+    expect(empeoro(10_000, 2, 1_000).empeoro).toBe(true);
+  });
+  it("una caída normal no alcanza para deshacer", () => {
+    expect(empeoro(10_000, 7, 1_000).empeoro).toBe(false);
+  });
+  it("con menos de 3 consultas esperadas no se juzga", () => {
+    expect(empeoro(2_000, 0, 1_000)).toEqual({ empeoro: false, esperadas: 2 });
+  });
+  it("sin CPL de antes no se juzga", () => {
+    expect(empeoro(50_000, 0, null).empeoro).toBe(false);
+  });
+});
 
 const sube = { accion: "set_budget" as const, entityType: "adset" as const, entityId: "a1", nuevoDiario: 12_000 };
 const mueve = {

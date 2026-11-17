@@ -350,9 +350,11 @@ export function initLimpiezaPropuestas(db: Db): void {
   timer = setInterval(correr, 6 * 3600_000);
   // El departamento de pauta optimiza solo (17/11): cada hora, para que lo propuesto a las 11 se haga ese día.
   const optimizar = async () => {
-    const { optimizarSolo } = await import("./pauta-optimiza-sola.js");
+    const { optimizarSolo, revisarOptimizaciones } = await import("./pauta-optimiza-sola.js");
     const r = await optimizarSolo(db);
     if (r.ejecutadas || r.fallas) console.log(`[pauta-optimiza] ${r.ejecutadas} hechas solas, ${r.fallas} fallas, ${r.quedanParaPersona} quedan para una persona`);
+    const rev = await revisarOptimizaciones(db);
+    if (rev.revisadas) console.log(`[pauta-optimiza] ${rev.revisadas} cambios revisados a las 72 h, ${rev.revertidas} deshechos por empeorar`);
   };
   const correrOptimizar = () => void optimizar().catch((e) => console.warn("[pauta-optimiza] falló:", e instanceof Error ? e.message : e));
   setTimeout(correrOptimizar, 15 * 60_000);
