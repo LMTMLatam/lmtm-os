@@ -3,6 +3,6 @@
 # produced different hashes and made already-applied migrations look pending.
 *.sql text eol=lf
 packages/db/src/migrations/** text eol=lf
-# Los scripts que corre Linux: con CRLF el shebang "#!/bin/sh" no existe y el
+# Los scripts que corre Linux: con CRLF el shebang termina en CR y el intérprete no existe y el
 # contenedor no arranca (17/11: PC nueva con autocrlf=true tiró prod).
 *.sh text eol=lf
