@@ -60,11 +60,55 @@ export function resolveSpecialist(roster: RosterAgent[], text: string): string |
   return null;
 }
 
+/** Agentes que ya no trabajan: lo que se les asigna no lo corre nadie. */
+export const NO_TRABAJAN = ["paused", "terminated", "pending_approval"];
+
+/** Solo agentes que trabajan (17/11): con Esteban pausado, lo de "ingeniería" (y el
+ *  onboarding de un cliente nuevo) le seguía cayendo a él y no lo corría nadie. */
 async function loadRoster(db: Db, companyId: string): Promise<RosterAgent[]> {
   return db
     .select({ id: agents.id, name: agents.name })
     .from(agents)
-    .where(and(eq(agents.companyId, companyId), eq(agents.adapterType, "claude_local")));
+    .where(and(eq(agents.companyId, companyId), eq(agents.adapterType, "claude_local"),
+      sql`${agents.status} not in (${sql.join(NO_TRABAJAN.map((s) => sql`${s}`), sql`, `)})`));
+}
+
+/**
+ * Rescata lo reciente que quedó en manos de un agente que no trabaja (pausado o dado de
+ * baja): se lo pasa al especialista activo, o al dueño del triage, y deja un comentario.
+ * Solo lo tocado en 7 días (lo más viejo ya no lo corre el motor y vence solo); las
+ * [HUMANO] se quedan donde están porque las hace una persona.
+ */
+export async function rescatarDePausados(db: Db): Promise<number> {
+  const filas = await db
+    .select({ id: issues.id, companyId: issues.companyId, title: issues.title, description: issues.description, agente: agents.name })
+    .from(issues)
+    .innerJoin(agents, eq(agents.id, issues.assigneeAgentId))
+    .where(and(
+      inArray(issues.status, ["todo", "backlog", "in_progress", "blocked"] as never),
+      sql`${agents.status} in (${sql.join(NO_TRABAJAN.map((s) => sql`${s}`), sql`, `)})`,
+      sql`${issues.title} not like '[HUMANO]%'`,
+      sql`${issues.updatedAt} > now() - interval '7 days'`,
+      sql`${issues.hiddenAt} is null`,
+    ));
+  const { issueComments } = await import("@paperclipai/db");
+  const rosters = new Map<string, RosterAgent[]>();
+  let n = 0;
+  for (const i of filas) {
+    if (!rosters.has(i.companyId)) rosters.set(i.companyId, await loadRoster(db, i.companyId));
+    const roster = rosters.get(i.companyId)!;
+    const destino = resolveSpecialist(roster, `${i.title}\n${i.description ?? ""}`) ?? (await resolveTriageOwnerId(db, i.companyId));
+    if (!destino) continue;
+    const nombre = roster.find((r) => r.id === destino)?.name ?? "el dueño del triage";
+    await db.update(issues).set({ assigneeAgentId: destino } as never).where(eq(issues.id, i.id));
+    await db.insert(issueComments).values({
+      companyId: i.companyId, issueId: i.id, authorType: "system",
+      body: `Reasignada a ${nombre}: estaba en manos de ${i.agente}, que está pausado, y nadie la iba a correr.`,
+    } as never);
+    n += 1;
+  }
+  if (n > 0) console.log(`[issue-router] ${n} tarea(s) rescatadas de agentes pausados`);
+  return n;
 }
 
 /**
@@ -180,6 +224,7 @@ export async function sweepStrandedIssues(db: Db): Promise<{ scanned: number; ro
     }
   }
   if (routed > 0) console.log(`[issue-router] sweep: delegated ${routed}/${scanned} stranded issue(s)`);
+  await rescatarDePausados(db).catch((e) => console.warn("[issue-router] rescate de pausados falló:", e));
   await tagHumanOnlyIssues(db).catch((e) => console.warn("[issue-router] tag humano falló:", e));
   await rebalanceOverloadedAgents(db).catch((e) => console.warn("[issue-router] rebalance falló:", e));
   return { scanned, routed };

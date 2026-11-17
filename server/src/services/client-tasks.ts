@@ -77,6 +77,9 @@ export function dentroDeLaEspera(ultima: Date | null | undefined, dias: number, 
  * Con `noRepetirDias` la deduplicación además mira las YA CERRADAS: un
  * vigilante diario no puede volver a levantar la misma señal todos los días.
  */
+/** Con esta cola abierta, un agente no le crea más tareas a ese destino (el mismo número que delegate_to_agent). */
+export const TOPE_COLA_AGENTE = 40;
+
 export async function createClientTask(db: Db, input: CreateClientTaskInput): Promise<CreateClientTaskResult> {
   const title = (input.title ?? "").trim().slice(0, 200);
   const taskType: TaskType = input.taskType === "external" ? "external" : "internal";
@@ -134,6 +137,23 @@ export async function createClientTask(db: Db, input: CreateClientTaskInput): Pr
   // Keeps work flowing to whoever can do it instead of piling on one agent.
   const { routeNewIssue } = await import("./issue-router.js");
   const assigneeAgentId = await routeNewIssue(db, companyId, `${title}\n${input.description ?? ""}`);
+
+  // Tope de cola (17/11): Milo tenía 96 abiertas y se seguía creando tareas a sí mismo
+  // (13 de 24 en un día, varias repetidas). El tope de delegate_to_agent no lo veía.
+  // Solo frena lo que crea un agente: el onboarding y los vigilantes del sistema pasan.
+  if (input.createdByAgentId && assigneeAgentId) {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(issues)
+      .where(and(eq(issues.assigneeAgentId, assigneeAgentId),
+        sql`${issues.status} in ('todo','in_progress','blocked','backlog')`, sql`${issues.title} not like '[HUMANO]%'`));
+    if ((r?.n ?? 0) >= TOPE_COLA_AGENTE) {
+      return {
+        created: false, duplicate: false, identifier: null, taskType,
+        message: `No se creó: quien la recibiría ya tiene ${r?.n} tareas abiertas (tope ${TOPE_COLA_AGENTE}). Sumalo como comentario en la tarea abierta que corresponda, o cerrá lo que ya no hace falta.`,
+      };
+    }
+  }
 
   const created = await issueService(db).create(companyId, {
     title,

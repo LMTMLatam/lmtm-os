@@ -3214,7 +3214,7 @@ export function agentToolsRoutes(
         const detail = typeof params.description === "string" ? params.description.trim() : "";
         if (!agentName || !title || !detail) return reply(false, "Faltan agentName, title o description.");
         const roster = await db
-          .select({ id: agents.id, name: agents.name })
+          .select({ id: agents.id, name: agents.name, status: agents.status })
           .from(agents)
           .where(and(eq(agents.companyId, ctx.companyId), eq(agents.adapterType, "claude_local")));
         const q = agentName.toLowerCase();
@@ -3232,6 +3232,15 @@ export function agentToolsRoutes(
           const ruteado = await routeNewIssue(db, ctx.companyId, `${title}\n${detail}`);
           const real = ruteado ? roster.find((a) => a.id === ruteado) : undefined;
           if (real) target = real;
+        }
+        // Un agente pausado no corre nada (17/11): se le pasa al especialista activo que corresponda.
+        const { NO_TRABAJAN } = await import("../services/issue-router.js");
+        if (NO_TRABAJAN.includes(String(target.status))) {
+          const { routeNewIssue } = await import("../services/issue-router.js");
+          const ruteado = await routeNewIssue(db, ctx.companyId, `${title}\n${detail}`);
+          const real = ruteado ? roster.find((a) => a.id === ruteado && !NO_TRABAJAN.includes(String(a.status))) : undefined;
+          if (!real) return reply(false, `${target.name} está pausado y no corre tareas. Elegí a otro especialista.`);
+          target = real;
         }
         if (target.id === ctx.agentId) return reply(false, "No podés delegarte trabajo a vos mismo — resolvelo o elegí a otro especialista.");
         const [me] = ctx.agentId

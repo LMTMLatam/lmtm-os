@@ -66,7 +66,11 @@ async function guardar(db: Db, c: ConfigMotor): Promise<void> {
     });
 }
 
-export interface Pendiente { issueId: string; identifier: string | null; title: string; status: string; priority: string; agentId: string }
+export interface Pendiente {
+  issueId: string; identifier: string | null; title: string; status: string; priority: string; agentId: string;
+  /** Sesión de la corrida anterior que se cortó por el tope de turnos: se retoma en vez de empezar de cero. */
+  retomarSesion?: string | null;
+}
 
 /**
  * Las tareas que el motor tiene que correr ahora. Una tarea corre si:
@@ -86,7 +90,13 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
         -- Comentarios de otro (persona u otro agente). Los avisos administrativos de las limpiezas no despiertan a nadie.
         (select max(c.created_at) from issue_comments c where c.issue_id = i.id and c.author_agent_id is distinct from i.assignee_agent_id
            and c.body !~ '^(Cerrada en la limpieza|Pasada a «en revisión»)') ultimo_ajeno,
-        (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida
+        (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
+        -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
+        (select r.error_code from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
+        (select r.session_id_after from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultima_sesion,
+        -- Reparto justo (17/11): ordenando por id de agente, Luna/Milo/Caro se llevaban todos los turnos
+        -- y los otros 9 no corrieron en 5 h. Primero va el que hace más que no corre.
+        (select max(r.created_at) from heartbeat_runs r where r.agent_id = i.assignee_agent_id and r.invocation_source = ${FUENTE}) ultima_del_agente
       from issues i
       where i.assignee_agent_id in (${sql.join(agentesIds.map((id) => sql`${id}::uuid`), sql`, `)})
         and i.status in ('todo', 'in_progress', 'blocked', 'in_review') and i.hidden_at is null
@@ -97,17 +107,21 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
         and (select count(*) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text
              and r.invocation_source = ${FUENTE} and r.created_at > now() - interval '24 hours') < ${MAX_CORRIDAS_POR_TAREA_DIA}
     )
-    select distinct on (assignee_agent_id) id, identifier, title, status, priority, assignee_agent_id
+    select * from (
+    select distinct on (assignee_agent_id) id, identifier, title, status, priority, assignee_agent_id, ultima_del_agente,
+      case when ultimo_codigo = 'max_turns_exhausted' then ultima_sesion end as retomar_sesion
     from cand
-    where (status in ('todo', 'in_progress') and (ultima_corrida is null or coalesce(ultimo_ajeno, created_at) > ultima_corrida))
+    where (status in ('todo', 'in_progress') and (ultima_corrida is null or coalesce(ultimo_ajeno, created_at) > ultima_corrida
+           or (ultimo_codigo = 'max_turns_exhausted' and ultima_sesion is not null)))
        or (status in ('blocked', 'in_review') and ultimo_ajeno is not null and (ultima_corrida is null or ultimo_ajeno > ultima_corrida)
            and ultimo_ajeno > now() - interval '7 days')
     order by assignee_agent_id,
       -- La rutina del día primero (17/11): con 4 corridas por hora, detrás de 17 urgentes/altas el informe diario salía al otro día.
       case when origin_kind = 'routine_execution' then 0 else 1 end,
-      case priority when 'critical' then 0 when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at`);
+      case priority when 'critical' then 0 when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at
+    ) x order by ultima_del_agente nulls first`);
   const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
-  return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id) }));
+  return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id), retomarSesion: (f.retomar_sesion as string) ?? null }));
 }
 
 /** Últimas 5 entradas de la conversación de la tarea, para el contexto del despertar. */
@@ -171,7 +185,7 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     const res = await adapter.execute({
       runId: run.id,
       agent: { id: agent.id, companyId: agent.companyId, name: agent.name, adapterType: agent.adapterType, adapterConfig: agent.adapterConfig },
-      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
+      runtime: { sessionId: p.retomarSesion ?? null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
       config: (agent.adapterConfig ?? {}) as Record<string, unknown>,
       context: contexto,
       onLog,
