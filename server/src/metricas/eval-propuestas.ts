@@ -57,9 +57,9 @@ export interface Veredicto {
   fallas: string[];
 }
 
-interface Numeros { inversion: number; leads: number; cpl: number | null; presupuestoDiario: number | null }
+export interface Numeros { inversion: number; leads: number; cpl: number | null; presupuestoDiario: number | null }
 
-function buscar(campanas: MetricasCampana[], entityType: "campaign" | "adset", id: string): { campana: MetricasCampana; numeros: Numeros } | null {
+export function buscar(campanas: MetricasCampana[], entityType: "campaign" | "adset", id: string): { campana: MetricasCampana; numeros: Numeros } | null {
   for (const c of campanas) {
     if (entityType === "campaign" && c.campaignId === id) return { campana: c, numeros: c };
     const a = c.conjuntos.find((x) => x.adsetId === id);

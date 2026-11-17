@@ -6,8 +6,11 @@ import { esDecisionHumana } from "../decision-humana.js";
 // 20/10: "no quiero que se frenen más anuncios sin autorización humana".
 // 26/10: tampoco mover presupuesto solo. La única puerta que ejecuta una acción
 // de pauta es aprobarla, y aprobar exige una persona (assertBoard).
-describe("pauta: nada se mueve sin una persona", () => {
-  it("ejecutarAccionAprobada solo se llama al aprobar (services/approvals.ts)", () => {
+// 17/11 (Naza): el departamento de pauta optimiza solo (subir y mover presupuesto)
+// pero nunca frena ni apaga. Fuera de una aprobación humana, el ÚNICO que ejecuta
+// es pauta-optimiza-sola.ts, y su regla (nada de pausas ni bajas) está en su test.
+describe("pauta: solo una persona o el optimizador ejecutan", () => {
+  it("ejecutarAccionAprobada solo se llama al aprobar o desde el optimizador", () => {
     const src = join(__dirname, "..", "..");
     const llamadas: string[] = [];
     const recorrer = (dir: string) => {
@@ -19,7 +22,7 @@ describe("pauta: nada se mueve sin una persona", () => {
       }
     };
     recorrer(src);
-    expect(llamadas.sort()).toEqual(["services/ads-propuestas.ts", "services/approvals.ts"]);
+    expect(llamadas.sort()).toEqual(["services/ads-propuestas.ts", "services/approvals.ts", "services/pauta-optimiza-sola.ts"]);
   });
 });
 
