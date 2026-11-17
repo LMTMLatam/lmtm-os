@@ -911,6 +911,35 @@ export function routineService(
       .then((rows) => rows[0]?.issues ?? null);
     if (executionBoundIssue) return executionBoundIssue;
 
+    // Motor propio (17/11): sus tareas no tienen corrida en cola mientras esperan
+    // turno, así que la de ayer en `todo` nunca contaba como activa y cada día salía
+    // otra copia (6 pares duplicados). En `todo` = el motor todavía no la tomó (la
+    // pasa a in_progress al correrla): es la misma ejecución esperando, no una trabada.
+    if (routine.assigneeAgentId) {
+      const { configMotor, DIAS_VIGENTE } = await import("../agentes/motor.js");
+      if ((await configMotor(executor)).agentes.includes(routine.assigneeAgentId)) {
+        const esperando = await executor
+          .select()
+          .from(issues)
+          .where(
+            and(
+              eq(issues.companyId, routine.companyId),
+              eq(issues.originKind, originKind),
+              eq(issues.originId, originId),
+              eq(issues.assigneeAgentId, routine.assigneeAgentId),
+              eq(issues.status, "todo"),
+              isNull(issues.hiddenAt),
+              sql`${issues.updatedAt} > now() - make_interval(days => ${DIAS_VIGENTE})`,
+              ...(fingerprintCondition ? [fingerprintCondition] : []),
+            ),
+          )
+          .orderBy(desc(issues.createdAt))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        if (esperando) return esperando;
+      }
+    }
+
     return executor
       .select()
       .from(issues)

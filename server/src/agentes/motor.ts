@@ -82,7 +82,7 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
   if (!agentesIds.length) return [];
   const r = await db.execute(sql`
     with cand as (
-      select i.id, i.identifier, i.title, i.status, i.priority, i.assignee_agent_id, i.created_at,
+      select i.id, i.identifier, i.title, i.status, i.priority, i.assignee_agent_id, i.created_at, i.origin_kind,
         -- Comentarios de otro (persona u otro agente). Los avisos administrativos de las limpiezas no despiertan a nadie.
         (select max(c.created_at) from issue_comments c where c.issue_id = i.id and c.author_agent_id is distinct from i.assignee_agent_id
            and c.body !~ '^(Cerrada en la limpieza|Pasada a «en revisión»)') ultimo_ajeno,
@@ -103,6 +103,8 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
        or (status in ('blocked', 'in_review') and ultimo_ajeno is not null and (ultima_corrida is null or ultimo_ajeno > ultima_corrida)
            and ultimo_ajeno > now() - interval '7 days')
     order by assignee_agent_id,
+      -- La rutina del día primero (17/11): con 4 corridas por hora, detrás de 17 urgentes/altas el informe diario salía al otro día.
+      case when origin_kind = 'routine_execution' then 0 else 1 end,
       case priority when 'critical' then 0 when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at`);
   const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
   return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id) }));
