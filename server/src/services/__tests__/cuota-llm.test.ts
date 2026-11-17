@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  anotarArranque, arrancadasUltimaHora, cuotaPausadaHasta, leerEstado, motivoDeCorte, olvidarArranques, olvidarPausas, pausarPorCuota,
+  anotarArranque, arrancadasUltimaHora, corteParaDespertar, cuotaPausadaHasta, leerEstado, motivoDeCorte, olvidarArranques, olvidarPausas, pausarPorCuota,
   proveedorDe, resetDe, SONDEO_MS, vaAdelantado,
   type EstadoCuota,
 } from "../cuota-llm.js";
@@ -81,5 +81,16 @@ describe("cuota del proveedor de los agentes (22/10)", () => {
     expect(arrancadasUltimaHora("http://127.0.0.1:4000", lunes)).toBe(0);
     // Pasada la hora, vuelve a dejar arrancar.
     expect(arrancadasUltimaHora(MINIMAX, lunes + 60 * 60_000)).toBe(0);
+  });
+
+  it("17/11: preguntar sin arrancar no ocupa lugar del tope por hora", async () => {
+    // El recovery preguntaba «¿hay cuota?» por cada tarea y cada «sí» gastaba un
+    // lugar: con 4 por hora, el motor propio no consiguió arrancar en 21 h.
+    const db = { execute: async () => ({ rows: [{ n: 0 }] }) } as never;
+    for (let i = 0; i < 10; i++) expect(await corteParaDespertar(db, null, "automation", { anotar: false })).toBeNull();
+    expect(arrancadasUltimaHora("anthropic")).toBe(0);
+    // Los que sí arrancan siguen contando, y el quinto de la hora se frena.
+    for (let i = 0; i < 4; i++) expect(await corteParaDespertar(db, null, "automation")).toBeNull();
+    expect(await corteParaDespertar(db, null, "automation")).toBe("llm.tope_hora");
   });
 });

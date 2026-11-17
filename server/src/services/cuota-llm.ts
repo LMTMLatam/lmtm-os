@@ -208,8 +208,14 @@ export function motivoDeCorte(input: {
   return input.corridasHoy >= input.tope ? "llm.tope_diario" : null;
 }
 
-/** Lo que decide el despertar de un agente de Claude. */
-export async function corteParaDespertar(db: Db, adapterConfig: unknown, fuente: string): Promise<MotivoCorte | null> {
+/**
+ * Lo que decide el despertar de un agente de Claude. Si dice que sí, ocupa un
+ * lugar del tope por hora: llamala solo cuando la corrida va a arrancar.
+ * Para PREGUNTAR sin arrancar, `{ anotar: false }` (17/11: el recovery y los
+ * despertares que paperclip descarta gastaban los 4 lugares de cada hora y el
+ * motor propio no corrió ni una tarea en 21 h).
+ */
+export async function corteParaDespertar(db: Db, adapterConfig: unknown, fuente: string, opts: { anotar?: boolean } = {}): Promise<MotivoCorte | null> {
   const pausadaHasta = cuotaPausadaHasta(proveedorDe(adapterConfig));
   if (pausadaHasta) return "llm.cuota_agotada";
   if (fuente === "on_demand") return null;
@@ -226,7 +232,7 @@ export async function corteParaDespertar(db: Db, adapterConfig: unknown, fuente:
     pausadaHasta, fuente, estado, corridasHoy, tope: topePorDia(),
     arrancadasHora: arrancadasUltimaHora(proveedor), topeHora: topePorHora(),
   });
-  if (!motivo) anotarArranque(proveedor);
+  if (!motivo && opts.anotar !== false) anotarArranque(proveedor);
   return motivo;
 }
 

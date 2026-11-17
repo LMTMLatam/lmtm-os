@@ -8776,16 +8776,6 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       throw conflict("Agent is not invokable in its current state", { status: agent.status });
     }
 
-    // Cuota del proveedor agotada, ritmo semanal o tope diario (22/10): ver services/cuota-llm.ts.
-    if (agent.adapterType === "claude_local") {
-      const { corteParaDespertar } = await import("./cuota-llm.js");
-      const corte = await corteParaDespertar(db, agent.adapterConfig, source);
-      if (corte) {
-        await writeSkippedRequest(corte);
-        return null;
-      }
-    }
-
     const policy = parseHeartbeatPolicy(agent);
 
     if (source === "timer" && !policy.enabled) {
@@ -8829,6 +8819,19 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     if (source !== "timer" && !policy.wakeOnDemand) {
       await writeSkippedRequest("heartbeat.wakeOnDemand.disabled");
       return null;
+    }
+
+    // Cuota del proveedor agotada, ritmo semanal o tope diario (22/10): ver services/cuota-llm.ts.
+    // Después de los saltos por política (17/11): si iba antes, un despertar que
+    // igual se descartaba (wakeOnDemand apagado en los agentes del motor propio)
+    // ocupaba un lugar del tope por hora.
+    if (agent.adapterType === "claude_local") {
+      const { corteParaDespertar } = await import("./cuota-llm.js");
+      const corte = await corteParaDespertar(db, agent.adapterConfig, source);
+      if (corte) {
+        await writeSkippedRequest(corte);
+        return null;
+      }
     }
 
     if (issueId) {

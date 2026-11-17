@@ -565,7 +565,8 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
       .from(agents).where(eq(agents.id, agentId)).limit(1);
     if (agente?.adapterType !== "claude_local") return false;
     const { corteParaDespertar } = await import("../cuota-llm.js");
-    return (await corteParaDespertar(db, agente.adapterConfig, "automation")) != null;
+    // Solo pregunta: el lugar del tope por hora lo ocupa enqueueWakeup si de verdad encola.
+    return (await corteParaDespertar(db, agente.adapterConfig, "automation", { anotar: false })) != null;
   }
 
   async function reconcileUnassignedBlockingIssues() {
