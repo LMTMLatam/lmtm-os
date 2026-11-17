@@ -120,12 +120,17 @@ export function resetDe(e: EstadoCuota | null): number | null {
   return null;
 }
 
+/** Cuánto va adelantado lo gastado de la semana respecto de lo transcurrido (0,07 = 7 puntos). Pura. */
+export function puntosAdelantado(e: EstadoCuota, ahora = Date.now()): number {
+  const largo = e.semana.fin - e.semana.inicio;
+  if (!(largo > 0)) return 0;
+  const transcurrido = Math.min(1, Math.max(0, (ahora - e.semana.inicio) / largo));
+  return 1 - e.semana.restante - transcurrido;
+}
+
 /** ¿Lo gastado de la semana va adelantado a lo transcurrido? Pura. */
 export function vaAdelantado(e: EstadoCuota, ahora = Date.now()): boolean {
-  const largo = e.semana.fin - e.semana.inicio;
-  if (!(largo > 0)) return false;
-  const transcurrido = Math.min(1, Math.max(0, (ahora - e.semana.inicio) / largo));
-  return 1 - e.semana.restante > transcurrido + MARGEN_RITMO;
+  return puntosAdelantado(e, ahora) > MARGEN_RITMO;
 }
 
 // ── tope diario (cuando no se puede leer la cuota) ───────────────────────────

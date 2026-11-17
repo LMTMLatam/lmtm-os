@@ -68,8 +68,31 @@ async function guardar(db: Db, c: ConfigMotor): Promise<void> {
 
 export interface Pendiente {
   issueId: string; identifier: string | null; title: string; status: string; priority: string; agentId: string;
-  /** Sesión de la corrida anterior que se cortó por el tope de turnos: se retoma en vez de empezar de cero. */
-  retomarSesion?: string | null;
+  /** 0 rutina · 1 pedida por una persona · 2 urgente/alta de un cliente · 3 el resto (lo primero que se deja con poca cuota). */
+  valor?: number;
+  /** La corrida anterior se cortó por el tope de turnos: esta sigue desde su último comentario. */
+  continua?: boolean;
+}
+
+/**
+ * Corridas cortas (18/11). Una corrida de 30 a 56 turnos releía todo el contexto en cada turno
+ * (2 a 5 M de tokens) y con el plan semanal de MiniMax daban ~25 corridas por día para 12
+ * agentes. Con tope de 20 y la consigna de dejar escrito lo hecho antes del 16, la tarea grande
+ * se hace por partes y la que sigue arranca del comentario, no del contexto entero.
+ */
+export const TURNOS_MAX = 20;
+export const AVISO_TURNOS = 16;
+/** Con el gasto de la semana así de adelantado (5 puntos), solo corre lo de valor (0 a 2). */
+export const CUOTA_AJUSTADA = 0.05;
+
+/** Puro. La consigna que se le agrega a la tarea en cada corrida con tope. */
+export function consignaDeTurnos(continua: boolean): string {
+  return [
+    "## Presupuesto de esta corrida",
+    `Tenés como máximo ${TURNOS_MAX} turnos. Antes del turno ${AVISO_TURNOS}, dejá en la tarea un comentario con: qué hiciste (con los datos que lo prueban), qué falta y el próximo paso concreto. Después terminá.`,
+    "Si la tarea es grande, hacé una parte bien y dejá el resto escrito: la próxima corrida arranca de tu comentario, no de cero. No releas lo que ya está en los comentarios.",
+    ...(continua ? ["", "**La corrida anterior se cortó por el tope de turnos.** Seguí desde el último comentario de la tarea; no repitas lo que ya está hecho."] : []),
+  ].join("\n");
 }
 
 /**
@@ -87,13 +110,14 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
   const r = await db.execute(sql`
     with cand as (
       select i.id, i.identifier, i.title, i.status, i.priority, i.assignee_agent_id, i.created_at, i.origin_kind,
+        case when i.origin_kind = 'routine_execution' then 0 when i.origin_kind = 'manual' then 1
+             when i.client_id is not null and i.priority in ('critical', 'urgent', 'high') then 2 else 3 end as valor,
         -- Comentarios de otro (persona u otro agente). Los avisos administrativos de las limpiezas no despiertan a nadie.
         (select max(c.created_at) from issue_comments c where c.issue_id = i.id and c.author_agent_id is distinct from i.assignee_agent_id
            and c.body !~ '^(Cerrada en la limpieza|Pasada a «en revisión»)') ultimo_ajeno,
         (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
         -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
         (select r.error_code from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
-        (select r.session_id_after from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultima_sesion,
         -- Reparto justo (17/11): ordenando por id de agente, Luna/Milo/Caro se llevaban todos los turnos
         -- y los otros 9 no corrieron en 5 h. Primero va el que hace más que no corre.
         (select max(r.created_at) from heartbeat_runs r where r.agent_id = i.assignee_agent_id and r.invocation_source = ${FUENTE}) ultima_del_agente
@@ -108,20 +132,20 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
              and r.invocation_source = ${FUENTE} and r.created_at > now() - interval '24 hours') < ${MAX_CORRIDAS_POR_TAREA_DIA}
     )
     select * from (
-    select distinct on (assignee_agent_id) id, identifier, title, status, priority, assignee_agent_id, ultima_del_agente,
-      case when ultimo_codigo = 'max_turns_exhausted' then ultima_sesion end as retomar_sesion
+    select distinct on (assignee_agent_id) id, identifier, title, status, priority, assignee_agent_id, ultima_del_agente, valor,
+      coalesce(ultimo_codigo = 'max_turns_exhausted', false) as continua
     from cand
     where (status in ('todo', 'in_progress') and (ultima_corrida is null or coalesce(ultimo_ajeno, created_at) > ultima_corrida
-           or (ultimo_codigo = 'max_turns_exhausted' and ultima_sesion is not null)))
+           or ultimo_codigo = 'max_turns_exhausted'))
        or (status in ('blocked', 'in_review') and ultimo_ajeno is not null and (ultima_corrida is null or ultimo_ajeno > ultima_corrida)
            and ultimo_ajeno > now() - interval '7 days')
     order by assignee_agent_id,
       -- La rutina del día primero (17/11): con 4 corridas por hora, detrás de 17 urgentes/altas el informe diario salía al otro día.
-      case when origin_kind = 'routine_execution' then 0 else 1 end,
+      valor,
       case priority when 'critical' then 0 when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at
-    ) x order by ultima_del_agente nulls first`);
+    ) x order by valor, ultima_del_agente nulls first`);
   const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
-  return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id), retomarSesion: (f.retomar_sesion as string) ?? null }));
+  return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id), valor: Number(f.valor), continua: Boolean(f.continua) }));
 }
 
 /** Últimas 5 entradas de la conversación de la tarea, para el contexto del despertar. */
@@ -132,13 +156,27 @@ async function comentariosRecientes(db: Db, issueId: string) {
   return filas.reverse().map((c) => ({ id: String(c.id), body: String(c.body ?? "").slice(0, 4000), authorType: c.author_type ?? null, authorAgentId: c.author_agent_id ?? null, authorUserId: c.author_user_id ?? null, createdAt: c.created_at }));
 }
 
+/** Puro. La config del agente con el tope de turnos de la corrida (el menor entre el suyo y TURNOS_MAX). */
+export function conTopeDeTurnos(adapterConfig: unknown): Record<string, unknown> {
+  const c = { ...((adapterConfig ?? {}) as Record<string, unknown>) };
+  const suyo = Number(c.maxTurnsPerRun);
+  c.maxTurnsPerRun = Number.isFinite(suyo) && suyo > 0 ? Math.min(suyo, TURNOS_MAX) : TURNOS_MAX;
+  return c;
+}
+
 /** Corre UNA tarea con el adaptador del agente. Devuelve el estado de la corrida. */
 export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean } = {}): Promise<{ runId: string | null; estado: string; motivo?: string }> {
   const [agent] = await db.select().from(agents).where(eq(agents.id, p.agentId)).limit(1);
   if (!agent) return { runId: null, estado: "omitida", motivo: "agente inexistente" };
   if (agent.status === "paused" || agent.status === "terminated") return { runId: null, estado: "omitida", motivo: `agente ${agent.status}` };
 
-  const { corteParaDespertar, registrarCuotaAgotada } = await import("../services/cuota-llm.js");
+  const { corteParaDespertar, registrarCuotaAgotada, estadoCuota, proveedorDe, puntosAdelantado } = await import("../services/cuota-llm.js");
+  // El tope de turnos y la cuota ajustada son del plan de MiniMax (el Productor va a OpenAI).
+  const conTope = /minimax\.io/.test(proveedorDe(agent.adapterConfig));
+  if (conTope && !opts.manual && (p.valor ?? 0) >= 3) {
+    const e = await estadoCuota(agent.adapterConfig);
+    if (e && puntosAdelantado(e) >= CUOTA_AJUSTADA) return { runId: null, estado: "omitida", motivo: "cuota ajustada: solo corre lo de valor" };
+  }
   // Pedida por una persona = a pedido (como en paperclip): el ritmo semanal no la frena; la cuota agotada sí.
   const corte = await corteParaDespertar(db, agent.adapterConfig, opts.manual ? "on_demand" : FUENTE);
   if (corte) return { runId: null, estado: "omitida", motivo: corte };
@@ -154,6 +192,7 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
       comments: comentarios, commentIds: comentarios.map((c) => c.id), truncated: false,
       checkedOutByHarness: true, fallbackFetchNeeded: true,
     },
+    ...(conTope ? { paperclipTaskMarkdown: consignaDeTurnos(Boolean(p.continua)) } : {}),
   };
   const [run] = await db.insert(heartbeatRuns).values({
     companyId: agent.companyId, agentId: agent.id, invocationSource: FUENTE, status: "running",
@@ -185,8 +224,8 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     const res = await adapter.execute({
       runId: run.id,
       agent: { id: agent.id, companyId: agent.companyId, name: agent.name, adapterType: agent.adapterType, adapterConfig: agent.adapterConfig },
-      runtime: { sessionId: p.retomarSesion ?? null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
-      config: (agent.adapterConfig ?? {}) as Record<string, unknown>,
+      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
+      config: conTope ? conTopeDeTurnos(agent.adapterConfig) : ((agent.adapterConfig ?? {}) as Record<string, unknown>),
       context: contexto,
       onLog,
       authToken,
