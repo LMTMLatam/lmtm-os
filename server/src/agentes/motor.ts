@@ -14,7 +14,7 @@
 
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agents, heartbeatRuns, instanceSettings, issues } from "@paperclipai/db";
+import { agents, heartbeatRuns, instanceSettings, issueComments, issues } from "@paperclipai/db";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { enmascararClaves } from "../redaction.js";
 
@@ -164,6 +164,33 @@ export function conTopeDeTurnos(adapterConfig: unknown): Record<string, unknown>
   return c;
 }
 
+/**
+ * Puro. El rastro de una corrida cortada por el tope (17/11): el agente no sabe en qué turno
+ * va y Sergio se cortó sin dejar nada. De la salida stream-json se sacan las herramientas que
+ * usó y sus últimos textos, para que la próxima corrida no arranque de cero.
+ */
+export function rastroDeCorte(salida: string): string | null {
+  const herramientas = new Map<string, number>();
+  const textos: string[] = [];
+  for (const linea of salida.split("\n")) {
+    let ev: { type?: string; message?: { content?: Array<{ type?: string; text?: string; name?: string }> } };
+    try { ev = JSON.parse(linea); } catch { continue; } // la primera puede venir cortada
+    if (ev?.type !== "assistant") continue;
+    for (const b of ev.message?.content ?? []) {
+      if (b.type === "tool_use" && b.name) herramientas.set(b.name, (herramientas.get(b.name) ?? 0) + 1);
+      if (b.type === "text" && b.text?.trim()) textos.push(b.text.trim());
+    }
+  }
+  if (!herramientas.size && !textos.length) return null;
+  const usadas = [...herramientas].map(([n, k]) => `${n.replace(/^mcp__\w+__/, "")} ×${k}`).join(", ");
+  return [
+    `La corrida se cortó por el tope de ${TURNOS_MAX} turnos sin dejar comentario. Lo que alcanzó a hacer (lo arma el motor de su salida):`,
+    ...(usadas ? [`- Herramientas: ${usadas}`] : []),
+    ...textos.slice(-2).map((t) => `- «${t.slice(0, 600)}»`),
+    "La próxima corrida sigue desde acá.",
+  ].join("\n");
+}
+
 /** Corre UNA tarea con el adaptador del agente. Devuelve el estado de la corrida. */
 export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean } = {}): Promise<{ runId: string | null; estado: string; motivo?: string }> {
   const [agent] = await db.select().from(agents).where(eq(agents.id, p.agentId)).limit(1);
@@ -197,7 +224,7 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
   const [run] = await db.insert(heartbeatRuns).values({
     companyId: agent.companyId, agentId: agent.id, invocationSource: FUENTE, status: "running",
     startedAt: new Date(), contextSnapshot: contexto, triggerDetail: FUENTE,
-  }).returning({ id: heartbeatRuns.id });
+  }).returning({ id: heartbeatRuns.id, createdAt: heartbeatRuns.createdAt });
   if (!run) return { runId: null, estado: "fallo", motivo: "no se pudo registrar la corrida" };
 
   // La tarea queda tomada por esta corrida (igual que el checkout de paperclip).
@@ -238,6 +265,13 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
       exitCode: res.exitCode, signal: res.signal, usageJson: (res.usage ?? null) as Record<string, unknown> | null, resultJson: res.resultJson ?? null,
       sessionIdAfter: res.sessionId ?? null,
     }).where(eq(heartbeatRuns.id, run.id));
+    // Cortada por el tope: si el agente no comentó en esta corrida, el motor deja el rastro.
+    if (errorCode === "max_turns_exhausted") {
+      const [yaComento] = await db.select({ id: issueComments.id }).from(issueComments)
+        .where(and(eq(issueComments.issueId, p.issueId), eq(issueComments.authorAgentId, agent.id), sql`${issueComments.createdAt} >= ${run.createdAt}`)).limit(1);
+      const rastro = yaComento ? null : rastroDeCorte(salida);
+      if (rastro) await db.insert(issueComments).values({ companyId: agent.companyId, issueId: p.issueId, authorType: "system", body: enmascararClaves(rastro) } as never);
+    }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   } finally {

@@ -2,7 +2,22 @@
 // corrida de 30 a 56 turnos gastaba 2 a 5 M de tokens releyendo el contexto. Estos tests
 // cuidan el tope por corrida y la vara de "cuota ajustada".
 import { describe, expect, it } from "vitest";
-import { consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUSTADA, TURNOS_MAX } from "../motor.js";
+import { consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUSTADA, rastroDeCorte, TURNOS_MAX } from "../motor.js";
+
+describe("rastro de una corrida cortada", () => {
+  const ev = (content: unknown[]) => JSON.stringify({ type: "assistant", message: { content } });
+  it("junta herramientas y los últimos textos, tolerando la primera línea cortada", () => {
+    const salida = ['ype":"assistant","mess', ev([{ type: "text", text: "Miro las campañas" }, { type: "tool_use", name: "mcp__lmtm__lmtmCliente" }]),
+      JSON.stringify({ type: "user" }), ev([{ type: "tool_use", name: "mcp__lmtm__lmtmCliente" }]), ev([{ type: "text", text: "Falta el CPL de Google" }])].join("\n");
+    const r = rastroDeCorte(salida)!;
+    expect(r).toContain("lmtmCliente ×2");
+    expect(r).toContain("Falta el CPL de Google");
+    expect(r).toContain(`${TURNOS_MAX} turnos`);
+  });
+  it("sin nada útil no comenta", () => {
+    expect(rastroDeCorte("basura\n{}")).toBeNull();
+  });
+});
 import { puntosAdelantado, vaAdelantado, type EstadoCuota } from "../../services/cuota-llm.js";
 
 describe("tope de turnos por corrida", () => {
