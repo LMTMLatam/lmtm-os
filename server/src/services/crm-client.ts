@@ -10,6 +10,13 @@
 const CRM_BASE = (process.env.CRM_API_URL ?? "https://crm.lmtmas.com/api").replace(/\/$/, "");
 const CRM_EMAIL = process.env.CRM_AGENT_EMAIL ?? "agentes@bylmtm.com";
 
+// Credencial de servicio del CRM (19/11/2026): con CRM_API_KEY no hay login con usuario y clave de un
+// super, el CRM no le pide segundo factor y cada llamada queda en su auditoria como servicio:<nombre>.
+// X-Company-Id 10 (LMTM) es la empresa que tenia agentes@: las rutas que aceptan ?company_id siguen
+// igual. Sin la variable, el login de siempre (volver atras = borrar CRM_API_KEY).
+const apiKey = () => process.env.CRM_API_KEY?.trim() || "";
+const companyId = () => process.env.CRM_COMPANY_ID?.trim() || "10";
+
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
@@ -92,16 +99,19 @@ export async function crmRequest(
     };
   }
 
+  const key = apiKey();
   const doFetch = async (jwt: string) =>
     fetch(`${CRM_BASE}${cleanPath}`, {
       method: method(m),
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+      headers: key
+        ? { "Content-Type": "application/json", "X-Api-Key": key, "X-Company-Id": companyId() }
+        : { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
       ...(body != null && method(m) !== "GET" ? { body: JSON.stringify(body) } : {}),
     });
 
   try {
-    let r = await doFetch(await token());
-    if (r.status === 401) { // token expired mid-flight — re-login once
+    let r = await doFetch(key ? "" : await token());
+    if (r.status === 401 && !key) { // token expired mid-flight — re-login once
       cachedToken = null;
       r = await doFetch(await token());
     }
