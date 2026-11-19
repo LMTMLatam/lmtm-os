@@ -12,7 +12,7 @@
 //    una sola por versión de la tarea (no vuelve a correr si nadie la tocó después).
 // Las tareas y las rutinas siguen siendo las de paperclip por ahora (paso 4 del plan).
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, heartbeatRuns, instanceSettings, issueComments, issues } from "@paperclipai/db";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
@@ -72,6 +72,8 @@ export interface Pendiente {
   valor?: number;
   /** La corrida anterior se cortó por el tope de turnos: esta sigue desde su último comentario. */
   continua?: boolean;
+  /** Sesión de Claude de la corrida cortada: la que sigue la retoma (19/11: arrancando de cero, 5 tareas se cortaron 5-6 veces sin terminar). */
+  sesion?: string | null;
 }
 
 /**
@@ -118,6 +120,7 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
         (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
         -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
         (select r.error_code from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
+        (select r.session_id_after from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultima_sesion,
         -- Reparto justo (17/11): ordenando por id de agente, Luna/Milo/Caro se llevaban todos los turnos
         -- y los otros 9 no corrieron en 5 h. Primero va el que hace más que no corre.
         (select max(r.created_at) from heartbeat_runs r where r.agent_id = i.assignee_agent_id and r.invocation_source = ${FUENTE}) ultima_del_agente
@@ -133,7 +136,8 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
     )
     select * from (
     select distinct on (assignee_agent_id) id, identifier, title, status, priority, assignee_agent_id, ultima_del_agente, valor,
-      coalesce(ultimo_codigo = 'max_turns_exhausted', false) as continua
+      coalesce(ultimo_codigo = 'max_turns_exhausted', false) as continua,
+      case when ultimo_codigo = 'max_turns_exhausted' then ultima_sesion end as sesion
     from cand
     where (status in ('todo', 'in_progress') and (ultima_corrida is null or coalesce(ultimo_ajeno, created_at) > ultima_corrida
            or ultimo_codigo = 'max_turns_exhausted'))
@@ -145,7 +149,7 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
       case priority when 'critical' then 0 when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at
     ) x order by valor, ultima_del_agente nulls first`);
   const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
-  return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id), valor: Number(f.valor), continua: Boolean(f.continua) }));
+  return filas.map((f) => ({ issueId: String(f.id), identifier: (f.identifier as string) ?? null, title: String(f.title), status: String(f.status), priority: String(f.priority), agentId: String(f.assignee_agent_id), valor: Number(f.valor), continua: Boolean(f.continua), sesion: (f.sesion as string | null) ?? null }));
 }
 
 /** Últimas 5 entradas de la conversación de la tarea, para el contexto del despertar. */
@@ -223,17 +227,9 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
   };
   const [run] = await db.insert(heartbeatRuns).values({
     companyId: agent.companyId, agentId: agent.id, invocationSource: FUENTE, status: "running",
-    startedAt: new Date(), contextSnapshot: contexto, triggerDetail: FUENTE,
+    startedAt: new Date(), contextSnapshot: contexto, triggerDetail: FUENTE, sessionIdBefore: p.sesion ?? null,
   }).returning({ id: heartbeatRuns.id, createdAt: heartbeatRuns.createdAt });
   if (!run) return { runId: null, estado: "fallo", motivo: "no se pudo registrar la corrida" };
-
-  // La tarea queda tomada por esta corrida (igual que el checkout de paperclip).
-  await db.update(issues).set({
-    status: p.status === "todo" ? "in_progress" : p.status, checkoutRunId: run.id, executionRunId: run.id, executionLockedAt: new Date(),
-    startedAt: sql`coalesce(${issues.startedAt}, now())`, updatedAt: new Date(),
-  }).where(eq(issues.id, p.issueId));
-
-  await ponerEstado(db, agent.id, "running");
 
   let salida = "";
   let errores = "";
@@ -245,14 +241,31 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
   let error: string | null = null;
   let errorCode: string | null = null;
   try {
+    // La tarea queda tomada por esta corrida (igual que el checkout de paperclip). Dentro del try: si falla, la corrida
+    // se cierra como fallida y no queda «running» colgada hasta el reaper (Luna 18/11).
+    await db.update(issues).set({
+      status: p.status === "todo" ? "in_progress" : p.status, checkoutRunId: run.id, executionRunId: run.id, executionLockedAt: new Date(),
+      startedAt: sql`coalesce(${issues.startedAt}, now())`, updatedAt: new Date(),
+    }).where(eq(issues.id, p.issueId));
+    await ponerEstado(db, agent.id, "running");
+
     const { getServerAdapter } = await import("../adapters/index.js");
     const adapter = getServerAdapter(agent.adapterType);
     const authToken = createLocalAgentJwt(agent.id, agent.companyId, agent.adapterType, run.id) ?? undefined;
+    // Las claves guardadas como secret_ref se resuelven como en el heartbeat de paperclip (18/11: el Editor, el primero
+    // con su clave en secret_ref, salía «Not logged in» porque el motor le pasaba la referencia y no el valor).
+    const { secretService } = await import("../services/secrets.js");
+    const { config } = await secretService(db).resolveAdapterConfigForRuntime(
+      agent.companyId,
+      conTope ? conTopeDeTurnos(agent.adapterConfig) : ((agent.adapterConfig ?? {}) as Record<string, unknown>),
+      { consumerType: "agent", consumerId: agent.id, actorType: "agent", actorId: agent.id, issueId: p.issueId, heartbeatRunId: run.id },
+    );
     const res = await adapter.execute({
       runId: run.id,
       agent: { id: agent.id, companyId: agent.companyId, name: agent.name, adapterType: agent.adapterType, adapterConfig: agent.adapterConfig },
-      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
-      config: conTope ? conTopeDeTurnos(agent.adapterConfig) : ((agent.adapterConfig ?? {}) as Record<string, unknown>),
+      // Si la sesión ya no existe (un deploy borra el disco), el adaptador arranca una nueva solo.
+      runtime: { sessionId: p.sesion ?? null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
+      config,
       context: contexto,
       onLog,
       authToken,
@@ -268,7 +281,7 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     // Cortada por el tope: si el agente no comentó en esta corrida, el motor deja el rastro.
     if (errorCode === "max_turns_exhausted") {
       const [yaComento] = await db.select({ id: issueComments.id }).from(issueComments)
-        .where(and(eq(issueComments.issueId, p.issueId), eq(issueComments.authorAgentId, agent.id), sql`${issueComments.createdAt} >= ${run.createdAt}`)).limit(1);
+        .where(and(eq(issueComments.issueId, p.issueId), eq(issueComments.authorAgentId, agent.id), gte(issueComments.createdAt, run.createdAt))).limit(1);
       const rastro = yaComento ? null : rastroDeCorte(salida);
       if (rastro) await db.insert(issueComments).values({ companyId: agent.companyId, issueId: p.issueId, authorType: "system", body: enmascararClaves(rastro) } as never);
     }
@@ -283,7 +296,8 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     await db.update(issues).set({ executionRunId: null, executionLockedAt: null })
       .where(and(eq(issues.id, p.issueId), eq(issues.executionRunId, run.id)));
     // Estado del agente en el panel, como lo dejaba paperclip (finalizeAgentStatus); no pisa pausado/terminado.
-    await ponerEstado(db, agent.id, estado === "succeeded" ? "idle" : "error", true);
+    // Cortada por el tope = previsto (la próxima la retoma): no pinta al agente de rojo (19/11: 9 en «error» por esto).
+    await ponerEstado(db, agent.id, estado === "succeeded" || errorCode === "max_turns_exhausted" ? "idle" : "error", true);
   }
   return { runId: run.id, estado, ...(error ? { motivo: error.slice(0, 200) } : {}) };
 }
@@ -309,6 +323,10 @@ export function iniciarMotor(db: Db): void {
       // Corridas que quedaron «running» de un proceso que se murió (deploy): a fallo.
       await db.update(heartbeatRuns).set({ status: "failed", error: "Se cortó sin terminar (reinicio del servidor).", finishedAt: new Date() })
         .where(and(eq(heartbeatRuns.invocationSource, FUENTE), eq(heartbeatRuns.status, "running"), sql`${heartbeatRuns.startedAt} < now() - interval '90 minutes'`));
+      // Tareas tomadas por una corrida del motor que ya terminó (cortada por el reaper o un deploy): se sueltan. Si no, la
+      // rutina del día siguiente no puede tomar la suya (índice único issues_open_routine_execution_uq; Luna 18/11).
+      await db.update(issues).set({ executionRunId: null, executionLockedAt: null })
+        .where(sql`${issues.executionRunId} in (select id from heartbeat_runs where invocation_source = ${FUENTE} and status not in ('queued', 'running'))`);
       const libres = agentes.filter((a) => !enCurso.has(a));
       for (const p of await pendientes(db, libres)) {
         if (enCurso.size >= concurrencia) break;
