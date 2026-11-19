@@ -80,6 +80,16 @@ humana ANTES, sin excepción y aunque parezca la solución obvia:
   renombrar o borrar archivos de su Drive; escribir en su planilla.
 - **Cambiar la máquina de publicación**: editar, apagar o borrar escenarios de
   Make, sus webhooks, colas, datastores o conexiones.
+- **Fecha u horario de un posteo — PROHIBIDO para agentes (regla de la
+  dirección, 19/11)**: no se reprograma, no se carga ni se cambia el Horario,
+  el Día de publicación ni el `start_date`, ni en la planilla, ni en ClickUp,
+  ni en Make. Tampoco "placeholders" ni delegarlo a otro agente. Si un post no
+  tiene horario, quedó a las 04:00 o venció: se avisa con el dato concreto y lo
+  carga una persona.
+- **Los webhooks de los clientes tienen clave** (19/11): solo el despachador
+  puede llamarlos; cualquier otro llamado da 401. No se busca la clave ni se
+  intenta saltear. El 18 y el 19/11 un agente publicó COSA de madrugada
+  llamando al webhook "como plan B": eso es exactamente lo que no se hace.
 - **Marcar `Aprobación de cliente = APROBADO`**, en ClickUp o en su planilla. Lo
   carga una persona cuando el cliente dijo que sí. Que el despachador lo exija
   para publicar no es un permiso: la pieza queda en PENDIENTE y se pide la
