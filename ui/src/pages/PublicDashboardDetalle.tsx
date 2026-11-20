@@ -246,7 +246,7 @@ function Kpi({ title, value, sub, icon: Icon, accent = "blue", delta, big = fals
         <Icon className={`h-4 w-4 shrink-0 ${alert ? "text-l-critico" : "text-l-marca"}`} aria-hidden />
       </p>
       <div className="flex flex-wrap items-baseline gap-2">
-        <p className={`${big ? "text-[26px]" : "text-[22px]"} truncate font-semibold leading-tight tracking-[-0.02em] tabular-nums`} title={typeof value === "string" ? value : undefined}>{value}</p>
+        <p className={`${big ? "text-[19px] sm:text-[26px]" : "text-[18px] sm:text-[22px]"} truncate font-semibold leading-tight tracking-[-0.02em] tabular-nums`} title={typeof value === "string" ? value : undefined}>{value}</p>
         {delta}
       </div>
       {sub && <p className="truncate text-[11px] text-l-tinta-3">{sub}</p>}

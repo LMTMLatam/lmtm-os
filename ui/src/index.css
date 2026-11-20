@@ -1160,3 +1160,5 @@ span.paperclip-project-mention-chip {
 }
 .lmtm[data-tema="oscuro"] .pv.pv-lmtm,
 .lmtm.pv.pv-lmtm[data-tema="oscuro"] { --pv-c3: #199e70; --pv-c4: #3987e5; }
+/* Las Card de los tableros con la esquina de los paneles nuevos (20 px). */
+.pv-lmtm [data-slot="card"] { border-radius: 20px; }

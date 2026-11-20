@@ -100,17 +100,20 @@ function BarraAcciones({ c }: { c: Client }) {
       {/* Compartir el dashboard con el cliente: el mismo diálogo de Pauta (link, prender y apagar). */}
       <ShareDialog client={c} />
       <span className="mx-1 hidden h-6 w-px bg-l-linea-2 sm:block" aria-hidden />
+      {/* En el celular, los recursos en una sola fila que se desliza (antes ocupaban tres renglones). */}
+      <div className="-mx-1 flex w-full gap-0 overflow-x-auto sm:mx-0 sm:w-auto sm:flex-wrap">
       {recursosDe(c).map((r) =>
         r.url ? (
-          <a key={r.nombre} href={r.url} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-11 items-center gap-1 rounded-[12px] px-3 text-[13px] text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta">
+          <a key={r.nombre} href={r.url} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-[12px] px-3 text-[13px] text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta">
             {r.nombre} <ExternalLink className="h-3 w-3" aria-hidden />
           </a>
         ) : (
-          <span key={r.nombre} className="inline-flex min-h-11 items-center px-3 text-[13px] text-l-tinta-3 line-through decoration-l-linea-2" title="No configurado">
+          <span key={r.nombre} className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap px-3 text-[13px] text-l-tinta-3 line-through decoration-l-linea-2" title="No configurado">
             {r.nombre}
           </span>
         ),
       )}
+      </div>
     </div>
   );
 }
@@ -125,11 +128,11 @@ function Barra({ pct, alerta }: { pct: number; alerta?: boolean }) {
 
 function TarjetaEstado({ titulo, valor, pie, children, brillo }: { titulo: string; valor: React.ReactNode; pie?: React.ReactNode; children?: React.ReactNode; brillo?: boolean }) {
   return (
-    <div className={`flex flex-col gap-2.5 rounded-[20px] border border-l-linea bg-l-sup p-5 ${brillo ? "bg-[image:var(--l-brillo-caja)]" : ""}`}>
-      <p className="text-[14px] text-l-tinta-2">{titulo}</p>
-      <div className="text-[28px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{valor}</div>
+    <div className={`flex min-w-0 flex-col gap-2.5 rounded-[20px] border border-l-linea bg-l-sup p-4 md:p-5 ${brillo ? "bg-[image:var(--l-brillo-caja)]" : ""}`}>
+      <p className="text-[12px] text-l-tinta-2 md:text-[14px]">{titulo}</p>
+      <div className="truncate text-[21px] font-semibold leading-none tracking-[-0.02em] tabular-nums md:text-[28px]">{valor}</div>
       {children}
-      {pie && <p className="text-[12px] text-l-tinta-3">{pie}</p>}
+      {pie && <p className="line-clamp-2 text-[12px] text-l-tinta-3">{pie}</p>}
     </div>
   );
 }
@@ -145,7 +148,7 @@ function TarjetasEstado({ c, ads }: { c: Client; ads?: ClientAdsSummary }) {
   const cb = cerebro.data?.cobertura;
   const nas = cerebro.data?.material?.indiceNas;
   return (
-    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(210px,1fr))]">
+    <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
       <TarjetaEstado
         brillo
         titulo={r?.medida === "calificado" ? "Costo por calificado" : "Costo por consulta"}

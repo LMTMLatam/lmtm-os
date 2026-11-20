@@ -61,7 +61,7 @@ export function PendientesApp() {
       <div className="space-y-8 px-4 pb-10 md:px-8">
         <CargaHoy hoy={hoy} />
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1.25fr]" role="tablist" aria-label="Qué mirar">
+        <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-[1fr_1fr_1fr_1.25fr]" role="tablist" aria-label="Qué mirar">
           <Mosaico Icono={Siren} titulo="Urgente" n={nUrgente} pie="corta la pauta o la publicación" tono="critico" activo={vista === "urgente"} onClick={() => elegir("urgente")} />
           <Mosaico
             Icono={CheckCheck}
@@ -76,7 +76,7 @@ export function PendientesApp() {
             onClick={() => elegir("aprobar")}
           />
           <Mosaico Icono={ListTodo} titulo="Para hacer" n={h ? paraHacer.length : null} tramos={tramosHacer} activo={vista === "hacer"} onClick={() => elegir("hacer")} />
-          <div className="rounded-[20px] border border-l-linea bg-l-sup p-5 sm:col-span-2 xl:col-span-1">
+          <div className="col-span-2 rounded-[20px] border border-l-linea bg-l-sup p-5 xl:col-span-1">
             <p className="mb-3 text-[13px] text-l-tinta-2">Clientes con más pendientes</p>
             {clientes.length > 0 ? <BarrasH filas={clientes} formato={(n) => String(n)} /> : <p className="text-[13px] text-l-tinta-3">Nada esperando.</p>}
           </div>
@@ -133,7 +133,7 @@ function Mosaico(p: {
       role="tab"
       aria-selected={p.activo}
       onClick={p.onClick}
-      className={`flex flex-col gap-3 rounded-[20px] border p-5 text-left transition-colors ${
+      className={`flex min-w-0 flex-col gap-3 rounded-[20px] border p-4 text-left transition-colors md:p-5 ${
         p.activo ? "border-l-marca bg-l-marca-suave" : "border-l-linea bg-l-sup hover:border-l-tinta-3"
       }`}
     >
@@ -141,7 +141,7 @@ function Mosaico(p: {
         {p.titulo}
         <p.Icono className={`h-5 w-5 ${alerta ? "text-l-critico" : "text-l-marca"}`} aria-hidden />
       </span>
-      <span className={`text-[34px] font-semibold leading-none tabular-nums tracking-[-0.02em] ${alerta ? "text-l-critico-texto" : ""}`}>
+      <span className={`text-[28px] font-semibold leading-none tabular-nums tracking-[-0.02em] md:text-[34px] ${alerta ? "text-l-critico-texto" : ""}`}>
         {p.n ?? <span className="text-[20px] text-l-tinta-3">…</span>}
       </span>
       {total > 0 ? (

@@ -138,7 +138,7 @@ export function HoyApp() {
       <div className="space-y-6 px-4 pb-10 md:px-8">
         <CargaHoy hoy={hoy} />
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
           <Numero titulo="Inversión · 30 días" valor={k ? pesos(k.spend30d) : null} chispa={serie.map((p) => p.spend)} brillo />
           <Numero titulo="Consultas · 30 días" valor={k ? entero(k.leads30d) : null} chispa={serie.map((p) => p.leads)} />
           <Numero titulo="Costo por consulta · 30 días" valor={k && k.leads30d > 0 ? pesos(k.spend30d / k.leads30d) : null} chispa={serie.map((p) => (p.leads > 0 ? p.spend / p.leads : 0))} />
@@ -223,9 +223,9 @@ const entero = (n: number) => Math.round(n).toLocaleString("es-AR");
 
 function Numero({ titulo, valor, chispa, pie, brillo }: { titulo: string; valor: string | null; chispa: number[]; pie?: string; brillo?: boolean }) {
   return (
-    <div className={`flex flex-col gap-2 rounded-[20px] border border-l-linea bg-l-sup p-5 ${brillo ? "bg-[image:var(--l-brillo-caja)]" : ""}`}>
-      <p className="text-[13px] text-l-tinta-2">{titulo}</p>
-      <p className="text-[28px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{valor ?? <span className="text-[20px] italic text-l-tinta-3">sin dato</span>}</p>
+    <div className={`flex min-w-0 flex-col gap-2 rounded-[20px] border border-l-linea bg-l-sup p-4 md:p-5 ${brillo ? "bg-[image:var(--l-brillo-caja)]" : ""}`}>
+      <p className="text-[12px] text-l-tinta-2 md:text-[13px]">{titulo}</p>
+      <p className="truncate text-[21px] font-semibold leading-none tracking-[-0.02em] tabular-nums md:text-[28px]">{valor ?? <span className="text-[18px] italic text-l-tinta-3 md:text-[20px]">sin dato</span>}</p>
       <Chispa valores={chispa} />
       {pie && <p className="text-[12px] text-l-tinta-3">{pie}</p>}
     </div>
