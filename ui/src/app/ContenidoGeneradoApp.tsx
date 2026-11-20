@@ -5,7 +5,9 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, ExternalLink, FolderOpen, Loader2, OctagonAlert, Search, Wand2 } from "lucide-react";
+import { Clapperboard, ExternalLink, FolderOpen, Loader2, OctagonAlert, Scissors, Search, Sparkles, Wand2 } from "lucide-react";
+import { Link } from "@/lib/router";
+import { columnasEnMarcha, type PedidoAgente } from "./contenido-en-marcha";
 import { api } from "../api/client";
 import { clientsApi } from "../api/clients";
 import { Encabezado } from "./Shell";
@@ -41,14 +43,6 @@ export interface PiezaGenerada {
   veredicto?: { sirve: boolean; porque: string | null; fecha: string } | null;
   medidas?: Array<{ momento: string; horas: number; alcance: number | null; guardados: number | null; compartidos: number | null; comentarios: number | null; reacciones: number | null }>;
 }
-interface PedidoProductor {
-  id: string;
-  identifier: string | null;
-  titulo: string;
-  estado: string;
-  creado: string;
-  actualizado: string;
-}
 interface RespuestaPedido {
   ok: boolean;
   mensaje: string;
@@ -74,10 +68,6 @@ const HERRAMIENTAS: Record<string, { nombre: string; unidad: string }> = {
 };
 const nombreHerramienta = (h: string) => HERRAMIENTAS[h]?.nombre ?? h;
 const ORIGEN: Record<string, string> = { clickup: "Etiqueta de ClickUp", panel: "Panel", claude: "Claude" };
-const ESTADO: Record<string, string> = {
-  backlog: "En cola", todo: "En cola", in_progress: "Produciendo", in_review: "En revisión",
-  blocked: "Frenado: mirá la tarea", done: "Listo", cancelled: "Cancelado",
-};
 const TIPO: Record<string, string> = { video: "Video", placa: "Placa", carrusel: "Carrusel", imagen: "Imagen" };
 const PERIODOS = [7, 30, 90, 365];
 
@@ -124,30 +114,13 @@ export function ContenidoGeneradoApp() {
     <>
       <Encabezado
         titulo="Contenido"
-        bajada="Producción y edición: pedile piezas nuevas al Productor, pasale crudos al Editor y mirá lo que entregaron"
-        derecha={
-          <div className="flex gap-1" role="group" aria-label="Período">
-            {PERIODOS.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setDias(n)}
-                aria-pressed={dias === n}
-                className={`min-h-9 rounded-full px-3 text-[13px] ${dias === n ? "bg-l-marca-suave font-semibold text-l-marca" : "text-l-tinta-2 hover:bg-l-sup"}`}
-              >
-                {n === 365 ? "1 año" : `${n} días`}
-              </button>
-            ))}
-          </div>
-        }
+        bajada="Pedí piezas nuevas o la edición de material filmado, seguí lo que está en marcha y validá lo que entregaron"
       />
       <PestanasProduccion />
       <div className="space-y-8 px-4 pb-10 md:px-8">
         {/* Rediseño 20/11 (Naza): «en contenido solo lo de edición y lo de producción, bien intuitivo». */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <PedirVideo />
-          <PedirAlEditor />
-        </div>
+        <PedirContenido />
+        <EnMarcha />
         {q.isLoading && (
           <p className="flex items-center gap-2 text-[14px] text-l-tinta-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Cargando…</p>
         )}
@@ -159,7 +132,22 @@ export function ContenidoGeneradoApp() {
 
         {d && (
           <section>
-            <TituloFranja>Lo que entregaron · {visibles.length}</TituloFranja>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-[18px] font-semibold">Lo que entregaron <span className="text-[14px] font-normal text-l-tinta-3">· {visibles.length}</span></h2>
+              <div className="flex gap-1" role="group" aria-label="Período">
+                {PERIODOS.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setDias(n)}
+                    aria-pressed={dias === n}
+                    className={`min-h-9 rounded-full px-3 text-[13px] ${dias === n ? "bg-l-marca-suave font-semibold text-l-tinta" : "text-l-tinta-2 hover:bg-l-sup"}`}
+                  >
+                    {n === 365 ? "1 año" : `${n} días`}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mb-3 flex flex-wrap gap-2">
               <label className="relative min-w-0 flex-1 sm:max-w-xs">
                 <span className="sr-only">Buscar</span>
@@ -246,46 +234,77 @@ export function ContenidoGeneradoApp() {
   );
 }
 
+const campo = "w-full min-w-0 rounded-[12px] border border-l-linea-2 bg-l-papel px-3 text-[14px] text-l-tinta outline-none focus:border-l-marca";
+const botonPedir = "inline-flex min-h-11 items-center gap-2 rounded-[12px] bg-[image:var(--l-marca-grad)] px-5 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50";
+
+type Quien = "productor" | "editor";
+const OPCIONES: Array<{ k: Quien; titulo: string; detalle: string; Icono: typeof Sparkles }> = [
+  { k: "productor", titulo: "Pieza nueva", detalle: "El Productor arma un reel, clip, placa o carrusel desde cero, con el material del cliente.", Icono: Sparkles },
+  { k: "editor", titulo: "Editar material filmado", detalle: "El Editor toma los crudos del NAS y los deja listos para redes.", Icono: Scissors },
+];
+
 /**
- * Los pedidos al Productor o al Editor (20/11: «info clara»): sin los cancelados, los 6 más nuevos a la vista y el
- * resto a un clic. Antes eran dos copias de la misma lista, con todo junto.
+ * Un solo lugar para pedir (rediseño 20/11, Naza: «así dividida en dos es bastante fea»): se elige qué hace falta y
+ * aparece solo ese formulario.
  */
-function ListaPedidos({ pedidos }: { pedidos: PedidoProductor[] }) {
-  const [todos, setTodos] = useState(false);
-  const vivos = pedidos.filter((p) => p.estado !== "cancelled");
-  if (vivos.length === 0) return null;
-  const visibles = todos ? vivos : vivos.slice(0, 6);
+function PedirContenido() {
+  const [quien, setQuien] = useState<Quien>("productor");
   return (
-    <div className="mt-3 border-t border-l-linea pt-2">
-      <p className="text-[12px] font-semibold text-l-tinta-3">Pedidos · {vivos.length}</p>
-      <ul>
-        {visibles.map((p) => (
-          <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-[13px]">
-            <span className="min-w-0 flex-1 truncate" title={p.titulo}>{p.identifier ? `${p.identifier} · ` : ""}{p.titulo}</span>
-            <span className={`tabular-nums ${p.estado === "blocked" ? "text-l-atencion-texto" : "text-l-tinta-3"}`}>{ESTADO[p.estado] ?? p.estado} · {fecha(p.creado)}</span>
-          </li>
-        ))}
-      </ul>
-      {vivos.length > 6 && (
-        <button type="button" onClick={() => setTodos((v) => !v)} className="mt-1 min-h-9 text-[13px] font-semibold text-l-marca">
-          {todos ? "Ver menos" : `Ver los ${vivos.length}`}
-        </button>
-      )}
+    <section className="rounded-[20px] border border-l-linea bg-l-sup bg-[image:var(--l-brillo-caja)] p-5 md:p-6">
+      <h2 className="text-[18px] font-semibold">¿Qué necesitás?</h2>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Qué pedir">
+        {OPCIONES.map((o) => {
+          const activo = o.k === quien;
+          return (
+            <button
+              key={o.k}
+              type="button"
+              role="radio"
+              aria-checked={activo}
+              onClick={() => setQuien(o.k)}
+              className={`flex items-start gap-3 rounded-[16px] border p-4 text-left transition-colors ${activo ? "border-l-marca bg-l-marca-suave" : "border-l-linea-2 hover:border-l-tinta-3"}`}
+            >
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-[12px] ${activo ? "bg-[image:var(--l-marca-grad)] text-l-marca-tinta" : "bg-l-papel text-l-tinta-2"}`}>
+                <o.Icono className="h-5 w-5" aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[15px] font-semibold text-l-tinta">{o.titulo}</span>
+                <span className="mt-0.5 block text-[13px] leading-[1.45] text-l-tinta-2">{o.detalle}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-5 border-t border-l-linea pt-5">{quien === "productor" ? <FormProductor /> : <FormEditor />}</div>
+    </section>
+  );
+}
+
+function ElegirCliente({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  const clientes = useQuery({ queryKey: ["clients", "para-pedidos"], queryFn: () => clientsApi.list("active") });
+  const lista = [...(clientes.data?.clients ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[13px] font-medium text-l-tinta-2" htmlFor={id}>Cliente</label>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={`${campo} h-11 sm:max-w-sm`} required>
+        <option value="">Elegí el cliente</option>
+        {lista.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
     </div>
   );
 }
 
-/** Pedido de un video al Productor de contenido y lo que tiene en curso. */
-function PedirVideo() {
+function Resultado({ m }: { m: { data?: RespuestaPedido; error: unknown } }) {
+  if (m.data) return <span className={`text-[13px] ${m.data.ok ? "text-l-bien-texto" : "text-l-critico-texto"}`} role="status">{m.data.mensaje}</span>;
+  if (m.error) return <span className="text-[13px] text-l-critico-texto" role="alert">{m.error instanceof Error ? m.error.message : "No se pudo pedir"}</span>;
+  return null;
+}
+
+/** Pedido de una pieza nueva al Productor de contenido. */
+function FormProductor() {
   const qc = useQueryClient();
   const [clientId, setClientId] = useState("");
   const [pedido, setPedido] = useState("");
-  const clientes = useQuery({ queryKey: ["clients", "para-pedidos"], queryFn: () => clientsApi.list("active") });
-  const pedidos = useQuery({
-    queryKey: ["lmtm", "contenido", "productor"],
-    queryFn: () => api.get<{ pedidos: PedidoProductor[] }>("/contenido/productor/pedidos"),
-    refetchInterval: 60_000,
-  });
   const pedir = useMutation({
     mutationFn: () => api.post<RespuestaPedido>("/contenido/productor/pedido", { clientId, pedido }),
     onSuccess: (r) => {
@@ -293,67 +312,43 @@ function PedirVideo() {
       void qc.invalidateQueries({ queryKey: ["lmtm", "contenido", "productor"] });
     },
   });
-  const lista = [...(clientes.data?.clients ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   return (
-    <section>
-      <TituloFranja>Producción · pedile una pieza al Productor</TituloFranja>
-      <Tarjeta>
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => { e.preventDefault(); if (clientId && pedido.trim().length >= 10) pedir.mutate(); }}
-        >
-          <div className="flex flex-wrap gap-2">
-            <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-9 min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" aria-label="Cliente" required>
-              <option value="">Elegí el cliente</option>
-              {lista.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <label className="text-[13px] text-l-tinta-2" htmlFor="pedido-video">Qué video querés: producto, para qué, y si hay material (link de Drive)</label>
-          <textarea
-            id="pedido-video"
-            value={pedido}
-            onChange={(e) => setPedido(e.target.value)}
-            rows={3}
-            placeholder="Reel de 25 s de los placares a medida, para pauta. Material: https://drive.google.com/…"
-            className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]"
-          />
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={!clientId || pedido.trim().length < 10 || pedir.isPending}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50"
-            >
-              {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />} Pedir el video
-            </button>
-            {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}
-            {pedir.error && <span className="text-[13px] text-l-critico-texto" role="alert">{pedir.error instanceof Error ? pedir.error.message : "No se pudo pedir"}</span>}
-          </div>
-          <p className="text-[12px] text-l-tinta-3">Cada pedido es una corrida del agente: gasta OpenAI y voces de Gemini. Para corregir un video ya hecho, usá «Pedir cambios» en el video (sale mucho más barato que pedirlo de nuevo).</p>
-        </form>
-        <ListaPedidos pedidos={pedidos.data?.pedidos ?? []} />
-      </Tarjeta>
-    </section>
+    <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); if (clientId && pedido.trim().length >= 10) pedir.mutate(); }}>
+      <ElegirCliente id="cliente-productor" value={clientId} onChange={setClientId} />
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-l-tinta-2" htmlFor="pedido-video">Qué pieza querés: producto, para qué y si hay material (link de Drive)</label>
+        <textarea
+          id="pedido-video"
+          value={pedido}
+          onChange={(e) => setPedido(e.target.value)}
+          rows={3}
+          placeholder="Reel de 25 s de los placares a medida, para pauta. Material: https://drive.google.com/…"
+          className={`${campo} py-2.5`}
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={!clientId || pedido.trim().length < 10 || pedir.isPending} className={botonPedir}>
+          {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />} Pedir la pieza
+        </button>
+        <Resultado m={pedir} />
+      </div>
+      <p className="text-[12px] text-l-tinta-3">Cada pedido es una corrida del agente (OpenAI y voces de Gemini). Para corregir una pieza ya hecha, usá «Pedir cambios» en la pieza: sale mucho más barato.</p>
+    </form>
   );
 }
 
 interface CarpetaCrudos { cliente: string; clientId: string; carpeta: string; videos: number; mb: number; fecha: string }
 
 /** Plan 17/11: «en el cliente X, carpeta X, tenés los crudos de hoy: dejalos listos para redes». */
-function PedirAlEditor() {
+function FormEditor() {
   const qc = useQueryClient();
   const [clientId, setClientId] = useState("");
   const [ruta, setRuta] = useState("");
   const [pedido, setPedido] = useState("");
-  const clientes = useQuery({ queryKey: ["clients", "para-pedidos"], queryFn: () => clientsApi.list("active") });
   // Sin cliente: lo nuevo de todos (7 días). Con cliente: sus carpetas de crudos de 60 días, para no tipear la ruta.
   const crudos = useQuery({
     queryKey: ["lmtm", "contenido", "crudos", clientId],
     queryFn: () => api.get<{ carpetas: CarpetaCrudos[] }>(`/contenido/crudos-nuevos?${clientId ? `dias=60&clientId=${encodeURIComponent(clientId)}` : "dias=7"}`),
-  });
-  const pedidos = useQuery({
-    queryKey: ["lmtm", "contenido", "editor"],
-    queryFn: () => api.get<{ pedidos: PedidoProductor[] }>("/contenido/editor/pedidos"),
-    refetchInterval: 60_000,
   });
   const pedir = useMutation({
     mutationFn: () => api.post<RespuestaPedido>("/contenido/editor/pedido", { clientId, ruta: ruta.trim(), pedido }),
@@ -362,51 +357,100 @@ function PedirAlEditor() {
       void qc.invalidateQueries({ queryKey: ["lmtm", "contenido", "editor"] });
     },
   });
-  const lista = [...(clientes.data?.clients ?? [])].sort((a, b) => a.name.localeCompare(b.name));
-  const nuevas = (crudos.data?.carpetas ?? []).filter((c) => !clientId || c.clientId === clientId).slice(0, clientId ? 15 : 8);
+  const nuevas = (crudos.data?.carpetas ?? []).filter((c) => !clientId || c.clientId === clientId).slice(0, clientId ? 12 : 6);
   const valida = !!clientId && ruta.trim().startsWith("/LMTM/");
   return (
-    <section>
-      <TituloFranja>Edición · pasale los crudos al Editor</TituloFranja>
-      <Tarjeta>
-        <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (valida) pedir.mutate(); }}>
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-9 min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" aria-label="Cliente" required>
-            <option value="">Elegí el cliente</option>
-            {lista.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          {nuevas.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[13px] text-l-tinta-2">{clientId ? "Crudos de este cliente en el NAS (últimos 60 días)" : "Crudos nuevos en el NAS (últimos 7 días)"}: tocá uno</span>
-              <ul className="flex flex-col gap-1">
-                {nuevas.map((c) => (
-                  <li key={c.carpeta}>
-                    <button type="button" onClick={() => { setClientId(c.clientId); setRuta(c.carpeta); }} aria-pressed={ruta === c.carpeta} className={`w-full min-w-0 rounded-[8px] border px-2 py-1 text-left text-[13px] ${ruta === c.carpeta ? "border-l-marca" : "border-l-linea-2"}`}>
-                      <span className="font-semibold">{c.cliente}</span> · {c.videos} videos · {c.mb >= 1000 ? `${(c.mb / 1000).toFixed(1)} GB` : `${c.mb} MB`} · {c.fecha}
-                      <span className="block truncate text-l-tinta-3" title={c.carpeta}>{c.carpeta}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {clientId && crudos.isSuccess && nuevas.length === 0 && (
-            <p className="text-[13px] text-l-tinta-3">No hay carpetas de crudos de este cliente en el NAS en los últimos 60 días: escribí la ruta.</p>
-          )}
-          <label className="text-[13px] text-l-tinta-2" htmlFor="ruta-crudos">Carpeta del NAS con los crudos</label>
-          <input id="ruta-crudos" value={ruta} onChange={(e) => setRuta(e.target.value)} placeholder="/LMTM/Clientes/<Cliente>/VIDEO/PROYECTOS/<proyecto>/RECURSOS/CRUDOS" className="h-9 w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" />
-          <label className="text-[13px] text-l-tinta-2" htmlFor="pedido-editor">Algo puntual (opcional): cuántas piezas, de qué producto, para qué</label>
-          <textarea id="pedido-editor" value={pedido} onChange={(e) => setPedido(e.target.value)} rows={2} placeholder="Sacá 3 reels: uno de cada ambiente y un testimonio" className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]" />
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={!valida || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50">
-              {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FolderOpen className="h-4 w-4" aria-hidden />} Pasarle los crudos
-            </button>
-            {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}
-            {pedir.error && <span className="text-[13px] text-l-critico-texto" role="alert">{pedir.error instanceof Error ? pedir.error.message : "No se pudo pedir"}</span>}
+    <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); if (valida) pedir.mutate(); }}>
+      <ElegirCliente id="cliente-editor" value={clientId} onChange={setClientId} />
+      {nuevas.length > 0 && (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1.5 text-[13px] font-medium text-l-tinta-2">{clientId ? "Crudos de este cliente en el NAS (60 días)" : "Crudos nuevos en el NAS (7 días)"}: tocá uno</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {nuevas.map((c) => {
+              const elegida = ruta === c.carpeta;
+              return (
+                <button
+                  key={c.carpeta}
+                  type="button"
+                  onClick={() => { setClientId(c.clientId); setRuta(c.carpeta); }}
+                  aria-pressed={elegida}
+                  className={`min-w-0 rounded-[14px] border p-3 text-left text-[13px] ${elegida ? "border-l-marca bg-l-marca-suave" : "border-l-linea-2 hover:border-l-tinta-3"}`}
+                >
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate font-semibold text-l-tinta">{c.cliente}</span>
+                    <span className="shrink-0 text-[12px] text-l-tinta-3">{c.fecha}</span>
+                  </span>
+                  <span className="mt-0.5 block text-l-tinta-2">{c.videos} videos · {c.mb >= 1000 ? `${(c.mb / 1000).toFixed(1)} GB` : `${c.mb} MB`}</span>
+                  <span className="mt-0.5 block truncate text-[12px] text-l-tinta-3" title={c.carpeta}>{c.carpeta.replace(/^\/LMTM\/Clientes\/[^/]+\//, "…/")}</span>
+                </button>
+              );
+            })}
           </div>
-          <p className="text-[12px] text-l-tinta-3">Las piezas vuelven a esta pantalla para validar (filtro «Videos sin validar») y quedan en Drive, en la carpeta VIDEOS del cliente.</p>
-        </form>
-        <ListaPedidos pedidos={pedidos.data?.pedidos ?? []} />
-      </Tarjeta>
+        </fieldset>
+      )}
+      {clientId && crudos.isSuccess && nuevas.length === 0 && (
+        <p className="text-[13px] text-l-tinta-3">No hay carpetas de crudos de este cliente en el NAS en los últimos 60 días: escribí la ruta.</p>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-l-tinta-2" htmlFor="ruta-crudos">Carpeta del NAS con los crudos</label>
+        <input id="ruta-crudos" value={ruta} onChange={(e) => setRuta(e.target.value)} placeholder="/LMTM/Clientes/<Cliente>/VIDEO/PROYECTOS/<proyecto>/RECURSOS/CRUDOS" className={`${campo} h-11`} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-l-tinta-2" htmlFor="pedido-editor">Algo puntual (opcional): cuántas piezas, de qué producto, para qué</label>
+        <textarea id="pedido-editor" value={pedido} onChange={(e) => setPedido(e.target.value)} rows={2} placeholder="Sacá 3 reels: uno de cada ambiente y un testimonio" className={`${campo} py-2.5`} />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={!valida || pedir.isPending} className={botonPedir}>
+          {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FolderOpen className="h-4 w-4" aria-hidden />} Pasarle los crudos
+        </button>
+        <Resultado m={pedir} />
+      </div>
+      <p className="text-[12px] text-l-tinta-3">Las piezas vuelven a «Lo que entregaron», más abajo, y quedan en Drive, en la carpeta VIDEOS del cliente.</p>
+    </form>
+  );
+}
+
+/** Los pedidos a los dos agentes juntos, por estado. Cada uno abre su tarea. */
+function EnMarcha() {
+  const prod = useQuery({ queryKey: ["lmtm", "contenido", "productor"], queryFn: () => api.get<{ pedidos: PedidoAgente[] }>("/contenido/productor/pedidos"), refetchInterval: 60_000 });
+  const edit = useQuery({ queryKey: ["lmtm", "contenido", "editor"], queryFn: () => api.get<{ pedidos: PedidoAgente[] }>("/contenido/editor/pedidos"), refetchInterval: 60_000 });
+  const columnas = columnasEnMarcha(prod.data?.pedidos ?? [], edit.data?.pedidos ?? []);
+  const total = columnas.reduce((s, c) => s + c.pedidos.length, 0);
+  if (prod.isLoading || edit.isLoading) return null;
+  return (
+    <section>
+      <h2 className="mb-3 text-[18px] font-semibold">En marcha <span className="text-[14px] font-normal text-l-tinta-3">· {total}</span></h2>
+      {total === 0 ? (
+        <p className="rounded-[16px] border border-l-linea bg-l-sup px-4 py-4 text-[14px] text-l-tinta-2">No hay pedidos en marcha. Lo que pidas arriba aparece acá hasta que se entrega.</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {columnas.map((c) => (
+            <div key={c.titulo} className="rounded-[18px] border border-l-linea bg-l-sup p-3">
+              <h3 className={`mb-2 flex items-baseline justify-between px-1 text-[13px] font-semibold ${c.alerta && c.pedidos.length ? "text-l-atencion-texto" : "text-l-tinta-2"}`}>
+                {c.titulo} <span className="tabular-nums text-l-tinta-3">{c.pedidos.length}</span>
+              </h3>
+              {c.pedidos.length === 0 ? (
+                <p className="px-1 pb-1 text-[12px] text-l-tinta-3">Nada</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {c.pedidos.slice(0, 5).map((p) => (
+                    <li key={p.id}>
+                      <Link to={`/issues/${p.identifier ?? p.id}`} className="block rounded-[12px] bg-l-papel/60 p-2.5 text-inherit hover:bg-l-papel">
+                        <span className="flex items-center justify-between gap-2 text-[11px] text-l-tinta-3">
+                          <span className={`rounded-full px-2 py-px font-semibold ${p.origen === "Producción" ? "bg-l-marca-suave text-l-tinta" : "bg-l-linea-2 text-l-tinta-2"}`}>{p.origen}</span>
+                          <span className="tabular-nums">{fecha(p.actualizado)}</span>
+                        </span>
+                        <span className="mt-1 line-clamp-2 block text-[13px] leading-[1.4] text-l-tinta">{p.titulo}</span>
+                      </Link>
+                    </li>
+                  ))}
+                  {c.pedidos.length > 5 && <li className="px-1 text-[12px] text-l-tinta-3">y {c.pedidos.length - 5} más</li>}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
