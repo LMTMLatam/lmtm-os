@@ -81,9 +81,10 @@ export interface Pendiente {
  * (2 a 5 M de tokens) y con el plan semanal de MiniMax daban ~25 corridas por día para 12
  * agentes. Con tope de 20 y la consigna de dejar escrito lo hecho antes del 16, la tarea grande
  * se hace por partes y la que sigue arranca del comentario, no del contexto entero.
+ * 20/11: sube a 30 (pedido de Naza): con 20, 40 de 60 corridas en 48 h se cortaron por el tope.
  */
-export const TURNOS_MAX = 20;
-export const AVISO_TURNOS = 16;
+export const TURNOS_MAX = 30;
+export const AVISO_TURNOS = 25;
 /** Con el gasto de la semana así de adelantado (5 puntos), solo corre lo de valor (0 a 2). */
 export const CUOTA_AJUSTADA = 0.05;
 

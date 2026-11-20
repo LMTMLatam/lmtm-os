@@ -127,7 +127,9 @@ RUN apt-get update \
 # Claude Code CLI: the `claude_local` adapter spawns the `claude` CLI per agent
 # run. Agents point ANTHROPIC_BASE_URL at MiniMax's Anthropic-compatible endpoint
 # (set per-agent in adapter_config.env). git is required by the CLI.
-RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund --loglevel=error
+# Versión fija (20/11): sin fijar, cada deploy traía la última. El deploy del 19/11 pasó de 2.1.197 a 2.1.329 y
+# empezó «API Error: Content block is not a input_json block» con MiniMax (7 corridas el 20/11, 0 antes).
+RUN npm install -g @anthropic-ai/claude-code@2.1.197 --no-audit --no-fund --loglevel=error
 
 # MCP config so the `claude` CLI exposes Paperclip's tools (issues, comments,
 # client data via paperclipApiRequest, self-learning). The MCP subprocess
