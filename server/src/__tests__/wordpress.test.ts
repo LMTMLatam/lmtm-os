@@ -12,6 +12,26 @@ describe("quitar spam oculto", () => {
     );
   });
 
+  it("saca el bloque ENTERO aunque tenga divs adentro y no deja nada visible (grupo hotelero, 18/11)", () => {
+    const anidado = `<div style="overflow: hidden; height: 1px;"><h2>Pistolo Casino</h2><div class="t"><p>Jeux en ligne</p></div><p>Visitez <a href="https://pistolo-casino.biz/">Pistolo</a>.</p></div>`;
+    const html = `<p>Bienvenidos al hotel.</p>${anidado}<p>Reservá ya.</p>`;
+    const limpio = quitarOcultos(html, "ellibertador-hotel.com.ar");
+    expect(limpio).toBe(`<p>Bienvenidos al hotel.</p><p>Reservá ya.</p>`);
+    expect(limpio).not.toMatch(/casino|jeux|pistolo/i);
+  });
+
+  it("detecta y saca un bloque largo (más de 800 caracteres) con el link al final", () => {
+    const relleno = "<p>" + "Negli ultimi anni sempre più giocatori italiani si informano. ".repeat(40) + "</p>";
+    const largo = `<div style="position: absolute; left: -9200px;">${relleno}<p>Vedi <a href="https://thenationonlineng.net/casino-non-aams/">siti casino non aams</a></p></div>`;
+    expect(largo.length).toBeGreaterThan(800);
+    expect(quitarOcultos(`<h1>Grupo</h1>${largo}`, "gruporoibas.com.ar")).toBe("<h1>Grupo</h1>");
+  });
+
+  it("un bloque oculto sin cierre no se toca (no se puede delimitar)", () => {
+    const roto = `<p>ok</p><div style="display:none"><a href="https://casino.example/">casino</a>`;
+    expect(quitarOcultos(roto, "x.com")).toBe(roto);
+  });
+
   it("un texto sin spam no se toca", () => {
     const html = `<p>Hola</p>`;
     expect(quitarOcultos(html, "x.com")).toBe(html);

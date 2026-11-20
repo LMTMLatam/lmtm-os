@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, jsonb, timestamp, index, uniqueIndex, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, timestamp, index, uniqueIndex, integer, boolean, bigint, real, date } from "drizzle-orm/pg-core";
 
 // LMTM-OS: «Tipos de video» (pedido 09/11). Cómo se edita cada tipo de video en
 // cada nicho, a partir de los virales medidos de la competencia. Migración 0161.
@@ -33,13 +33,27 @@ export const videoVirales = pgTable("video_virales", {
   cuenta: text("cuenta").notNull(),
   nicho: text("nicho").notNull(),
   tipo: text("tipo").notNull(),
-  fuente: text("fuente").notNull().default("equipo"), // equipo | agente
+  fuente: text("fuente").notNull().default("equipo"), // equipo | agente | estudio (base del 17/11)
   autor: text("autor"),
   postId: text("post_id"),
   gancho: text("gancho"),
   notas: text("notas"),
   forma: jsonb("forma").$type<FormaDeVideo>(),
   respuestas: jsonb("respuestas").$type<Record<string, boolean>>(),
+  // Medidos por lmtm-redes (migración 0163): virales de LatAm que no son competencia de un cliente.
+  red: text("red"), // tiktok | instagram
+  pais: text("pais"),
+  vistas: bigint("vistas", { mode: "number" }),
+  meGusta: integer("me_gusta"),
+  comentarios: integer("comentarios"),
+  compartidos: integer("compartidos"),
+  guardados: integer("guardados"),
+  medianaAutor: real("mediana_autor"),
+  veces: real("veces"),
+  publicado: date("publicado"),
+  texto: text("texto"),
+  /** Video NORMAL del mismo autor, para comparar contra los virales. */
+  control: boolean("control").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   urlIdx: uniqueIndex("video_virales_url_idx").on(t.url),

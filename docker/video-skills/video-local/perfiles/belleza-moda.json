@@ -1,0 +1,15 @@
+{
+  "nombre": "belleza-moda",
+  "descripcion": "Belleza, peluquería, cosmética, moda y joyería: detalle, piel real, producto protagonista",
+  "reel": {
+    "pausa": 0.6,
+    "estilo": "simple",
+    "zoom": 0,
+    "sfx": false,
+    "vol_musica": -16
+  },
+  "duracion": [
+    10,
+    25
+  ]
+}

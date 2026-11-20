@@ -17,9 +17,20 @@ mira y decide.
 | Filmado con la voz del cliente: alguien habla a cámara, recorrida, testimonio, entrevista | skill `video-local` para sacar la base (`vtool reel` o `vtool jornada`) y **Reel filmado con motion gráficos** (más abajo) para terminarlo. |
 | Voz en off GRABADA + tomas | **Reel filmado con motion gráficos** con `tramos` |
 | Voz en off generada + planos del material (fotos y videos sin nadie hablando) | la plantilla de esta skill (lo que sigue) |
+| Crudos de una jornada de rodaje en el NAS, sin editar | `lmtmEncargarAlEditor`: los edita el Editor de video, no vos. |
 
 Mirá el material antes de elegir: si el audio del video es alguien hablando del producto, ese es el guion; no le
 pongas una voz en off encima.
+
+**Lo que salió bien y lo que no (revisión del 18/11):** los reels que sirvieron fueron re-cortes de material
+FILMADO del cliente (recorridas de DUNOD con su voz). Los que no sirvieron se armaron de cero con voz generada,
+fondos de color, listas y la misma foto repetida «desde otro ángulo». Por eso:
+- Si el cliente tiene reels o videos propios del producto en Drive, partí de ahí antes que de fotos sueltas.
+- Con voz generada hacen falta 6 tomas reales distintas como mínimo (fotos o videos del cliente). Si no llegás,
+  no rellenes con paneles de color: decilo en el issue y proponé un carrusel de fotos o pedí material.
+- Los insertos de motion acompañan tomas, no las reemplazan.
+- Gancho con dato concreto (dirección, precio, número) en los primeros 3 s: es lo que más rinde en el estudio de
+  virales.
 
 **Siempre, sea cual sea el camino:** antes de `lmtmVideoEntregar`, `vtool revisar <final.mp4>` (además de
 `lmtmVideoRevisar`). Si da el volumen fuera de -16 a -12 LUFS, `vtool normalizar <final.mp4>` y entregá el

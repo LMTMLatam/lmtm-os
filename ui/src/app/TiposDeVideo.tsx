@@ -34,11 +34,12 @@ interface Contenido {
   promptIa?: string; noHacer?: string[]; reglas?: Regla[];
   perfil?: { nombre: string; descripcion: string; reel: Record<string, unknown>; duracion?: [number, number] };
 }
-interface Viral { id: string; url: string | null; cuenta: string; fecha: string; veces: number | null; texto: string; fuente: string; gancho?: string | null; notas?: string | null }
+interface Viral { id: string; url: string | null; cuenta: string; fecha: string; veces: number | null; texto: string; fuente: string; gancho?: string | null; notas?: string | null; red?: string | null }
 interface Plantilla {
   alcance: string; nombreAlcance: string; nicho: string; tipo: string; desde: string | null;
   estado: Estado; version: number; contenido: Contenido | null; archivo: string;
   evidencia: { virales: number; cuentas: number }; guia: string | null; virales: Viral[]; noVirales: Viral[];
+  validacion: { piezas: number; sirvieron: number; noSirvieron: number; motivos: Record<string, number> } | null;
   propia: { estado: Estado; version: number; contenido: Contenido; autor: string; motivo: string | null; aprobadaPor: string | null; actualizada: string } | null;
   heredada: { alcance: string; nombre: string; estado: Estado; version: number; contenido: Contenido } | null;
   reglasHeredadas: Regla[];
@@ -205,6 +206,13 @@ function Detalle({ alcance, tipo, tipoInfo, grilla, onCerrar }: { alcance: strin
             {propia?.estado === "borrador" && p.evidencia.virales < grilla.reglas.minVirales ? ` (para revisarla hacen falta ${grilla.reglas.minVirales} de ${grilla.reglas.minCuentas} cuentas)` : ""}
           </p>
           {propia?.motivo && <p className="text-[13px] text-l-tinta-3">Último cambio: {propia.motivo} ({propia.autor})</p>}
+          {p.validacion && p.validacion.sirvieron + p.validacion.noSirvieron > 0 && (
+            <p className="text-[13px] text-l-tinta-3">
+              Validación del equipo: {p.validacion.sirvieron} sirvieron · {p.validacion.noSirvieron} no
+              {p.validacion.noSirvieron > 0 && ` (${Object.entries(p.validacion.motivos).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m} ${n}`).join(", ")})`}
+              {p.validacion.piezas > p.validacion.sirvieron + p.validacion.noSirvieron && ` · ${p.validacion.piezas - p.validacion.sirvieron - p.validacion.noSirvieron} sin validar`}
+            </p>
+          )}
           {tipoInfo?.descripcion && <p className="text-[13px] text-l-tinta-3">{tipoInfo.descripcion}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -372,7 +380,7 @@ function Ejemplos({ titulo, lista }: { titulo: string; lista: Viral[] }) {
         {lista.slice(0, 12).map((v) => (
           <li key={v.id} className="flex gap-3 px-3 py-2 text-[13px]">
             <span className="w-24 shrink-0 font-medium text-l-tinta">{v.veces == null ? "sin medir" : `${v.veces}× lo normal`}</span>
-            <span className="min-w-0 flex-1 text-l-tinta-2"><b>@{v.cuenta}</b> · {v.fecha}{v.fuente !== "sistema" ? ` · cargado por ${v.fuente}` : ""}<br /><span className="line-clamp-2">{v.gancho || v.notas || v.texto}</span></span>
+            <span className="min-w-0 flex-1 text-l-tinta-2"><b>@{v.cuenta}</b> · {v.fecha}{v.fuente === "estudio" ? ` · estudio LatAm${v.red ? ` (${v.red})` : ""}` : v.fuente !== "sistema" ? ` · cargado por ${v.fuente}${v.red ? ` (${v.red})` : ""}` : ""}<br /><span className="line-clamp-2">{v.gancho || v.notas || v.texto}</span></span>
             {v.url && <a href={v.url} target="_blank" rel="noreferrer" className="shrink-0 text-l-tinta-3 hover:text-l-marca" aria-label={`Abrir video de @${v.cuenta}`}><ExternalLink className="h-4 w-4" aria-hidden /></a>}
           </li>
         ))}

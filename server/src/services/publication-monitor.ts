@@ -8,7 +8,7 @@
 
 import type { Db } from "@paperclipai/db";
 import { clients, organicPosts, contentIdeas } from "@paperclipai/db";
-import { and, sql } from "drizzle-orm";
+import { and, lt, sql } from "drizzle-orm";
 import { clienteReal } from "./intel-common.js";
 import { getRedesScheduledContent, getRedesCalendar, type RedesCalendarItem } from "./clickup-sync.js";
 import { networkActivity, paginaLeida } from "./auditor.js";
@@ -33,7 +33,7 @@ export async function findStalledOnboarding(db: Db): Promise<Array<{ name: strin
     id: clients.id, name: clients.name, createdAt: clients.createdAt,
     posts: sql<number>`(select count(*) from ${organicPosts} p where p.client_id = ${clients.id})`,
     ideas: sql<number>`(select count(*) from ${contentIdeas} ci where ci.client_id = ${clients.id})`,
-  }).from(clients).where(and(clienteReal(), sql`${clients.createdAt} < ${cutoff}`));
+  }).from(clients).where(and(clienteReal(), lt(clients.createdAt, cutoff)));
   return rows
     .filter((r) => Number(r.posts) === 0 && Number(r.ideas) === 0)
     .map((r) => ({ name: r.name, ageDays: Math.floor((Date.now() - new Date(r.createdAt).getTime()) / DAY) }))

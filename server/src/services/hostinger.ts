@@ -177,8 +177,37 @@ export function resumenVulns(v: unknown): { total: number; graves: string[]; arr
 }
 const vulns = resumenVulns;
 
-const OCULTO = /<(div|p|span)[^>]*style="[^"]*(left:\s*-\d{3,}px|top:\s*-\d{3,}px|display:\s*none|visibility:\s*hidden|font-size:\s*0)[^"]*"[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
-const SPAM = /casino|tragamonedas|apuestas|\bbet\b|1xbet|slots?\b|póker|poker|viagra|cialis|préstamo|loan|porn|escort/i;
+// Estilos con los que se esconde texto a la persona pero no a Google. height:1px + overflow:hidden es
+// el del grupo hotelero (18/11/26); left/top negativos, el de SRP (08/11/26).
+const ESTILO_OCULTO = /(left|top)\s*:\s*-\d{3,}px|display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d])|opacity\s*:\s*0(?![.\d])|(?:^|;)\s*height\s*:\s*[0-2](?:\.\d+)?px/i;
+const APERTURA_OCULTA = /<(div|p|span|section)\b[^>]*\sstyle\s*=\s*["']([^"']*)["'][^>]*>/gi;
+const SPAM = /casino|casinò|tragamonedas|apuestas|\bbet\b|1xbet|slots?\b|póker|poker|viagra|cialis|préstamo|loan|porn|escort|gambling|jeux en ligne|spielautomaten|kasino/i;
+const TOPE_BLOQUE = 200_000;
+
+/**
+ * Bloques con estilo oculto, ENTEROS: la etiqueta que abre hasta la que la cierra, contando las anidadas
+ * (cortar en el primer cierre dejaba el resto del bloque visible). Solo los de más afuera. Pura.
+ */
+export function bloquesOcultos(html: string): Array<{ inicio: number; fin: number; cuerpo: string }> {
+  const out: Array<{ inicio: number; fin: number; cuerpo: string }> = [];
+  let desde = 0;
+  for (const m of html.matchAll(APERTURA_OCULTA)) {
+    if (m.index! < desde || !ESTILO_OCULTO.test(m[2])) continue;
+    const tag = m[1].toLowerCase();
+    const etiqueta = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+    etiqueta.lastIndex = m.index! + m[0].length;
+    let nivel = 1;
+    let fin = -1;
+    for (let t = etiqueta.exec(html); t && t.index - m.index! < TOPE_BLOQUE; t = etiqueta.exec(html)) {
+      nivel += t[1] ? -1 : 1;
+      if (nivel === 0) { fin = t.index + t[0].length; break; }
+    }
+    if (fin < 0) continue; // sin cierre: no se toca lo que no se puede delimitar
+    out.push({ inicio: m.index!, fin, cuerpo: html.slice(m.index! + m[0].length, fin) });
+    desde = fin;
+  }
+  return out;
+}
 
 /**
  * Enlaces a otros sitios escondidos en la página: el spam de SEO típico de una
@@ -188,9 +217,8 @@ const SPAM = /casino|tragamonedas|apuestas|\bbet\b|1xbet|slots?\b|póker|poker|v
 export function spamOculto(html: string, dominio: string): Array<{ texto: string; links: string[] }> {
   const propio = dominio.replace(/^www\./, "").split(".").slice(-3).join(".");
   const out: Array<{ texto: string; links: string[] }> = [];
-  for (const m of html.matchAll(OCULTO)) {
-    const cuerpo = m[3];
-    const links = [...cuerpo.matchAll(/href="(https?:\/\/[^"]+)"/gi)].map((x) => x[1]).filter((u) => !u.includes(propio));
+  for (const { cuerpo } of bloquesOcultos(html)) {
+    const links = [...cuerpo.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)].map((x) => x[1]).filter((u) => !u.includes(propio));
     const texto = cuerpo.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     if (links.length > 0 && (SPAM.test(texto) || SPAM.test(links.join(" ")) || /dofollow/i.test(cuerpo))) out.push({ texto: texto.slice(0, 200), links });
   }
@@ -200,7 +228,7 @@ export function spamOculto(html: string, dominio: string): Array<{ texto: string
 async function revisarSpam(dominio: string): Promise<unknown> {
   const r = await fetch(`https://${dominio}/`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LMTM-auditoria)" }, signal: AbortSignal.timeout(20_000) });
   const hallados = spamOculto(await r.text(), new URL(r.url).hostname);
-  return { revisado: r.url, ocultosConLinks: hallados, nota: hallados.length ? "Contenido oculto con enlaces ajenos: típico de web hackeada. Limpiarlo es tarea de una persona (la API no edita contenido); además cambiar contraseñas y actualizar." : "Sin enlaces ocultos en la home (solo se revisa la home)." };
+  return { revisado: r.url, ocultosConLinks: hallados, nota: hallados.length ? "Contenido oculto con enlaces ajenos: típico de web hackeada. Limpiarlo es tarea de una persona (la API no edita contenido); además cambiar contraseñas y actualizar." : "Sin enlaces ocultos en la HOME. Esto no prueba que la web esté limpia: para el resto de las páginas usá get_web_contenido con buscar=\"casino\" (el spam del grupo hotelero estaba en Preguntas Frecuentes)." };
 }
 
 /** Lectura: el estado técnico de la web del cliente en una llamada. */

@@ -87,6 +87,11 @@ export function sanitizeRecord(record: Record<string, unknown>): Record<string, 
   return redacted;
 }
 
+/** Para el log HTTP de errores (18/11: un 422 de PATCH /agents dejó la clave del proxy en el log de Railway). */
+export function redactLogValue(value: unknown): unknown {
+  return isPlainObject(value) ? sanitizeRecord(value) : Array.isArray(value) ? value.map(sanitizeValue) : value;
+}
+
 export function redactEventPayload(payload: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!payload) return null;
   if (!isPlainObject(payload)) return payload;

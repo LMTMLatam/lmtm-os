@@ -70,3 +70,41 @@ describe("rastrear", () => {
     expect(r.recortado).toBe(true);
   });
 });
+
+import { agruparCrudos, esRutaDeCrudos } from "../nas-indice.js";
+
+describe("crudos nuevos (Editor, 17/11)", () => {
+  const a = (ruta: string, fecha: string, mb = 10, tipo: "video" | "foto" = "video") => ({ cliente: "BOERO", clientId: "c1", archivo: { ruta, nombre: ruta.split("/").pop()!, tipo, mb, fecha } });
+  it("agrupa videos por carpeta, saca lo terminado y las fotos, y ordena por fecha", () => {
+    const r = agruparCrudos([
+      a("/LMTM/Clientes/Boero/VIDEO/RECURSOS/frenos/CRUDOS/IMG_1.MOV", "2026-11-02"),
+      a("/LMTM/Clientes/Boero/VIDEO/RECURSOS/frenos/CRUDOS/IMG_2.MOV", "2026-11-03", 20.4),
+      a("/LMTM/Clientes/Boero/VIDEO/TERMINADOS/NO_SUBIDO/final.mp4", "2026-11-04"),
+      a("/LMTM/Clientes/Boero/VIDEO/RECURSOS/frenos/CRUDOS/foto.jpg", "2026-11-05", 1, "foto"),
+      a("/LMTM/Clientes/Boero/PRODUCCION/viejo/C1.MP4", "2026-10-01"),
+    ]);
+    expect(r).toEqual([
+      { cliente: "BOERO", clientId: "c1", carpeta: "/LMTM/Clientes/Boero/VIDEO/RECURSOS/frenos/CRUDOS", videos: 2, mb: 30, fecha: "2026-11-03" },
+      { cliente: "BOERO", clientId: "c1", carpeta: "/LMTM/Clientes/Boero/PRODUCCION/viejo", videos: 1, mb: 10, fecha: "2026-10-01" },
+    ]);
+  });
+});
+
+describe("qué carpetas son crudos (con rutas reales del índice, 18/11)", () => {
+  it("entran producción, recursos y crudos; no lo terminado, avisos, diseño de redes, audio, maquetas ni proxies SUB", () => {
+    for (const r of [
+      "/LMTM/Clientes/Brachetta/PRODUCCION/11_26_Rodaje/M4ROOT/CLIP/C0001.MP4",
+      "/LMTM/Clientes/Brachetta/PRODUCCION/11_26_Rodaje/CELULAR/IMG_1.MOV",
+      "/LMTM/Clientes/Imperia/VIDEO/PROYECTOS/EDIFICIO_OROÑO_BLACK/RECURSOS/a.mp4",
+      "/LMTM/Clientes/Gala/DISENO/RECURSOS/Avances_Gala_Rock/Etapa 5/Crudos/Drone/DJI_0556.MP4",
+    ]) expect(esRutaDeCrudos(r)).toBe(true);
+    for (const r of [
+      "/LMTM/Clientes/El_Hiper_de_la_pelu/DISENO/PROYECTOS/REDES/11NOVIEMBRE_2026/a.mp4",
+      "/LMTM/Clientes/Brachetta/PRODUCCION/11_26_Rodaje/M4ROOT/SUB/C0001S03.MP4",
+      "/LMTM/Clientes/Distrillantas/AVISOS/OCTUBRE_2026/MECANICA/a.mp4",
+      "/LMTM/Clientes/Brachetta/VIDEO/PROYECTOS/Reciclaje/AUDIO/OFF/a.mp4",
+      "/LMTM/Clientes/Dunod/VIDEO/PROYECTOS/JULIO_SOSA_8900/MAQUETA/a.mp4",
+      "/LMTM/Clientes/Boero/VIDEO/TERMINADOS/NO_SUBIDO/a.mp4",
+    ]) expect(esRutaDeCrudos(r)).toBe(false);
+  });
+});

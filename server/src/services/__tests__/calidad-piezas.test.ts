@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { combinar, guardarRevision, lineaDeRevision, parsearRevision, revisionParaPieza, revisionVigente } from "../calidad-piezas.js";
+import { REGLAS_PLACAS, combinar, guardarRevision, huecoSinCompletar, lineaDeRevision, parsearRevision, reglaNoUsar, revisionParaPieza, revisionVigente } from "../calidad-piezas.js";
 import { esDeContenido, veredictosDePiezas } from "../guia-contenido.js";
 
 describe("parsearRevision", () => {
@@ -70,6 +70,24 @@ describe("combinar y textos", () => {
   });
   it("lo que se guarda en la pieza", () => {
     expect(revisionParaPieza(null, "OpenAI caído")).toEqual({ apto: null, sinRevision: "OpenAI caído" });
+  });
+});
+
+describe("reglas de placas (revisión del 18/11)", () => {
+  it("encuentra el hueco sin completar que se coló en DUNOD", () => {
+    expect(huecoSinCompletar("El 15% que te estás por perder. [completar: fuente y alcance del 15%]")).toBe("[completar: fuente y alcance del 15%]");
+    expect(huecoSinCompletar("[Falta precio] Casa en Funes")).toBe("[Falta precio]");
+    expect(huecoSinCompletar("5 preguntas antes de elegir tu local. Elegí con criterio.")).toBeNull();
+  });
+  it("el «No usar» de la marca entra al control y se ignora lo que no es texto", () => {
+    expect(reglaNoUsar(["metros cuadrados", "", 3])).toMatch(/«metros cuadrados»/);
+    expect(reglaNoUsar(null)).toBe("");
+    expect(reglaNoUsar([])).toBe("");
+  });
+  it("las reglas nombran las fallas graves que se vieron", () => {
+    expect(REGLAS_PLACAS).toMatch(/foto real del cliente/);
+    expect(REGLAS_PLACAS).toMatch(/BORRADOR/);
+    expect(REGLAS_PLACAS).toMatch(/testimonio/);
   });
 });
 

@@ -114,6 +114,8 @@ export const HERRAMIENTAS_EQUIPO = [
   "lmtmRedesPublicas", "lmtmContenidoGenerado", "lmtmEstadoGeneracion", "lmtmBuscarMaterial",
   // NAS de LMTM: solo lectura (usuario RO sobre LMTM) y link de descarga por archivo.
   "lmtmNasBuscar", "lmtmNasListar", "lmtmNasLink",
+  // Virales de LatAm en TikTok e Instagram por lmtm-redes (17/11): solo lectura; el ritmo lo pone el servicio.
+  "lmtmViralesBuscar", "lmtmViralesAutor", "lmtmViralesTendencias",
   // Generar con las cuentas de la agencia (13/11): clips, imágenes, voz y música, bajo
   // /tmp/videos/equipo/ (agent-tools lo exige), con su gasto anotado; se bajan con lmtmVideoLink.
   "lmtmVideoPlano", "lmtmContenidoImagen", "lmtmVideoVoz", "lmtmVideoMusica", "lmtmVideoEstado", "lmtmVideoLink",

@@ -1,0 +1,15 @@
+{
+  "nombre": "turismo-hoteleria",
+  "descripcion": "Hoteles, aparts y escapadas: la experiencia, calma y detalle, cierre con reserva",
+  "reel": {
+    "pausa": 0.8,
+    "estilo": "simple",
+    "zoom": 0,
+    "sfx": false,
+    "vol_musica": -18
+  },
+  "duracion": [
+    15,
+    35
+  ]
+}

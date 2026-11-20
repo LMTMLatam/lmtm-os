@@ -1,0 +1,16 @@
+{
+  "nombre": "producto-ecommerce",
+  "descripcion": "Productos físicos y tiendas online: el producto en uso, beneficio en 3 s, precio solo si es real",
+  "reel": {
+    "pausa": 0.5,
+    "estilo": "reel",
+    "zoom": 1.12,
+    "sfx": true,
+    "vol_musica": -16,
+    "vol_sfx": -20
+  },
+  "duracion": [
+    10,
+    25
+  ]
+}

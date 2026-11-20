@@ -1,0 +1,16 @@
+{
+  "nombre": "deportivo",
+  "descripcion": "Gimnasios, clubes, entrenadores y marcas deportivas: energía, cortes al ritmo, superación",
+  "reel": {
+    "pausa": 0.45,
+    "estilo": "reel",
+    "zoom": 1.15,
+    "sfx": true,
+    "vol_musica": -14,
+    "vol_sfx": -18
+  },
+  "duracion": [
+    10,
+    30
+  ]
+}

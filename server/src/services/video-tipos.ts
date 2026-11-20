@@ -25,7 +25,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import {
-  clients, competenciaPosts, competitors, videoPlantillas, videoTipos, videoVirales,
+  agentDeliverables, clients, competenciaPosts, competitors, videoPlantillas, videoTipos, videoVirales,
   type ContenidoPlantilla, type FormaDeVideo, type PerfilVtool, type ReglaDeVideo,
 } from "@paperclipai/db";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
@@ -51,8 +51,10 @@ const FORMATOS_VIDEO = ["reel", "video"];
 export type Viral = {
   id: string; url: string | null; cuenta: string; nicho: string; tipo: string; fecha: string;
   interaccion: number | null; normal: number | null; veces: number | null;
-  texto: string; fuente: "sistema" | "equipo" | "agente";
+  texto: string; fuente: "sistema" | "equipo" | "agente" | "estudio";
   gancho?: string | null; forma?: FormaDeVideo | null; respuestas?: Record<string, boolean> | null; notas?: string | null;
+  /** Los medidos por lmtm-redes (0163): de qué red y si es un video normal del autor (control), no un viral. */
+  red?: string | null; control?: boolean;
 };
 
 export const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
@@ -139,15 +141,7 @@ export async function viralesDe(db: Db, f: { nicho?: string | null; tipo?: strin
   const nicho = norm(f.nicho), tipo = norm(f.tipo);
   const porPost = new Map(manuales.filter((m) => m.postId).map((m) => [m.postId!, m]));
   const todos: Viral[] = medidos.map((p) => aViral(p, porPost.get(p.id)));
-  const medidosIds = new Set(medidos.map((p) => p.id));
-  for (const m of manuales) {
-    if (m.postId && medidosIds.has(m.postId)) continue;
-    todos.push({
-      id: m.id, url: m.url, cuenta: m.cuenta, nicho: norm(m.nicho), tipo: m.tipo, fecha: m.createdAt.toISOString().slice(0, 10),
-      interaccion: null, normal: null, veces: null, texto: "", fuente: m.fuente === "agente" ? "agente" : "equipo",
-      gancho: m.gancho, forma: m.forma, respuestas: m.respuestas, notas: m.notas,
-    });
-  }
+  todos.push(...sueltos(manuales, medidos));
   const filtrados = todos.filter((v) => (!nicho || v.nicho === nicho) && (!tipo || v.tipo === tipo));
   const limite = Math.min(Math.max(f.limite ?? 20, 1), 100);
   const virales = filtrados.filter((v) => v.veces == null || v.veces >= VIRAL_DESDE).sort((a, b) => (b.veces ?? 0) - (a.veces ?? 0)).slice(0, limite);
@@ -155,6 +149,28 @@ export async function viralesDe(db: Db, f: { nicho?: string | null; tipo?: strin
   const cuentas = new Set(virales.map((v) => v.cuenta));
   const noVirales = filtrados.filter((v) => v.veces != null && v.veces <= 1 && cuentas.has(v.cuenta)).sort((a, b) => (a.veces ?? 0) - (b.veces ?? 0)).slice(0, 5);
   return { virales, noVirales };
+}
+
+/**
+ * Puro: una fila de video_virales que no es una publicación de la competencia. Si la midió lmtm-redes (0163) trae sus
+ * números (vistas contra la mediana de SU autor) y es evidencia; si la cargó alguien sin medir, veces = null.
+ */
+export function viralDeFila(m: typeof videoVirales.$inferSelect): Viral {
+  const medido = m.veces != null;
+  return {
+    id: m.id, url: m.url, cuenta: m.cuenta, nicho: norm(m.nicho), tipo: m.tipo,
+    fecha: m.publicado ?? m.createdAt.toISOString().slice(0, 10),
+    interaccion: medido ? m.vistas : null, normal: medido ? m.medianaAutor : null, veces: m.veces,
+    texto: (m.texto ?? "").slice(0, 500),
+    fuente: m.fuente === "agente" ? "agente" : m.fuente === "estudio" ? "estudio" : "equipo",
+    gancho: m.gancho, forma: m.forma, respuestas: m.respuestas, notas: m.notas, red: m.red, control: m.control,
+  };
+}
+
+/** Las filas cargadas que no están enlazadas a una publicación medida de la competencia. */
+function sueltos(manuales: Array<typeof videoVirales.$inferSelect>, medidos: Array<{ id: string }>): Viral[] {
+  const medidosIds = new Set(medidos.map((p) => p.id));
+  return manuales.filter((m) => !(m.postId && medidosIds.has(m.postId))).map(viralDeFila);
 }
 
 /** Puro: cuánta evidencia medida hay. Los "sin medir" no cuentan. */
@@ -324,18 +340,65 @@ export async function clasificarTiposDeVideo(db: Db, max = 200): Promise<{ clasi
 
 // ── Cargar un viral a mano ────────────────────────────────────────────────────
 
+/** Lo que midió lmtm-redes de un video (migración 0163). Con esto el viral es evidencia aunque no sea competencia. */
+export type MedicionDeRed = {
+  red: "tiktok" | "instagram"; pais?: string | null; vistas?: number | null; meGusta?: number | null; comentarios?: number | null;
+  compartidos?: number | null; guardados?: number | null; medianaAutor?: number | null; veces?: number | null;
+  publicado?: string | null; texto?: string | null; control?: boolean;
+};
+
+/** Puro: la medición que manda un agente o el estudio, limpia (números ≥ 0, fecha ISO, red conocida). null = no sirve. */
+export function limpiarMedicion(x: unknown): MedicionDeRed | null {
+  if (!x || typeof x !== "object") return null;
+  const o = x as Record<string, unknown>;
+  const red = norm(String(o.red ?? ""));
+  if (red !== "tiktok" && red !== "instagram") return null;
+  const n = (v: unknown) => (v != null && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null);
+  const fecha = typeof o.publicado === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.publicado) ? o.publicado : null;
+  return {
+    red, pais: typeof o.pais === "string" ? o.pais.trim().toUpperCase().slice(0, 2) || null : null,
+    vistas: n(o.vistas), meGusta: n(o.meGusta ?? o.me_gusta), comentarios: n(o.comentarios), compartidos: n(o.compartidos),
+    guardados: n(o.guardados), medianaAutor: n(o.medianaAutor ?? o.mediana_autor), veces: n(o.veces), publicado: fecha,
+    texto: typeof o.texto === "string" ? o.texto.slice(0, 2000) : null, control: o.control === true,
+  };
+}
+
 export async function guardarViral(db: Db, p: {
-  url: string; cuenta?: string; nicho: string; tipo: string; fuente: "equipo" | "agente"; autor: string;
-  gancho?: string; notas?: string; forma?: FormaDeVideo; respuestas?: Record<string, boolean>;
+  url: string; cuenta?: string; nicho: string; tipo: string; fuente: "equipo" | "agente" | "estudio"; autor: string;
+  gancho?: string; notas?: string; forma?: FormaDeVideo; respuestas?: Record<string, boolean>; medicion?: MedicionDeRed | null;
 }): Promise<{ ok: true; id: string; medido: boolean; mensaje: string } | { ok: false; mensaje: string }> {
   const url = p.url.trim().split(/[?#]/)[0];
   if (!/^https?:\/\/(www\.)?(instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com)\//i.test(url)) return { ok: false, mensaje: "El link tiene que ser de Instagram, TikTok, YouTube o Facebook." };
   const tipos = new Set((await tiposActivos(db)).map((t) => t.slug));
   const tipo = norm(p.tipo);
-  if (!tipos.has(tipo)) return { ok: false, mensaje: `Tipo de video desconocido. Opciones: ${[...tipos].join(", ")}.` };
+  if (!tipos.has(tipo) && tipo !== OTRO) return { ok: false, mensaje: `Tipo de video desconocido. Opciones: ${[...tipos].join(", ")}, ${OTRO}.` };
   const nichos = new Set((await db.selectDistinct({ i: clients.industry }).from(clients).where(and(eq(clients.status, "active"), isNotNull(clients.industry)))).map((r) => norm(r.i)));
   const nicho = norm(p.nicho);
-  if (!nichos.has(nicho)) return { ok: false, mensaje: `Nicho desconocido. Opciones: ${[...nichos].join(", ")}.` };
+  if (!nichos.has(nicho) && nicho !== TODOS) return { ok: false, mensaje: `Nicho desconocido. Opciones: ${TODOS} (general), ${[...nichos].join(", ")}.` };
+
+  // Medido por lmtm-redes: la cuenta existe (se leyó su perfil) y los números van en la fila. No se le pregunta a
+  // Instagram de nuevo: desde el servidor da 429.
+  const m = p.medicion ?? null;
+  if (m) {
+    const cuenta = norm(p.cuenta).replace(/^@/, "");
+    if (!cuenta) return { ok: false, mensaje: "Falta la cuenta que publicó el video (el usuario, sin @)." };
+    // El set validado del estudio (lo miró una persona) no lo pisa un agente: es la vara del examen.
+    if (p.fuente !== "estudio") {
+      const [ya] = await db.select({ id: videoVirales.id, fuente: videoVirales.fuente }).from(videoVirales).where(eq(videoVirales.url, url)).limit(1);
+      if (ya?.fuente === "estudio") return { ok: true, id: ya.id, medido: true, mensaje: "Ya está en el estudio validado: no se cambia." };
+    }
+    const cols = {
+      red: m.red, pais: m.pais ?? null, vistas: m.vistas ?? null, meGusta: m.meGusta ?? null, comentarios: m.comentarios ?? null,
+      compartidos: m.compartidos ?? null, guardados: m.guardados ?? null, medianaAutor: m.medianaAutor ?? null, veces: m.veces ?? null,
+      publicado: m.publicado ?? null, texto: m.texto ?? null, control: m.control ?? false,
+      ...(p.gancho ? { gancho: p.gancho.slice(0, 400) } : {}), ...(p.notas ? { notas: p.notas.slice(0, 1000) } : {}),
+      ...(p.forma ? { forma: p.forma } : {}), ...(p.respuestas ? { respuestas: p.respuestas } : {}),
+    };
+    const [fila] = await db.insert(videoVirales).values({ url, cuenta, nicho, tipo, fuente: p.fuente, autor: p.autor.slice(0, 120), ...cols })
+      .onConflictDoUpdate({ target: videoVirales.url, set: { nicho, tipo, ...cols, ...(p.fuente === "estudio" ? { fuente: p.fuente, autor: p.autor.slice(0, 120) } : {}) } })
+      .returning({ id: videoVirales.id });
+    return { ok: true, id: fila.id, medido: m.veces != null, mensaje: m.control ? "Guardado como video normal del autor (control)." : "Guardado con su medición." };
+  }
 
   // La cuenta se verifica antes de guardar: el 11/10 había 79 cuentas inventadas por agentes.
   const esInstagram = /instagram\.com/i.test(url);
@@ -511,6 +574,33 @@ export function resolverCadena(niveles: Array<{ clave: string; nombre: string; v
   return { propia: vigentes[0]?.vigente ?? null, efectiva, heredada: vigentes.slice(1).find((n) => n.vigente) ?? null, reglas };
 }
 
+/** Puro: el motivo de un «no sirve» (el botón del panel deja «Motivo: texto»; escrito a mano, «otro»). */
+export function motivoDe(porque: string | null | undefined): string {
+  return /^([^:]{1,20}): /.exec(porque ?? "")?.[1] ?? "otro";
+}
+
+export interface Validacion { piezas: number; sirvieron: number; noSirvieron: number; motivos: Record<string, number> }
+
+/** Fase 4.3 (plan 17/11): cómo le fue en la validación a las piezas hechas con la plantilla de un tipo que sale de
+ *  `desde` (video_entregar guarda metadata.plantilla). Los motivos dicen qué falla más. */
+export async function validacionDe(db: Db, tipo: string, desde: string): Promise<Validacion> {
+  const filas = await db.select({ v: sql<{ sirve?: boolean; porque?: string | null } | null>`${agentDeliverables.metadata}->'veredicto'` })
+    .from(agentDeliverables)
+    .where(and(eq(agentDeliverables.kind, "video"),
+      sql`${agentDeliverables.metadata}->'plantilla'->>'tipo' = ${tipo}`, sql`${agentDeliverables.metadata}->'plantilla'->>'desde' = ${desde}`));
+  const r: Validacion = { piezas: filas.length, sirvieron: 0, noSirvieron: 0, motivos: {} };
+  for (const { v } of filas) {
+    if (!v || typeof v.sirve !== "boolean") continue;
+    if (v.sirve) r.sirvieron++;
+    else {
+      r.noSirvieron++;
+      const m = motivoDe(v.porque);
+      r.motivos[m] = (r.motivos[m] ?? 0) + 1;
+    }
+  }
+  return r;
+}
+
 export async function plantillaDe(db: Db, nichoOCliente: string, tipo: string) {
   const a = await alcanceDe(db, nichoOCliente);
   const t = norm(tipo);
@@ -532,6 +622,7 @@ export async function plantillaDe(db: Db, nichoOCliente: string, tipo: string) {
     desde: efectiva?.clave ?? null,
     estado: estadoVisible(p), version: p?.version ?? 0,
     contenido, evidencia: evidenciaDe(virales),
+    validacion: efectiva ? await validacionDe(db, t, efectiva.clave) : null,
     autor: p?.autor ?? null, motivo: p?.motivo ?? null, aprobadaPor: p?.aprobadaPor ?? null, aprobadaAt: p?.aprobadaAt ?? null, actualizada: p?.createdAt ?? null,
     guia: contenido ? guiaDe(a.nombre, t, contenido, virales) : null,
     archivo: `${baseArchivo(a.clave)}__${t}`,
@@ -634,7 +725,7 @@ export async function grilla(db: Db, soloAlcance?: string | null) {
 async function todosLosVirales(db: Db): Promise<Viral[]> {
   const { medidos, manuales } = await videosMedidos(db);
   const porPost = new Map(manuales.filter((m) => m.postId).map((m) => [m.postId!, m]));
-  return medidos.map((p) => aViral(p, porPost.get(p.id)));
+  return [...medidos.map((p) => aViral(p, porPost.get(p.id))), ...sueltos(manuales, medidos)];
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;

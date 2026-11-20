@@ -170,6 +170,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
             </div>
           </Tarjeta>
           <TarjetaContenido />
+          <TarjetaParaValidar />
           <TarjetaQueFunciona />
         </div>
 
@@ -329,6 +330,29 @@ function Evolucion({ puntos }: { puntos: Array<{ fecha: string; plataParada: num
  * piezas hay y a cuántas les falta algo para salir. Lo que no esté completo
  * al llegar su fecha, el despachador lo descarta.
  */
+/** Videos de los agentes (Productor, Editor) que nadie validó todavía: sin veredicto no aprenden (plan 17/11). */
+function TarjetaParaValidar() {
+  const q = useQuery({
+    queryKey: ["lmtm", "contenido", "para-validar"],
+    queryFn: () => api.get<{ videos: number; desde: string | null }>("/contenido/para-validar"),
+    staleTime: 5 * 60_000,
+  });
+  if (!q.data?.videos) return null;
+  return (
+    <Link to="/produccion/generado" className="block text-inherit">
+      <Tarjeta className="h-full hover:border-l-tinta-3">
+        <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
+          <Clapperboard className="h-4 w-4" aria-hidden /> Videos para validar
+        </div>
+        <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{q.data.videos}</div>
+        <div className="mt-1.5 text-[12px] font-medium text-l-atencion-texto">
+          ¿Sirven? Sin tu respuesta el agente no aprende{q.data.desde ? ` · el más viejo, ${haceCuanto(q.data.desde)}` : ""}
+        </div>
+      </Tarjeta>
+    </Link>
+  );
+}
+
 function TarjetaContenido() {
   const q = useQuery({
     queryKey: ["lmtm", "contenido", "tablero"],

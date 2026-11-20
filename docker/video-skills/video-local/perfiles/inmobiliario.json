@@ -1,0 +1,16 @@
+{
+  "nombre": "inmobiliario",
+  "descripcion": "Propiedades en venta o alquiler: recorrida clara, datos verificados, luz natural",
+  "reel": {
+    "pausa": 0.7,
+    "estilo": "caja",
+    "zoom": 0,
+    "sfx": true,
+    "vol_musica": -20,
+    "vol_sfx": -22
+  },
+  "duracion": [
+    20,
+    45
+  ]
+}

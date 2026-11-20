@@ -1,0 +1,23 @@
+# lmtm-redes en el QNAP (Container Station → Aplicaciones → Crear). Ver LEEME.md.
+# Sin construir imagen: la oficial de Playwright (trae Chromium y Xvfb) + este código montado.
+services:
+  lmtm-redes:
+    image: mcr.microsoft.com/playwright/python:v1.65.2-noble
+    container_name: lmtm-redes
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir --break-system-packages -q -r requirements.txt &&
+             xvfb-run -a python3 -I redes.py servir"
+    environment:
+      REDES_TOKEN: ${REDES_TOKEN}
+      REDES_PUERTO: "8790"
+      REDES_DATOS: /datos
+      TZ: America/Argentina/Buenos_Aires
+    volumes:
+      - /share/Container/lmtm-redes:/app:ro
+      - /share/Container/lmtm-redes-datos:/datos
+    ports:
+      - "8790:8790"
+    mem_limit: 2g
+    shm_size: 1gb # Chromium en Docker se cae con el /dev/shm de 64 MB por defecto

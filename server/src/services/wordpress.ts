@@ -14,7 +14,7 @@
 // una web hackeada) o reemplazar un texto exacto. Antes de guardar queda el
 // respaldo en agent_actions; Elementor además guarda su propia revisión.
 
-import { spamOculto } from "./hostinger.js";
+import { bloquesOcultos, spamOculto } from "./hostinger.js";
 
 const NAVEGADOR = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 LMTM-OS";
 
@@ -109,8 +109,14 @@ export function editarTextos(els: Elemento[], f: (texto: string, el: Elemento, c
 /** Saca de un HTML los bloques ocultos con enlaces ajenos (los mismos que marca spamOculto). Pura. */
 export function quitarOcultos(html: string, dominio: string): string {
   if (spamOculto(html, dominio).length === 0) return html;
-  const OCULTO = /<(div|p|span)[^>]*style="[^"]*(left:\s*-\d{3,}px|top:\s*-\d{3,}px|display:\s*none|visibility:\s*hidden|font-size:\s*0)[^"]*"[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
-  return html.replace(OCULTO, (bloque) => (spamOculto(bloque, dominio).length > 0 ? "" : bloque));
+  let out = "";
+  let desde = 0;
+  for (const b of bloquesOcultos(html)) {
+    if (spamOculto(html.slice(b.inicio, b.fin), dominio).length === 0) continue;
+    out += html.slice(desde, b.inicio);
+    desde = b.fin;
+  }
+  return out + html.slice(desde);
 }
 
 async function documentoElementor(s: SesionWp, postId: number): Promise<{ nonce: string; elementos: Elemento[]; estado: string } | null> {

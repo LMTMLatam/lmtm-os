@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { instagramEnHtml, usuarioDeCompetidor } from "../competencia-ig.js";
 import {
-  baseArchivo, codigoDeLink, estadoVisible, evidenciaDe, guiaDe, leerTipos, limpiarContenido, medirVideos, mezclarReglas, resolverCadena, slugDe, tiposPara, vigenteDe, type Viral,
+  baseArchivo, codigoDeLink, estadoVisible, evidenciaDe, guiaDe, leerTipos, limpiarContenido, medirVideos, mezclarReglas, motivoDe, resolverCadena, slugDe, tiposPara, vigenteDe, type Viral,
 } from "../video-tipos.js";
 
 const dia = 86_400_000;
@@ -108,5 +108,15 @@ describe("Tipos de video (09/11)", () => {
     expect(baseArchivo("todos")).toBe("general");
     expect(slugDe("  Promo Flash ¡Ya! ")).toBe("promo-flash-ya");
     expect(slugDe("Recorrido de Obra")).toBe("recorrido-de-obra");
+  });
+});
+
+describe("Validación por plantilla (plan 17/11, fase 4.3)", () => {
+  it("el motivo sale del botón del panel («Motivo: texto»); escrito a mano cuenta como «otro»", () => {
+    expect(motivoDe("Gancho flojo: arranca con el logo")).toBe("Gancho flojo");
+    expect(motivoDe("Toma mal elegida: se ve movida")).toBe("Toma mal elegida");
+    expect(motivoDe("no me gustó la música")).toBe("otro");
+    expect(motivoDe("Esto es un texto largo que tiene dos puntos: después")).toBe("otro");
+    expect(motivoDe(null)).toBe("otro");
   });
 });

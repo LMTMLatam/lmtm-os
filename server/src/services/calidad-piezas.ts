@@ -95,6 +95,32 @@ export function revisionParaPieza(r: Revision | null, sinRevision?: string): Rec
   return { apto: null, sinRevision: (sinRevision ?? "").slice(0, 400) };
 }
 
+/**
+ * Lo que el control de placas exige además del diseño. Sale de revisar las 59
+ * piezas del Productor el 18/11: 34 no servían y casi todas por esto.
+ */
+export const REGLAS_PLACAS =
+  "FALLAS GRAVES (con cualquiera de estas, nivel 2 como mucho y no es apta): " +
+  "(a) no hay ninguna foto real del cliente (su producto, obra, propiedad, local o equipo): solo texto sobre un color, íconos o formas; " +
+  "la única excepción es un carrusel de ideas de una marca de servicios sin producto físico (finanzas, agencia, consultoría) con un número o dato concreto en la portada; " +
+  "(b) texto de estado o un hueco escrito en la pieza: «BORRADOR», «para revisión», «a validar», «NO PUBLICAR», «[completar…]» o similar; " +
+  "(c) un testimonio o relato en primera persona de un cliente que el brief no trae como real. " +
+  "PROBLEMAS (se marcan cada uno): la misma foto repetida en varias placas; una placa decorativa vacía (círculos, rectángulos o un ícono suelto sin foto ni dato); " +
+  "numeración incoherente (dos placas con el mismo número grande, o un número que no corresponde a lo que cuenta la placa); " +
+  "una pieza de venta, alquiler o promo sin precio ni dato concreto (dirección, ambientes, cuotas) en la portada o la placa 2; " +
+  "un carrusel que no es 4:5 o 1:1. ";
+
+/** Las palabras que la marca no usa, para el control (vacío si no hay). */
+export function reglaNoUsar(palabras: unknown): string {
+  const l = Array.isArray(palabras) ? palabras.filter((x): x is string => typeof x === "string" && !!x.trim()).slice(0, 15) : [];
+  return l.length ? `El cliente NO usa estas palabras o temas: ${l.map((x) => `«${x}»`).join(", ")}; si alguna aparece en una placa, es una falla grave. ` : "";
+}
+
+/** Un dato sin completar en los textos de la pieza: así no se entrega (18/11). */
+export function huecoSinCompletar(texto: string): string | null {
+  return texto.match(/\[(?:completar|falta|pendiente|confirmar|dato)[^\]]*\]/i)?.[0] ?? null;
+}
+
 /** Línea para la tarea de ClickUp y el issue. */
 export function lineaDeRevision(r: Revision | null, sinRevision?: string): string {
   if (!r) return `⚠️ Entregada SIN control de calidad: ${sinRevision || "sin motivo"}.`;

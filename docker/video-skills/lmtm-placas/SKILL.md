@@ -37,6 +37,39 @@ con medio lienzo vacío. El cliente tenía las fotos de la batería en Drive.
 - **Antes de empezar, leé las reglas fijadas del cliente** que trae
   `lmtmGuiaContenido` (memoria): ahí está lo que el equipo marcó como «no sirvió».
 
+## Reglas de la revisión de 59 piezas (18/11)
+
+De 47 placas y carruseles, 34 no servían. Lo que rinde en las cuentas de los
+clientes es FOTO REAL + DATO CONCRETO (la casa con la dirección, la obra con los
+metros, el producto con el precio). El carrusel de solo texto es lo que peor
+anda. El control (`lmtmVideoRevisar`) ya frena estas fallas.
+
+- **Foto real del cliente en la portada y en la mitad de las placas, como mínimo.**
+  Producto, obra, propiedad, local, equipo. Si no hay fotos, NO hagas un carrusel
+  de texto: frená y pedí el material en el issue. Única excepción: un carrusel de
+  ideas de una marca sin producto físico (finanzas, agencia, consultoría), y ahí
+  la portada lleva un número o un dato concreto.
+- **Una foto distinta en cada placa.** La misma foto tres veces es una falla.
+- **Ninguna placa de relleno:** círculos, rectángulos o un ícono suelto sin foto ni
+  dato no son una placa. Si sobra una placa, sacala.
+- **Venta, alquiler o promo: precio o dato duro** (dirección, ambientes, cuotas,
+  superficie) en la portada o en la placa 2. Si el cliente prohíbe el precio,
+  dirección + dato.
+- **Números grandes, solo si cuentan algo:** 01, 02, 03 en los pasos; en la
+  portada y en el cierre, el número del gancho o nada. Nunca dos placas con el
+  mismo número.
+- **Nada de estados ni huecos en la imagen:** «BORRADOR», «para revisión»,
+  «relato a validar», «[completar…]». El estado va en el título de la entrega y en
+  el issue. Si falta un dato, pedilo y esperá: la entrega rechaza textos con
+  `[completar…]`.
+- **Nada de testimonios ni relatos inventados** («mi hija pidió una noche más»):
+  solo los que están en el material del cliente, con su autor.
+- **El «No usar» de la marca y lo que el equipo borró** («Qué pide el equipo» en
+  la guía: quizzes, ganchos de miedo, etc.) no se hacen. El control también los mira.
+- **Si el cliente tiene un sistema visual** (la memoria lo describe, o hay placas
+  del equipo en su carpeta PLACAS), partí de ese sistema y pasalo en `referencias`.
+  No inventes una plantilla nueva.
+
 ## Formatos
 
 | Pieza | Tamaño | Notas |

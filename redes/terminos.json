@@ -1,0 +1,262 @@
+{
+  "_leeme": "Términos de búsqueda del estudio de virales LatAm (plan 17/11, fase 0). Los corrige el equipo. 'paises' = región de cada buscador (DuckDuckGo kl, subdominio de Yahoo). Cada término se busca en TikTok y en Instagram; los de 'por_pais' solo en ese país.",
+  "paises": {
+    "AR": {
+      "ddg": "ar-es",
+      "yahoo": "ar"
+    },
+    "MX": {
+      "ddg": "mx-es",
+      "yahoo": "mx"
+    },
+    "CO": {
+      "ddg": "co-es",
+      "yahoo": "co"
+    },
+    "CL": {
+      "ddg": "cl-es",
+      "yahoo": "cl"
+    },
+    "PE": {
+      "ddg": "pe-es",
+      "yahoo": "pe"
+    },
+    "UY": {
+      "ddg": "xl-es",
+      "yahoo": "espanol"
+    }
+  },
+  "rubros": {
+    "general": {
+      "terminos": [
+        "emprendimiento",
+        "pyme",
+        "negocio local",
+        "detrás de escena negocio",
+        "un día en mi trabajo",
+        "dueño de negocio",
+        "cómo empecé mi negocio",
+        "antes y después",
+        "proceso de fabricación",
+        "atención al cliente",
+        "mi local",
+        "historia de mi empresa"
+      ],
+      "por_pais": {
+        "AR": [
+          "emprendedor argentino",
+          "pyme argentina"
+        ],
+        "MX": [
+          "emprendedor mexicano",
+          "mi negocio méxico"
+        ],
+        "CO": [
+          "emprendimiento colombia"
+        ],
+        "CL": [
+          "emprendimiento chile"
+        ],
+        "PE": [
+          "emprendimiento perú"
+        ]
+      }
+    },
+    "inmobiliaria": {
+      "terminos": [
+        "inmobiliaria",
+        "departamento en venta",
+        "casa en venta",
+        "recorrido casa",
+        "tour departamento",
+        "inversión inmobiliaria",
+        "agente inmobiliario",
+        "terreno en venta",
+        "lote en venta",
+        "preventa departamentos",
+        "barrio cerrado",
+        "casa de lujo",
+        "comprar casa consejos",
+        "alquiler departamento"
+      ],
+      "por_pais": {
+        "AR": [
+          "depto en venta",
+          "propiedades en venta",
+          "inversión en pozo",
+          "broker inmobiliario argentina"
+        ],
+        "MX": [
+          "bienes raíces",
+          "casa en venta cdmx",
+          "preventa méxico"
+        ],
+        "CO": [
+          "inmuebles en venta",
+          "apartamento en venta",
+          "finca raíz"
+        ],
+        "CL": [
+          "propiedades chile",
+          "departamento santiago"
+        ],
+        "PE": [
+          "departamento lima",
+          "inmobiliaria perú"
+        ]
+      }
+    },
+    "turismo-hoteleria": {
+      "terminos": [
+        "hotel boutique",
+        "hospedaje",
+        "cabañas",
+        "glamping",
+        "escapada de fin de semana",
+        "resort",
+        "hotel con pileta",
+        "qué hacer en",
+        "viaje en pareja",
+        "hotel recomendado",
+        "posada",
+        "spa"
+      ],
+      "por_pais": {
+        "AR": [
+          "cabañas en",
+          "escapada desde buenos aires",
+          "hotel en la patagonia"
+        ],
+        "MX": [
+          "hotel todo incluido",
+          "cancún hotel",
+          "pueblo mágico"
+        ],
+        "CO": [
+          "hostal",
+          "hotel en cartagena",
+          "finca turística"
+        ],
+        "CL": [
+          "hotel en el sur de chile"
+        ],
+        "PE": [
+          "hotel en cusco"
+        ]
+      }
+    },
+    "construccion-materiales": {
+      "terminos": [
+        "materiales de construcción",
+        "obra en construcción",
+        "construcción de casa",
+        "remodelación",
+        "porcelanato",
+        "construcción en seco",
+        "steel frame",
+        "albañilería",
+        "techos",
+        "pisos",
+        "paso a paso obra",
+        "presupuesto de obra"
+      ],
+      "por_pais": {
+        "AR": [
+          "corralón",
+          "durlock",
+          "construcción argentina"
+        ],
+        "MX": [
+          "ferretería",
+          "tablaroca",
+          "construcción méxico"
+        ],
+        "CO": [
+          "ferretería colombia",
+          "drywall",
+          "maestro de obra"
+        ],
+        "CL": [
+          "constructora chile",
+          "tabiquería"
+        ],
+        "PE": [
+          "construcción perú"
+        ]
+      }
+    },
+    "industria-b2b": {
+      "terminos": [
+        "fábrica",
+        "cómo se fabrica",
+        "proceso industrial",
+        "maquinaria industrial",
+        "metalúrgica",
+        "planta industrial",
+        "industria nacional",
+        "matricería",
+        "mecanizado cnc",
+        "soldadura industrial",
+        "logística",
+        "producción en serie"
+      ],
+      "por_pais": {
+        "AR": [
+          "industria argentina",
+          "pyme industrial"
+        ],
+        "MX": [
+          "industria mexicana",
+          "maquila"
+        ],
+        "CO": [
+          "industria colombiana"
+        ],
+        "CL": [
+          "industria chile"
+        ],
+        "PE": [
+          "industria perú"
+        ]
+      }
+    },
+    "automotor-autopartes": {
+      "terminos": [
+        "autopartes",
+        "repuestos auto",
+        "taller mecánico",
+        "cambio de frenos",
+        "neumáticos",
+        "mantenimiento auto",
+        "cambio de aceite",
+        "auto usado",
+        "concesionaria",
+        "accesorios para auto",
+        "llantas deportivas",
+        "batería de auto"
+      ],
+      "por_pais": {
+        "AR": [
+          "gomería",
+          "lubricentro",
+          "repuestos argentina"
+        ],
+        "MX": [
+          "refacciones",
+          "llantas méxico",
+          "agencia de autos"
+        ],
+        "CO": [
+          "repuestos colombia",
+          "taller automotriz"
+        ],
+        "CL": [
+          "neumáticos chile"
+        ],
+        "PE": [
+          "repuestos perú"
+        ]
+      }
+    }
+  }
+}

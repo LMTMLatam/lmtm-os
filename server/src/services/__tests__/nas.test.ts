@@ -47,3 +47,13 @@ describe("lo que genera el equipo (13/11)", () => {
     expect(fueraDeEquipo({ archivo: "equipo" })).toMatch(/equipo\//);
   });
 });
+
+import { originalDeProxy } from "../video-agente.js";
+
+describe("proxies de cámara Sony (crudos_preparar, 18/11)", () => {
+  it("del proxy al original", () => {
+    expect(originalDeProxy("C0001S03.MP4")).toBe("C0001.MP4");
+    expect(originalDeProxy("C0646S03.mp4")).toBe("C0646.mp4");
+    expect(originalDeProxy("IMG_1234.MOV")).toBeNull();
+  });
+});

@@ -76,4 +76,12 @@ describe("spam oculto", () => {
     expect(r).toHaveLength(1);
     expect(r[0].links).toEqual(["https://xbet-bolivia.com/"]);
   });
+
+  it("ve el estilo height:1px y los bloques largos y anidados, y no los estilos parecidos", () => {
+    const largo = "<p>" + "texto de relleno ".repeat(80) + "</p>";
+    const html = `<div style="overflow: hidden; height: 1.3px;"><div>${largo}</div><a href="https://stake3.org/">Stake casino</a></div>`
+      + `<div style="line-height: 1px"><a href="https://proveedor.com/">casino del proveedor</a></div>`;
+    const r = spamOculto(html, "ellibertador-hotel.com.ar");
+    expect(r.map((x) => x.links)).toEqual([["https://stake3.org/"]]);
+  });
 });

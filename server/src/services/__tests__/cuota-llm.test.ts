@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  anotarArranque, arrancadasUltimaHora, corteParaDespertar, cuotaPausadaHasta, leerEstado, motivoDeCorte, olvidarArranques, olvidarPausas, pausarPorCuota,
+  anotarArranque, arrancadasUltimaHora, corteParaDespertar, cuotaPausadaHasta, estadoCuota, leerEstado, motivoDeCorte, olvidarArranques, olvidarPausas, pausarPorCuota,
   proveedorDe, resetDe, SONDEO_MS, vaAdelantado,
   type EstadoCuota,
 } from "../cuota-llm.js";
@@ -92,5 +92,24 @@ describe("cuota del proveedor de los agentes (22/10)", () => {
     // Los que sí arrancan siguen contando, y el quinto de la hora se frena.
     for (let i = 0; i < 4; i++) expect(await corteParaDespertar(db, null, "automation")).toBeNull();
     expect(await corteParaDespertar(db, null, "automation")).toBe("llm.tope_hora");
+  });
+});
+
+describe("env del agente en el modo estricto de secretos (18/11)", () => {
+  afterEach(() => { olvidarPausas(); vi.unstubAllGlobals(); });
+
+  it("lee la URL guardada como {type: plain} (si no, Carlos dejaba de contar como MiniMax)", () => {
+    expect(proveedorDe({ env: { ANTHROPIC_BASE_URL: { type: "plain", value: `${MINIMAX}/` } } })).toBe(MINIMAX);
+  });
+
+  it("con la clave en secret_ref no sondea: usa lo último que sondeó otro agente del mismo plan", async () => {
+    const respuesta = { model_remains: [{ model_name: "MiniMax-M2", weekly_start_time: INICIO, weekly_end_time: FIN, current_weekly_remaining_percent: 40, end_time: INICIO + 5 * 3600_000, current_interval_remaining_percent: 80 }] };
+    const llamadas: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => { llamadas.push(url); return new Response(JSON.stringify(respuesta), { status: 200 }); });
+    const conClave = { env: { ANTHROPIC_BASE_URL: MINIMAX, ANTHROPIC_API_KEY: "clave-del-plan" } };
+    const conRef = { env: { ANTHROPIC_BASE_URL: { type: "plain", value: MINIMAX }, ANTHROPIC_API_KEY: { type: "secret_ref", secretId: "x", version: "latest" } } };
+    const sondeado = await estadoCuota(conClave, true);
+    expect(await estadoCuota(conRef)).toEqual(sondeado);
+    expect(llamadas.length).toBe(1);
   });
 });

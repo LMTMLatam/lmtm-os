@@ -1,0 +1,15 @@
+{
+  "nombre": "corporativo-industrial",
+  "descripcion": "Empresas, fábricas, servicios B2B: proceso real, confianza, datos solo verificables",
+  "reel": {
+    "pausa": 0.75,
+    "estilo": "caja",
+    "zoom": 0,
+    "sfx": false,
+    "vol_musica": -22
+  },
+  "duracion": [
+    20,
+    45
+  ]
+}

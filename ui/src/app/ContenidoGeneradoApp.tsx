@@ -100,6 +100,7 @@ export function ContenidoGeneradoApp() {
   const [cliente, setCliente] = useState("");
   const [herramienta, setHerramienta] = useState("");
   const [buscar, setBuscar] = useState("");
+  const [sinValidar, setSinValidar] = useState(false);
   const q = useQuery({
     queryKey: ["lmtm", "contenido", "generado", dias],
     queryFn: () => api.get<Respuesta>(`/contenido/generado?dias=${dias}`),
@@ -116,13 +117,14 @@ export function ContenidoGeneradoApp() {
   const visibles = (d?.piezas ?? []).filter((p) =>
     (!cliente || p.clientId === cliente)
     && (!herramienta || p.gasto?.some((g) => g.herramienta === herramienta))
-    && (!texto || p.titulo.toLowerCase().includes(texto) || (p.cliente ?? "").toLowerCase().includes(texto)));
+    && (!texto || p.titulo.toLowerCase().includes(texto) || (p.cliente ?? "").toLowerCase().includes(texto))
+    && (!sinValidar || (p.kind === "video" && !p.veredicto)));
 
   return (
     <>
       <Encabezado
         titulo="Producción"
-        bajada="Pedile videos al Productor de contenido, pedile cambios a lo que hizo y mirá lo generado con su link de Drive"
+        bajada="Pedile videos al Productor, pasale crudos al Editor, validá lo que hicieron y mirá lo generado con su link de Drive"
         derecha={
           <div className="flex gap-1" role="group" aria-label="Período">
             {PERIODOS.map((n) => (
@@ -142,6 +144,7 @@ export function ContenidoGeneradoApp() {
       <PestanasProduccion />
       <div className="space-y-8 px-4 pb-10 md:px-8">
         <PedirVideo />
+        <PedirAlEditor />
         {q.isLoading && (
           <p className="flex items-center gap-2 text-[14px] text-l-tinta-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Cargando…</p>
         )}
@@ -216,6 +219,10 @@ export function ContenidoGeneradoApp() {
                 <option value="">Todas las herramientas</option>
                 {Object.keys(HERRAMIENTAS).map((h) => <option key={h} value={h}>{nombreHerramienta(h)}</option>)}
               </select>
+              <label className="inline-flex h-9 items-center gap-1.5 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]">
+                <input type="checkbox" checked={sinValidar} onChange={(e) => setSinValidar(e.target.checked)} />
+                Videos sin validar
+              </label>
             </div>
             {visibles.length === 0 ? (
               <Tarjeta><p className="text-[14px] text-l-tinta-2">No hay contenido generado en este período con esos filtros.</p></Tarjeta>
@@ -301,6 +308,90 @@ function PedirVideo() {
   );
 }
 
+interface CarpetaCrudos { cliente: string; clientId: string; carpeta: string; videos: number; mb: number; fecha: string }
+
+/** Plan 17/11: «en el cliente X, carpeta X, tenés los crudos de hoy: dejalos listos para redes». */
+function PedirAlEditor() {
+  const qc = useQueryClient();
+  const [clientId, setClientId] = useState("");
+  const [ruta, setRuta] = useState("");
+  const [pedido, setPedido] = useState("");
+  const clientes = useQuery({ queryKey: ["clients", "para-pedidos"], queryFn: () => clientsApi.list("active") });
+  // Sin cliente: lo nuevo de todos (7 días). Con cliente: sus carpetas de crudos de 60 días, para no tipear la ruta.
+  const crudos = useQuery({
+    queryKey: ["lmtm", "contenido", "crudos", clientId],
+    queryFn: () => api.get<{ carpetas: CarpetaCrudos[] }>(`/contenido/crudos-nuevos?${clientId ? `dias=60&clientId=${encodeURIComponent(clientId)}` : "dias=7"}`),
+  });
+  const pedidos = useQuery({
+    queryKey: ["lmtm", "contenido", "editor"],
+    queryFn: () => api.get<{ pedidos: PedidoProductor[] }>("/contenido/editor/pedidos"),
+    refetchInterval: 60_000,
+  });
+  const pedir = useMutation({
+    mutationFn: () => api.post<RespuestaPedido>("/contenido/editor/pedido", { clientId, ruta: ruta.trim(), pedido }),
+    onSuccess: (r) => {
+      if (r.ok) { setPedido(""); setRuta(""); }
+      void qc.invalidateQueries({ queryKey: ["lmtm", "contenido", "editor"] });
+    },
+  });
+  const lista = [...(clientes.data?.clients ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const nuevas = (crudos.data?.carpetas ?? []).filter((c) => !clientId || c.clientId === clientId).slice(0, clientId ? 15 : 8);
+  const valida = !!clientId && ruta.trim().startsWith("/LMTM/");
+  return (
+    <section>
+      <TituloFranja>Pedile al Editor: crudos → piezas listas</TituloFranja>
+      <Tarjeta>
+        <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (valida) pedir.mutate(); }}>
+          <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-9 min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" aria-label="Cliente" required>
+            <option value="">Elegí el cliente</option>
+            {lista.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {nuevas.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] text-l-tinta-2">{clientId ? "Crudos de este cliente en el NAS (últimos 60 días)" : "Crudos nuevos en el NAS (últimos 7 días)"}: tocá uno</span>
+              <ul className="flex flex-col gap-1">
+                {nuevas.map((c) => (
+                  <li key={c.carpeta}>
+                    <button type="button" onClick={() => { setClientId(c.clientId); setRuta(c.carpeta); }} aria-pressed={ruta === c.carpeta} className={`w-full min-w-0 rounded-[8px] border px-2 py-1 text-left text-[13px] ${ruta === c.carpeta ? "border-l-marca" : "border-l-linea-2"}`}>
+                      <span className="font-semibold">{c.cliente}</span> · {c.videos} videos · {c.mb >= 1000 ? `${(c.mb / 1000).toFixed(1)} GB` : `${c.mb} MB`} · {c.fecha}
+                      <span className="block truncate text-l-tinta-3" title={c.carpeta}>{c.carpeta}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {clientId && crudos.isSuccess && nuevas.length === 0 && (
+            <p className="text-[13px] text-l-tinta-3">No hay carpetas de crudos de este cliente en el NAS en los últimos 60 días: escribí la ruta.</p>
+          )}
+          <label className="text-[13px] text-l-tinta-2" htmlFor="ruta-crudos">Carpeta del NAS con los crudos</label>
+          <input id="ruta-crudos" value={ruta} onChange={(e) => setRuta(e.target.value)} placeholder="/LMTM/Clientes/<Cliente>/VIDEO/PROYECTOS/<proyecto>/RECURSOS/CRUDOS" className="h-9 w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" />
+          <label className="text-[13px] text-l-tinta-2" htmlFor="pedido-editor">Algo puntual (opcional): cuántas piezas, de qué producto, para qué</label>
+          <textarea id="pedido-editor" value={pedido} onChange={(e) => setPedido(e.target.value)} rows={2} placeholder="Sacá 3 reels: uno de cada ambiente y un testimonio" className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]" />
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={!valida || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-white disabled:opacity-50">
+              {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FolderOpen className="h-4 w-4" aria-hidden />} Pasarle los crudos
+            </button>
+            {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}
+            {pedir.error && <span className="text-[13px] text-l-critico-texto" role="alert">{pedir.error instanceof Error ? pedir.error.message : "No se pudo pedir"}</span>}
+          </div>
+          <p className="text-[12px] text-l-tinta-3">Las piezas vuelven a esta pantalla para validar (filtro «Videos sin validar») y quedan en Drive, en la carpeta VIDEOS del cliente.</p>
+        </form>
+        {(pedidos.data?.pedidos.length ?? 0) > 0 && (
+          <ul className="mt-3 border-t border-l-linea pt-2">
+            {pedidos.data!.pedidos.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-[13px]">
+                <span className="min-w-0 flex-1 truncate" title={p.titulo}>{p.identifier ? `${p.identifier} · ` : ""}{p.titulo}</span>
+                <span className={`tabular-nums ${p.estado === "blocked" ? "text-l-atencion-texto" : "text-l-tinta-3"}`}>{ESTADO[p.estado] ?? p.estado} · {fecha(p.creado)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Tarjeta>
+    </section>
+  );
+}
+
 function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: Estado }) {
   const saldo = h === "higgsfield_plan" && e?.creditos != null ? `Le quedan ${num(e.creditos)} créditos al plan` : null;
   const sinConfigurar = h === "magnific" && e && !e.magnific;
@@ -334,6 +425,9 @@ function TarjetaHerramienta({ h, t, e }: { h: string; t?: TotalHerramienta; e?: 
  * persona (15/11). «No sirve» pide el porqué: queda como regla del cliente y el
  * agente la lee antes de la próxima pieza.
  */
+/** Para contar después qué falla más en cada plantilla (plan 17/11, fase 4). El texto queda como regla del cliente. */
+const MOTIVOS = ["Gancho flojo", "Ritmo", "Toma mal elegida", "Subtítulos", "Marca", "Dato equivocado"];
+
 export function Calidad({ p }: { p: Pick<PiezaGenerada, "id" | "revision" | "veredicto"> }) {
   const qc = useQueryClient();
   const [abierto, setAbierto] = useState(false);
@@ -362,6 +456,13 @@ export function Calidad({ p }: { p: Pick<PiezaGenerada, "id" | "revision" | "ver
           </span>
         )}
       </div>
+      {abierto && !v && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Motivo">
+          {MOTIVOS.map((m) => (
+            <button key={m} type="button" aria-pressed={porque.startsWith(`${m}: `)} onClick={() => setPorque((x) => (x.startsWith(`${m}: `) ? x : `${m}: ${x.replace(/^[^:]{1,20}: /, "")}`))} className={`min-h-8 rounded-full border px-2 text-[12px] ${porque.startsWith(`${m}: `) ? "border-l-marca text-l-marca" : "border-l-linea-2"}`}>{m}</button>
+          ))}
+        </div>
+      )}
       {abierto && !v && (
         <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (porque.trim().length >= 5) juzgar.mutate(false); }}>
           <label className="sr-only" htmlFor={`porque-${p.id}`}>Por qué no sirve</label>

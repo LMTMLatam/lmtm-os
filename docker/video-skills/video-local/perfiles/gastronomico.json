@@ -1,0 +1,16 @@
+{
+  "nombre": "gastronomico",
+  "descripcion": "Restaurantes, cafés, delivery y productos de comida: textura, sonido real, apetito",
+  "reel": {
+    "pausa": 0.6,
+    "estilo": "reel",
+    "zoom": 1.1,
+    "sfx": true,
+    "vol_musica": -16,
+    "vol_sfx": -22
+  },
+  "duracion": [
+    12,
+    30
+  ]
+}

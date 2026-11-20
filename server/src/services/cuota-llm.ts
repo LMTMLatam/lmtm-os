@@ -36,17 +36,22 @@ export const MARGEN_RITMO = 0.1;
 
 const pausas = new Map<string, number>();
 
+/** Una variable del env del agente: texto, o `{type:"plain", value}` (modo estricto de secretos, 18/11). Una
+ *  `secret_ref` no se resuelve acá (anotaría un acceso al secreto en cada minuto del motor): da null. Pura. */
+function valorEnv(v: unknown): string | null {
+  const s = typeof v === "string" ? v : v && typeof v === "object" && (v as { type?: unknown }).type === "plain" ? (v as { value?: unknown }).value : null;
+  return typeof s === "string" && s.trim() ? s.trim() : null;
+}
+
 /** A qué proveedor le pega un agente de Claude: su ANTHROPIC_BASE_URL. Pura. */
 export function proveedorDe(adapterConfig: unknown): string {
   const env = (adapterConfig as { env?: Record<string, unknown> } | null | undefined)?.env ?? {};
-  const url = typeof env.ANTHROPIC_BASE_URL === "string" && env.ANTHROPIC_BASE_URL.trim() ? env.ANTHROPIC_BASE_URL.trim() : "anthropic";
-  return url.replace(/\/+$/, "");
+  return (valorEnv(env.ANTHROPIC_BASE_URL) ?? "anthropic").replace(/\/+$/, "");
 }
 
 function claveDe(adapterConfig: unknown): string | null {
   const env = (adapterConfig as { env?: Record<string, unknown> } | null | undefined)?.env ?? {};
-  const k = env.ANTHROPIC_API_KEY ?? env.ANTHROPIC_AUTH_TOKEN;
-  return typeof k === "string" && k.trim() ? k.trim() : null;
+  return valorEnv(env.ANTHROPIC_API_KEY) ?? valorEnv(env.ANTHROPIC_AUTH_TOKEN);
 }
 
 /** Corta el proveedor hasta `hasta` (si es futuro) o hasta el próximo sondeo. */
@@ -89,14 +94,17 @@ export function leerEstado(j: unknown): EstadoCuota | null {
   return [e.semana.inicio, e.semana.fin, e.semana.restante, e.ventana.fin, e.ventana.restante].every(Number.isFinite) ? e : null;
 }
 
+/** Por proveedor: todos los agentes de MiniMax usan el mismo plan (misma clave, verificado el 18/11). */
 const estados = new Map<string, { at: number; e: EstadoCuota | null }>();
 
 /** Cuota del plan de MiniMax (5 min de caché). null si no es MiniMax o no contesta. */
 export async function estadoCuota(adapterConfig: unknown, fresco = false, ahora = Date.now()): Promise<EstadoCuota | null> {
   const proveedor = proveedorDe(adapterConfig);
+  if (!/minimax\.io/.test(proveedor)) return null;
+  const c = estados.get(proveedor);
   const clave = claveDe(adapterConfig);
-  if (!/minimax\.io/.test(proveedor) || !clave) return null;
-  const c = estados.get(clave);
+  // Con la clave en secret_ref no se sondea: vale lo último que sondeó otro agente del mismo plan.
+  if (!clave) return c?.e ?? null;
   if (c && !fresco && ahora - c.at < 5 * 60_000) return c.e;
   let e: EstadoCuota | null = null;
   try {
@@ -108,7 +116,7 @@ export async function estadoCuota(adapterConfig: unknown, fresco = false, ahora 
   } catch {
     e = null;
   }
-  estados.set(clave, { at: ahora, e });
+  estados.set(proveedor, { at: ahora, e });
   return e;
 }
 

@@ -79,6 +79,10 @@ export const TOOLS_DE_CONSULTA: ReadonlySet<string> = new Set([
   "nas_buscar",
   "nas_link",
   "video_link",
+  // lmtm-redes (17/11): leer TikTok/Instagram públicos no cambia nada.
+  "virales_buscar",
+  "virales_autor",
+  "virales_tendencias",
 ]);
 
 /** Prefijos de solo lectura para las tools de plugin, que son dinámicas. */

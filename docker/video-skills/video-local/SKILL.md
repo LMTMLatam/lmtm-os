@@ -57,6 +57,9 @@ devuelve una linea. Tu rol es elegir el comando, correrlo y leer la linea final.
 | Ver las tomas de toda una carpeta | `vtool lote CARPETA tomas` |
 | Limpiar la voz de un video ya cortado | `vtool limpiar VIDEO` (despues `vtool normalizar`) |
 | Sumar musica a un video ya cortado | `vtool musica VIDEO pista.mp3 [--vol-musica -18]` (baja sola cuando se habla) |
+| Estilo del tipo de video | `--perfil <nicho>` (`vtool perfiles` lista). Si `lmtmPlantillaVideo` del cliente y tipo trae `perfil`, guardalo como `perfiles/<archivo>.json` y usá ese |
+| Ritmo y sonido | `--zoom 1.12` (acerca un tramo sí y uno no) · `--sfx` (whoosh en cortes y pop en el gancho, nunca dos en menos de 2 s; `--vol-sfx`, `--sin-sfx`) |
+| Medir videos de referencia (virales) | `vtool referencia CARPETA` (cortes, plano medio, primer corte, palabras/s, volumen, brillo por video + mediana) |
 | Opciones de reel y jornada | `--tomas 1,3` (solo reel) · `--palabras X.words.json` (solo reel) · `--color "#HEX"` · `--fuente "Liberation Sans"` · `--estilo reel/caja/simple` · `--gancho "texto"` · `--musica pista.mp3 [--vol-musica -18]` · `--posicion auto/abajo/arriba` · `--formato 9:16/4:5/1:1/16:9` · `--modo fondo/recorte` · `--pausa 1` (corta menos) · `--umbral -30` · `--sin-subtitulos` · `--con-silencios` · `--con-repeticiones` |
 | Insertar foto o clip | `vtool insertar VIDEO foto.jpg 0:03-0:06 [--modo ventana/completa]` |
 | Control de calidad | `vtool revisar VIDEO` (medidas, codec, volumen, picos, negros, congelados, silencios + hoja) |
@@ -64,7 +67,8 @@ devuelve una linea. Tu rol es elegir el comando, correrlo y leer la linea final.
 | Quitar silencios sin mirar el contenido | `vtool silencios VIDEO` (`--margen 0.3` deja mas aire, `--umbral -30` corta mas) |
 | Subtitulos .srt | `vtool subtitulos VIDEO` (`--ancho 22` para vertical) |
 | Quemar un .srt | `vtool quemar VIDEO SRT --estilo reel/clasico/caja` |
-| Cambiar formato | `vtool vertical VIDEO --formato 9:16/1:1/4:5/16:9 --modo fondo/recorte` |
+| Cambiar formato | `vtool vertical VIDEO --formato 9:16/1:1/4:5/16:9 --modo fondo/recorte/cara` (`cara`: horizontal de alguien hablando → 9:16 centrado en su cara) |
+| Crudo oscuro o con tinte | `vtool luz VIDEO` (solo aclara, nunca oscurece; `--blanco` corrige también el tinte medido en los grises: usalo solo si se ve feo, una pared beige no es un tinte) |
 | Quedarse con tramos | `vtool cortar VIDEO 0:05-0:12 1:00-1:20` |
 | Unir clips | `vtool unir A.mp4 B.mp4 -o final.mp4` |
 | Detectar / partir escenas | `vtool escenas VIDEO [--partir]` |

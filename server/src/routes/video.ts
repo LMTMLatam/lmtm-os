@@ -7,7 +7,7 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import { agentDeliverables, agents, clients } from "@paperclipai/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { barrerPendientes, estadoCuenta, generarVideoDePieza, piezasPendientes, previsualizarPieza, TAG_PEDIDO } from "../services/video-higgsfield.js";
 import { hayMagnific } from "../services/magnific.js";
 import { contenidoGenerado, generarContenidoLibre, type PedidoLibre } from "../services/contenido-generado.js";
@@ -139,6 +139,49 @@ export function videoRoutes(db: Db): Router {
     res.json({ pedidos: await pedidosDelProductor(db) });
   });
 
+  // ── Editor de video (plan 17/11): «en el cliente X, carpeta X, tenés los crudos de hoy». ──
+  router.get("/contenido/editor/pedidos", async (req, res) => {
+    assertMiembro(req);
+    const { pedidosDelProductor, AGENTE_EDITOR } = await import("../services/video-agente.js");
+    res.json({ pedidos: await pedidosDelProductor(db, AGENTE_EDITOR) });
+  });
+
+  // POST /api/contenido/editor/pedido { clientId, ruta, pedido? }
+  router.post("/contenido/editor/pedido", async (req, res) => {
+    assertBoard(req);
+    const b = (req.body ?? {}) as { clientId?: string; ruta?: string; pedido?: string };
+    const { rutaNas } = await import("../services/nas.js");
+    const ruta = rutaNas(b.ruta);
+    if (!b.clientId || !ruta || !ruta.startsWith("/LMTM/")) return res.status(422).json({ error: "Falta el cliente o la carpeta del NAS con los crudos (empieza con /LMTM/)." });
+    const [c] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.id, b.clientId)).limit(1);
+    if (!c) return res.status(404).json({ error: "No encuentro ese cliente." });
+    const { encargarAlEditor, AGENTE_EDITOR } = await import("../services/video-agente.js");
+    const [a] = await db.select({ companyId: agents.companyId }).from(agents).where(eq(agents.name, AGENTE_EDITOR)).limit(1);
+    if (!a) return res.status(503).json({ error: "No está el agente Editor de video." });
+    const pedido = typeof b.pedido === "string" ? b.pedido.trim().slice(0, 4000) : "";
+    const r = await encargarAlEditor(db, { companyId: a.companyId, clientId: c.id, clienteNombre: c.name, ruta, pedido, aPedido: true });
+    res.status(r.ok ? 200 : 502).json(r);
+  });
+
+  // GET /api/contenido/para-validar — videos de los agentes sin veredicto (30 días): el aviso de Hoy (plan 17/11, fase 4).
+  router.get("/contenido/para-validar", async (req, res) => {
+    assertMiembro(req);
+    const { AGENTE_EDITOR, AGENTE_PRODUCTOR } = await import("../services/video-agente.js");
+    const [f] = await db.select({ n: sql<number>`count(*)::int`, desde: sql<string | null>`min(${agentDeliverables.createdAt})::text` })
+      .from(agentDeliverables).innerJoin(agents, eq(agents.id, agentDeliverables.agentId))
+      .where(and(eq(agentDeliverables.kind, "video"), inArray(agents.name, [AGENTE_PRODUCTOR, AGENTE_EDITOR]),
+        sql`${agentDeliverables.metadata}->'veredicto' is null`, sql`${agentDeliverables.createdAt} > now() - interval '30 days'`));
+    res.json({ videos: Number(f?.n ?? 0), desde: f?.desde ?? null });
+  });
+
+  // GET /api/contenido/crudos-nuevos — carpetas de crudos del NAS de los últimos días (del índice nocturno), por cliente.
+  router.get("/contenido/crudos-nuevos", async (req, res) => {
+    assertMiembro(req);
+    const { crudosNuevos } = await import("../services/nas-indice.js");
+    const clientId = typeof req.query.clientId === "string" && /^[0-9a-f-]{36}$/i.test(req.query.clientId) ? req.query.clientId : undefined;
+    res.json({ carpetas: await crudosNuevos(db, Number(req.query.dias) || 7, clientId) });
+  });
+
   // POST /api/contenido/productor/pedido { clientId, pedido }
   router.post("/contenido/productor/pedido", async (req, res) => {
     assertBoard(req);
@@ -150,7 +193,7 @@ export function videoRoutes(db: Db): Router {
     const { encargarAlProductor, AGENTE_PRODUCTOR } = await import("../services/video-agente.js");
     const [a] = await db.select({ companyId: agents.companyId }).from(agents).where(eq(agents.name, AGENTE_PRODUCTOR)).limit(1);
     if (!a) return res.status(503).json({ error: "No está el agente Productor de contenido." });
-    const r = await encargarAlProductor(db, { companyId: a.companyId, clientId: c.id, clienteNombre: c.name, pedido: pedido.slice(0, 4000) });
+    const r = await encargarAlProductor(db, { companyId: a.companyId, clientId: c.id, clienteNombre: c.name, pedido: pedido.slice(0, 4000), aPedido: true });
     res.status(r.ok ? 200 : 502).json(r);
   });
 

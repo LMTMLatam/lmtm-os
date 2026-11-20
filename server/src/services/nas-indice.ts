@@ -150,6 +150,44 @@ export async function buscarEnNas(db: Db, o: { q: string; clientIds?: string[]; 
   };
 }
 
+export interface CarpetaCrudos { cliente: string; clientId: string; carpeta: string; videos: number; mb: number; fecha: string }
+
+/** Puro: ¿esta ruta es de crudos? Lo terminado, los avisos, el diseño de redes, el audio y las maquetas no (18/11, con el índice real). */
+export function esRutaDeCrudos(ruta: string): boolean {
+  if (/\/(TERMINADOS|AVISOS|AUDIO|MUSICA|MAQUETA|GRAFICOS)(\/|$)/i.test(ruta)) return false;
+  if (/\/M4ROOT\/SUB(\/|$)/i.test(ruta)) return false; // proxies de Sony: van con su carpeta CLIP
+  if (/\/DISENO\//i.test(ruta) && !/crudo/i.test(ruta)) return false;
+  return /crudo|\/PRODUCCION\/|\/RECURSOS(\/|$)/i.test(ruta);
+}
+
+/** Puro: los videos nuevos agrupados por carpeta (para «Crudos nuevos» → Editor). Lo terminado no es crudo. */
+export function agruparCrudos(filas: Array<{ cliente: string; clientId: string; archivo: ArchivoNas }>): CarpetaCrudos[] {
+  const por = new Map<string, CarpetaCrudos>();
+  for (const f of filas) {
+    if (f.archivo.tipo !== "video" || !esRutaDeCrudos(f.archivo.ruta)) continue;
+    const carpeta = f.archivo.ruta.slice(0, f.archivo.ruta.lastIndexOf("/")) || "/";
+    const c = por.get(carpeta) ?? { cliente: f.cliente, clientId: f.clientId, carpeta, videos: 0, mb: 0, fecha: "" };
+    c.videos += 1;
+    c.mb += f.archivo.mb ?? 0;
+    if ((f.archivo.fecha ?? "") > c.fecha) c.fecha = f.archivo.fecha ?? "";
+    por.set(carpeta, c);
+  }
+  return [...por.values()].map((c) => ({ ...c, mb: Math.round(c.mb) })).sort((a, b) => b.fecha.localeCompare(a.fecha) || b.videos - a.videos);
+}
+
+/** Carpetas con videos de los últimos `dias` (según el índice nocturno): lo que se grabó y falta editar. */
+/** Con `clientId`, solo las de ese cliente (el panel las lista al elegirlo, 18/11). */
+export async function crudosNuevos(db: Db, dias = 7, clientId?: string): Promise<CarpetaCrudos[]> {
+  const desde = new Date(Date.now() - Math.min(Math.max(dias, 1), 60) * 86_400_000).toISOString().slice(0, 10);
+  const r = await db.execute(sql`
+    select x.client_id, c.name cliente, a.value archivo
+    from client_context_cache x join clients c on c.id = x.client_id, jsonb_array_elements(x.payload->'archivos') a
+    where x.source = ${FUENTE_INDICE} and a->>'tipo' = 'video' and a->>'fecha' >= ${desde}${clientId ? sql` and x.client_id = ${clientId}` : sql``}
+    limit 5000`);
+  const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ client_id: string; cliente: string; archivo: ArchivoNas }>;
+  return agruparCrudos(filas.map((f) => ({ cliente: String(f.cliente).trim(), clientId: f.client_id, archivo: f.archivo }))).slice(0, 60);
+}
+
 /** Todas las noches (04:00 a 05:00 de Argentina), una vez por día. */
 export function initNasIndice(db: Db): void {
   if (nasConfigurado()) return;

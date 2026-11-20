@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REDACTED_EVENT_VALUE, redactEventPayload, redactSensitiveText, sanitizeRecord } from "../redaction.js";
+import { REDACTED_EVENT_VALUE, redactEventPayload, redactLogValue, redactSensitiveText, sanitizeRecord } from "../redaction.js";
 
 describe("redaction", () => {
   it("redacts sensitive keys and nested secret values", () => {
@@ -130,5 +130,18 @@ describe("redaction", () => {
 
     expect(result?.args).toEqual(["--api-key", "not-a-command-secret"]);
     expect(result?.argv).toEqual(["--api-key", REDACTED_EVENT_VALUE]);
+  });
+});
+
+describe("redactLogValue (log HTTP de errores, 18/11)", () => {
+  it("tapa las claves de un PATCH de agente rechazado y deja el resto", () => {
+    const body = { adapterConfig: { env: { ANTHROPIC_API_KEY: "sk-lmtm-x", ANTHROPIC_AUTH_TOKEN: "sk-lmtm-x", PATH: "/bin" }, promptTemplate: "hola" } };
+    const r = redactLogValue(body) as { adapterConfig: { env: Record<string, unknown>; promptTemplate: string } };
+    expect(r.adapterConfig.env.ANTHROPIC_API_KEY).toBe(REDACTED_EVENT_VALUE);
+    expect(r.adapterConfig.env.ANTHROPIC_AUTH_TOKEN).toBe(REDACTED_EVENT_VALUE);
+    expect(r.adapterConfig.env.PATH).toBe("/bin");
+    expect(r.adapterConfig.promptTemplate).toBe("hola");
+    expect(redactLogValue("texto")).toBe("texto");
+    expect(redactLogValue(undefined)).toBeUndefined();
   });
 });

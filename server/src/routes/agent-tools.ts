@@ -46,8 +46,9 @@ import { assertMiembro } from "./authz.js";
 import { AGENTE_EQUIPO } from "./conector-mcp.js";
 import {
   grilla as grillaVideo, guardarPlantilla as guardarPlantillaVideo, guardarViral as guardarViralVideo,
-  plantillaDe as plantillaVideo, resolverNicho as resolverNichoVideo, viralesDe as viralesDeVideo,
+  limpiarMedicion, plantillaDe as plantillaVideo, resolverNicho as resolverNichoVideo, viralesDe as viralesDeVideo,
 } from "../services/video-tipos.js";
+import { medirVideo } from "../services/redes.js";
 
 type ToolDef = {
   type: "function";
@@ -689,7 +690,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "buscar_virales",
       description:
-        "VIRALES de la competencia por nicho y tipo de video: videos que hicieron 3 veces o más lo normal de SU propia cuenta (me gusta + comentarios×3, publicaciones de al menos 3 días), con el link, cuántas veces lo normal, el texto y el gancho; y 'noVirales' de las mismas cuentas para comparar. veces = null es un viral cargado a mano que todavía no se pudo medir.",
+        "VIRALES ya guardados por nicho y tipo de video: los de la competencia de los clientes (me gusta + comentarios×3 contra lo normal de SU cuenta) y los de Latinoamérica en TikTok e Instagram medidos con vistas (fuente 'estudio' o 'agente', con su red y su ficha: forma medida y respuestas sí/no). Videos que hicieron 3 veces o más lo normal de SU autor, con link, veces, texto y gancho; y 'noVirales' de las mismas cuentas para comparar. veces = null = cargado a mano sin medir. Para buscar virales NUEVOS en las redes: virales_buscar.",
       parameters: {
         type: "object",
         properties: {
@@ -705,16 +706,20 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "guardar_viral",
       description:
-        "Carga un VIRAL que alguien encontró: link del video, cuenta que lo publicó, nicho y tipo de video. La cuenta se verifica (si Instagram no la encuentra, no se guarda: nada de cuentas inventadas). Si ya medimos esa cuenta, queda enlazado con sus números; si no, queda «sin medir» y no cuenta como evidencia.",
+        "Carga un VIRAL: link del video, cuenta que lo publicó, nicho y tipo de video. Con medir=true (TikTok o Instagram) el SERVIDOR lo mide en el momento con lmtm-redes (vistas contra la mediana de su autor) y queda como evidencia aunque no sea competencia de un cliente; los números nunca se toman de quien carga. Sin medir, la cuenta se verifica (nada de cuentas inventadas) y queda «sin medir» si no la medimos. control=true = video NORMAL del mismo autor, para comparar. Podés sumar la ficha: forma (lo que midió vtool referencia) y respuestas sí/no.",
       parameters: {
         type: "object",
         properties: {
           url: { type: "string", description: "Link del video (Instagram, TikTok, YouTube o Facebook)" },
           cuenta: { type: "string", description: "Usuario que lo publicó, sin @" },
-          nicho: { type: "string", description: "Rubro (ej. 'inmobiliaria')" },
-          tipo: { type: "string", description: "Tipo de video" },
+          nicho: { type: "string", description: "Rubro (ej. 'inmobiliaria') o 'todos' si funciona en cualquier rubro" },
+          tipo: { type: "string", description: "Tipo de video (o 'otro')" },
           gancho: { type: "string", description: "Lo que se dice o se lee en los primeros 3 s, textual (si lo viste)" },
           notas: { type: "string", description: "Qué lo hace funcionar, en una o dos frases" },
+          medir: { type: "boolean", description: "TikTok/Instagram: que el servidor lo mida con lmtm-redes (recomendado)" },
+          control: { type: "boolean", description: "Es un video normal del autor (no viral), para comparar" },
+          forma: { type: "object", description: "De vtool referencia: duracion, cortes, planoMedio, primerCorte, palabrasPorSegundo, lufs, brillo, saturacion" },
+          respuestas: { type: "object", description: "Preguntas sí/no de la ficha del estudio (clave → true/false)" },
         },
         required: ["url", "cuenta", "nicho", "tipo"],
       },
@@ -2558,6 +2563,8 @@ export function agentToolsRoutes(
         return reply(true, JSON.stringify({
           alcance: p.alcance, desde: p.desde, cliente: p.cliente, archivo: p.archivo,
           nicho: p.nicho, tipo: p.tipo, estado: p.estado, version: p.version, evidencia: p.evidencia,
+          // Fase 4.3: cómo le fue a esta plantilla en la validación del equipo y qué motivo se repite.
+          ...(p.validacion?.piezas ? { validacion: p.validacion } : {}),
           ...(p.estado === "aprobada" ? {} : { aviso: "No está aprobada: es un borrador del equipo de agentes. Usala como referencia y avisalo." }),
           reglas: p.contenido.reglas ?? [], contenido: { ...p.contenido, reglas: undefined, perfil: undefined },
           perfil: p.contenido.perfil, guia: p.guia,
@@ -2574,13 +2581,37 @@ export function agentToolsRoutes(
 
       if (tool === "guardar_viral") {
         const [ag] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, ctx.agentId)).limit(1);
-        const deEquipo = req.actor.type === "board" || ag?.name === AGENTE_EQUIPO;
-        const r = await guardarViralVideo(db, {
-          url: textoDe(params.url), cuenta: textoDe(params.cuenta), nicho: textoDe(params.nicho), tipo: textoDe(params.tipo),
-          fuente: deEquipo ? "equipo" : "agente", autor: `${deEquipo ? "equipo" : "agente"}:${ag?.name ?? ctx.agentId}`,
-          gancho: textoDe(params.gancho) || undefined, notas: textoDe(params.notas) || undefined,
-        });
-        return reply(r.ok, r.ok ? `${r.mensaje} [id ${r.id}]` : r.mensaje);
+        const esAdmin = req.actor.type === "board";
+        const deEquipo = esAdmin || ag?.name === AGENTE_EQUIPO;
+        // Lote del estudio base (17/11): solo una persona del tablero, con la medición de lmtm-redes ya hecha.
+        const lote = esAdmin && Array.isArray(params.virales) ? params.virales.slice(0, 200) : [params];
+        const objeto = (x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? x as Record<string, any> : undefined);
+        const salida: string[] = [];
+        let fallas = 0;
+        for (const v of lote as Array<Record<string, unknown>>) {
+          let medicion = esAdmin ? limpiarMedicion(v.medicion) : null;
+          let cuenta = textoDe(v.cuenta);
+          if (!medicion && v.medir === true) {
+            // Lo mide el servidor: los números de un viral nunca se toman de quien lo carga.
+            const m = await medirVideo(textoDe(v.url));
+            if (!m.ok) { fallas++; salida.push(`${textoDe(v.url)}: ${m.mensaje}`); continue; }
+            medicion = m.medicion;
+            cuenta = m.autor;
+          }
+          if (medicion && v.control === true) medicion.control = true;
+          const r = await guardarViralVideo(db, {
+            url: textoDe(v.url), cuenta, nicho: textoDe(v.nicho), tipo: textoDe(v.tipo),
+            fuente: esAdmin && params.fuente === "estudio" ? "estudio" : deEquipo ? "equipo" : "agente",
+            // El lote del estudio dice quién respondió cada fila (estudio:persona = la vara del examen, estudio:modelo).
+            autor: esAdmin && textoDe(v.autor) ? textoDe(v.autor) : `${deEquipo ? "equipo" : "agente"}:${ag?.name ?? ctx.agentId}`,
+            gancho: textoDe(v.gancho) || undefined, notas: textoDe(v.notas) || undefined,
+            forma: objeto(v.forma), respuestas: objeto(v.respuestas), medicion,
+          });
+          if (!r.ok) fallas++;
+          salida.push(r.ok ? `${r.mensaje} [id ${r.id}]${medicion?.veces != null ? ` ${medicion.veces}× su autor` : ""}` : `${textoDe(v.url)}: ${r.mensaje}`);
+        }
+        if (lote.length === 1) return reply(fallas === 0, salida[0]);
+        return reply(fallas < lote.length, `${lote.length - fallas} de ${lote.length} guardados.${fallas ? `\n${salida.filter((s) => !s.includes("[id ")).slice(0, 20).join("\n")}` : ""}`);
       }
 
       if (tool === "guardar_plantilla_video") {

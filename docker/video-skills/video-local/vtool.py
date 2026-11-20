@@ -1,11 +1,10 @@
-"""vtool - kit de edicion de video LMTM. Todo corre local (FFmpeg, Whisper de HyperFrames, OpenCV): cero tokens.
+"""vtool - kit de edicion de video LMTM. Todo corre local (FFmpeg, faster-whisper, OpenCV): cero tokens.
 
 Uso:  vtool <comando> <archivo> [opciones]      (vtool <comando> -h para ver opciones)
 Los resultados quedan al lado del original con "__" en el nombre. Nunca pisa el original.
 
-Esta es la copia del contenedor de LMTM-OS (Productor de contenido). Difiere del kit de las PC (1.3) en que
-transcribe con `hyperframes transcribe` (o lee la transcripcion de video_transcribir con --palabras) en vez de
-faster-whisper, y no trae `silencios --xml` (auto-editor es para editores de escritorio).
+Kit para usar con Claude Code en cada PC del equipo. Transcribe con faster-whisper y exporta timelines XML
+para editores.
 """
 import argparse
 import difflib
@@ -20,14 +19,17 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
-VERSION = "1.5-lmtm-os"
+VERSION = "1.6-lmtm-os"  # desde el kit 1.5 con desde-kit.py (17/11)
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm"}
 IMAGEN_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 FORMATOS = {"9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350), "16:9": (1920, 1080)}
 ANCHO_SUBS = {"9:16": 16, "4:5": 22, "1:1": 22, "16:9": 36}  # caracteres por linea en el reel
 H264 = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-movflags", "+faststart"]
-# En el contenedor `hyperframes` esta instalado global (Node 22); en otra maquina se baja con npx.
+# auto-editor vive en el venv del kit, que no siempre esta en el PATH. Solo se usa para exportar XML:
+# para cortar video ignora la rotacion de celulares/camaras y con archivos de camara (PCM) entrega MP4 rotos.
+AUTOEDITOR = shutil.which("auto-editor", path=str(Path(sys.executable).parent)) or shutil.which("auto-editor")
+# En el contenedor de LMTM-OS `hyperframes` esta instalado global (Node 22); en otra maquina se baja con npx.
 HYPERFRAMES = [shutil.which("hyperframes")] if shutil.which("hyperframes") else [shutil.which("npx") or "npx", "-y", "hyperframes"]
 DESTINOS = {
     # -fpsmax: respeta 25/30/50/60 fps del original (pasar 50 a 30 hace saltos) y solo baja lo que pase de 60
@@ -302,6 +304,73 @@ def bloques_guion(texto):
     return bloques
 
 
+def frases_de(palabras, pausa=0.35):
+    """Corta las palabras en frases: en cada pausa de mas de `pausa` s o despues de puntuacion."""
+    frases, cur = [], []
+    for w in palabras:
+        if cur and (w[0] - cur[-1][1] > pausa or cur[-1][2][-1:] in ".?!,;:"):
+            frases.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        frases.append(cur)
+    return frases
+
+
+def segmentar_angulos(palabras, cambios=5, minimo=2.5):
+    """Metodo "una toma, seis angulos": escenas amarradas a frases, alternando el plano ORIGINAL con hasta
+    `cambios` angulos nuevos. Devuelve [(ini, fin, texto, es_original)]."""
+    escenas, cur = [], []
+    for f in frases_de(palabras):
+        cur += f
+        if cur[-1][1] - cur[0][0] >= minimo:
+            escenas.append(cur)
+            cur = []
+    if cur:
+        if escenas:
+            escenas[-1] += cur
+        else:
+            escenas.append(cur)
+    res, nuevos = [], 0
+    for i, e in enumerate(escenas):
+        original = i % 2 == 0 or nuevos >= cambios
+        nuevos += 0 if original else 1
+        ini = 0.0 if i == 0 else round(e[0][0], 1)
+        fin = round(escenas[i + 1][0][0], 1) if i + 1 < len(escenas) else round(e[-1][1], 1)
+        res.append((ini, fin, " ".join(w[2] for w in e), original))
+    return res
+
+
+def elegir_sfx(cortes, separacion=2.0, inicio=0.3):
+    """Donde va un efecto: en los cortes, pero nunca dos a menos de `separacion` s (sin "ametralladora")."""
+    elegidos = []
+    for c in sorted(cortes):
+        if c >= inicio and (not elegidos or c - elegidos[-1] >= separacion):
+            elegidos.append(c)
+    return elegidos
+
+
+def partes_historia(palabras, maximo=15.0):
+    """Corta un reel en historias de hasta `maximo` s, siempre al final de una frase."""
+    partes, ini, fin = [], 0.0, 0.0
+    for f in frases_de(palabras, pausa=0.5):
+        if f[-1][1] - ini > maximo and fin > ini:
+            partes.append((ini, fin))
+            ini = f[0][0]
+        fin = f[-1][1]
+    if fin > ini:
+        partes.append((ini, fin))
+    return partes
+
+
+def aplicar_perfil(opciones, perfil, explicitas):
+    """Completa las opciones con las del perfil del nicho; lo que la persona escribio a mano gana."""
+    for k, v in perfil.get("reel", {}).items():
+        if k in opciones and "--" + k.replace("_", "-") not in explicitas:
+            opciones[k] = v
+    return opciones
+
+
 # ---------- subtitulos (logica pura, testeada en autotest) ----------
 
 def srt_tiempo(s):
@@ -460,9 +529,25 @@ def leer_palabras(archivo):
     return res
 
 
+def gpu_lista():
+    """Solo intenta la placa si hay GPU de NVIDIA Y la libreria cuBLAS carga: probar CUDA sin cuBLAS a veces
+    deja el proceso colgado en lugar de dar error."""
+    if os.environ.get("VTOOL_CPU"):
+        return False
+    try:
+        import ctranslate2
+        import ctypes
+        if ctranslate2.get_cuda_device_count() < 1:
+            return False
+        ctypes.CDLL("cublas64_12.dll" if os.name == "nt" else "libcublas.so.12")
+        return True
+    except (OSError, ImportError, RuntimeError):
+        return False
+
+
 def transcribir(video, idioma, modelo, palabras=None):
     """Palabras con sus tiempos. Con `palabras` (un .words.json) no transcribe: lee ese archivo.
-    Si no, Whisper de HyperFrames y queda en cache: `tomas` y `reel` usan la misma transcripcion (misma numeracion)."""
+    Si no, faster-whisper y queda en cache: `tomas` y `reel` usan la misma transcripcion (misma numeracion)."""
     if palabras:
         return leer_palabras(palabras), idioma
     if modelo.endswith(".en") and idioma != "en":
@@ -473,6 +558,38 @@ def transcribir(video, idioma, modelo, palabras=None):
     if cache.exists():
         d = json.loads(cache.read_text(encoding="utf-8"))
         return [tuple(w) for w in d["palabras"]], d["idioma"]
+    try:
+        from faster_whisper import WhisperModel  # import tardio: los demas comandos no lo necesitan
+    except ImportError:  # contenedor de LMTM-OS: el Whisper de HyperFrames (whisper.cpp)
+        return transcribir_hyperframes(video, idioma, modelo, cache)
+    import numpy as np
+    print(f"Transcribiendo {Path(video).name} con whisper {modelo} (la primera vez descarga el modelo)...")
+    # el audio lo decodifica ffmpeg (no PyAV): las versiones nuevas de PyAV rompen faster-whisper
+    pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
+                         capture_output=True, check=True).stdout
+    audio = np.frombuffer(pcm, np.float32)
+    for device in ("cuda" if gpu_lista() else "cpu", "cpu"):  # GPU si anda; si falta CUDA/cuBLAS, cae a CPU
+        try:
+            try:  # primero el modelo ya bajado: si no, faster-whisper consulta internet cada vez y se cuelga si HF anda lento
+                m = WhisperModel(modelo, device=device, compute_type="int8", local_files_only=True)
+            except Exception:
+                print(f"Bajando el modelo {modelo} (una sola vez)...")
+                m = WhisperModel(modelo, device=device, compute_type="int8")
+            segmentos, info = m.transcribe(audio, language=None if idioma == "auto" else idioma,
+                                           word_timestamps=True, vad_filter=True)
+            palabras = [(w.start, w.end, w.word.strip()) for s in segmentos for w in (s.words or []) if w.word.strip()]
+            idioma = info.language
+            break
+        except RuntimeError as e:
+            if device == "cpu":
+                raise
+            print(f"GPU no disponible ({str(e)[:60]}), sigo con CPU...")
+    cache.parent.mkdir(exist_ok=True)
+    cache.write_text(json.dumps({"palabras": palabras, "idioma": idioma}), encoding="utf-8")
+    return palabras, idioma
+
+
+def transcribir_hyperframes(video, idioma, modelo, cache):
     print(f"Transcribiendo {Path(video).name} con whisper {modelo} (la primera vez baja el modelo)...")
     with tempfile.TemporaryDirectory() as tmp:
         # solo el audio: hyperframes con un crudo 4K de 1 GB lo decodificaria entero
@@ -488,6 +605,63 @@ def transcribir(video, idioma, modelo, palabras=None):
     cache.parent.mkdir(exist_ok=True)
     cache.write_text(json.dumps({"palabras": palabras, "idioma": idioma}), encoding="utf-8")
     return palabras, idioma
+
+
+def ajuste_de_luz(luz, neutros, fraccion_neutros):
+    """Puro: (gamma, (r, g, b)). luz = brillo medio 0-1; neutros = media RGB 0-1 de los pixeles casi grises.
+    Aclara si esta oscuro (nunca oscurece); el tinte se corrige solo si hay grises suficientes para medirlo."""
+    import math
+    gamma = round(min(1.6, math.log(luz) / math.log(0.45)), 2) if 0.05 < luz < 0.37 else 1.0
+    ganancias = (1.0, 1.0, 1.0)
+    if neutros and fraccion_neutros >= 0.05:
+        m = sum(neutros) / 3
+        if m and max(abs(c - m) for c in neutros) / m > 0.05:
+            ganancias = tuple(round(min(1.15, max(0.87, m / c)), 3) for c in neutros)
+    return gamma, ganancias
+
+
+def medir_luz(video, n=12):
+    """(brillo medio 0-1, media RGB de los pixeles casi grises o None, fraccion de grises) en n cuadros parejos."""
+    import cv2
+    import numpy as np
+    d = duracion(video)
+    lumas, neutros, grises, total = [], [], 0, 0
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(n):
+            png = Path(tmp, f"l{i}.png")
+            ffmpeg("-ss", f"{d * (i + 0.5) / n:.2f}", "-i", Path(video).resolve(), "-frames:v", "1", "-vf", "scale=320:-2", png)
+            img = cv2.imread(str(png))
+            if img is None:
+                continue
+            rgb = img[:, :, ::-1].reshape(-1, 3).astype("float32") / 255
+            lumas.append(float((rgb @ np.array([0.2126, 0.7152, 0.0722], dtype="float32")).mean()))
+            mx, mn = rgb.max(1), rgb.min(1)
+            gris = (mx > 0.25) & (mx < 0.95) & ((mx - mn) / np.maximum(mx, 1e-6) < 0.2)
+            total, grises = total + len(rgb), grises + int(gris.sum())
+            if gris.any():
+                neutros.append(rgb[gris].mean(0))
+    if not lumas:
+        sys.exit("ERROR: no se pudo leer ningun cuadro del video")
+    neu = tuple(float(x) for x in np.mean(neutros, 0)) if neutros else None
+    return sum(lumas) / len(lumas), neu, grises / max(total, 1)
+
+
+def c_luz(a):
+    luz, neutros, frac = medir_luz(a.video)
+    gamma, gan = ajuste_de_luz(luz, neutros, frac)
+    tinte = f" · grises {frac:.0%}" + (f" (R {neutros[0]:.2f} G {neutros[1]:.2f} B {neutros[2]:.2f})" if neutros else "")
+    if not a.blanco:
+        gan = (1.0, 1.0, 1.0)
+    print(f"brillo medio {luz:.2f}{tinte}")
+    if gamma == 1.0 and gan == (1.0, 1.0, 1.0):
+        print("sin cambios: la exposicion" + (" y el blanco estan bien" if a.blanco else " esta bien (el blanco se corrige con --blanco)"))
+        return a.video
+    filtros = ([f"eq=gamma={gamma}"] if gamma != 1.0 else []) + \
+        ([f"colorchannelmixer=rr={gan[0]}:gg={gan[1]}:bb={gan[2]}"] if gan != (1.0, 1.0, 1.0) else [])
+    out = salida(a.video, "luz")
+    ffmpeg("-i", a.video, "-vf", ",".join(filtros), *H264, "-crf", "19", out)
+    ok(out, " · ".join(filtros))
+    return out
 
 
 # ---------- render ----------
@@ -517,19 +691,20 @@ def canal_de_voz(niveles):
     return 0 if niveles[0] > niveles[1] else 1
 
 
-def cadena_musica(m, d, vol, voz="anull", cola=""):
+def cadena_musica(m, d, vol, voz="anull", cola="", fin="a"):
     """[ac] = la voz, [m:a] = la pista: la musica queda por debajo y baja sola cuando se habla."""
     return (f"[ac]{voz},asplit[voz][guia];"
             f"[{m}:a]atrim=0:{d:.3f},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
             f"volume={vol}dB,afade=t=in:d=1,afade=t=out:st={max(0.0, d - 2):.3f}:d=2[mus];"
             f"[mus][guia]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[musb];"
-            f"[voz][musb]amix=inputs=2:duration=first:normalize=0{cola}[a]")
+            f"[voz][musb]amix=inputs=2:duration=first:normalize=0{cola}[{fin}]")
 
 
 def render(entradas, tramos, out, formato=None, modo="fondo", post_v="", voz="", final_a="", extra=(), cwd=None,
-           musica=None, vol_musica=-18):
+           musica=None, vol_musica=-18, zoom=0, sfx=None):
     """Una sola pasada de FFmpeg: corta los tramos [(k, ini, fin)] de entradas[k], los lleva al formato, los une,
-    aplica post_v (subtitulos) y el audio (voz -> musica por debajo -> final_a).
+    aplica post_v (subtitulos) y el audio (voz -> musica por debajo -> efectos -> final_a).
+    zoom: un tramo si y uno no se acerca (ej. 1.12): disimula los saltos de un talking head y marca el ritmo.
     FFmpeg endereza solo los videos con marca de rotacion (celulares y camaras)."""
     args, g = [], ""
     for e in entradas:
@@ -538,6 +713,9 @@ def render(entradas, tramos, out, formato=None, modo="fondo", post_v="", voz="",
     canales = [canal_de_voz(niveles_canales(e)) for e in entradas]
     for i, (k, a, b) in enumerate(tramos):
         fv = "," + cadena_formato(formato, modo, i) if formato else ""
+        if formato and zoom and i % 2:
+            w, h = FORMATOS[formato]
+            fv += f",scale={int(w * zoom) // 2 * 2}:{int(h * zoom) // 2 * 2},crop={w}:{h},setsar=1"  # SAR 1:1 o concat falla
         g += (f"[{k}:v]trim={a:.3f}:{b:.3f},setpts=PTS-STARTPTS{fps}{fv}[v{i}];"
               f"[{k}:a]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS,"
               + (f"pan=stereo|c0=c{canales[k]}|c1=c{canales[k]}," if canales[k] is not None else "")
@@ -549,10 +727,40 @@ def render(entradas, tramos, out, formato=None, modo="fondo", post_v="", voz="",
         m = len(entradas)
         args += ["-stream_loop", "-1", "-i", Path(musica).resolve()]
         d = sum(b - a for _, a, b in tramos)
-        g += cadena_musica(m, d, vol_musica, voz or "anull", cola)
+        g += cadena_musica(m, d, vol_musica, voz or "anull", "" if sfx else cola, "mx" if sfx else "a")
     else:
-        g += f"[ac]{voz or 'anull'}{cola}[a]"
+        g += f"[ac]{voz or 'anull'}{'' if sfx else cola}[{'mx' if sfx else 'a'}]"
+    if sfx:  # los efectos entran despues de la musica y antes del nivel final
+        args += ["-i", Path(sfx).resolve()]
+        g += f";[mx][{len(entradas) + (1 if musica else 0)}:a]amix=inputs=2:duration=first:normalize=0{cola}[a]"
     ffmpeg(*args, "-filter_complex", g, "-map", "[v]", "-map", "[a]", *H264, *extra, Path(out).resolve(), cwd=cwd)
+
+
+SFX_SONIDOS = {  # efectos sintetizados con FFmpeg: sin descargas ni licencias
+    "whoosh1": "anoisesrc=d=0.5:c=pink:a=0.5,highpass=f=400,lowpass=f=3500,afade=t=in:d=0.3,afade=t=out:st=0.3:d=0.2",
+    "whoosh2": "anoisesrc=d=0.4:c=brown:a=0.7,highpass=f=250,lowpass=f=5000,afade=t=in:d=0.22,afade=t=out:st=0.22:d=0.18",
+    "whoosh3": "anoisesrc=d=0.55:c=pink:a=0.45,bandpass=f=1200:width_type=o:w=2,afade=t=in:d=0.35,afade=t=out:st=0.35:d=0.2",
+    "pop": "sine=f=880:d=0.08,volume=0.6,afade=t=out:st=0.01:d=0.07",
+}
+
+
+def pista_sfx(cortes, d, destino, vol, pop_inicio=False):
+    """Una pista de efectos del largo del video: whoosh en los cortes elegidos (rotando 3 variantes) y un pop al
+    aparecer el gancho. Devuelve cuantos efectos puso."""
+    puntos = [(t, f"whoosh{i % 3 + 1}") for i, t in enumerate(elegir_sfx(cortes))]
+    if pop_inicio:
+        puntos.insert(0, (0.05, "pop"))
+    if not puntos:
+        return 0
+    args, g = ["-f", "lavfi", "-t", f"{d:.3f}", "-i", "anullsrc=r=48000:cl=stereo"], ""
+    for i, (t, nombre) in enumerate(puntos, 1):
+        args += ["-f", "lavfi", "-i", SFX_SONIDOS[nombre]]
+        centro = 0.25 if nombre != "pop" else 0  # el pico del whoosh cae justo en el corte
+        g += f"[{i}:a]aformat=sample_rates=48000:channel_layouts=stereo,adelay={max(0, int((t - centro) * 1000))}:all=1[s{i}];"
+    g += "[0:a]" + "".join(f"[s{i}]" for i in range(1, len(puntos) + 1))
+    g += f"amix=inputs={len(puntos) + 1}:duration=first:normalize=0,volume={vol}dB[o]"
+    ffmpeg(*args, "-filter_complex", g, "-map", "[o]", "-c:a", "pcm_s16le", destino)
+    return len(puntos)
 
 
 def posicion_sin_caras(muestras, formato, modo, tmp):
@@ -610,8 +818,14 @@ def producir(entradas, elegidas, a, final):
                 escribir_srt(armar_cues(palabras_out, ANCHO_SUBS[a.formato]), Path(final).with_suffix(".srt"))
                 nota = f"subtitulos {posicion}" + (f" ({nota})" if nota else "")
         voz = ("" if a.sin_limpiar else LIMPIEZA + ",") + "dynaudnorm=f=250:g=15"
+        sfx, n_sfx = None, 0
+        if a.sfx:
+            sfx = Path(tmp, "sfx.wav")
+            n_sfx = pista_sfx(cortes[:-1], offset, sfx, a.vol_sfx, pop_inicio=bool(a.gancho))
+            sfx = sfx if n_sfx else None
         render(entradas, tramos, final, a.formato, a.modo, post_v, voz,
-               "loudnorm=I=-14:TP=-1.5:LRA=11", DESTINOS["reels"], cwd=tmp, musica=a.musica, vol_musica=a.vol_musica)
+               "loudnorm=I=-14:TP=-1.5:LRA=11", DESTINOS["reels"], cwd=tmp, musica=a.musica, vol_musica=a.vol_musica,
+               zoom=a.zoom, sfx=sfx)
         nivelar(final, Path(tmp, "nivelado.mp4"))  # el loudnorm de arriba, en un reel corto, queda en -16/-17
         shutil.move(str(Path(tmp, "nivelado.mp4")), str(final))
     # Las palabras en el tiempo del video FINAL y sus cortes: de aca salen los titulos y las tarjetas sincronizadas.
@@ -619,8 +833,13 @@ def producir(entradas, elegidas, a, final):
         "words": [{"word": t, "start": round(x, 3), "end": round(y, 3)} for x, y, t in palabras_out],
         "cortes": cortes[:-1], "duracion": round(offset, 3)}, ensure_ascii=False), encoding="utf-8")
     extras = [x for x in (nota, f"{rehechas} frases reempezadas sacadas" if rehechas else "",
-                          "con musica" if a.musica else "") if x]
-    print(f"LISTO -> {final}  ({hms(sum(durs))} de crudo -> {hms(duracion(final))}; " + "; ".join(extras) + ")")
+                          "con musica" if a.musica else "", f"{n_sfx} efectos" if n_sfx else "",
+                          f"zoom {a.zoom}" if a.zoom else "", f"perfil {a.perfil}" if a.perfil else "") if x]
+    largo = duracion(final)
+    print(f"LISTO -> {final}  ({hms(sum(durs))} de crudo -> {hms(largo)}; " + "; ".join(extras) + ")")
+    rango = getattr(a, "_duracion", None)
+    if rango and not rango[0] <= largo <= rango[1]:
+        print(f"AVISO: el perfil {a.perfil} pide entre {rango[0]} y {rango[1]} s; este dura {largo:.0f} s")
 
 
 # ---------- comandos ----------
@@ -639,6 +858,19 @@ def c_info(a):
 
 
 def c_silencios(a):
+    if a.xml and not AUTOEDITOR:
+        sys.exit("ERROR: --xml necesita auto-editor (esta en el kit de las PC, no en el servidor)")
+    if a.xml:
+        out = salida(a.video, f"sinsilencios-{a.xml}", {"premiere": ".xml"}.get(a.xml, ".fcpxml"))
+        cmd = [AUTOEDITOR, str(a.video), "--margin", f"{a.margen}s", "--no-open", "--progress", "none",
+               "--edit", f"audio:threshold={10 ** (a.umbral / 20):.4f}", "-o", str(out),
+               "--export", {"fcp": "final-cut-pro"}.get(a.xml, a.xml)]
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode or not out.exists():
+            sys.exit("ERROR auto-editor: " + (r.stderr or r.stdout).strip()[-600:])
+        aviso = "; VIDEO ROTADO: al importar, pasar la secuencia a vertical" if rotacion(stream_video(a.video)) in (90, 270) else ""
+        ok(out, f"importar en {a.xml}; los cortes quedan editables en el timeline{aviso}")
+        return out
     dur = duracion(a.video)
     tramos = tramos_sin_silencios(silencios_de(a.video, a.umbral, a.pausa), dur, a.margen)
     if not tramos:
@@ -691,9 +923,39 @@ def c_quemar(a):
     return out
 
 
+def centro_de_caras(video, n=20):
+    """Centro horizontal (0 a 1) de la cara mas grande en n cuadros parejos; None si casi no hay caras.
+    shortcut: una posicion para todo el clip (camara fija); si la persona camina por el cuadro, hace falta seguirla."""
+    import cv2
+    d = duracion(video)
+    det = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    xs = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(n):
+            png = Path(tmp, f"c{i}.png")
+            ffmpeg("-ss", f"{d * (i + 0.5) / n:.2f}", "-i", Path(video).resolve(), "-frames:v", "1", "-vf", "scale=640:-2", png)
+            img = cv2.imread(str(png), cv2.IMREAD_GRAYSCALE)
+            caras = det.detectMultiScale(img, 1.1, 6, minSize=(40, 40)) if img is not None else []
+            if len(caras):
+                x, _, fw, _ = max(caras, key=lambda c: c[2] * c[3])
+                xs.append((x + fw / 2) / img.shape[1])
+    xs.sort()
+    return xs[len(xs) // 2] if len(xs) >= max(3, n // 4) else None
+
+
 def c_vertical(a):
     w, h = FORMATOS[a.formato]
     out = salida(a.video, a.formato.replace(":", "x"))
+    if a.modo == "cara":
+        cx = centro_de_caras(a.video)
+        if cx is None:
+            sys.exit("ERROR: casi no se ven caras en el video: usa --modo recorte o fondo")
+        vw, vh = medidas(a.video)
+        cw = min(vw, round(vh * w / h / 2) * 2)
+        x = min(max(0, round(cx * vw - cw / 2)), vw - cw)
+        ffmpeg("-i", a.video, "-vf", f"crop={cw}:{vh}:{x}:0,scale={w}:{h},setsar=1", *H264, "-crf", "19", out)
+        ok(out, f"{w}x{h} centrado en la cara (x={cx:.2f} del ancho)")
+        return out
     ffmpeg("-i", a.video, "-filter_complex", cadena_formato(a.formato, a.modo), *H264, "-crf", "19", out)
     ok(out, f"{w}x{h} {a.modo}")
     return out
@@ -901,6 +1163,7 @@ def elegir_tomas(tomas, numeros):
 def c_reel(a):
     """Crudo -> transcribe -> descarta tomas de rodaje y frases reempezadas -> corta pausas por palabras ->
     endereza + formato + subtitulos palabra por palabra + musica + audio, en UNA sola pasada de FFmpeg."""
+    usar_perfil(a)
     original = Path(a.video).resolve()
     palabras, _ = palabras_de(original, a)
     if not palabras:
@@ -917,6 +1180,7 @@ def c_reel(a):
 def c_jornada(a):
     """Varios crudos de una jornada -> un video, o VARIOS si el guion tiene bloques separados con ---.
     Con --guion, una toma por linea del guion y en ese orden."""
+    usar_perfil(a)
     videos = videos_de(a.carpeta)
     if not videos:
         sys.exit(f"ERROR: no hay videos en {a.carpeta}")
@@ -960,6 +1224,189 @@ def c_jornada(a):
         hechos += 1
     if not hechos:
         sys.exit("ERROR: no hay tomas para usar.")
+
+
+# ---------- perfiles por nicho ----------
+
+PERFILES_BASE = ("inmobiliario", "turismo-hoteleria", "gastronomico", "deportivo", "belleza-moda",
+                 "producto-ecommerce", "corporativo-industrial")
+
+
+def dirs_perfiles():
+    """La carpeta compartida del equipo (variable VTOOL_PERFILES, ej. una carpeta de Drive) gana sobre la del kit."""
+    ds = [Path(__file__).parent / "perfiles"]
+    if os.environ.get("VTOOL_PERFILES"):
+        ds.insert(0, Path(os.environ["VTOOL_PERFILES"]))
+    return [d for d in ds if d.is_dir()]
+
+
+def cargar_perfil(nombre):
+    for d in dirs_perfiles():
+        p = d / f"{nombre}.json"
+        if p.is_file():
+            return json.loads(p.read_text(encoding="utf-8-sig")), p  # -sig: Bloc de notas guarda con BOM
+    hay = sorted({p.stem for d in dirs_perfiles() for p in d.glob("*.json")})
+    sys.exit(f"ERROR: no existe el perfil {nombre}. Hay: {', '.join(hay) or 'ninguno'}")
+
+
+def usar_perfil(a):
+    if not a.perfil:
+        return
+    perfil, ruta = cargar_perfil(a.perfil)
+    aplicar_perfil(vars(a), perfil, {x.split("=")[0] for x in sys.argv})
+    if a.sin_sfx:
+        a.sfx = False
+    a._duracion = perfil.get("duracion")
+    guia = ruta.with_suffix(".md")
+    print(f"Perfil {a.perfil}: {perfil.get('descripcion', '')}" + (f"  (guia: {guia})" if guia.exists() else ""))
+
+
+def c_perfiles(_):
+    vistos = set()
+    for d in dirs_perfiles():
+        for p in sorted(d.glob("*.json")):
+            if p.stem in vistos:
+                continue
+            vistos.add(p.stem)
+            try:
+                datos = json.loads(p.read_text(encoding="utf-8-sig"))
+            except ValueError as e:
+                print(f"{p.stem:<22} ERROR: el archivo no es un JSON valido ({e})  [{d}]")
+                continue
+            print(f"{p.stem:<22} {datos.get('descripcion', '')[:90]}  [{d}]")
+    if not vistos:
+        print("No hay perfiles.")
+
+
+def medir_referencia(video, idioma, modelo):
+    d = duracion(video)
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(video), "-vf", "select='gt(scene,0.3)',showinfo",
+                        "-af", "ebur128", "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    cortes = [float(t) for t in re.findall(r"pts_time:([\d.]+)", r.stderr)]
+    lufs = re.findall(r"I:\s+(-?[\d.]+) LUFS", r.stderr)
+    r2 = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(video), "-an", "-vf",
+                         "fps=2,signalstats,metadata=print", "-f", "null", "-"],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    brillo = [float(x) for x in re.findall(r"signalstats\.YAVG=([\d.]+)", r2.stderr)]
+    satur = [float(x) for x in re.findall(r"signalstats\.SATAVG=([\d.]+)", r2.stderr)]
+    palabras, _ = transcribir(video, idioma, modelo)
+    import statistics as st
+    return {"archivo": Path(video).name, "duracion": round(d, 1), "cortes": len(cortes),
+            "plano_medio": round(d / (len(cortes) + 1), 2), "primer_corte": round(cortes[0], 1) if cortes else None,
+            "palabras_por_seg": round(len(palabras) / d, 2) if d else 0,
+            "lufs": float(lufs[-1]) if lufs else None,
+            "brillo": round(st.mean(brillo)) if brillo else None, "saturacion": round(st.mean(satur)) if satur else None}
+
+
+def c_referencia(a):
+    """Mide videos de referencia de un nicho (ritmo, voz, volumen, look) y, con --guardar, arma el borrador del perfil."""
+    import statistics as st
+    videos = []
+    for x in a.videos:
+        videos += videos_de(x) if Path(x).is_dir() else [Path(x)]
+    if not videos:
+        sys.exit("ERROR: no hay videos para medir")
+    medidas = []
+    for v in videos:
+        m = medir_referencia(v, a.idioma, a.modelo)
+        medidas.append(m)
+        print(f"{m['archivo'][:28]:<28} {hms(m['duracion'])} | {m['cortes']:>3} cortes, plano medio {m['plano_medio']} s, "
+              f"primer corte {m['primer_corte']} s | {m['palabras_por_seg']} pal/s | {m['lufs']} LUFS | "
+              f"brillo {m['brillo']} sat {m['saturacion']}")
+        c_hoja(argparse.Namespace(video=v, columnas=4, filas=4))
+    med = {k: round(st.median([m[k] for m in medidas if m[k] is not None]), 2)
+           for k in ("duracion", "plano_medio", "palabras_por_seg", "lufs", "brillo", "saturacion")
+           if any(m[k] is not None for m in medidas)}
+    print("MEDIANA: " + " | ".join(f"{k} {v}" for k, v in med.items()))
+    if not a.guardar:
+        return
+    destino = dirs_perfiles()[0] if dirs_perfiles() else Path(__file__).parent / "perfiles"
+    destino.mkdir(exist_ok=True)
+    js = destino / f"{a.guardar}.json"
+    if js.exists():
+        sys.exit(f"ERROR: ya existe {js}. Elegi otro nombre o borralo a mano.")
+    wps, plano = med.get("palabras_por_seg", 0), med.get("plano_medio", 5)
+    durs = [m["duracion"] for m in medidas]
+    perfil = {
+        "nombre": a.guardar,
+        "descripcion": f"BORRADOR medido de {len(medidas)} referencias: completar la guia .md antes de usarlo",
+        "reel": {"pausa": 0.5 if wps >= 2.8 else 0.65 if wps >= 2.2 else 0.85,
+                 "zoom": 1.12 if plano < 2.5 and wps > 1 else 0, "sfx": plano < 3.0},
+        "duracion": [max(5, round(min(durs) * 0.9)), round(max(durs) * 1.1)],
+        "medidas": {**med, "referencias": [m["archivo"] for m in medidas]},
+    }
+    js.write_text(json.dumps(perfil, ensure_ascii=False, indent=2), encoding="utf-8")
+    js.with_suffix(".md").write_text(
+        f"# Perfil {a.guardar} (BORRADOR)\n\nMedido de: {', '.join(perfil['medidas']['referencias'])}\n"
+        f"Mediana: {json.dumps(med, ensure_ascii=False)}\n\n"
+        "Completar mirando las hojas de contacto (`__hoja.jpg`) de cada referencia:\n\n"
+        "## Gancho (0-2 s)\n- \n\n## Estructura\n- \n\n## Planos que no pueden faltar\n- \n\n"
+        "## Subtitulos y textos\n- \n\n## Color y look\n- \n\n## Musica y efectos\n- \n\n"
+        "## Llamado a la accion\n- \n\n## Que NO hacer\n- \n", encoding="utf-8")
+    ok(js, "borrador: completar la guia .md y probarlo con un crudo real antes de usarlo con clientes")
+
+
+ANGULOS = ["top-down overhead shot, the whole scene visible, slight slow push-in",
+           "POV from INSIDE [objeto que nombra], face and hand in sharp focus",
+           "extreme macro of [prop que nombra], razor-sharp focus, creamy bokeh",
+           "same framing, EXACTLY the same movements, now in [otro lugar], [otra ropa]",
+           "low-angle shot from the floor, slow push-in"]
+
+
+def c_angulos(a):
+    """Metodo "una toma, seis angulos" (Seedance 2.5): escenas amarradas a frases y segundos + el prompt armado."""
+    palabras, _ = transcribir(a.video, a.idioma, a.modelo)
+    if not palabras:
+        sys.exit("ERROR: no se detecto voz.")
+    d = duracion(a.video)
+    if d > 30.5:
+        print(f"AVISO: dura {d:.0f} s y Seedance acepta hasta 30 s. Corta antes con vtool cortar.")
+    escenas = segmentar_angulos(palabras, a.cambios)
+    escenas[-1] = (escenas[-1][0], round(min(d, 30.0), 1), escenas[-1][2], escenas[-1][3])
+    lineas, n = [], 0
+    for i, (ini, fin, texto, original) in enumerate(escenas, 1):
+        ps = texto.split()
+        cita = " ".join(ps[:8]) + ("..." if len(ps) > 8 else "")
+        if original:
+            plano = "ORIGINAL frontal shot." if i == 1 else "back to the ORIGINAL frontal shot."
+        else:
+            plano = f"[ANGULO: {ANGULOS[n % len(ANGULOS)]}]"
+            n += 1
+        lineas.append(f"SHOT {i} ({ini}-{fin} s) '{cita}' -> {plano}")
+    prompt = ("Recreate the reference video second by second. One frontal take of [SUJETO: edad, ropa, lugar, objetos a la "
+              "vista], talking to camera in Spanish. Keep the performance 100% identical: same body, head, mouth, hand "
+              "gestures and timing at every second. Keep the face and eyes exactly as in the reference, do not alter them. "
+              "Only these shots, cut exactly on these words and seconds:\n\n" + "\n".join(lineas) +
+              "\n\nRULES cuts only at these seconds, never late. No other angles, no studio lights, no text.\n"
+              "LOOK [camara, ej. Sony A7IV], natural film color, real skin texture, photorealistic.\n")
+    out = salida(a.video, "angulos", ".txt")
+    out.write_text(prompt, encoding="utf-8")
+    print(prompt)
+    ok(out, f"{len(escenas)} escenas, {n} angulos nuevos: completar [SUJETO], [ANGULO] y [camara]; generar en Seedance "
+            "2.5 con ESTE video como unica referencia; despues vtool audio-original")
+
+
+def c_audio_original(a):
+    """Le pone al video generado por IA el audio original de la toma (paso final del metodo de los angulos)."""
+    out = salida(a.generado, "audio-original", ".mp4")
+    ffmpeg("-i", Path(a.generado).resolve(), "-i", Path(a.original).resolve(), "-map", "0:v:0", "-map", "1:a:0",
+           "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", out)
+    dg, do = duracion(a.generado), duracion(a.original)
+    ok(out, f"generado {dg:.1f} s, original {do:.1f} s" +
+       ("; AVISO: los largos no coinciden, revisar que la boca vaya con la voz" if abs(dg - do) > 0.3 else ""))
+
+
+def c_historias(a):
+    """Corta un reel terminado en historias de hasta 15 s, siempre al final de una frase."""
+    palabras, _ = transcribir(a.video, a.idioma, a.modelo)
+    if not palabras:
+        sys.exit("ERROR: no se detecto voz.")
+    d = duracion(a.video)
+    partes = partes_historia(palabras, a.maximo)
+    for n, (i, f) in enumerate(partes, 1):
+        out = salida(a.video, f"historia{n}", ".mp4")
+        render([a.video], [(0, max(0.0, i - 0.15), min(d, f + 0.3))], out, extra=["-crf", "18", "-fpsmax", "60"])
+        ok(out, f"{hms(i)}-{hms(f)}")
 
 
 def c_lote(a):
@@ -1055,15 +1502,48 @@ def c_autotest(_):
     import numpy
     z = medir_zonas(numpy.full((1920, 1080), 255, dtype=numpy.uint8), [(500, 200)])
     assert z["arriba"] == {"luz": 1.0, "dispersion": 0.0, "cara": True} and not z["abajo"]["cara"], z
+    # 1.4: angulos, efectos, historias y perfiles
+    voz = [(0.0, 0.4, "Esta"), (0.4, 0.8, "es"), (0.8, 1.2, "la"), (1.2, 3.0, "toma."), (3.1, 3.5, "Mirá"),
+           (3.5, 6.2, "arriba,"), (6.3, 7.0, "y"), (7.0, 9.8, "abajo."), (9.9, 13.0, "Fin.")]
+    esc = segmentar_angulos(voz, cambios=1)
+    assert esc[0][0] == 0.0 and esc[0][3] and not esc[1][3] and all(e[3] for e in esc[2:]), esc  # 1 angulo nuevo
+    assert all(esc[i][1] == esc[i + 1][0] for i in range(len(esc) - 1))  # sin huecos entre escenas
+    assert elegir_sfx([0.1, 1.0, 2.0, 2.5, 5.0, 6.0]) == [1.0, 5.0]
+    assert partes_historia([(0, 5, "uno."), (6, 12, "dos."), (13, 20, "tres.")], 15) == [(0, 12), (13, 20)]
+    op = aplicar_perfil({"pausa": 0.75, "zoom": 0, "color": "#FFD400"}, {"reel": {"pausa": 0.5, "zoom": 1.12}}, {"--zoom"})
+    assert op == {"pausa": 0.5, "zoom": 0, "color": "#FFD400"}, op  # lo escrito a mano gana sobre el perfil
+    for nombre in PERFILES_BASE:  # solo los del kit: un perfil del equipo a medio hacer no frena la instalacion
+        p = Path(__file__).parent / "perfiles" / f"{nombre}.json"
+        datos = json.loads(p.read_text(encoding="utf-8-sig"))
+        assert {"descripcion", "reel", "duracion"} <= datos.keys(), f"perfil incompleto: {p.name}"
+        assert p.with_suffix(".md").exists(), f"falta la guia de {p.name}"
     for prog in ("ffmpeg", "ffprobe"):
         assert shutil.which(prog), f"falta {prog} en el PATH"
-    assert HYPERFRAMES[0] and shutil.which(HYPERFRAMES[0]), "falta hyperframes (o npx) en el PATH"
-    # en Linux hyperframes compilaria whisper.cpp la primera vez (cmake + compilador): tiene que estar ya
-    assert os.name == "nt" or shutil.which("whisper-cli"), "falta whisper-cli en el PATH"
+    with tempfile.TemporaryDirectory() as tmp:  # render real: 2 clips de 1 s unidos con formato, zoom y efectos
+        for n, fuente in (("a", "testsrc2"), ("b", "smptebars")):
+            ffmpeg("-f", "lavfi", "-i", f"{fuente}=size=640x360:rate=30:d=1", "-f", "lavfi", "-i", "sine=f=300:d=1",
+                   "-shortest", *H264, Path(tmp, f"{n}.mp4"))
+        pista_sfx([1.0], 2.0, Path(tmp, "s.wav"), -20, pop_inicio=True)
+        render([Path(tmp, "a.mp4"), Path(tmp, "b.mp4")], [(0, 0, 1), (1, 0, 1)], Path(tmp, "o.mp4"), "9:16",
+               "fondo", zoom=1.12, sfx=Path(tmp, "s.wav"), final_a="loudnorm=I=-14", extra=["-preset", "ultrafast"])
+        assert medidas(Path(tmp, "o.mp4")) == (1080, 1920) and duracion(Path(tmp, "o.mp4")) > 1.9
+    try:
+        import faster_whisper  # noqa: F401
+        assert AUTOEDITOR, "falta auto-editor (pip install -r requirements.txt)"
+    except ImportError:  # contenedor: transcribe con hyperframes + whisper-cli, sin auto-editor
+        assert HYPERFRAMES[0] and shutil.which(HYPERFRAMES[0]), "falta hyperframes (o npx) en el PATH"
+        # en Linux hyperframes compilaria whisper.cpp la primera vez (cmake + compilador): tiene que estar ya
+        assert os.name == "nt" or shutil.which("whisper-cli"), "falta whisper-cli en el PATH"
     filtros = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
     assert " afftdn " in filtros, "este ffmpeg no trae afftdn (limpieza de voz)"
     import cv2
     assert Path(cv2.data.haarcascades, "haarcascade_frontalface_default.xml").exists(), "OpenCV sin detector de caras"
+    assert ajuste_de_luz(0.5, (0.5, 0.5, 0.5), 0.3) == (1.0, (1.0, 1.0, 1.0))  # bien expuesto y neutro: no toca
+    assert 1.4 < ajuste_de_luz(0.25, None, 0)[0] <= 1.6  # oscuro: aclara
+    assert ajuste_de_luz(0.8, None, 0)[0] == 1.0  # claro: nunca oscurece
+    _, k = ajuste_de_luz(0.5, (0.6, 0.5, 0.45), 0.2)
+    assert k[0] < 1 < k[2], k  # calido: baja el rojo y sube el azul
+    assert ajuste_de_luz(0.5, (0.6, 0.5, 0.45), 0.01)[1] == (1.0, 1.0, 1.0)  # pocos grises: no adivina
     print(f"autotest OK (kit {VERSION})")
 
 
@@ -1100,7 +1580,7 @@ def main():
         s.add_argument("--estilo", choices=["reel", "caja", "simple"], default="reel",
                        help="reel/caja: resalta la palabra que se dice; simple: sin resaltar")
         s.add_argument("--color", default="#FFD400", help="color de la marca para la palabra activa (#RRGGBB)")
-        s.add_argument("--fuente", default="Arial", help="tipografia instalada (fc-list); Arial sale como Liberation Sans")
+        s.add_argument("--fuente", default="Arial", help="tipografia instalada en Windows (ej. Montserrat)")
         s.add_argument("--posicion", choices=["auto", "abajo", "arriba"], default="auto",
                        help="auto: mira el video y evita tapar caras")
         s.add_argument("--gancho", help="texto grande arriba los primeros 3 s")
@@ -1112,6 +1592,11 @@ def main():
         s.add_argument("--sin-limpiar", action="store_true", help="no limpiar el ruido de la voz (audio ya limpio)")
         s.add_argument("--con-silencios", action="store_true", help="no cortar pausas dentro de cada toma")
         s.add_argument("--con-repeticiones", action="store_true", help="no sacar frases reempezadas")
+        s.add_argument("--perfil", help="estilo de edicion por nicho (vtool perfiles los lista): inmobiliario, deportivo...")
+        s.add_argument("--zoom", type=float, default=0, help="acercar un tramo si y uno no, ej. 1.12 (0 = no)")
+        s.add_argument("--sfx", action="store_true", help="whoosh en los cortes y pop en el gancho, sin ametralladora")
+        s.add_argument("--sin-sfx", action="store_true", help="apaga los efectos aunque el perfil los pida")
+        s.add_argument("--vol-sfx", type=float, default=-20, help="volumen de los efectos en dB (-20)")
 
     cmd("info", c_info, "Resumen de una linea: duracion, resolucion, rotacion, fps, audio, peso.")
 
@@ -1120,6 +1605,7 @@ def main():
     s.add_argument("--margen", type=float, default=0.15, help="segundos de aire antes/despues de cada frase (0.15)")
     s.add_argument("--umbral", type=float, default=-35, help="dB que cuentan como silencio; -30 corta mas (-35)")
     s.add_argument("--pausa", type=float, default=0.5, help="solo corta silencios mas largos que esto, en s (0.5)")
+    s.add_argument("--xml", choices=["premiere", "resolve", "fcp"], help="en vez de video, timeline editable")
 
     s = cmd("tomas", c_tomas, "Lista las tomas del crudo con su texto y marca las de rodaje (insultos, "
             "indicaciones, tomas repetidas).")
@@ -1162,8 +1648,10 @@ def main():
 
     s = cmd("vertical", c_vertical, "Cambia el formato (9:16, 1:1, 4:5, 16:9).")
     s.add_argument("--formato", choices=list(FORMATOS), default="9:16")
-    s.add_argument("--modo", choices=["fondo", "recorte"], default="fondo",
-                   help="fondo = video entero con fondo desenfocado; recorte = recorta al centro")
+    s.add_argument("--modo", choices=["fondo", "recorte", "cara"], default="fondo",
+                   help="fondo = video entero con fondo desenfocado; recorte = recorta al centro; cara = recorta centrado en la cara")
+    s = cmd("luz", c_luz, "Corrige la exposicion de un crudo oscuro (solo aclara) y, con --blanco, el tinte medido en los grises.")
+    s.add_argument("--blanco", action="store_true", help="tambien corrige el tinte de color (si hay grises suficientes para medirlo)")
 
     s = cmd("normalizar", c_normalizar, "Nivela el volumen para redes (-14 LUFS).")
     s.add_argument("--lufs", type=float, default=-14)
@@ -1198,6 +1686,31 @@ def main():
     s = cmd("exportar", c_exportar, "Exporta con preset de destino.")
     s.add_argument("--destino", choices=list(DESTINOS), default="reels")
 
+    cmd("perfiles", c_perfiles, "Lista los perfiles de edicion por nicho (del kit y de la carpeta VTOOL_PERFILES).",
+        video=False)
+
+    s = cmd("referencia", c_referencia, "Mide videos de referencia de un nicho (ritmo de cortes, voz, volumen, look). "
+            "Con --guardar NOMBRE arma el borrador de un perfil nuevo.", video=False)
+    s.add_argument("videos", nargs="+", help="videos o carpetas")
+    s.add_argument("--guardar", help="nombre del perfil nuevo (ej. gastronomia)")
+    s.add_argument("--idioma", default="es")
+    s.add_argument("--modelo", default="small")
+
+    s = cmd("angulos", c_angulos, "Una toma, seis angulos (Seedance 2.5): escenas por frase + prompt con la estructura.")
+    s.add_argument("--cambios", type=int, default=5, help="cuantos angulos nuevos como maximo (5)")
+    s.add_argument("--idioma", default="es")
+    s.add_argument("--modelo", default="small")
+
+    s = cmd("audio-original", c_audio_original, "Pone el audio original de la toma en el video generado por IA.",
+            video=False)
+    s.add_argument("generado")
+    s.add_argument("original")
+
+    s = cmd("historias", c_historias, "Corta un reel terminado en historias de hasta 15 s, al final de una frase.")
+    s.add_argument("--maximo", type=float, default=15)
+    s.add_argument("--idioma", default="es")
+    s.add_argument("--modelo", default="small")
+
     s = cmd("lote", c_lote, "Aplica un comando a todos los videos de una carpeta. Ej: vtool lote D:\\crudos reel",
             video=False)
     s.add_argument("carpeta")
@@ -1209,7 +1722,7 @@ def main():
     a = p.parse_args()
     if getattr(a, "video", None) and not Path(a.video).is_file():
         sys.exit(f"ERROR: no existe {a.video}")
-    for campo in ("musica", "guion", "media", "srt", "palabras"):
+    for campo in ("musica", "guion", "media", "srt", "palabras", "generado", "original"):
         if getattr(a, campo, None) and not Path(getattr(a, campo)).is_file():
             sys.exit(f"ERROR: no existe {getattr(a, campo)}")
     if getattr(a, "carpeta", None) and not Path(a.carpeta).is_dir():

@@ -23,7 +23,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Db } from "@paperclipai/db";
-import { agentDeliverables, clients, contenidoGastos, heartbeatRuns, issues } from "@paperclipai/db";
+import { agentDeliverables, clientBrand, clients, contenidoGastos, heartbeatRuns, issues } from "@paperclipai/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 
 const run = promisify(execFile);
@@ -431,6 +431,7 @@ export const VIDEO_TOOLS: ToolDef[] = [
     issueId: { type: "string" },
     clickupTaskId: { type: "string", description: "Si el pedido vino de una tarea de ClickUp: ahí queda el link y la etiqueta «contenido generado»." },
     reemplaza: { type: "string", description: "Si es la versión corregida de un video entregado: su deliverableId (el del pedido de cambios)." },
+    tipoVideo: { type: "string", description: "El tipo de video de la pieza (recorrido, habla-a-camara, tutorial…; el de lmtmPlantillaVideo). Queda con la versión de la plantilla para contar qué falla en la validación." },
   }, ["archivo", "clientId", "titulo"]),
   def("drive_bajar", "BAJA fotos y videos de una carpeta (o un archivo) de Drive que te pasaron por link, aunque no esté en el índice del cliente. Solo ve lo compartido con grow@bylmtm.com. Devuelve las rutas locales.", {
     link: { type: "string", description: "Link de Drive (carpeta o archivo) o su id." },
@@ -459,6 +460,39 @@ export const VIDEO_TOOLS: ToolDef[] = [
   def("nas_link", "LINK de descarga de UN archivo del NAS de LMTM, que vence en 6 h. Sirve para bajarlo fuera del servidor (curl -o, el navegador). Solo lectura.", {
     ruta: { type: "string", description: "Archivo del NAS (de nas_listar)." },
   }, ["ruta"]),
+  def("encargar_al_editor", "PASALE al Editor de video una carpeta de CRUDOS filmados (NAS) para que los deje editados y listos para redes: corta tomas y silencios, zooms, subtítulos, motion, según los tipos de video del cliente. Crea la tarea, lo despierta y devuelve el número. Las piezas quedan para que una persona las valide.", {
+    cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
+    ruta: { type: "string", description: "Carpeta del NAS con los crudos (de nas_buscar o nas_listar)." },
+    pedido: { type: "string", description: "Qué se quiere, si hay algo puntual (piezas, tipo, producto). Puede ir vacío." },
+  }, ["cliente", "ruta"]),
+  def("crudos_preparar", "PREPARA una carpeta de CRUDOS del NAS para editar, en segundo plano (devuelve un id para video_estado; una jornada tarda 10–40 min): baja los videos de a uno (sin subcarpetas, hasta 40) a <carpeta>/fuente, describe qué se ve en cada uno (momentos con su segundo, si alguien habla a cámara) y en los que hablan arma las tomas (vtool tomas). Deja <carpeta>/INVENTARIO.md: leé ESE archivo en vez de mirar video por video.", {
+    ruta: { type: "string", description: "Carpeta del NAS con los crudos (de nas_listar o nas_buscar)." },
+    carpeta: { type: "string", description: `Carpeta de trabajo bajo ${RAIZ}/ (ej. ${RAIZ}/<cliente>-<fecha>)` },
+    para: { type: "string", description: "Qué se quiere sacar de la jornada (ayuda a describir mejor)." },
+  }, ["ruta", "carpeta"]),
+  def("virales_buscar", "BUSCA videos virales NUEVOS de Latinoamérica en TikTok o Instagram por palabras (por la API de redes de la oficina, lmtm-redes). Devuelve cada video con vistas, la mediana de SU autor y cuántas veces la superó (viral = 3× o más), fecha, duración y link. Lento a propósito (ritmo de persona): pedí pocos y bien elegidos. Si responde que una red frenó, no insistas.", {
+    red: { type: "string", enum: ["tiktok", "instagram"] },
+    query: { type: "string", description: "Palabras como las buscaría una persona: «departamento en venta», «cómo se fabrica»." },
+    pais: { type: "string", enum: ["AR", "MX", "CO", "CL", "PE", "UY"], description: "Para que el buscador priorice ese país." },
+    cantidad: { type: "number", description: "Cuántos videos (por defecto 6, máximo 10)." },
+  }, ["red", "query"]),
+  def("virales_autor", "Los ÚLTIMOS videos de una cuenta de TikTok (30) o los últimos reels de Instagram (12) con sus vistas, la mediana de la cuenta y cuántas veces la superó cada uno. Sirve para saber qué es «normal» para ese autor y encontrar sus virales nuevos.", {
+    red: { type: "string", enum: ["tiktok", "instagram"] },
+    usuario: { type: "string", description: "Usuario sin @." },
+  }, ["red", "usuario"]),
+  def("virales_tendencias", "HASHTAGS en tendencia de TikTok en un país esta semana (Creative Center). Son semillas para buscar con virales_buscar, no virales en sí.", {
+    pais: { type: "string", enum: ["AR", "MX", "CO", "CL", "PE", "UY"] },
+  }, ["pais"]),
+  def("virales_fichar", "FICHA un video de TikTok o Instagram y lo GUARDA como viral (o control) con su evidencia: lo mide contra su autor (lmtm-redes), lo baja, mide su forma (vtool referencia: cortes, plano medio, ritmo de voz, volumen), lo transcribe y responde las preguntas sí/no del estudio (gancho, edición, contenido) mirando sus hojas con el modelo de visión. Borra el video al terminar. Tarda ~1 min por video.", {
+    url: { type: "string" },
+    nicho: { type: "string", description: "Rubro (ej. 'inmobiliaria') o 'todos' si sirve para cualquier rubro." },
+    control: { type: "boolean", description: "Es un video NORMAL del autor (para comparar), no un viral." },
+    soloComparar: { type: "boolean", description: "Examen: arma la ficha SIN guardarla y dice cuánto coincide con la del estudio validado (si ese video está)." },
+  }, ["url", "nicho"]),
+  def("virales_bajar", "BAJA un video de TikTok o Instagram a tu carpeta de trabajo para estudiarlo (vtool referencia, hoja de contacto, video_describir). Es contenido de terceros: solo para medirlo, nunca se reutiliza ni se publica, y se borra al terminar.", {
+    url: { type: "string" },
+    carpeta: { type: "string", description: `Carpeta de destino bajo ${RAIZ}/` },
+  }, ["url", "carpeta"]),
   def("encargar_al_productor", "PASALE al Productor de contenido un pedido de PRODUCCIÓN: editar fotos (ponerles el logo, recortarlas), placas, carruseles, reels. Crea la tarea, lo despierta y devuelve el número. Usala en vez de intentarlo: vos no tenés terminal ni editor de imágenes.", {
     cliente: { type: "string", description: "Nombre (aunque sea parcial) o id." },
     pedido: { type: "string", description: "Lo que pidió la persona, completo, con los links que pasó." },
@@ -467,9 +501,141 @@ export const VIDEO_TOOLS: ToolDef[] = [
 
 export const NOMBRES_VIDEO = new Set(VIDEO_TOOLS.map((t) => t.function.name));
 
+// ── NAS: crudos para editar (plan 17/11; las piezas terminadas van solo a Drive desde el 18/11) ──
+
+/** virales_fichar: medir + bajar + vtool referencia + transcribir + visión + guardar. El video de terceros se borra. */
+async function ficharViral(db: Db, agentId: string, url: string, nicho: string, control: boolean, soloComparar = false): Promise<Resultado> {
+  const redes = await import("./redes.js");
+  const ficha = await import("./virales-ficha.js");
+  const { guardarViral, tiposActivos, OTRO } = await import("./video-tipos.js");
+  const m = await redes.medirVideo(url);
+  if (!m.ok) return mal(m.mensaje);
+  const dir = path.join(RAIZ, "virales", randomUUID().slice(0, 8));
+  try {
+    const archivo = await redes.bajarDeRedes(url, dir);
+    const ref = await run("vtool", ["referencia", archivo], { timeout: 600_000, maxBuffer: 20e6 });
+    const forma = ficha.leerReferencia(ref.stdout);
+    let transcripcion = { texto: "", gancho: "" };
+    try {
+      await run("vtool", ["subtitulos", archivo], { timeout: 600_000, maxBuffer: 20e6 });
+      const srt = archivo.replace(/\.[^.]+$/, "__subs.srt");
+      if (fs.existsSync(srt)) transcripcion = ficha.leerSrt(fs.readFileSync(srt, "utf8"));
+    } catch { /* sin voz: vtool subtitulos sale con error y la ficha va sin texto */ }
+    const { dur } = await medidasDe(archivo);
+    const g = path.join(dir, "g.jpg"), h = path.join(dir, "h.jpg"), hoja = path.join(dir, "hoja.jpg");
+    await run("ffmpeg", ["-v", "error", "-y", "-t", "3", "-i", archivo, "-vf", "fps=3,scale=240:-2,tile=3x3", "-frames:v", "1", "-q:v", "5", g]);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", archivo, "-vf", `fps=1/${Math.max(dur / 16, 0.1).toFixed(3)},scale=200:-2,tile=4x4`, "-frames:v", "1", "-q:v", "5", h]);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", g, "-i", h, "-filter_complex", "[0]scale=-2:1280[a];[1]scale=-2:1280[b];[a][b]hstack", "-q:v", "4", hoja]);
+    const activos = await tiposActivos(db);
+    const tipos = activos.map((t) => t.slug);
+    const j = await mirarConGPT(ficha.pedidoFicha(activos, transcripcion), fs.readFileSync(hoja), "high");
+    const f = ficha.limpiarFicha(j, tipos);
+    if (soloComparar) {
+      const { videoVirales } = await import("@paperclipai/db");
+      const [oro] = await db.select({ respuestas: videoVirales.respuestas, tipo: videoVirales.tipo, fuente: videoVirales.fuente, autor: videoVirales.autor })
+        .from(videoVirales).where(eq(videoVirales.url, url.trim().split(/[?#]/)[0])).limit(1);
+      if (!oro?.respuestas || oro.fuente !== "estudio" || oro.autor !== ficha.AUTOR_PERSONA) return ok(`Ficha armada (no se guardó). Ese video no está en el estudio validado: no hay contra qué comparar.\n${JSON.stringify({ tipo: f.tipo, respuestas: f.respuestas })}`);
+      const c = ficha.coincidencia(f.respuestas, oro.respuestas);
+      const distintas = Object.keys(f.respuestas).filter((k) => typeof oro.respuestas![k] === "boolean" && oro.respuestas![k] !== f.respuestas[k]);
+      return ok(`EXAMEN: ${c.porcentaje}% (${c.iguales}/${c.total}) · tipo ${f.tipo === oro.tipo ? "igual" : `distinto (${f.tipo} vs ${oro.tipo})`}` +
+        `${distintas.length ? ` · distintas: ${distintas.join(", ")}` : ""}`);
+    }
+    const { agents } = await import("@paperclipai/db");
+    const [ag] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).limit(1);
+    const r = await guardarViral(db, {
+      url, cuenta: m.autor, nicho, tipo: f.tipo ?? OTRO, fuente: "agente", autor: `agente:${ag?.name ?? agentId}`,
+      gancho: f.gancho ?? (transcripcion.gancho || undefined), forma: forma ?? undefined, respuestas: f.respuestas,
+      medicion: { ...m.medicion, control },
+    });
+    if (!r.ok) return mal(r.mensaje);
+    const si = Object.entries(f.respuestas).filter(([, v]) => v).map(([k]) => k);
+    return ok(`Fichado [id ${r.id}] @${m.autor} · ${m.medicion.veces ?? "?"}× su autor · tipo ${f.tipo ?? OTRO}` +
+      `${forma ? ` · ${forma.duracion} s, ${forma.cortes} cortes, plano medio ${forma.planoMedio} s, ${forma.palabrasPorSegundo} pal/s` : " · (sin medir la forma)"}` +
+      `\nGancho: ${f.gancho ?? "(sin texto)"}\nSí: ${si.join(", ") || "(ninguna)"}${f.faltan.length ? `\nSin respuesta: ${f.faltan.join(", ")}` : ""}`);
+  } catch (e) {
+    return mal(`No se pudo fichar: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true }); // contenido de terceros: no se guarda
+  }
+}
+
+/** Puro: el original de un proxy de cámara Sony (M4ROOT/SUB/C0001S03.MP4 → C0001.MP4). null si no tiene esa forma. */
+export function originalDeProxy(nombre: string): string | null {
+  const m = /^(.+?)S\d{2}(\.[a-z0-9]+)$/i.exec(nombre);
+  return m ? `${m[1]}${m[2]}` : null;
+}
+
+/** Una carpeta de crudos del NAS → INVENTARIO.md: qué se ve en cada video y, en los que alguien habla, sus tomas. */
+async function prepararCrudos(ruta: string, carpeta: string, para: string): Promise<string> {
+  const nas = await import("./nas.js");
+  const fuente = path.join(carpeta, "fuente");
+  const esVideo = (i: { carpeta: boolean; nombre: string }) => !i.carpeta && /\.(mp4|mov|mxf|m4v|mts|avi|mkv)$/i.test(i.nombre);
+  // Cámaras Sony: al lado de M4ROOT/CLIP está M4ROOT/SUB con proxies livianos (una jornada de BRACHETTA: 92 GB en CLIP,
+  // 3,6 GB en SUB). Se inventaría con los proxies y se baja después el original de cada toma que se use.
+  let origen = ruta;
+  if (/\/M4ROOT\/CLIP\/?$/i.test(ruta)) {
+    const sub = ruta.replace(/\/CLIP\/?$/i, "/SUB");
+    try { if ((await nas.listarNas(sub)).some(esVideo)) origen = sub; } catch { /* sin SUB: van los originales */ }
+  }
+  const proxies = origen !== ruta;
+  const items = (await nas.listarNas(origen)).filter(esVideo).slice(0, proxies ? 120 : 40);
+  if (!items.length) throw new Error(`${ruta}: no hay videos (no entra a subcarpetas: pasá la carpeta de los crudos)`);
+  const faltan: string[] = [];
+  // shortcut: baja los archivos enteros; si las jornadas pasan el disco libre, render por tramos leyendo del NAS (Range).
+  let libre = Infinity;
+  try { const s = fs.statfsSync(RAIZ); libre = s.bavail * s.bsize; } catch { /* sin dato: se intenta igual */ }
+  for (const i of items) { // de a uno: el disco del contenedor no es para una jornada entera de golpe
+    if (!fs.existsSync(path.join(fuente, i.nombre)) && (i.mb ?? 0) * 1e6 * 1.3 > libre) { faltan.push(`${i.nombre}: no entra en el disco (${i.mb} MB)`); continue; }
+    if (Number.isFinite(libre)) libre -= (i.mb ?? 0) * 1e6;
+    if (fs.existsSync(path.join(fuente, i.nombre))) continue;
+    try { await nas.bajarNas(i.ruta, fuente, 3e9); } catch (e) { faltan.push(`${i.nombre}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  let descripcion = "";
+  for (let i = 0; i < Math.ceil(items.length / 40); i++) descripcion = await describirMaterial(fuente, para); // describe 40 por vez (caché)
+  const cache = JSON.parse(fs.readFileSync(path.join(fuente, ".material.json"), "utf8")) as Record<string, { linea: string }>;
+  const conVoz = Object.entries(cache).filter(([, d]) => /HABLA A CÁMARA/.test(d.linea)).map(([f]) => f).sort();
+  const tomas: string[] = [];
+  for (const f of conVoz) {
+    try {
+      const { stdout } = await run("vtool", ["tomas", path.join(fuente, f)], { timeout: 900_000, maxBuffer: 20e6 });
+      tomas.push(`### ${f}\n${stdout.trim().split("\n").filter((l) => !/^Transcribiendo/.test(l)).slice(-60).join("\n")}`);
+    } catch (e) {
+      tomas.push(`### ${f}\n(no se pudieron armar las tomas: ${e instanceof Error ? e.message.slice(0, 200) : String(e)})`);
+    }
+  }
+  const gb = items.reduce((s, i) => s + (i.mb ?? 0), 0) / 1000;
+  const md = path.join(carpeta, "INVENTARIO.md");
+  fs.writeFileSync(md, [
+    `# Inventario de crudos`, ``, `NAS: ${ruta} · ${items.length} videos · ${gb.toFixed(1)} GB · ${conVoz.length} con alguien hablando a cámara`,
+    para ? `Para: ${para}` : "",
+    proxies ? `\n**Inventariado con los PROXIES livianos de la cámara (${origen}).** Mismos tiempos que el original: para editar, bajá con nas_bajar SOLO el original de cada toma elegida (${ruta}/<nombre sin el S03>, ej. C0001S03.MP4 → C0001.MP4) a ${fuente} y usá ese en vtool y en el render.` : "",
+    ``, `## Qué se ve en cada uno`, descripcion, ``,
+    `## Tomas de los que hablan (vtool tomas: USA / SACA)`, tomas.join("\n\n") || "(ninguno habla a cámara)", ``,
+    faltan.length ? `## No se pudieron bajar\n${faltan.join("\n")}` : "",
+  ].join("\n"));
+  await aNombreDelAgente(carpeta);
+  return `Inventario listo: ${md} (${items.length} videos, ${conVoz.length} con voz${faltan.length ? `, ${faltan.length} sin bajar` : ""}). Leelo y armá el plan de piezas.`;
+}
+
+/**
+ * Una carpeta que arma el servidor (root) en segundo plano, a nombre del agente sin root (usuario `node`). El
+ * adaptador hace el chown al ARRANCAR la corrida; lo que se crea después quedaba de root y el Editor no podía
+ * escribir ahí (18/11, prueba con BOERO).
+ */
+async function aNombreDelAgente(dir: string): Promise<void> {
+  if (process.platform === "win32" || process.getuid?.() !== 0) return;
+  const { USUARIO_AGENTE, puedeSerDelAgente } = await import("@paperclipai/adapter-utils/server-utils");
+  const real = fs.realpathSync(dir);
+  if (!puedeSerDelAgente(real)) return;
+  await run("chown", ["-R", "-h", `${USUARIO_AGENTE.uid}:${USUARIO_AGENTE.gid}`, real])
+    .catch((e) => console.warn(`[video] no se pudo pasar ${real} al agente:`, e instanceof Error ? e.message : e));
+}
+
 // ── pedidos ──────────────────────────────────────────────────────────────────
 
 export const AGENTE_PRODUCTOR = "Productor de contenido";
+/** Plan 17/11: edita CRUDOS filmados (NAS o Drive) → piezas por tipo de video. El Productor hace el resto. */
+export const AGENTE_EDITOR = "Editor de video";
 const TAG_LISTO = "contenido generado";
 
 /** Comenta en una tarea de ClickUp (y opcionalmente le pone «contenido generado»). Nunca rompe. */
@@ -529,13 +695,14 @@ export async function pedirPiezaAlProductor(
  *  al Productor en vez de explorar y contestar que no puede. */
 export async function encargarAlProductor(
   db: Db,
-  p: { companyId: string; clientId: string; clienteNombre: string; pedido: string },
+  p: { companyId: string; clientId: string; clienteNombre: string; pedido: string; aPedido?: boolean },
 ): Promise<{ ok: boolean; mensaje: string }> {
   const { createHash } = await import("node:crypto");
   const huella = createHash("sha1").update(`${p.clientId}|${p.pedido.replace(/\s+/g, " ").trim().toLowerCase()}`).digest("hex").slice(0, 12);
   const r = await crearTareaProductor(db, {
     companyId: p.companyId,
     clientId: p.clientId,
+    aPedido: p.aPedido,
     marca: `pedido:${huella}`,
     titulo: `[${p.clienteNombre.toUpperCase()}] Pedido: ${p.pedido.replace(/\s+/g, " ").slice(0, 120)}`,
     descripcion: [
@@ -556,14 +723,44 @@ export async function encargarAlProductor(
   return { ok: true, mensaje: r.ya ? `Ese mismo pedido ya lo tiene el Productor de contenido (${r.identifier}).` : `Se lo pasé al Productor de contenido: ${r.identifier}. Cuando esté, los links quedan en esa tarea.` };
 }
 
-/** Crea la tarea del Productor y lo despierta. Con la misma marca no crea otra. */
+/** Plan 17/11: «en el cliente X, carpeta X, tenés los crudos de hoy: dejalos listos para redes». Tarea del Editor. */
+export async function encargarAlEditor(
+  db: Db,
+  p: { companyId: string; clientId: string; clienteNombre: string; ruta: string; pedido: string; aPedido?: boolean },
+): Promise<{ ok: boolean; mensaje: string }> {
+  const { createHash } = await import("node:crypto");
+  const huella = createHash("sha1").update(`${p.clientId}|${p.ruta}|${p.pedido.replace(/\s+/g, " ").trim().toLowerCase()}`).digest("hex").slice(0, 12);
+  const carpeta = p.ruta.replace(/\/+$/, "").split("/").pop() || "crudos";
+  const r = await crearTareaProductor(db, {
+    companyId: p.companyId,
+    clientId: p.clientId,
+    agente: AGENTE_EDITOR,
+    aPedido: p.aPedido,
+    marca: `crudos:${huella}`,
+    titulo: `[${p.clienteNombre.toUpperCase()}] Editar crudos: ${carpeta}`.slice(0, 200),
+    descripcion: [
+      "Crudos para editar y dejar listos para redes.",
+      "",
+      `- Cliente: ${p.clienteNombre} (clientId \`${p.clientId}\`)`,
+      `- Carpeta del NAS: \`${p.ruta}\``,
+      "- Pedido, tal cual:",
+      "",
+      p.pedido || "(sin indicaciones: sacá las piezas que el material permita, según los tipos de video del cliente)",
+    ].join("\n"),
+  });
+  if (!r.ok) return { ok: false, mensaje: r.mensaje };
+  return { ok: true, mensaje: r.ya ? `Esos crudos ya los tiene el Editor (${r.identifier}).` : `Se los pasé al Editor de video: ${r.identifier}. Las piezas quedan para validar en Producción.` };
+}
+
+/** Crea la tarea del Productor (o del agente que se pida) y lo despierta. Con la misma marca no crea otra. */
 async function crearTareaProductor(
   db: Db,
-  p: { companyId: string; clientId: string; marca: string; titulo: string; descripcion: string },
+  p: { companyId: string; clientId: string; marca: string; titulo: string; descripcion: string; agente?: string; aPedido?: boolean },
 ): Promise<{ ok: true; ya: boolean; identifier: string } | { ok: false; mensaje: string }> {
   const { agents, issues } = await import("@paperclipai/db");
-  const [agente] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.companyId, p.companyId), eq(agents.name, AGENTE_PRODUCTOR))).limit(1);
-  if (!agente) return { ok: false, mensaje: `no existe el agente «${AGENTE_PRODUCTOR}»` };
+  const nombre = p.agente ?? AGENTE_PRODUCTOR;
+  const [agente] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.companyId, p.companyId), eq(agents.name, nombre))).limit(1);
+  if (!agente) return { ok: false, mensaje: `no existe el agente «${nombre}»` };
   const [ya] = await db.select({ identifier: issues.identifier }).from(issues)
     .where(and(eq(issues.assigneeAgentId, agente.id), sql`${issues.status} <> 'cancelled'`, sql`${issues.description} like ${"%" + p.marca + "%"}`)).limit(1);
   if (ya) return { ok: true, ya: true, identifier: ya.identifier ?? "s/n" };
@@ -583,6 +780,16 @@ async function crearTareaProductor(
   const identifier = String((creado as { identifier?: string }).identifier ?? issueId);
   const { heartbeatService } = await import("./heartbeat.js");
   await heartbeatService(db).wakeup(agente.id, { source: "assignment", triggerDetail: "system", reason: "pedido_contenido", payload: { issueId } }).catch(() => {});
+  if (p.aPedido) {
+    // Pedido de una persona desde el panel (18/11): corre ya, como «correr a pedido» del motor. El reloj del motor lo
+    // dejaba esperando detrás del tope diario del proveedor sin avisar (y el wakeup de arriba no despierta al motor).
+    const { configMotor, correrTarea } = await import("../agentes/motor.js");
+    if ((await configMotor(db)).agentes.includes(agente.id)) {
+      void correrTarea(db, { issueId, identifier, title: p.titulo.slice(0, 200), status: "todo", priority: "medium", agentId: agente.id }, { manual: true })
+        .then((r) => console.log(`[motor] a pedido del panel ${identifier}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`))
+        .catch((e) => console.warn("[motor] a pedido del panel falló:", e instanceof Error ? e.message : e));
+    }
+  }
   return { ok: true, ya: false, identifier };
 }
 
@@ -619,6 +826,9 @@ async function mirarConGPT(pedido: string, jpg: Buffer, detalle: "low" | "high")
   return JSON.parse(j.choices?.[0]?.message?.content ?? "{}");
 }
 
+/** Fase 2.2 (plan 17/11): la clase de toma de cada crudo, para armar el plan de piezas por tipo de video. */
+const TOMAS = ["habla-a-camara", "testimonio", "recorrido", "producto", "b-roll"];
+
 /**
  * Una línea de texto por archivo con lo que se ve (en los videos, por momento y
  * con su segundo). El agente elige las tomas leyendo esto en vez de mirar hojas
@@ -649,13 +859,15 @@ export async function describirMaterial(carpeta: string, para: string): Promise<
       const j = await mirarConGPT(
         `Hoja de 12 cuadros de un video de ${dur.toFixed(1)} s, en orden, con su segundo arriba a la izquierda. ${foco}` +
           "Describí en español qué se ve, concreto (producto, lugar, personas, acción), sin adornos. Juntá los cuadros parecidos en un momento. " +
-          "sirve=false si está movido, oscuro, tapado o no muestra nada útil. foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " + VER_TERCEROS +
-          'Respondé SOLO JSON: {"momentos":[{"desde":s,"hasta":s,"muestra":"máx 12 palabras","foco":0.5,"sirve":true}],"habla_a_camara":false,"texto_encima":false,"terceros":false}',
+          "sirve=false si está movido, oscuro, tapado o no muestra nada útil. foco: dónde está lo importante en horizontal (0 izquierda, 0.5 centro, 1 derecha). " +
+          `toma: qué clase de toma es, una de ${TOMAS.join(", ")} (testimonio = un cliente cuenta su experiencia; b-roll = imágenes de apoyo). ` + VER_TERCEROS +
+          'Respondé SOLO JSON: {"momentos":[{"desde":s,"hasta":s,"muestra":"máx 12 palabras","foco":0.5,"sirve":true}],"toma":"b-roll","habla_a_camara":false,"texto_encima":false,"terceros":false}',
         fs.readFileSync(jpg), "high",
       );
       const ms = (Array.isArray(j.momentos) ? j.momentos : []) as Array<{ desde?: number; hasta?: number; muestra?: string; foco?: number; sirve?: boolean }>;
       const conFoco = (f?: number) => (h < w && typeof f === "number" ? ` [foco ${f}]` : "");
       linea = ms.map((m) => `${Number(m.desde ?? 0).toFixed(1)}-${Number(m.hasta ?? dur).toFixed(1)} ${m.muestra ?? ""}${conFoco(m.foco)}${m.sirve === false ? " (no sirve)" : ""}`).join("; ")
+        + (typeof j.toma === "string" && TOMAS.includes(j.toma) ? ` · toma: ${j.toma}` : "")
         + (j.habla_a_camara ? " · ALGUIEN HABLA A CÁMARA (material filmado: skill video-local)" : "") + (j.texto_encima ? " · tiene texto encima" : "") + (j.terceros ? AVISO_TERCEROS : "");
     } else {
       await run("ffmpeg", ["-v", "error", "-y", "-i", ruta, "-vf", "scale=768:-2", "-frames:v", "1", "-q:v", "4", jpg]);
@@ -741,9 +953,13 @@ export async function pedirCambiosDeVideo(
   db: Db,
   p: { deliverableId: string; cambios: string },
 ): Promise<{ ok: boolean; mensaje: string }> {
-  const [d] = await db.select({ id: agentDeliverables.id, companyId: agentDeliverables.companyId, clientId: agentDeliverables.clientId, title: agentDeliverables.title, url: agentDeliverables.url, kind: agentDeliverables.kind, metadata: agentDeliverables.metadata })
+  const [d] = await db.select({ id: agentDeliverables.id, companyId: agentDeliverables.companyId, clientId: agentDeliverables.clientId, title: agentDeliverables.title, url: agentDeliverables.url, kind: agentDeliverables.kind, metadata: agentDeliverables.metadata, agentId: agentDeliverables.agentId })
     .from(agentDeliverables).where(eq(agentDeliverables.id, p.deliverableId)).limit(1);
   if (!d || d.kind !== "video" || !d.clientId) return { ok: false, mensaje: "no encuentro ese video" };
+  // Los cambios vuelven a quien hizo el video: el Editor tiene el proyecto de los crudos.
+  const { agents } = await import("@paperclipai/db");
+  const [autor] = d.agentId ? await db.select({ name: agents.name }).from(agents).where(eq(agents.id, d.agentId)).limit(1) : [];
+  const agente = autor?.name === AGENTE_EDITOR ? AGENTE_EDITOR : AGENTE_PRODUCTOR;
   const [c] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, d.clientId)).limit(1);
   const conProyecto = !!(d.metadata as Record<string, unknown> | null)?.proyecto;
   const { createHash } = await import("node:crypto");
@@ -752,6 +968,7 @@ export async function pedirCambiosDeVideo(
   const r = await crearTareaProductor(db, {
     companyId: d.companyId,
     clientId: d.clientId,
+    agente,
     marca: `cambios:${huella}`,
     titulo: `[${(c?.name ?? "").toUpperCase()}] Cambios: ${titulo}`,
     descripcion: [
@@ -769,13 +986,13 @@ export async function pedirCambiosDeVideo(
     ].join("\n"),
   });
   if (!r.ok) return { ok: false, mensaje: r.mensaje };
-  return { ok: true, mensaje: r.ya ? `Ese mismo pedido ya lo tiene el Productor (${r.identifier}).` : `Pedido de cambios enviado al Productor: ${r.identifier}.` };
+  return { ok: true, mensaje: r.ya ? `Ese mismo pedido ya lo tiene el ${agente} (${r.identifier}).` : `Pedido de cambios enviado al ${agente}: ${r.identifier}.` };
 }
 
-/** Lo que el Productor tiene entre manos (o terminó en los últimos 3 días), para el panel. */
-export async function pedidosDelProductor(db: Db): Promise<Array<{ id: string; identifier: string | null; titulo: string; estado: string; creado: Date; actualizado: Date }>> {
+/** Lo que el Productor (o el Editor) tiene entre manos (o terminó en los últimos 3 días), para el panel. */
+export async function pedidosDelProductor(db: Db, agente = AGENTE_PRODUCTOR): Promise<Array<{ id: string; identifier: string | null; titulo: string; estado: string; creado: Date; actualizado: Date }>> {
   const { agents, issues } = await import("@paperclipai/db");
-  const [a] = await db.select({ id: agents.id }).from(agents).where(eq(agents.name, AGENTE_PRODUCTOR)).limit(1);
+  const [a] = await db.select({ id: agents.id }).from(agents).where(eq(agents.name, agente)).limit(1);
   if (!a) return [];
   return db.select({ id: issues.id, identifier: issues.identifier, titulo: issues.title, estado: issues.status, creado: issues.createdAt, actualizado: issues.updatedAt })
     .from(issues)
@@ -859,6 +1076,69 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       return ok(`${r.total} en el NAS con «${txt(p.q)}»${r.total > r.resultados.length ? ` (muestro ${r.resultados.length})` : ""}:\n` +
         r.resultados.map((a) => `${a.ruta} · ${a.tipo}${a.mb != null ? ` · ${a.mb} MB` : ""}${a.fecha ? ` · ${a.fecha}` : ""}${clientIds ? "" : ` · ${a.cliente}`}`).join("\n") +
         "\nPara bajarlo: nas_link (link a la PC) o nas_bajar (al servidor).");
+    }
+
+    if (tool === "encargar_al_editor") {
+      const { resolverCliente } = await import("./guia-contenido.js");
+      const c = await resolverCliente(db, txt(p.cliente));
+      if ("error" in c) return mal(c.error);
+      const { rutaNas } = await import("./nas.js");
+      const ruta = rutaNas(p.ruta);
+      if (!ruta || !ruta.startsWith("/LMTM/")) return mal("ruta: la carpeta del NAS con los crudos (empieza con /LMTM/)");
+      const r = await encargarAlEditor(db, { companyId: ctx.companyId, clientId: c.id, clienteNombre: c.name, ruta, pedido: txt(p.pedido).slice(0, 4000) });
+      return r.ok ? ok(r.mensaje) : mal(r.mensaje);
+    }
+
+    if (tool === "crudos_preparar") {
+      const nas = await import("./nas.js");
+      const falta = nas.nasConfigurado();
+      if (falta) return mal(falta);
+      const ruta = nas.rutaNas(p.ruta);
+      if (!ruta) return mal("ruta inválida (sin «..»)");
+      const carpeta = rutaSegura(p.carpeta);
+      if (!carpeta) return mal(`carpeta tiene que estar bajo ${RAIZ}/`);
+      const id = lanzar("crudos", () => prepararCrudos(ruta, carpeta, txt(p.para)));
+      return ok(`Preparando los crudos de ${ruta} en ${carpeta}. Consultá con video_estado id=${id}; cuando esté, leé ${path.join(carpeta, "INVENTARIO.md")}.`);
+    }
+
+    if (tool === "virales_buscar" || tool === "virales_autor" || tool === "virales_tendencias" || tool === "virales_bajar" || tool === "virales_fichar") {
+      const redes = await import("./redes.js");
+      const falta = redes.redesConfigurado();
+      if (falta) return mal(falta);
+      if (tool === "virales_bajar") {
+        const destino = rutaSegura(p.carpeta);
+        if (!destino) return mal(`carpeta tiene que estar bajo ${RAIZ}/`);
+        if (!redes.redDeLink(txt(p.url))) return mal("el link tiene que ser de TikTok o de Instagram");
+        try { return ok(`Bajado (solo para medirlo; borralo al terminar): ${await redes.bajarDeRedes(txt(p.url), destino)}`); }
+        catch (e) { return mal(e instanceof Error ? e.message : String(e)); }
+      }
+      if (tool === "virales_fichar") {
+        if (!redes.redDeLink(txt(p.url))) return mal("el link tiene que ser de TikTok o de Instagram");
+        return await ficharViral(db, ctx.agentId, txt(p.url), txt(p.nicho), p.control === true, p.soloComparar === true);
+      }
+      if (tool === "virales_tendencias") {
+        const r = await redes.consultarRedes("/v1/tiktok/trends", { pais: txt(p.pais) });
+        if (!r.ok) return mal(r.mensaje);
+        const hs = (r.datos.hashtags ?? []) as Array<{ hashtag: string; publicaciones?: string }>;
+        return ok(hs.length ? `Tendencias de TikTok en ${r.datos.pais}: ${hs.map((h) => `#${h.hashtag}${h.publicaciones ? ` (${h.publicaciones})` : ""}`).join(", ")}` : "Sin tendencias para ese país hoy.");
+      }
+      const red = txt(p.red) === "instagram" ? "instagram" : txt(p.red) === "tiktok" ? "tiktok" : null;
+      if (!red) return mal("red: tiktok o instagram");
+      if (tool === "virales_autor") {
+        const r = await redes.consultarRedes(redes.RUTAS_REDES[red].autor, { handle: txt(p.usuario).replace(/^@/, "") });
+        if (!r.ok) return mal(r.mensaje);
+        const lista = (r.datos.videos ?? r.datos.reels ?? []) as import("./redes.js").VideoDeRed[];
+        return ok(`@${r.datos.autor} (${red}): mediana ${r.datos.mediana_vistas ?? "?"} vistas en ${lista.length} videos.\n${redes.resumenVideos(lista.map((v) => ({ ...v, autor: r.datos.autor, mediana_autor: r.datos.mediana_vistas })))}`);
+      }
+      if (!txt(p.query)) return mal("falta query");
+      const r = await redes.consultarRedes(redes.RUTAS_REDES[red].buscar, {
+        query: txt(p.query), pais: txt(p.pais) || undefined, cantidad: Math.min(Math.max(Number(p.cantidad) || 6, 1), 10), medir: 1,
+      });
+      if (!r.ok) return mal(r.mensaje);
+      const videos = r.datos.videos as import("./redes.js").VideoDeRed[];
+      const virales = videos.filter((v) => (v.veces ?? 0) >= 3).length;
+      return ok(`${videos.length} videos de ${red} para «${txt(p.query)}»${txt(p.pais) ? ` (${txt(p.pais)})` : ""}, ${virales} virales (3× su autor o más). Para guardar uno: guardar_viral con medir=true.\n${redes.resumenVideos(videos)}` +
+        (r.datos.errores?.length ? `\n(${r.datos.errores.length} no se pudieron leer)` : ""));
     }
 
     if (tool === "nas_listar" || tool === "nas_bajar" || tool === "nas_link") {
@@ -1232,6 +1512,16 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
           imagenes.push(fs.readFileSync(jpg).toString("base64"));
         }
         const filmado = esVideo && p.formato === "filmado";
+        // Placas: las fallas que se vieron el 18/11 y el «No usar» de la marca, que el control no conocía.
+        let reglasPlacas = "";
+        if (!esVideo) {
+          const { REGLAS_PLACAS, reglaNoUsar } = await import("./calidad-piezas.js");
+          const clientId = txt(p.clientId) || (await tareaDeCorrida(db, ctx.runId)).clientId;
+          const [marca] = clientId
+            ? await db.select({ no: clientBrand.palabrasNo }).from(clientBrand).where(eq(clientBrand.clientId, clientId)).limit(1)
+            : [];
+          reglasPlacas = REGLAS_PLACAS + reglaNoUsar(marca?.no);
+        }
         const comun =
           "logo deformado o pixelado, faltas de ortografía, y que no se diga ni muestre nada que el brief no permite. No inventes problemas: si está bien, decilo. ";
         const pedido = (esVideo
@@ -1242,7 +1532,8 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
             "sí lo es si tapa justo el detalle que nombra la frase), " +
             (filmado
               ? "Este reel usa títulos grandes en jerarquía (chica + GRANDE + media), arriba o abajo según dónde esté la cara, tarjetas con datos e insertos a pantalla completa: son parte del formato, no son un problema, y en un inserto la persona no se ve aunque siga hablando. Sí es un problema una tarjeta o título que tape una cara o el producto. Si alguien habla a cámara, eso ya muestra lo que dice. Un cuadro con un título que todavía se está armando, palabra por palabra, está bien. "
-              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón, la web y el aviso legal del cierre y los paneles animados son parte del formato y no lo son), en los primeros 3 s el nombre de una persona o logos de otras marcas a la vista, ") +
+              : "rótulos o carteles en recuadros sobre las tomas (el formato es subtítulo + gancho; un rótulo en caja es un problema; el logo, el botón, la web y el aviso legal del cierre y los paneles animados son parte del formato y no lo son), en los primeros 3 s el nombre de una persona o logos de otras marcas a la vista, " +
+                "fondos de color liso con texto o listas más de 3 s seguidos o en más de un tercio del reel (los que rinden MUESTRAN el producto o el lugar), la misma foto presentada como si fueran tomas distintas, ") +
             "subtítulos con poco contraste (una palabra que está entrando con su animación no cuenta), " + comun +
             (dichos.length
               ? "Y lo más importante: en cada cuadro la voz está diciendo una frase; ¿lo que se ve MUESTRA lo que dice? " +
@@ -1258,6 +1549,7 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
             "si es la promo o el precio de un PRODUCTO: que el producto SE VEA (foto real); una promo de producto sin el producto es un problema grave, " +
             "que el lienzo esté bien ocupado (una franja vacía de más de un cuarto de la placa es un problema), " +
             "que parezca una pieza publicitaria terminada y atractiva, no un documento con texto" + (refs.length ? ", y que esté AL NIVEL de las referencias o mejor (si es más pobre que la referencia, es un problema)" : "") + ", " + comun +
+            reglasPlacas +
             "Poné un NIVEL de 1 a 5 como pieza publicitaria (1 = no se puede publicar, 3 = correcta, 5 = excelente); con nivel 1 o 2 no es apta. " +
             'Respondé SOLO JSON: {"apto": true|false, "nivel": 1-5, "problemas": [{"placa": n, "que": "...", "como_arreglarlo": "..."}]}') +
           "\n\nBRIEF:\n" + txt(p.brief);
@@ -1294,6 +1586,8 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       const [c] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.id, txt(p.clientId))).limit(1);
       if (!c) return mal("no encuentro ese clientId");
       const calidad = await import("./calidad-piezas.js");
+      const hueco = calidad.huecoSinCompletar(`${txt(p.titulo)} ${txt(p.textos)}`);
+      if (hueco) return mal(`Hay un dato sin completar (${hueco}): una placa con un hueco no se entrega, ni como borrador. Pedí el dato en el issue y esperalo; no la subas.`);
       const rev = calidad.revisionVigente(lista as string[]);
       if (!rev && !txt(p.sinRevision)) {
         return mal("Falta el control de calidad de estos archivos (o cambiaron después de revisarlos): corré lmtmVideoRevisar con `imagenes` = estos mismos archivos, en orden, y el brief. Si la placa es la promo de un producto, pasale también la pieza del cliente en `referencias`.");
@@ -1348,6 +1642,14 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       }
       const titulo = txt(p.titulo).slice(0, 120) || "Video";
       const clickupTaskId = txt(p.clickupTaskId) || undefined;
+      // Fase 4.3: la plantilla que valía al entregar (la resuelve el servidor: cliente → rubro → general), para contar
+      // después en la validación qué falla en cada una.
+      let plantilla: { tipo: string; desde: string | null; version: number; estado: string } | null = null;
+      if (txt(p.tipoVideo)) {
+        const { plantillaDe } = await import("./video-tipos.js");
+        const pl = await plantillaDe(db, c.name, txt(p.tipoVideo));
+        plantilla = { tipo: pl.tipo, desde: pl.desde, version: pl.version, estado: pl.estado };
+      }
       // La misma entrega que el resto del contenido: Super Redes/<cliente>/VIDEOS
       // y, si viene de una tarea de ClickUp, el link en su "Enlace de publicación".
       const { entregarVideo } = await import("./video-entrega.js");
@@ -1360,7 +1662,7 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       await db.insert(agentDeliverables).values({
         companyId: ctx.companyId, clientId: c.id, agentId: ctx.agentId || null, kind: "video",
         title: `Video: ${titulo}`.slice(0, 200), content: txt(p.guion) || titulo, url: e.driveLink,
-        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null, ...fichaDeProyecto(archivo), revision: calidad.revisionParaPieza(rev, txt(p.sinRevision)) },
+        metadata: { via: "productor-video", archivo, duracion: await duracion(archivo), issueRef: txt(p.issueId) || null, taskId: clickupTaskId ?? null, pieza: piezaCorrida, proyecto, reemplaza: txt(p.reemplaza) || null, ...(plantilla ? { plantilla } : {}), ...fichaDeProyecto(archivo), revision: calidad.revisionParaPieza(rev, txt(p.sinRevision)) },
       });
       if (clickupTaskId) await avisarEnClickUp(clickupTaskId, `🎬 Video listo (Productor de contenido): ${e.driveLink}\n\n${calidad.lineaDeRevision(rev, txt(p.sinRevision))}\n\n${txt(p.guion).slice(0, 1500)}`, true);
       const enlace = e.enlace ? (e.enlace.ok ? " Quedó en «Enlace de publicación» de la tarea." : ` No se pudo cargar en la tarea: ${e.enlace.motivo}.`) : "";

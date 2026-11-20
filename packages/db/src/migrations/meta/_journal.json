@@ -1009,6 +1009,13 @@
       "when": 1781800000162,
       "tag": "0162_video_alcance",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1781800000163,
+      "tag": "0163_video_virales_medicion",
+      "breakpoints": true
     }
   ]
 }
