@@ -172,7 +172,6 @@ export const clientsApi = {
     api.delete<void>(`/clients/${idOrSlug}/competitors/${cid}`),
   generateContent: (idOrSlug: string) =>
     api.post<{ batchId: string; created: number }>(`/clients/${idOrSlug}/content/generate`, null),
-  listContentIdeas: (idOrSlug: string) => api.get<{ ideas: ContentIdea[] }>(`/clients/${idOrSlug}/content-ideas`),
   contentCsvUrl: (idOrSlug: string) => `/api/clients/${idOrSlug}/content-ideas.csv`,
   // Content calendar from the Redes Sociales list (live from ClickUp)
   contentCalendar: (idOrSlug: string, month?: string) =>
@@ -312,17 +311,6 @@ export interface Competitor {
   website: string | null;
   notes: string | null;
   sampleAds: Array<{ text?: string; url?: string }>;
-}
-
-export interface ContentIdea {
-  id: string;
-  kind: "pauta" | "posteo";
-  format: string | null;
-  title: string;
-  copy: string | null;
-  rationale: string | null;
-  source: string | null;
-  createdAt: string;
 }
 
 export interface ClientIntel {

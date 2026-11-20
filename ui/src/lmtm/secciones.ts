@@ -77,7 +77,7 @@ export const GRUPOS_CLIENTE: Array<{ grupo: string; secciones: SeccionCliente[] 
     grupo: "Contenido",
     secciones: [
       { id: "calendario", label: "Calendario" },
-      { id: "ideas", label: "Ideas de posteos" },
+      { id: "ideas", label: "Ideas (Super Redes)" },
       { id: "ganchos", label: "Ganchos" },
       { id: "tendencias", label: "Tendencias" },
       { id: "que-funciona", label: "Qué funciona" },

@@ -159,6 +159,64 @@ async function listaSuperRedes(db: Db, clientId: string, folderId: string | null
   }
 }
 
+/** Una idea de la lista Super Redes, como la muestra la ficha del cliente (20/11). */
+export interface IdeaSuperRedes {
+  id: string; nombre: string; url: string | null; status: string | null; creada: string | null;
+  tipo: string | null; estado: string | null; aprobacion: string | null; copy: string | null;
+  pedida: boolean; generada: boolean;
+  /** El pedido al Productor, si ya se hizo (botón del panel o etiqueta). */
+  productor: { identifier: string; status: string } | null;
+}
+
+/**
+ * La lista Super Redes de un cliente, para la ficha (pedido de Naza 20/11: «en el lugar de ideas de contenido»).
+ * shortcut: la primera página de ClickUp (las 100 más nuevas); si una lista tiene más y hacen falta las viejas, paginar.
+ */
+export async function ideasSuperRedes(db: Db, clientId: string): Promise<{ listaId: string | null; ideas: IdeaSuperRedes[] }> {
+  if (!cuToken()) throw new Error("falta CLICKUP_API_TOKEN en el servidor");
+  const [c] = await db.select({ folder: clients.clickupFolderId }).from(clients).where(eq(clients.id, clientId));
+  if (!c) throw new Error("cliente no encontrado");
+  const listaId = await listaSuperRedes(db, clientId, c.folder);
+  if (!listaId) return { listaId: null, ideas: [] };
+  const j = await cu<{ tasks: any[] }>(`/list/${encodeURIComponent(listaId)}/task?subtasks=false&include_closed=true&order_by=created&page=0`);
+  // Los pedidos al Productor llevan la marca `clickup:<id>` en la descripción (crearTareaProductor).
+  const { issues } = await import("@paperclipai/db");
+  const pedidos = await db.select({ identifier: issues.identifier, status: issues.status, description: issues.description }).from(issues)
+    .where(and(eq(issues.clientId, clientId), sql`${issues.status} <> 'cancelled'`, sql`${issues.description} like '%<!-- clickup:%'`));
+  const porTarea = new Map<string, { identifier: string; status: string }>();
+  for (const p of pedidos) {
+    const m = /<!-- clickup:([^\s>]+) -->/.exec(p.description ?? "");
+    if (m) porTarea.set(m[1], { identifier: p.identifier ?? "s/n", status: p.status });
+  }
+  const ideas = (j.tasks ?? []).map((raw): IdeaSuperRedes => {
+    const t = aTarea(raw);
+    return {
+      id: t.id, nombre: t.name, url: t.url, status: raw.status?.status ?? null,
+      creada: raw.date_created ? new Date(Number(raw.date_created)).toISOString() : null,
+      tipo: t.tipo, estado: campo(raw, /^\s*estado/i), aprobacion: campo(raw, /aprobaci[oó]n/i), copy: t.copy,
+      pedida: t.tags.includes(TAG_PEDIDO) || TAGS_PEDIDO_LEGACY.some((x) => t.tags.includes(x)),
+      generada: t.tags.includes(TAG_LISTO) || TAGS_LISTO_LEGACY.some((x) => t.tags.includes(x)),
+      productor: porTarea.get(t.id) ?? null,
+    };
+  });
+  ideas.sort((a, b) => (b.creada ?? "").localeCompare(a.creada ?? ""));
+  return { listaId, ideas };
+}
+
+/**
+ * El botón «Generar con el agente» de la ficha: lo mismo que la etiqueta «generar contenido» en ClickUp, sin salir del
+ * panel. Pide la pieza y DESPUÉS pone la etiqueta: si la pusiera antes, el barrido de cada 10 min podía tomarla a la vez
+ * y crear dos pedidos. Con la etiqueta puesta, el barrido la encuentra ya pedida (dedupe por la marca clickup:<id>).
+ */
+export async function pedirDesdeElPanel(db: Db, clientId: string, taskId: string): Promise<ResultadoVideo> {
+  const r = await generarVideoDePieza(db, { clientId, taskId, origen: "panel" });
+  if (r.ok) {
+    await cu(`/task/${encodeURIComponent(taskId)}/tag/${encodeURIComponent(TAG_PEDIDO)}`, { method: "POST" })
+      .catch((e) => console.warn("[super-redes] no se pudo poner la etiqueta en ClickUp:", e instanceof Error ? e.message : e));
+  }
+  return r;
+}
+
 /**
  * Piezas etiquetadas y todavía sin generar, en toda la cartera.
  *
@@ -712,12 +770,13 @@ export function generarVideoDePieza(
   input: { clientId: string; taskId: string; forzar?: boolean; origen?: ContextoGasto["origen"] },
 ): Promise<ResultadoVideo> {
   // Todo lo que se pague para esta pieza queda en contenido_gastos con su tarea.
-  return conGasto({ origen: input.origen ?? "panel", clientId: input.clientId, pieza: input.taskId }, () => generarPieza(db, input));
+  // Lo que pide una persona desde el panel corre ya; lo del barrido de ClickUp espera al reloj del motor.
+  return conGasto({ origen: input.origen ?? "panel", clientId: input.clientId, pieza: input.taskId }, () => generarPieza(db, { ...input, aPedido: (input.origen ?? "panel") === "panel" }));
 }
 
 async function generarPieza(
   db: Db,
-  input: { clientId: string; taskId: string; forzar?: boolean },
+  input: { clientId: string; taskId: string; forzar?: boolean; aPedido?: boolean },
 ): Promise<ResultadoVideo> {
   const { clientId, taskId } = input;
   const [cliente] = await db.select().from(clients).where(eq(clients.id, clientId));
@@ -753,7 +812,7 @@ async function generarPieza(
     const r = await pedirPiezaAlProductor(db, {
       companyId: COMPANY_ID, clientId, clienteNombre: cliente.name, clickupTaskId: taskId, clickupUrl: tarea.url,
       nombre: tarea.name, tipo: tarea.tipo, copy: tarea.copy, producto: tarea.producto, objetivo: tarea.objetivo,
-      formato: planSin.formato, piezas: planSin.piezas,
+      formato: planSin.formato, piezas: planSin.piezas, aPedido: input.aPedido,
     });
     // Sin el agente creado, sigue el camino viejo (placas de Magnific sin texto).
     if (r.ok || ES_VIDEO(planSin.formato)) return { ok: r.ok, taskId, error: r.mensaje };

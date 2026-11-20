@@ -116,6 +116,34 @@ export function videoRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/contenido/super-redes/:clientId — las ideas de la lista Super Redes del cliente, con el estado del pedido
+  // al Productor de cada una (ficha del cliente, 20/11).
+  router.get("/contenido/super-redes/:clientId", async (req, res) => {
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.clientId)) return res.status(400).json({ error: "clientId inválido" });
+    try {
+      const { ideasSuperRedes } = await import("../services/video-higgsfield.js");
+      res.json(await ideasSuperRedes(db, req.params.clientId));
+    } catch (e) {
+      res.status(502).json({ error: `No se pudo leer Super Redes: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}` });
+    }
+  });
+
+  // POST /api/contenido/super-redes/:clientId/:taskId/pedir — el botón «Generar con el agente»: lo mismo que la
+  // etiqueta «generar contenido» de ClickUp. Gasta créditos (Magnific / modelo): solo el tablero.
+  router.post("/contenido/super-redes/:clientId/:taskId/pedir", async (req, res) => {
+    assertBoard(req);
+    const { clientId, taskId } = req.params;
+    if (!/^[0-9a-f-]{36}$/i.test(clientId) || !/^[a-z0-9]{4,20}$/i.test(taskId)) return res.status(400).json({ ok: false, mensaje: "Pedido inválido." });
+    try {
+      const { pedirDesdeElPanel } = await import("../services/video-higgsfield.js");
+      const r = await pedirDesdeElPanel(db, clientId, taskId);
+      // En el camino del Productor `error` trae el mensaje del pedido («pedido al Productor de contenido (LMTM-…)»).
+      res.status(r.ok ? 200 : 422).json({ ok: r.ok, mensaje: r.error ?? (r.url ? `Listo: ${r.url}` : "Pedido.") });
+    } catch (e) {
+      res.status(502).json({ ok: false, mensaje: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   // GET /api/contenido/generado?dias=30&clientId= — todo lo generado con su
   // link de Drive y lo que gastó cada herramienta. Solo lectura.
   router.get("/contenido/generado", async (req, res) => {

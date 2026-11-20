@@ -12,7 +12,7 @@ const PlanAccionTab = de(() => import("./PlanAccion"), "PlanAccionTab");
 const PaidMediaTab = de(() => import("./Pauta"), "PaidMediaTab");
 const WebTab = de(() => import("@/components/WebTab"), "WebTab");
 const CalendarTab = de(() => import("./Calendario"), "CalendarTab");
-const IdeasTab = de(() => import("./Ideas"), "IdeasTab");
+const SuperRedesTab = de(() => import("./SuperRedes"), "SuperRedesTab");
 const GanchosTab = de(() => import("./Ganchos"), "GanchosTab");
 const TendenciasTab = de(() => import("./Tendencias"), "TendenciasTab");
 const ProductosTab = de(() => import("@/components/ProductosTab"), "ProductosTab");
@@ -37,7 +37,7 @@ export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads
     case "calendario":
       return <CalendarTab client={client} />;
     case "ideas":
-      return <IdeasTab client={client} />;
+      return <SuperRedesTab client={client} />;
     case "ganchos":
       return <GanchosTab client={client} />;
     case "tendencias":

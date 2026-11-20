@@ -659,6 +659,8 @@ export async function pedirPiezaAlProductor(
     companyId: string; clientId: string; clienteNombre: string; clickupTaskId: string; clickupUrl: string | null;
     nombre: string; tipo: string | null; copy: string | null; producto: string | null; objetivo: string | null;
     formato: "reel" | "clip" | "carrusel" | "placa"; piezas: number;
+    /** Pedido de una persona desde el panel: corre ya, sin esperar al reloj del motor. */
+    aPedido?: boolean;
   },
 ): Promise<{ ok: boolean; mensaje: string }> {
   const esVideo = p.formato === "reel" || p.formato === "clip";
@@ -671,8 +673,9 @@ export async function pedirPiezaAlProductor(
     clientId: p.clientId,
     marca: `clickup:${p.clickupTaskId}`,
     titulo: `[${p.clienteNombre.toUpperCase()}] ${p.tipo ?? (esVideo ? "Reel" : "Placa")}: ${p.nombre}`,
+    aPedido: p.aPedido,
     descripcion: [
-      `Pedido del equipo desde ClickUp (etiqueta «generar contenido»). Armá ${que}.`,
+      `Pedido del equipo ${p.aPedido ? "desde el panel (botón «Generar con el agente» de Super Redes)" : "desde ClickUp (etiqueta «generar contenido»)"}. Armá ${que}.`,
       "",
       `- Cliente: ${p.clienteNombre} (clientId \`${p.clientId}\`)`,
       `- Tipo de contenido: ${p.tipo ?? "(sin especificar)"}`,
