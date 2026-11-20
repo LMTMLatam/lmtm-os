@@ -2,14 +2,16 @@
 // comandos (Ctrl+K) y la ficha del cliente leen de acá. No se perdió ninguna sección:
 // se agruparon.
 
-import { Bot, Clapperboard, Inbox, LineChart, ListChecks, Users, type LucideIcon } from "lucide-react";
+import { Bot, Clapperboard, Inbox, LayoutDashboard, LineChart, ListChecks, Users, type LucideIcon } from "lucide-react";
 
 export interface Seccion { to: string; label: string; soloAdmin?: boolean }
 export interface SeccionPrincipal extends Seccion { Icono: LucideIcon; hijas?: Seccion[] }
 
 /** Lo de todos los días. Las hijas se ven en el riel cuando la madre está abierta. */
 export const PRINCIPALES: SeccionPrincipal[] = [
-  { to: "/hoy", label: "Hoy", Icono: Inbox },
+  { to: "/hoy", label: "Hoy", Icono: LayoutDashboard },
+  // 20/11: lo que tiene que hacer una persona salió de Hoy (Hoy es para mirar).
+  { to: "/decisiones", label: "Pendientes", Icono: Inbox },
   { to: "/aprobaciones", label: "Aprobaciones", Icono: ListChecks },
   { to: "/clientes", label: "Clientes", Icono: Users },
   {
@@ -66,7 +68,6 @@ export const SISTEMA: Array<Seccion & { detalle: string }> = [
 
 /** Se abren desde Configuración; están acá para el título de la pestaña y el Ctrl+K. */
 export const OTRAS: Seccion[] = [
-  { to: "/decisiones", label: "Todas las decisiones" },
   { to: "/contenido/calendario", label: "Calendario de todos los clientes" },
   { to: "/biblioteca", label: "Biblioteca" },
   { to: "/preparacion", label: "Preparación" },

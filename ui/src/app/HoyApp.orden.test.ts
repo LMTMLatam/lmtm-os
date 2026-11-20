@@ -19,14 +19,19 @@ function posicionDe(marca: string, desde = 0): number {
 }
 
 describe("orden de la pantalla Hoy", () => {
-  it("Hoy: urgente, después los números de la agencia y recién ahí las sugerencias", () => {
+  // 20/11 (Naza): «la parte principal deberían ser gráficos […] no acción humana, eso derivalo a otro lado».
+  it("Hoy: los números de la agencia, después las alertas y recién ahí los gráficos; sin acciones a mano", () => {
     const hoy = posicionDe("export function HoyApp()");
-    const orden = [
-      posicionDe("<Urgente ", hoy),
-      posicionDe("<NumerosAgencia ", hoy),
-      posicionDe("Sugerencias para hoy", hoy),
-    ];
+    const fin = posicionDe("const AREA =", hoy);
+    const orden = [posicionDe('titulo="Inversión · 30 días"', hoy), posicionDe("Alertas</h2>", hoy), posicionDe('titulo="Inversión por día"', hoy)];
     expect([...orden].sort((a, b) => a - b)).toEqual(orden);
+    expect(SRC.slice(hoy, fin)).not.toContain("<Urgente ");
+    expect(SRC.slice(hoy, fin)).not.toContain("<Lista ");
+  });
+
+  it("Pendientes: lo urgente va antes que la lista entera", () => {
+    const pendientes = posicionDe("export function DecisionesApp()");
+    expect(posicionDe("<Urgente ", pendientes)).toBeLessThan(posicionDe("<Contenido ", pendientes));
   });
 
   it("dentro de lo urgente, los incidentes van antes que el resto", () => {
@@ -43,15 +48,15 @@ describe("orden de la pantalla Hoy", () => {
     expect([...orden].sort((a, b) => a - b)).toEqual(orden);
   });
 
-  it("la plata parada se muestra en grande", () => {
-    const i = posicionDe("pesos(h.plataParada)");
-    const contexto = SRC.slice(Math.max(0, i - 300), i);
-    expect(contexto).toMatch(/text-\[(4[4-9]|5\d)px\]/);
+  it("los números de arriba se leen de lejos", () => {
+    const i = posicionDe("function Numero(");
+    expect(SRC.slice(i, i + 900)).toMatch(/text-\[(2[8-9]|[3-5]\d)px\]/);
   });
 
   it("sin dato de plata parada dice 'sin dato', no $0", () => {
-    const i = posicionDe("h.plataParada != null ?");
-    expect(SRC.slice(i, i + 600)).toContain("sin dato");
+    expect(posicionDe("h?.plataParada != null ? pesos(h.plataParada) : null")).toBeGreaterThan(-1);
+    const i = posicionDe("function Numero(");
+    expect(SRC.slice(i, i + 900)).toContain("sin dato");
   });
 
   it("los cambios de pauta que proponen los agentes van DESPUÉS de las decisiones", () => {

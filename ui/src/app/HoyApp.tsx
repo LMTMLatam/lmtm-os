@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronDown, Clapperboard, Loader2, OctagonAlert, Search, Sparkles, WifiOff } from "lucide-react";
+import { ChevronDown, Lightbulb, Loader2, OctagonAlert, Search, Sparkles, TrendingUp, TriangleAlert, WifiOff } from "lucide-react";
 import { Link, useSearchParams } from "@/lib/router";
 import { api } from "../api/client";
 import { decisionesApi, type Decision, type Fuente, type Hoy } from "../api/decisiones";
@@ -17,10 +17,15 @@ import { agentesApi, nombreRol, type Trabajo } from "./api";
 import { Encabezado } from "./Shell";
 import { PropuestasAgentes } from "./Propuestas";
 import { TareasEsperando } from "./Esperando";
-import { TarjetaQueFunciona } from "./QueFunciona";
+import { useQueFunciona } from "./QueFunciona";
 import { PublicacionTrabada } from "./PublicacionTrabada";
-import { useAprobaciones } from "../lmtm/aprobaciones";
 import { agruparUrgentes, repartirHoy } from "../lmtm/hoy";
+import { alertasDeAgencia, movimientoCartera, type Alerta } from "../lmtm/alertas";
+import { BarrasH, BarrasPar, Chispa, Linea, Proporcion } from "../lmtm/graficos";
+import { growthApi } from "../api/growth";
+import { carteraApi } from "../api/informes";
+import { nichesApi } from "../api/niches";
+import type { ResumenTrabajo } from "../api/trabajo";
 
 // Por tema y no por "quién": el 07/10 Nazareno pidió que sea más fácil de
 // atacar. Se entra por lo que hay que hacer (plata, contenido, conexiones,
@@ -81,75 +86,164 @@ function CargaHoy({ hoy }: { hoy: ReturnType<typeof useDatosHoy>["hoy"] }) {
 }
 
 /**
- * Hoy (pedido de Naza 20/11): solo lo urgente, los números que importan a la agencia, unas pocas sugerencias y lo que
- * hicieron los agentes. «Las decisiones a mano no las usamos mucho»: la lista entera quedó en /decisiones, a un clic.
+ * Hoy (pedido de Naza 20/11): «la parte principal deberían ser gráficos, con resultados […]; alertas del estilo
+ * "estamos por detrás de la competencia en muchos clientes del nicho"; no acción humana, eso derivalo a otro lado».
+ * Acá solo se mira: números de la agencia, alertas de los datos y comparativas. Lo que hay que hacer está en
+ * Pendientes (/decisiones) y en Aprobaciones.
  */
 export function HoyApp() {
-  const { hoy, trabajos, porDecision } = useDatosHoy();
+  const { hoy } = useDatosHoy();
   const h = hoy.data;
   const r = h ? repartirHoy(h.decisiones, h.oportunidades ?? []) : null;
+  const urgentes = h && r ? h.incidentes.length + r.urgentes.length : null;
+  const overview = useQuery({ queryKey: ["growth", "overview"], queryFn: () => growthApi.overview(), staleTime: 10 * 60_000 });
+  const cartera = useQuery({ queryKey: ["lmtm", "cartera"], queryFn: () => carteraApi.leer(), staleTime: 3 * 60_000 });
+  const nichos = useQuery({ queryKey: ["niches"], queryFn: () => nichesApi.list(), staleTime: 10 * 60_000 });
+  const contenido = useQueFunciona();
+  const trabajo = useQuery({
+    queryKey: ["lmtm", "trabajo", "resumen", 30],
+    queryFn: () => api.get<{ dias: number; resumen: ResumenTrabajo }>("/trabajo?dias=30&resumen=1"),
+    staleTime: 10 * 60_000,
+  });
+  const alertas = alertasDeAgencia({ nichos: nichos.data?.niches, contenido: contenido.data, cartera: cartera.data });
+  const serie = overview.data?.spendTrend ?? [];
+  const k = overview.data?.kpis;
+  const mov = movimientoCartera(cartera.data);
+  const res = trabajo.data?.resumen;
+  const c = contenido.data;
+  const enAmbos = (c?.nichos ?? [])
+    .map((n) => ({ n, comp: c?.competencia?.nichos.find((x) => x.nicho === n.nicho) }))
+    .filter((x) => x.comp && x.n.cuentas >= 2 && x.comp.cuentas >= 2);
+
   return (
     <>
       <Encabezado
         titulo="Hoy"
         bajada={<Bajada h={h} />}
         derecha={
-          r && (
-            <Link to="/decisiones" className="inline-flex min-h-11 items-center rounded-[12px] border border-l-linea-2 px-4 text-[14px] text-l-tinta-2 hover:border-l-marca hover:text-l-tinta">
-              Todas las decisiones · {r.total}
+          urgentes != null && (
+            <Link to="/decisiones" className="inline-flex min-h-11 items-center gap-2 rounded-[12px] border border-l-linea-2 px-4 text-[14px] text-l-tinta-2 hover:border-l-marca hover:text-l-tinta">
+              Pendientes del equipo <span className="rounded-full bg-l-marca-suave px-2 py-px text-[12px] font-semibold tabular-nums text-l-tinta">{urgentes} urgentes</span>
             </Link>
           )
         }
       />
-      <div className="grid gap-8 px-4 md:px-8 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="min-w-0 space-y-8">
-          <CargaHoy hoy={hoy} />
-          {h && r && <Urgente h={h} urgentes={r.urgentes} porDecision={porDecision} />}
-          {h && <NumerosAgencia h={h} trabajos={trabajos} />}
-          {r && r.sugerencias.length > 0 && (
-            <section>
-              <TituloFranja>Sugerencias para hoy</TituloFranja>
-              <p className="-mt-1.5 mb-3 text-[13px] text-l-tinta-3">Lo que más vale de lo que detectaron las reglas y los agentes. Lo demás está en «Todas las decisiones».</p>
-              <Lista decisiones={r.sugerencias} porDecision={porDecision} />
-            </section>
+      <div className="space-y-6 px-4 pb-10 md:px-8">
+        <CargaHoy hoy={hoy} />
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Numero titulo="Inversión · 30 días" valor={k ? pesos(k.spend30d) : null} chispa={serie.map((p) => p.spend)} brillo />
+          <Numero titulo="Consultas · 30 días" valor={k ? entero(k.leads30d) : null} chispa={serie.map((p) => p.leads)} />
+          <Numero titulo="Costo por consulta · 30 días" valor={k && k.leads30d > 0 ? pesos(k.spend30d / k.leads30d) : null} chispa={serie.map((p) => (p.leads > 0 ? p.spend / p.leads : 0))} />
+          <Numero titulo="Plata parada por día" valor={h?.plataParada != null ? pesos(h.plataParada) : null} chispa={(h?.evolucion ?? []).map((p) => p.plataParada ?? 0)} pie={h ? `en ${h.clientesParados} ${h.clientesParados === 1 ? "cliente" : "clientes"}` : undefined} />
+        </div>
+
+        {alertas.length > 0 && (
+          <section>
+            <h2 className="mb-3 text-[18px] font-semibold">Alertas</h2>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {alertas.map((a) => (
+                <TarjetaAlerta key={a.clave} a={a} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel titulo="Inversión por día" bajada="Toda la agencia, últimos 30 días">
+            <Linea puntos={serie.map((p) => ({ x: p.date, y: p.spend }))} formato={pesos} etiqueta="Inversión por día" />
+          </Panel>
+          <Panel titulo="Consultas por día" bajada="Toda la agencia, últimos 30 días">
+            <Linea puntos={serie.map((p) => ({ x: p.date, y: p.leads }))} formato={entero} etiqueta="Consultas por día" />
+          </Panel>
+          <Panel titulo="La cartera esta semana" bajada="Costo por consulta de cada cliente contra la semana anterior">
+            <Proporcion
+              tramos={[
+                { etiqueta: "bajaron", valor: mov.bajo, tono: "bien", marca: "↓" },
+                { etiqueta: "igual", valor: mov.igual, tono: "neutro", marca: "=" },
+                { etiqueta: "subieron", valor: mov.subio, tono: "critico", marca: "↑" },
+              ]}
+            />
+          </Panel>
+          <Panel titulo="Trabajo de los agentes" bajada="Lo que hicieron en 30 días, por área">
+            {res ? (
+              <>
+                <BarrasH
+                  filas={(Object.entries(res.porArea) as Array<[keyof typeof AREA, { hechos: number }]>)
+                    .map(([area, v]) => ({ etiqueta: AREA[area] ?? area, valor: v.hechos }))
+                    .sort((a, b) => b.valor - a.valor)}
+                  formato={entero}
+                />
+                <p className="mt-4 border-t border-l-linea pt-3 text-[13px] text-l-tinta-2">
+                  <span className="font-semibold text-l-tinta">{res.midiendo}</span> cambios midiendo su resultado ·{" "}
+                  <span className="font-semibold text-l-tinta">{res.mejoraron}</span> mejoraron de {res.medidos} medidos
+                </p>
+              </>
+            ) : (
+              <p className="text-[13px] text-l-tinta-3">Cargando…</p>
+            )}
+          </Panel>
+          {c && c.formatos.length > 0 && (
+            <Panel titulo="Qué formato rinde en redes" bajada={`Cada publicación contra lo normal de su cuenta · ${c.dias} días`}>
+              <BarrasH
+                filas={c.formatos.map((f) => ({ etiqueta: f.nombre.replace(/^Instagram · /, ""), valor: f.indice, detalle: `${f.publicaciones} publicaciones` }))}
+                formato={(x) => `${x.toFixed(1).replace(".", ",")}×`}
+                referencia={{ valor: 1, etiqueta: "lo normal de cada cuenta (1×)" }}
+              />
+            </Panel>
+          )}
+          {enAmbos.length > 0 && (
+            <Panel titulo="Publicaciones por cuenta" bajada={`Nuestros clientes contra su competencia en Instagram · ${c!.dias} días`}>
+              <BarrasPar
+                grupos={enAmbos.map(({ n, comp }) => ({ etiqueta: n.nicho, a: n.publicaciones / n.cuentas, b: comp!.publicaciones / comp!.cuentas }))}
+                nombres={["Nuestros clientes", "Competencia"]}
+                formato={(x) => entero(x)}
+              />
+            </Panel>
           )}
         </div>
-        <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
-          {r && (r.esperan.length > 0 || r.conexiones.length > 0) && (
-            <Tarjeta>
-              <TituloFranja>Para cuando haya un rato</TituloFranja>
-              <ul className="space-y-1 text-[14px]">
-                {r.esperan.length > 0 && (
-                  <li>
-                    <Link to="/decisiones?filtro=esperan" className="flex min-h-10 items-center justify-between gap-2 text-l-tinta hover:text-l-marca">
-                      Agentes esperando una respuesta <span className="tabular-nums text-l-tinta-3">{r.esperan.length}</span>
-                    </Link>
-                  </li>
-                )}
-                {r.conexiones.length > 0 && (
-                  <li>
-                    <Link to="/decisiones?filtro=conexiones" className="flex min-h-10 items-center justify-between gap-2 text-l-tinta hover:text-l-marca">
-                      Clientes con datos sin conectar <span className="tabular-nums text-l-tinta-3">{r.conexiones.length}</span>
-                    </Link>
-                  </li>
-                )}
-              </ul>
-            </Tarjeta>
-          )}
-          <Tarjeta>
-            <div className="mb-3 flex items-center justify-between">
-              <TituloFranja sinMargen>Lo que hicieron los agentes</TituloFranja>
-              <Link to="/agentes" className="text-[12px] font-semibold text-l-marca">
-                Ver todo
-              </Link>
-            </div>
-            <FeedAgentes trabajos={trabajos.filter((t) => t.estado === "hecho").slice(0, 8)} />
-          </Tarjeta>
-          <TarjetaQueFunciona />
-        </aside>
       </div>
     </>
   );
+}
+
+const AREA = { pauta: "Pauta", web: "Web", contenido: "Contenido", analisis: "Análisis", informe: "Informes" } as const;
+const entero = (n: number) => Math.round(n).toLocaleString("es-AR");
+
+function Panel({ titulo, bajada, children }: { titulo: string; bajada?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-[20px] border border-l-linea bg-l-sup p-5">
+      <h3 className="text-[16px] font-semibold">{titulo}</h3>
+      {bajada && <p className="mb-4 mt-0.5 text-[12px] text-l-tinta-3">{bajada}</p>}
+      {children}
+    </section>
+  );
+}
+
+function Numero({ titulo, valor, chispa, pie, brillo }: { titulo: string; valor: string | null; chispa: number[]; pie?: string; brillo?: boolean }) {
+  return (
+    <div className={`flex flex-col gap-2 rounded-[20px] border border-l-linea bg-l-sup p-5 ${brillo ? "bg-[image:var(--l-brillo-caja)]" : ""}`}>
+      <p className="text-[13px] text-l-tinta-2">{titulo}</p>
+      <p className="text-[28px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{valor ?? <span className="text-[20px] italic text-l-tinta-3">sin dato</span>}</p>
+      <Chispa valores={chispa} />
+      {pie && <p className="text-[12px] text-l-tinta-3">{pie}</p>}
+    </div>
+  );
+}
+
+function TarjetaAlerta({ a }: { a: Alerta }) {
+  const Icono = a.tono === "atencion" ? TriangleAlert : a.tono === "bien" ? TrendingUp : Lightbulb;
+  const color = a.tono === "atencion" ? "text-l-atencion-texto" : a.tono === "bien" ? "text-l-bien-texto" : "text-l-marca";
+  const cuerpo = (
+    <div className="flex h-full gap-3 rounded-[18px] border border-l-linea bg-l-sup p-4 hover:border-l-tinta-3">
+      <Icono className={`mt-1 h-5 w-5 shrink-0 ${color}`} aria-hidden />
+      <p className="text-[14px] leading-[1.45] text-l-tinta-2">
+        <span className="mr-1.5 text-[22px] font-semibold tabular-nums text-l-tinta">{a.grande}</span>
+        {a.texto}
+      </p>
+    </div>
+  );
+  return a.link ? <Link to={a.link} className="block text-inherit">{cuerpo}</Link> : cuerpo;
 }
 
 /** Lo que corta la pauta o la publicación hoy. Sin nada, una línea: no una pantalla vacía. */
@@ -201,61 +295,30 @@ function GrupoUrgente({ titulo, items, porDecision }: { titulo: string; items: D
   );
 }
 
-/** Los cuatro números que importan a la agencia, cada uno con su link. */
-function NumerosAgencia({ h, trabajos }: { h: Hoy; trabajos: Trabajo[] }) {
-  const aprobar = useAprobaciones();
-  const hechosHoy = trabajos.filter((t) => t.estado === "hecho" && t.finishedAt && Date.now() - new Date(t.finishedAt).getTime() < 86_400_000).length;
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-      <Tarjeta className="bg-[image:var(--l-brillo-caja)]">
-        <div className="text-[13px] font-medium text-l-tinta-2">Plata parada por día</div>
-        {h.plataParada != null ? (
-          <div className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.03em]">{pesos(h.plataParada)}</div>
-        ) : (
-          <div className="mt-1 text-[24px] italic text-l-tinta-3">sin dato</div>
-        )}
-        <div className="mt-1.5 text-[12px] text-l-tinta-3">
-          {h.plataParada != null && `en ${h.clientesParados} ${h.clientesParados === 1 ? "cliente" : "clientes"} · `}datos hasta ayer
-        </div>
-        <Evolucion puntos={h.evolucion ?? []} />
-      </Tarjeta>
-      <Link to="/aprobaciones" className="block text-inherit">
-        <Tarjeta className="h-full hover:border-l-tinta-3">
-          <div className="text-[13px] font-medium text-l-tinta-2">Para aprobar</div>
-          <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{aprobar.cargando ? "…" : aprobar.total}</div>
-          <div className="mt-1.5 text-[12px] text-l-tinta-3">
-            {aprobar.n.pauta} de pauta · {aprobar.n.contenido} piezas · {aprobar.n.web} web y pedidos
-          </div>
-        </Tarjeta>
-      </Link>
-      <TarjetaContenido />
-      <Link to="/agentes" className="block text-inherit">
-        <Tarjeta className="h-full hover:border-l-tinta-3">
-          <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
-            <Bot className="h-4 w-4" aria-hidden /> Agentes
-          </div>
-          <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{hechosHoy}</div>
-          <div className="mt-1.5 text-[12px] text-l-tinta-3">trabajos terminados en 24 h</div>
-        </Tarjeta>
-      </Link>
-    </div>
-  );
-}
-
-/** La lista entera de lo que detectaron las reglas, con sus filtros (antes era Hoy). */
+/**
+ * Pendientes: lo que tiene que hacer una persona (20/11: «no acción humana en Hoy, derivalo a otro lado»). Arriba lo
+ * urgente agrupado; abajo la lista entera de lo que detectaron las reglas, con sus filtros.
+ */
 export function DecisionesApp() {
   const { hoy, porDecision } = useDatosHoy();
+  const h = hoy.data;
+  const r = h ? repartirHoy(h.decisiones, h.oportunidades ?? []) : null;
   const [params] = useSearchParams();
   const inicial = FILTROS.find((f) => f.k === params.get("filtro"))?.k ?? "todo";
   return (
     <>
       <Encabezado
-        titulo="Decisiones"
+        titulo="Pendientes"
         bajada={<Bajada h={hoy.data} />}
         derecha={hoy.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-l-tinta-3" aria-label="Actualizando" /> : null}
       />
       <div className="px-4 md:px-8">
         <CargaHoy hoy={hoy} />
+        {h && r && (
+          <div className="mb-8">
+            <Urgente h={h} urgentes={r.urgentes} porDecision={porDecision} />
+          </div>
+        )}
         {hoy.data && <Contenido key={inicial} h={hoy.data} porDecision={porDecision} filtroInicial={inicial} />}
       </div>
     </>
@@ -408,92 +471,6 @@ function Contenido({ h, porDecision, filtroInicial }: { h: Hoy; porDecision: Map
         </Tarjeta>
       </aside>
     </div>
-  );
-}
-
-/**
- * Evolución de la plata parada, un punto por día (sparkline: una serie, sin
- * eje; el valor de cada día al pasar el mouse). Un día sin dato corta la línea:
- * no se dibuja un cero que no se midió. Hace falta al menos 2 días medidos.
- */
-function Evolucion({ puntos }: { puntos: Array<{ fecha: string; plataParada: number | null }> }) {
-  const medidos = puntos.filter((p) => p.plataParada != null);
-  if (medidos.length < 2) return null;
-  const ancho = 240;
-  const alto = 40;
-  const max = Math.max(...medidos.map((p) => p.plataParada!));
-  const x = (i: number) => (puntos.length === 1 ? 0 : (i / (puntos.length - 1)) * (ancho - 8)) + 4;
-  const y = (v: number) => alto - 4 - (max > 0 ? (v / max) * (alto - 8) : 0);
-  // Tramos continuos entre días con dato.
-  const tramos: string[] = [];
-  let actual: string[] = [];
-  puntos.forEach((p, i) => {
-    if (p.plataParada == null) {
-      if (actual.length > 1) tramos.push(actual.join(" "));
-      actual = [];
-    } else actual.push(`${x(i).toFixed(1)},${y(p.plataParada).toFixed(1)}`);
-  });
-  if (actual.length > 1) tramos.push(actual.join(" "));
-  const ultimo = puntos.length - 1;
-  const fechaCorta = (f: string) => `${Number(f.slice(8, 10))}/${Number(f.slice(5, 7))}`;
-  return (
-    <div className="mt-3">
-      <svg viewBox={`0 0 ${ancho} ${alto}`} className="h-10 w-full max-w-[260px]" role="img" aria-label={`Plata parada por día, últimos ${puntos.length} días`}>
-        {tramos.map((t, i) => (
-          <polyline key={i} points={t} fill="none" stroke="var(--l-marca)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        ))}
-        {puntos.map((p, i) =>
-          p.plataParada == null ? null : (
-            <circle key={p.fecha} cx={x(i)} cy={y(p.plataParada)} r={i === ultimo ? 3.5 : 6} fill={i === ultimo ? "var(--l-marca)" : "transparent"}>
-              <title>{`${fechaCorta(p.fecha)}: ${pesos(p.plataParada)} por día`}</title>
-            </circle>
-          ),
-        )}
-      </svg>
-      <div className="text-[11px] text-l-tinta-3">
-        desde el {fechaCorta(puntos[0].fecha)} · {puntos.length} días
-      </div>
-    </div>
-  );
-}
-
-/**
- * Contenido de los próximos 7 días (Super Redes, ClickUp en vivo): cuántas
- * piezas hay y a cuántas les falta algo para salir. Lo que no esté completo
- * al llegar su fecha, el despachador lo descarta.
- */
-function TarjetaContenido() {
-  const q = useQuery({
-    queryKey: ["lmtm", "contenido", "tablero"],
-    queryFn: () => api.get<{ piezas: Array<{ date: string; readyToPublish: boolean }> }>("/contenido/tablero?dias=14"),
-    staleTime: 5 * 60_000,
-  });
-  const hasta = Date.now() + 7 * 86_400_000;
-  const semana = (q.data?.piezas ?? []).filter((p) => {
-    const t = new Date(p.date).getTime();
-    return t >= Date.now() - 86_400_000 && t <= hasta;
-  });
-  const faltan = semana.filter((p) => !p.readyToPublish).length;
-  return (
-    <Link to="/clientes?vista=contenido" className="block text-inherit">
-      <Tarjeta className="h-full hover:border-l-tinta-3">
-        <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
-          <Clapperboard className="h-4 w-4" aria-hidden /> Contenido, 7 días
-        </div>
-        {q.isLoading ? (
-          <div className="mt-2 text-[13px] text-l-tinta-3">Leyendo ClickUp…</div>
-        ) : q.error ? (
-          <div className="mt-1 text-[24px] italic text-l-tinta-3">sin dato</div>
-        ) : (
-          <>
-            <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{semana.length}</div>
-            <div className={`mt-1.5 text-[12px] ${faltan > 0 ? "font-medium text-l-atencion-texto" : "text-l-tinta-3"}`}>
-              {semana.length === 0 ? "piezas programadas" : faltan > 0 ? `${faltan} sin completar` : "todas listas para salir"}
-            </div>
-          </>
-        )}
-      </Tarjeta>
-    </Link>
   );
 }
 
@@ -668,27 +645,6 @@ export function HallazgoAgente({ t }: { t: Trabajo }) {
         Ver cómo lo averiguó
       </Link>
     </div>
-  );
-}
-
-function FeedAgentes({ trabajos }: { trabajos: Trabajo[] }) {
-  if (trabajos.length === 0) return <p className="text-[13px] text-l-tinta-3">Todavía no corrió ningún trabajo.</p>;
-  return (
-    <ul className="space-y-3">
-      {trabajos.map((t) => (
-        <li key={t.id}>
-          <Link to={`/agentes/${t.id}`} className="block rounded-lg text-inherit hover:opacity-80">
-            <div className="flex items-center gap-1.5 text-[12px] text-l-tinta-3">
-              <EstadoPunto estado={t.estado} />
-              {nombreRol(t.rol)} · {haceCuanto(t.finishedAt ?? t.startedAt ?? t.createdAt)}
-            </div>
-            <div className="mt-0.5 line-clamp-2 text-[13px] leading-[1.4] text-l-tinta">
-              {t.resultado?.resumen ?? (t.estado === "fallo" ? "No pudo terminar; se reintenta solo." : t.estado === "corriendo" ? "Trabajando…" : "En la cola")}
-            </div>
-          </Link>
-        </li>
-      ))}
-    </ul>
   );
 }
 

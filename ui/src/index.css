@@ -1079,6 +1079,9 @@ span.paperclip-project-mention-chip {
   --l-marca-grad: linear-gradient(90deg, #c22bb5, #a3168f);
   --l-brillo: radial-gradient(900px 520px at 0% 0%, rgba(240, 92, 245, 0.1), rgba(240, 92, 245, 0) 62%);
   --l-brillo-caja: none;
+  /* Series de gráficos (validadas con dataviz/validate_palette, 20/11): nosotros y competencia. */
+  --l-serie-1: #a3168f;
+  --l-serie-2: #b86e00;
   /* Estado: fijos (paleta validada de dataviz), siempre con ícono y palabra. */
   --l-bien: #0ca30c;
   --l-bien-texto: #0b7a0b;
@@ -1140,5 +1143,7 @@ span.paperclip-project-mention-chip {
   --l-critico-suave: #2a1617;
   --l-neutro: #4a3f55;
   --l-neutro-2: #2c2235;
+  --l-serie-1: #d44ad9;
+  --l-serie-2: #bf8420;
   --primary-foreground: var(--l-marca-tinta);
 }

@@ -25,6 +25,8 @@ export function trabajoRoutes(db: Db): Router {
     const clientId = typeof req.query.clientId === "string" && /^[0-9a-f-]{36}$/i.test(req.query.clientId) ? req.query.clientId : undefined;
     const dias = Number(req.query.dias) || 30;
     const items = await trabajoDeAgentes(db, { clientId, dias });
+    // ?resumen=1 (Hoy, 20/11): solo los números; con los ítems eran ~670 KB para 30 días.
+    if (req.query.resumen === "1") return res.json({ dias, resumen: resumirTrabajo(items) });
     res.json({ dias, items, resumen: resumirTrabajo(items) });
   });
 
