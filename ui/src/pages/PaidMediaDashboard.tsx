@@ -131,17 +131,18 @@ const SECTIONS: Array<{ value: Section; label: string; icon: typeof LayoutDashbo
 // ============================================================
 function useFormatters(currency: string) {
   return useMemo(() => {
+    // 20/11: como en el resto del panel (es-AR), no 2,167,773 ni 870.8k.
     const fmtMoney = (n: number, max = 0) =>
-      new Intl.NumberFormat("en-US", {
+      new Intl.NumberFormat("es-AR", {
         style: "currency",
         currency,
         maximumFractionDigits: max,
       }).format(n);
-    const fmtInt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
-    const fmtPct = (n: number, digits = 2) => `${(n * 100).toFixed(digits)}%`;
+    const fmtInt = (n: number) => new Intl.NumberFormat("es-AR").format(Math.round(n));
+    const fmtPct = (n: number, digits = 2) => `${(n * 100).toFixed(digits).replace(".", ",")}%`;
     const fmtCompact = (n: number) => {
-      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-      if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} M`;
+      if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(".", ",")} mil`;
       return n.toString();
     };
     return { fmtMoney, fmtInt, fmtPct, fmtCompact };
@@ -212,39 +213,28 @@ function Kpi({
   trend?: { value: number; suffix?: string };
   accent?: "blue" | "green" | "amber" | "rose" | "violet";
 }) {
-  const chips: Record<string, string> = {
-    blue: "linear-gradient(135deg, #2a78d6, #4a3aa7)",
-    green: "linear-gradient(135deg, #1baf7a, #0e8a60)",
-    amber: "linear-gradient(135deg, #eda100, #eb6834)",
-    rose: "linear-gradient(135deg, #e87ba4, #d03b6b)",
-    violet: "linear-gradient(135deg, #7c5ce0, #4a3aa7)",
-  };
-  const trendColor =
-    trend == null ? "" : trend.value > 0 ? "text-emerald-600 dark:text-emerald-400" : trend.value < 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground";
+  void accent; // las tarjetas ya no llevan color propio (20/11): el color es para los datos.
+  const trendColor = trend == null ? "" : trend.value > 0 ? "text-l-bien-texto" : trend.value < 0 ? "text-l-critico-texto" : "text-l-tinta-3";
   return (
-    <Card className="p-4 relative overflow-hidden">
-      <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: chips[accent] }} />
-      <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1 min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium truncate">{title}</p>
-          <p className="text-2xl font-bold tabular-nums truncate">{value}</p>
-          {(sub || trend != null) && (
-            <div className="flex items-center gap-1.5 text-xs">
-              {trend != null && (
-                <span className={`inline-flex items-center gap-0.5 font-medium tabular-nums ${trendColor}`}>
-                  {trend.value > 0 ? <ArrowUp className="h-3 w-3" /> : trend.value < 0 ? <ArrowDown className="h-3 w-3" /> : null}
-                  {Math.abs(trend.value).toFixed(1)}{trend.suffix ?? "%"}
-                </span>
-              )}
-              {sub && <span className="text-muted-foreground truncate">{sub}</span>}
-            </div>
+    <div className="flex flex-col gap-2 rounded-[20px] border border-l-linea bg-l-sup p-5">
+      <p className="flex items-center justify-between gap-2 text-[13px] text-l-tinta-2">
+        <span className="truncate">{title}</span>
+        <Icon className="h-4 w-4 shrink-0 text-l-marca" aria-hidden />
+      </p>
+      <p className="truncate text-[26px] font-semibold leading-tight tracking-[-0.02em] tabular-nums">{value}</p>
+      {(sub || trend != null) && (
+        <div className="flex items-center gap-1.5 text-[12px]">
+          {trend != null && (
+            <span className={`inline-flex items-center gap-0.5 font-semibold tabular-nums ${trendColor}`}>
+              {trend.value > 0 ? <ArrowUp className="h-3 w-3" aria-hidden /> : trend.value < 0 ? <ArrowDown className="h-3 w-3" aria-hidden /> : null}
+              {Math.abs(trend.value).toFixed(1).replace(".", ",")}
+              {trend.suffix ?? "%"}
+            </span>
           )}
+          {sub && <span className="truncate text-l-tinta-3">{sub}</span>}
         </div>
-        <div className="shrink-0 rounded-lg p-2 text-white shadow-sm" style={{ background: chips[accent] }}>
-          <Icon className="h-4 w-4" />
-        </div>
-      </div>
-    </Card>
+      )}
+    </div>
   );
 }
 
@@ -463,7 +453,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
   const accountBroke = health != null && health.status === 1 && health.remaining !== null && health.remaining <= 0;
 
   return (
-    <div className="space-y-4 pv">
+    <div className="space-y-4 pv pv-lmtm">
       <PubvizTheme />
       {/* Account-health banner: an empty dashboard must EXPLAIN itself. When
           Meta halted the account (debt/disabled) or the budget cap is spent,
@@ -499,7 +489,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
           <div className="flex items-end gap-2 flex-wrap">
             <div className="flex gap-1">
               {(["all", "meta", "google"] as const).map((p) => (
-                <button key={p} onClick={() => setPlatform(p)} className={`text-[11px] px-2 py-1 rounded-md border ${platform === p ? "border-emerald-500 text-emerald-600" : "border-border hover:bg-muted text-muted-foreground"}`}>
+                <button key={p} onClick={() => setPlatform(p)} className={`min-h-8 rounded-full border px-3 text-[12px] ${platform === p ? "border-transparent bg-l-marca-suave font-semibold text-l-tinta" : "border-l-linea-2 text-l-tinta-2 hover:text-l-tinta"}`}>
                   {p === "all" ? "Todas" : p === "meta" ? "Meta" : "Google"}
                 </button>
               ))}
@@ -525,7 +515,7 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
           <div className="flex gap-2 flex-wrap mt-3 pt-3 border-t border-border/60">
             {splitPlatforms.map((p) => (
               <button key={p.platform} onClick={() => setPlatform(platform === p.platform ? "all" : (p.platform as "meta" | "google"))}
-                className={`text-[11px] px-2.5 py-1 rounded-md border ${platform === p.platform ? "border-emerald-500" : "border-border"} hover:bg-muted text-left`}>
+                className={`rounded-[10px] border px-2.5 py-1 text-left text-[12px] ${platform === p.platform ? "border-l-marca" : "border-l-linea"} hover:bg-l-papel`}>
                 <span className="font-semibold capitalize">{p.platform}</span>
                 <span className="text-muted-foreground"> · {fmt.fmtMoney(p.spend)} · {fmt.fmtInt(p.leads)} leads · CTR {(p.ctr * 100).toFixed(2)}%{p.leads > 0 ? ` · CPL ${fmt.fmtMoney(p.cpl)}` : ""}</span>
               </button>
@@ -534,32 +524,29 @@ export function PaidMediaDashboard({ client, ads }: { client: Client; ads: Clien
         )}
       </Card>
 
-      {/* Sidebar + content */}
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
-        <Card className="p-2 self-start lg:sticky lg:top-4">
-          <nav className="space-y-0.5">
-            {SECTIONS.map((s) => {
-              const Icon = s.icon;
-              const isActive = s.value === activeSection;
-              return (
-                <button
-                  key={s.value}
-                  onClick={() => setActiveSection(s.value)}
-                  className={`w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors ${
-                    isActive
-                      ? "bg-foreground/5 text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.03]"
-                  }`}
-                >
-                  <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-foreground" : "text-muted-foreground"}`} />
-                  <span className="truncate">{s.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </Card>
-        <div className="min-w-0">{renderSection()}</div>
-      </div>
+      {/* Secciones como chips arriba (20/11): la ficha ya tiene su menú y el panel su barra; una columna más le
+          robaba ancho a los gráficos. */}
+      <nav className="flex flex-wrap gap-1.5" aria-label="Secciones de la pauta">
+        {SECTIONS.map((s) => {
+          const Icon = s.icon;
+          const isActive = s.value === activeSection;
+          return (
+            <button
+              key={s.value}
+              type="button"
+              onClick={() => setActiveSection(s.value)}
+              aria-current={isActive ? "page" : undefined}
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] transition-colors ${
+                isActive ? "bg-l-marca-suave font-semibold text-l-tinta" : "border border-l-linea-2 text-l-tinta-2 hover:text-l-tinta"
+              }`}
+            >
+              <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-l-marca" : "text-l-tinta-3"}`} aria-hidden />
+              {s.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="min-w-0">{renderSection()}</div>
     </div>
   );
 }
