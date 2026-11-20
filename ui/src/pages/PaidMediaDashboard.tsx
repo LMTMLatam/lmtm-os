@@ -1539,7 +1539,7 @@ function ConfiguracionSection({ ads }: { ads: ClientAdsSummary }) {
 //   Generates a public read-only link the agency can hand to the
 //   client. No expiration by design (revoke via the same dialog).
 // ============================================================
-function ShareDialog({ client }: { client: Client }) {
+export function ShareDialog({ client }: { client: Client }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const linkQuery = useQuery({

@@ -1,105 +1,249 @@
-// LMTM: la ficha del cliente en la app propia (fase C1). Encabezado y
-// navegación nuevos; las secciones son las mismas de siempre (no se pierde
-// ninguna, pedido del 06/10) más "Trabajo" (antes "Agentes"): todo lo que los
-// agentes hicieron y propusieron con este cliente, con su resultado medido, y
-// pedirles algo.
+// LMTM: la ficha del cliente. Rediseño 20/11 (maqueta aprobada): encabezado con el
+// estado del cliente en cuatro tarjetas, la barra de acciones siempre a mano y las 14
+// secciones de siempre agrupadas en 5 (Resumen, Pauta, Contenido, Marca, Trabajo).
+// No se perdió ninguna sección; los links viejos (/clientes/x/ganchos) siguen andando.
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, OctagonAlert, Pin, Send } from "lucide-react";
+import { ArrowLeft, Clapperboard, ExternalLink, FileText, OctagonAlert, Pin, Send } from "lucide-react";
 import { useFijados } from "../lmtm/fijados";
 import { Link, useParams } from "@/lib/router";
 import { api } from "../api/client";
-import { clientsApi } from "../api/clients";
+import { clientsApi, type Client, type ClientAdsSummary } from "../api/clients";
+import { clientesApi } from "../api/informes";
 import { SelectorCliente } from "../components/SelectorCliente";
 import { queryKeys } from "../lib/queryKeys";
-import { haceCuanto } from "../lmtm/formato";
+import { haceCuanto, pesos } from "../lmtm/formato";
+import { EstadoObjetivoMarca } from "../lmtm/componentes";
 import { ScrollLateral } from "../lmtm/ScrollLateral";
-import { ClientResourcesPanel, TABS, TabContent, type Tab } from "../pages/ClientDashboard";
+import { GRUPOS_CLIENTE, SECCIONES_CLIENTE } from "../lmtm/secciones";
+import { ShareDialog } from "../pages/PaidMediaDashboard";
+import { TabContent, type Tab } from "./cliente/Seccion";
+import { diasDeSaldo, recursosDe } from "./cliente/estado";
 import { agentesApi, nombreRol, ROLES } from "./api";
 import { EstadoPunto, Tarjeta, TituloFranja } from "./HoyApp";
-import { Encabezado } from "./Shell";
 import { QueFuncionaCliente } from "./QueFunciona";
 import { TrabajoDelCliente } from "./Trabajo";
 
 type Seccion = Tab | "agentes" | "que-funciona";
 
-/** Orden de la ficha nueva: lo de decidir primero, lo de contenido después. */
-const ORDEN: Seccion[] = ["resumen", "plan-accion", "dashboard", "web", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"];
-const NOMBRE: Partial<Record<Seccion, string>> = { dashboard: "Pauta", agentes: "Trabajo", "que-funciona": "Qué funciona", tasks: "Tareas", productos: "Marca", competidores: "Competencia" };
-
 export function ClienteApp() {
   const { slug = "", seccion } = useParams<{ slug: string; seccion?: string }>();
-  const activa: Seccion = (ORDEN.find((s) => s === seccion) ?? "resumen") as Seccion;
+  const activa = (SECCIONES_CLIENTE.find((s) => s.id === seccion)?.id ?? "resumen") as Seccion;
   const cliente = useQuery({ queryKey: queryKeys.clients.detail(slug), queryFn: () => clientsApi.get(slug), enabled: !!slug, retry: false });
   const ads = useQuery({ queryKey: queryKeys.clients.adsSummary(slug), queryFn: () => clientsApi.adsSummary(slug), enabled: !!slug, retry: false });
   const c = cliente.data;
 
   return (
-    <>
-      <Encabezado
-        titulo={
-          <span className="flex items-center gap-2">
-            {c?.name ?? slug}
-            {/* Saltar de cliente cayendo en la misma sección. */}
-            <SelectorCliente slugActual={slug} tab={activa} />
-            {c && <BotonFijar slug={c.slug} nombre={c.name.trim()} />}
-          </span>
-        }
-        bajada={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Link to="/clientes" className="inline-flex items-center gap-1 text-l-marca">
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Clientes
-            </Link>
-            {c?.industry && <span>{c.industry}</span>}
-            {c?.websiteUrl && (
-              <a href={c.websiteUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-l-tinta">
-                {c.websiteUrl.replace(/^https?:\/\//, "")} <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
-            )}
-          </span>
-        }
-      />
-      <div className="px-4 md:px-8">
-        {cliente.isLoading && <p className="text-[14px] text-l-tinta-3">Cargando…</p>}
-        {cliente.isError && (
-          <p className="flex gap-1.5 text-[14px] text-l-critico-texto">
-            <OctagonAlert className="mt-0.5 h-4 w-4" aria-hidden /> No se encontró el cliente.
-          </p>
-        )}
-        {c && (
-          <>
-            <ClientResourcesPanel client={c} />
-            <CoberturaDelCerebro clientId={c.id} />
-            <nav className="sticky top-0 z-10 -mx-4 mt-5 border-b border-l-linea bg-l-papel/95 px-4 backdrop-blur md:-mx-8 md:px-8" aria-label="Secciones del cliente">
-              <ScrollLateral>
-              <ul className="flex shrink-0 gap-1">
-                {ORDEN.map((s) => {
-                  const nombre = NOMBRE[s] ?? TABS.find((t) => t.value === s)?.label ?? s;
-                  const activo = s === activa;
-                  return (
-                    <li key={s}>
-                      <Link
-                        to={`/clientes/${c.slug}/${s}`}
-                        aria-current={activo ? "page" : undefined}
-                        className={`-mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-2 px-3 text-[14px] transition-colors ${
-                          activo ? "border-l-tinta font-semibold text-l-tinta" : "border-transparent text-l-tinta-3 hover:text-l-tinta"
-                        }`}
-                      >
-                        {nombre}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-              </ScrollLateral>
-            </nav>
-            <div className="py-6">
-              {activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : activa === "que-funciona" ? <QueFuncionaCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}
+    <div className="px-4 pb-6 pt-6 md:px-8">
+      <EncabezadoCliente slug={slug} c={c} activa={activa} />
+      {cliente.isLoading && <p className="text-[14px] text-l-tinta-3" role="status">Cargando…</p>}
+      {cliente.isError && (
+        <p className="flex gap-1.5 text-[14px] text-l-critico-texto" role="alert">
+          <OctagonAlert className="mt-0.5 h-4 w-4" aria-hidden /> No se encontró el cliente.
+        </p>
+      )}
+      {c && (
+        <>
+          <TarjetasEstado c={c} ads={ads.data} />
+          <div className="mt-5 flex flex-wrap items-start gap-4">
+            <MenuCliente slug={c.slug} activa={activa} />
+            <div className="min-w-0 flex-[999_1_480px]">
+              <Suspense fallback={<p className="text-[14px] text-l-tinta-3" role="status">Cargando la sección…</p>}>
+                {activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : activa === "que-funciona" ? <QueFuncionaCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}
+              </Suspense>
             </div>
-          </>
-        )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const claseAccion = "inline-flex min-h-11 items-center gap-2 rounded-[12px] border border-l-linea-2 bg-l-sup/60 px-4 text-[14px] font-medium text-l-tinta hover:border-l-marca";
+
+function EncabezadoCliente({ slug, c, activa }: { slug: string; c?: Client; activa: Seccion }) {
+  return (
+    <header className="mb-5 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-l-tinta-3">
+        <Link to="/clientes" className="inline-flex items-center gap-1 text-l-marca">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Clientes
+        </Link>
+        {c?.industry && <span>{c.industry}</span>}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] md:text-[30px]">{c?.name ?? slug}</h1>
+        {/* Saltar de cliente cayendo en la misma sección. */}
+        <SelectorCliente slugActual={slug} tab={activa} />
+        {c && <BotonFijar slug={c.slug} nombre={c.name.trim()} />}
+      </div>
+      {c && <BarraAcciones c={c} />}
+    </header>
+  );
+}
+
+/** Lo de todos los días con un cliente, siempre a mano: pedir, producir, compartir y sus recursos de afuera. */
+function BarraAcciones({ c }: { c: Client }) {
+  const resumen = useQuery({ queryKey: ["lmtm", "cliente", c.id], queryFn: () => clientesApi.resumen(c.id), staleTime: 60_000 });
+  const informe = resumen.data?.linkPublico;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Link to={`/clientes/${c.slug}/agentes`} className="inline-flex min-h-11 items-center gap-2 rounded-[12px] bg-[image:var(--l-marca-grad)] px-4 text-[14px] font-semibold text-l-marca-tinta">
+        <Send className="h-4 w-4" aria-hidden /> Pedir a un agente
+      </Link>
+      <Link to="/produccion/generado" className={claseAccion}>
+        <Clapperboard className="h-4 w-4" aria-hidden /> Nueva pieza
+      </Link>
+      {informe && (
+        <a href={informe} target="_blank" rel="noreferrer noopener" className={claseAccion}>
+          <FileText className="h-4 w-4" aria-hidden /> Informe
+        </a>
+      )}
+      {/* Compartir el dashboard con el cliente: el mismo diálogo de Pauta (link, prender y apagar). */}
+      <ShareDialog client={c} />
+      <span className="mx-1 hidden h-6 w-px bg-l-linea-2 sm:block" aria-hidden />
+      {recursosDe(c).map((r) =>
+        r.url ? (
+          <a key={r.nombre} href={r.url} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-11 items-center gap-1 rounded-[12px] px-3 text-[13px] text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta">
+            {r.nombre} <ExternalLink className="h-3 w-3" aria-hidden />
+          </a>
+        ) : (
+          <span key={r.nombre} className="inline-flex min-h-11 items-center px-3 text-[13px] text-l-tinta-3 line-through decoration-l-linea-2" title="No configurado">
+            {r.nombre}
+          </span>
+        ),
+      )}
+    </div>
+  );
+}
+
+function Barra({ pct, alerta }: { pct: number; alerta?: boolean }) {
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-l-linea-2" aria-hidden>
+      <i className={`block h-full rounded-full ${alerta ? "bg-[linear-gradient(90deg,#ff7af7,#ef6b6b)]" : "bg-[image:var(--l-marca-grad)]"}`} style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+    </div>
+  );
+}
+
+function TarjetaEstado({ titulo, valor, pie, children, brillo }: { titulo: string; valor: React.ReactNode; pie?: React.ReactNode; children?: React.ReactNode; brillo?: boolean }) {
+  return (
+    <div className={`flex flex-col gap-2.5 rounded-[20px] border border-l-linea bg-l-sup p-5 ${brillo ? "bg-[image:var(--l-brillo-caja)]" : ""}`}>
+      <p className="text-[14px] text-l-tinta-2">{titulo}</p>
+      <div className="text-[28px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{valor}</div>
+      {children}
+      {pie && <p className="text-[12px] text-l-tinta-3">{pie}</p>}
+    </div>
+  );
+}
+
+/** El estado del cliente de un vistazo: costo contra el objetivo, saldo, lo que hay para decidir y la ficha. */
+function TarjetasEstado({ c, ads }: { c: Client; ads?: ClientAdsSummary }) {
+  const resumen = useQuery({ queryKey: ["lmtm", "cliente", c.id], queryFn: () => clientesApi.resumen(c.id), staleTime: 60_000 });
+  const cerebro = useCobertura(c.id);
+  const r = resumen.data;
+  const costo = r ? (r.medida === "calificado" ? r.semana.costoPorCalificado : r.semana.cpl) : null;
+  const objetivo = r?.semana.objetivo ?? null;
+  const dias = diasDeSaldo(ads);
+  const cb = cerebro.data?.cobertura;
+  const nas = cerebro.data?.material?.indiceNas;
+  return (
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(210px,1fr))]">
+      <TarjetaEstado
+        brillo
+        titulo={r?.medida === "calificado" ? "Costo por calificado" : "Costo por consulta"}
+        valor={costo != null ? pesos(costo) : <span className="text-[20px] italic text-l-tinta-3">sin dato</span>}
+        pie={objetivo != null ? `Objetivo ${pesos(objetivo)} · semana del ${r!.semana.desde.slice(8, 10)}/${r!.semana.desde.slice(5, 7)}` : r ? "Sin objetivo cargado" : undefined}
+      >
+        {r && <EstadoObjetivoMarca e={r.estado} chico />}
+        {costo != null && objetivo != null && <Barra pct={(costo / objetivo) * 100} alerta={costo > objetivo} />}
+      </TarjetaEstado>
+      <TarjetaEstado
+        titulo="Saldo de pauta"
+        valor={dias != null ? `${dias} ${dias === 1 ? "día" : "días"}` : ads?.accountHealth?.remaining != null ? pesos(ads.accountHealth.remaining) : <span className="text-[20px] italic text-l-tinta-3">sin dato</span>}
+        pie={ads?.accountHealth ? `${ads.accountHealth.statusLabel}${dias != null ? ` · quedan ${pesos(ads.accountHealth.remaining ?? 0)}` : ""}` : "Sin cuenta de Meta conectada"}
+      >
+        {dias != null && <Barra pct={Math.min(100, (dias / 30) * 100)} alerta={dias <= 7} />}
+      </TarjetaEstado>
+      <TarjetaEstado
+        titulo="Para decidir"
+        valor={r ? r.decisiones.length : "…"}
+        pie={r?.decisiones[0] ? r.decisiones[0].que : r ? "Nada pendiente con este cliente" : undefined}
+      />
+      <TarjetaEstado
+        titulo="Ficha de marca"
+        valor={cb ? `${cb.porcentaje}%` : "…"}
+        pie={
+          cb && (
+            <>
+              <span title={cb.falta.join(", ")}>{cb.falta.length ? `Falta: ${cb.falta.slice(0, 2).join(", ")}${cb.falta.length > 2 ? "…" : ""}` : "No le falta nada"}</span>
+              {nas && <span className="block">NAS: {nas.videos.toLocaleString("es-AR")} videos y {nas.fotos.toLocaleString("es-AR")} fotos</span>}
+            </>
+          )
+        }
+      >
+        {cb && <Barra pct={cb.porcentaje} alerta={cb.porcentaje < 85} />}
+      </TarjetaEstado>
+    </div>
+  );
+}
+
+/** Las 5 agrupaciones con sus secciones: a la izquierda en escritorio, en fila en el celular. */
+function MenuCliente({ slug, activa }: { slug: string; activa: Seccion }) {
+  const grupoActivo = GRUPOS_CLIENTE.find((g) => g.secciones.some((s) => s.id === activa)) ?? GRUPOS_CLIENTE[0];
+  return (
+    <>
+      <nav className="hidden w-[220px] shrink-0 flex-col gap-0.5 rounded-[20px] border border-l-linea bg-l-sup p-3 md:flex" aria-label="Secciones del cliente">
+        {GRUPOS_CLIENTE.map((g) => (
+          <div key={g.grupo} className="flex flex-col gap-0.5">
+            <Link
+              to={`/clientes/${slug}/${g.secciones[0].id}`}
+              className={`flex min-h-11 items-center rounded-[12px] px-3 text-[14px] font-semibold ${g === grupoActivo ? "bg-l-marca-suave text-l-tinta" : "text-l-tinta-2 hover:bg-l-papel hover:text-l-tinta"}`}
+            >
+              {g.grupo}
+            </Link>
+            {g.secciones.map((s) => (
+              <Link
+                key={s.id}
+                to={`/clientes/${slug}/${s.id}`}
+                aria-current={s.id === activa ? "page" : undefined}
+                className={`flex min-h-9 items-center rounded-[10px] pl-6 pr-3 text-[13px] ${s.id === activa ? "font-semibold text-l-marca" : "text-l-tinta-2 hover:text-l-tinta"}`}
+              >
+                {s.label}
+              </Link>
+            ))}
+          </div>
+        ))}
+      </nav>
+      {/* Celular: el grupo y sus secciones en dos filas que se deslizan. */}
+      <nav className="w-full md:hidden" aria-label="Secciones del cliente">
+        <ScrollLateral>
+          <ul className="flex shrink-0 gap-1.5">
+            {GRUPOS_CLIENTE.map((g) => (
+              <li key={g.grupo}>
+                <Link
+                  to={`/clientes/${slug}/${g.secciones[0].id}`}
+                  className={`inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-4 text-[14px] ${g === grupoActivo ? "bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border border-l-linea-2 text-l-tinta-2"}`}
+                >
+                  {g.grupo}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </ScrollLateral>
+        <ul className="mt-2 flex flex-wrap gap-1">
+          {grupoActivo.secciones.map((s) => (
+            <li key={s.id}>
+              <Link
+                to={`/clientes/${slug}/${s.id}`}
+                aria-current={s.id === activa ? "page" : undefined}
+                className={`inline-flex min-h-10 items-center rounded-[10px] px-3 text-[13px] ${s.id === activa ? "bg-l-marca-suave font-semibold text-l-tinta" : "text-l-tinta-2"}`}
+              >
+                {s.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </>
   );
 }
@@ -124,22 +268,12 @@ export function BotonFijar({ slug, nombre }: { slug: string; nombre: string }) {
  * Qué tan completa está la ficha que leen los agentes y Claude (plan 15/11, fase 1/5):
  * lo mismo que trae lmtmCliente. Lo que falta lo carga el equipo.
  */
-function CoberturaDelCerebro({ clientId }: { clientId: string }) {
-  const q = useQuery({
+function useCobertura(clientId: string) {
+  return useQuery({
     queryKey: ["lmtm", "cerebro", "cliente", clientId],
     queryFn: () => api.get<{ cobertura: { porcentaje: number; falta: string[] }; material?: { indiceNas?: { archivos: number; videos: number; fotos: number } | null } }>(`/cerebro/cliente?q=${clientId}`),
     staleTime: 10 * 60_000,
   });
-  const cb = q.data?.cobertura;
-  if (!cb) return null;
-  const nas = q.data?.material?.indiceNas;
-  return (
-    <p className={`mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-xl border-l-[3px] bg-l-sup px-3 py-2 text-[13px] ${cb.porcentaje >= 85 ? "border-l-l-bien" : "border-l-l-atencion"}`}>
-      <span className="font-semibold tabular-nums">Ficha completa al {cb.porcentaje} %</span>
-      <span className="text-l-tinta-2">{cb.falta.length ? `Falta: ${cb.falta.join(", ")}.` : "No le falta nada."}</span>
-      {nas && <span className="text-l-tinta-3">NAS: {nas.videos.toLocaleString("es-AR")} videos y {nas.fotos.toLocaleString("es-AR")} fotos indexados.</span>}
-    </p>
-  );
 }
 
 function AgentesDelCliente({ clientId }: { clientId: string }) {

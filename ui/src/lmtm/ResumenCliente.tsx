@@ -207,7 +207,7 @@ function InformeSemana({ d, clientId }: { d: Datos; clientId: string }) {
           </a>
         )}
       </div>
-      {!d.linkPublico && <p className="mt-2 text-[12px] text-l-tinta-3">Este cliente no tiene link público activo: se crea desde la pestaña Dashboard → Compartir.</p>}
+      {!d.linkPublico && <p className="mt-2 text-[12px] text-l-tinta-3">Este cliente no tiene link público activo: se crea con «Compartir», arriba en la ficha.</p>}
       {mut.error && (
         <p className="mt-2 flex gap-1.5 text-[13px] text-l-critico-texto" role="alert">
           <OctagonAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
