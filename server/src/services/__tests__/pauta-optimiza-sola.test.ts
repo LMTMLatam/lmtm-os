@@ -28,13 +28,15 @@ const mueve = {
 const sano = { presupuestoActual: 10_000, leads: 12, diasSaldo: null };
 
 describe("puedeIrSola", () => {
-  it("nunca pausa ni duplica sola", () => {
+  it("nunca pausa sola (20/11: nada que apague o deshabilite)", () => {
     expect(puedeIrSola({ accion: "pause", entityType: "campaign", entityId: "c1" }, sano).ok).toBe(false);
-    expect(puedeIrSola({ accion: "duplicate", entityId: "a1" }, sano).ok).toBe(false);
+    expect(puedeIrSola({ accion: "pause", entityType: "adset", entityId: "a1" }, sano).ok).toBe(false);
   });
 
-  it("nunca baja presupuesto sola (bajar es frenar)", () => {
-    expect(puedeIrSola({ ...sube, nuevoDiario: 8_000 }, sano).ok).toBe(false);
+  it("desde el 20/11 baja presupuesto y duplica ganadores sola (bajar tiene tope y la copia nace pausada)", () => {
+    expect(puedeIrSola({ ...sube, nuevoDiario: 8_000 }, sano).ok).toBe(true);
+    expect(puedeIrSola({ ...sube, nuevoDiario: 8_000 }, { ...sano, leads: 0 }).ok).toBe(true);
+    expect(puedeIrSola({ accion: "duplicate", entityId: "a1" }, sano).ok).toBe(true);
     expect(puedeIrSola({ ...sube, nuevoDiario: 10_000 }, sano).ok).toBe(false);
   });
 

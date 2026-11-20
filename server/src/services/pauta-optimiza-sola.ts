@@ -8,9 +8,12 @@
 //
 // QUÉ HACE SOLO
 //   · subir el presupuesto de lo que rinde (set_budget hacia arriba);
-//   · mover presupuesto de lo caro a lo barato (shift_budget).
+//   · mover presupuesto de lo caro a lo barato (shift_budget);
+//   · desde el 20/11 (Naza: «las optimizaciones no tienen que esperar a ser aprobadas, siempre y cuando nada sea
+//     apagar o deshabilitar campaña»): bajar el presupuesto de lo que rinde mal (topes de ads-budget: 30% por vez,
+//     nunca debajo de $1.000, así que nunca apaga) y duplicar un ganador (la copia nace pausada).
 // QUÉ SIGUE SIENDO DE UNA PERSONA
-//   · pausar o apagar cualquier cosa, bajar presupuesto, duplicar.
+//   · pausar o apagar cualquier cosa.
 //
 // FRENOS (además de los de ads-budget.ts: paso ≤ 30%, 24 h por entidad, piso,
 // propiedad de la cuenta, y los del evaluador: escalón ≤ 20%, CPL bajo el
@@ -55,13 +58,16 @@ export interface DatosDecision {
 /** Puro: ¿esta propuesta (que ya pasó el evaluador) la puede ejecutar el departamento solo? */
 export function puedeIrSola(accion: AccionPauta, d: DatosDecision): { ok: true } | { ok: false; motivo: string } {
   if (accion.accion === "pause") return { ok: false, motivo: "pausar frena anuncios: lo decide una persona" };
-  if (accion.accion === "duplicate") return { ok: false, motivo: "duplicar crea gasto nuevo: lo decide una persona" };
+  // La copia nace pausada y duplicateWinner verifica que sea un ganador (5 leads y CPL mejor que el resto).
+  if (accion.accion === "duplicate") return { ok: true };
+  // Bajar: el evaluador ya vio que con los números de hoy se sostiene; los topes impiden apagarla.
+  if (accion.accion === "set_budget" && d.presupuestoActual != null && accion.nuevoDiario < d.presupuestoActual) return { ok: true };
   if (d.leads < OPTIMIZA.minLeads) {
     return { ok: false, motivo: `${d.leads} leads en la ventana: con menos de ${OPTIMIZA.minLeads} el CPL es ruido` };
   }
   if (accion.accion === "set_budget") {
     if (d.presupuestoActual == null) return { ok: false, motivo: "no se sabe el presupuesto actual" };
-    if (accion.nuevoDiario <= d.presupuestoActual) return { ok: false, motivo: "bajar presupuesto frena: lo decide una persona" };
+    if (accion.nuevoDiario === d.presupuestoActual) return { ok: false, motivo: "el presupuesto ya es ese" };
     // Subir gasta más rápido el saldo: una cuenta que se queda sin saldo se frena.
     if (d.diasSaldo === undefined) return { ok: false, motivo: "no se pudo leer el saldo de la cuenta" };
     if (d.diasSaldo != null && d.diasSaldo < OPTIMIZA.diasSaldoMinimo) {
@@ -173,7 +179,7 @@ export async function optimizarSolo(db: Db, ahora = new Date()): Promise<Resulta
     .select({ id: approvals.id, payload: approvals.payload, agente: approvals.requestedByAgentId })
     .from(approvals)
     .where(and(eq(approvals.type, TIPO_ACCION_PAUTA), eq(approvals.status, "pending"),
-      sql`${approvals.payload}->'accion'->>'accion' in ('set_budget', 'shift_budget')`))
+      sql`${approvals.payload}->'accion'->>'accion' in ('set_budget', 'shift_budget', 'duplicate')`))
     .orderBy(approvals.createdAt);
   if (!pendientes.length) return r;
 
@@ -246,7 +252,7 @@ export async function optimizarSolo(db: Db, ahora = new Date()): Promise<Resulta
       origen: "pauta",
       nivel: r.fallas ? 4 : 3,
       clave: `pauta-optimiza:${ahora.toISOString().slice(0, 13)}`,
-      texto: `*Pauta: lo que el equipo de agentes optimizó solo*\n\n${r.lineas.join("\n")}\n\nNada se pausó ni se bajó: eso sigue esperando a una persona en Hoy.`,
+      texto: `*Pauta: lo que el equipo de agentes optimizó solo*\n\n${r.lineas.join("\n")}\n\nNada se pausó ni se apagó: eso sigue esperando a una persona en Pendientes.`,
     }).catch((e) => console.warn("[pauta-optimiza] no se pudo avisar:", e instanceof Error ? e.message : e));
   }
   return r;

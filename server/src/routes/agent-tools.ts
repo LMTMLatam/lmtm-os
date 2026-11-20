@@ -854,7 +854,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "set_budget",
       description:
-        "SUBIR o BAJAR el presupuesto diario de una campaña (Meta y Google) o de un conjunto (solo Meta). Es la palanca para EMPUJAR lo que rinde, no solo frenar lo que no: si un conjunto trae leads por debajo del CPL del rubro, subirle el presupuesto hace más que pausar al vecino. El monto va en PESOS (unidades de la moneda), el servidor convierte a la unidad de cada plataforma. Límites que aplica el servidor y no se pueden saltar: como máximo 30% de cambio por vez, una vez cada 24h por entidad, y nunca por debajo de $1.000 (si querés apagarla, usá pause_ad_entity). MUEVE plata real: proponé el cambio en el issue con los números que lo justifican y esperá OK humano; recién ahí pasá approved=true. Podés pasar ensayo=true para validar sin guardar.",
+        "SUBIR o BAJAR el presupuesto diario de una campaña (Meta y Google) o de un conjunto (solo Meta). Es la palanca para EMPUJAR lo que rinde, no solo frenar lo que no: si un conjunto trae leads por debajo del CPL del rubro, subirle el presupuesto hace más que pausar al vecino. El monto va en PESOS (unidades de la moneda), el servidor convierte a la unidad de cada plataforma. Límites que aplica el servidor y no se pueden saltar: como máximo 30% de cambio por vez, una vez cada 24h por entidad, y nunca por debajo de $1.000 (si querés apagarla, usá pause_ad_entity). Queda propuesto y el departamento de pauta lo EJECUTA SOLO dentro de la hora si los números del día lo sostienen (20/11: subir, bajar y mover no esperan a una persona; a las 72 h se deshace si empeoró). La justificacion tiene que ser exacta: entidad, período, gasto, leads, CPL y objetivo. Pasá ensayo=true primero para validar sin guardar.",
       parameters: {
         type: "object",
         properties: {
@@ -875,7 +875,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "shift_budget",
       description:
-        "MOVER presupuesto diario de una entidad a otra del MISMO cliente: baja una y sube la otra por el mismo monto, en pesos. Es lo que hay que usar cuando el gasto total no puede cambiar pero está mal repartido (un conjunto con CPL muy arriba del rubro y otro muy abajo). Aplica los mismos límites que set_budget a CADA pata, y valida las dos ANTES de escribir ninguna, así no queda a mitad de camino. Baja primero y sube después a propósito: si falla la segunda, el cliente gasta de menos (recuperable) y no de más. MUEVE plata real: necesita OK humano con approved=true.",
+        "MOVER presupuesto diario de una entidad a otra del MISMO cliente: baja una y sube la otra por el mismo monto, en pesos. Es lo que hay que usar cuando el gasto total no puede cambiar pero está mal repartido (un conjunto con CPL muy arriba del rubro y otro muy abajo). Aplica los mismos límites que set_budget a CADA pata, y valida las dos ANTES de escribir ninguna, así no queda a mitad de camino. Baja primero y sube después a propósito: si falla la segunda, el cliente gasta de menos (recuperable) y no de más. Queda propuesto y el departamento lo EJECUTA SOLO dentro de la hora si los números del día lo sostienen (20/11), con la justificacion exacta de las dos entidades.",
       parameters: {
         type: "object",
         properties: {
@@ -986,7 +986,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "add_negative_keywords",
       description:
-        "Agregar palabras clave NEGATIVAS a una campaña de Google Ads (en concordancia de frase). Es la palanca más segura: solo puede bajar gasto y se revierte borrando el criterio. Sacá los términos de get_auditoria_keywords_google, nunca inventados. Corré primero con ensayo=true (Google valida y NO guarda nada) para confirmar que el lote es válido, proponé en el issue cuánta plata libera, y recién con OK humano ejecutá con approved=true. El servidor RECHAZA términos que nombren la marca del propio cliente: esa gente ya te está buscando y suele convertir por teléfono o en el local sin que el píxel lo vea.",
+        "Agregar palabras clave NEGATIVAS a una campaña de Google Ads (en concordancia de frase). Es la palanca más segura: solo puede bajar gasto y se revierte borrando el criterio. Sacá los términos de get_auditoria_keywords_google, nunca inventados. Corré primero con ensayo=true (Google valida y NO guarda nada) y después sin ensayo: se APLICA en el momento (20/11), con la justificacion de gasto, clics y conversiones de cada término. El servidor RECHAZA términos que nombren la marca del propio cliente: esa gente ya te está buscando y suele convertir por teléfono o en el local sin que el píxel lo vea.",
       parameters: {
         type: "object",
         properties: {
@@ -1384,6 +1384,11 @@ export function agentToolsRoutes(
     // persona (el conector de Claude de un admin). Un agente que se la pone a
     // sí mismo deja la propuesta armada, como si no la hubiera mandado (20/10).
     const firmaHumana = req.actor.type === "board" && params.approved === true;
+    // 20/11 (Naza): las optimizaciones de un agente se hacen sin esperar; lo que apaga o deshabilita sigue esperando
+    // a una persona. La regla, en agentes/autonomia.ts.
+    const { seHaceSola } = await import("../agentes/autonomia.js");
+    const sola = req.actor.type === "agent" && seHaceSola(tool, params);
+    const autorizada = firmaHumana || sola;
     const issueRef = typeof params.issueId === "string" ? params.issueId : "";
 
     const reply = (ok: boolean, content: string) => res.json({ ok, content });
@@ -1700,6 +1705,10 @@ export function agentToolsRoutes(
         if (typeof accion === "string") return reply(false, accion);
         const justificacion = textoDe(params.justificacion);
         if (!justificacion) return reply(false, "Falta `justificacion`: es lo que lee la persona que aprueba.");
+        if (sola) {
+          const r = await h.hacerCambioWeb(db, { agentId: ctx.agentId || null, clientId, dominio, justificacion, accion });
+          return reply(r.ok, r.ok ? `Hecho: ${r.detalle} Queda registrado en lo que hicieron los agentes.` : `No se pudo: ${r.detalle}`);
+        }
         const r = await h.proponerCambioWeb(db, { companyId: ctx.companyId, agentId: ctx.agentId || null, clientId, dominio, justificacion, accion });
         return reply(r.ok, r.mensaje);
       }
@@ -2833,7 +2842,7 @@ export function agentToolsRoutes(
           );
         }
         if (!r.ok) return reply(false, r.error ?? "No se pudo cambiar el presupuesto.");
-        if (r.ensayo) return reply(true, `Ensayo OK: el cambio de $${Math.round(r.anterior ?? 0)} a $${Math.round(r.nuevo ?? 0)} es válido. Pedí el OK humano y volvé con approved=true.`);
+        if (r.ensayo) return reply(true, `Ensayo OK: el cambio de $${Math.round(r.anterior ?? 0)} a $${Math.round(r.nuevo ?? 0)} es válido. Volvé a llamar sin ensayo con la justificacion: queda propuesto y el departamento lo ejecuta solo en la hora si los números de hoy lo sostienen.`);
         return reply(true, `Presupuesto de "${r.entidad?.nombre}" movido de $${Math.round(r.anterior ?? 0)} a $${Math.round(r.nuevo ?? 0)} por día. Acción registrada; no se puede volver a tocar por 24h.`);
       }
 
@@ -2867,7 +2876,7 @@ export function agentToolsRoutes(
           );
         }
         if (!r.ok) return reply(false, r.error ?? "No se pudo mover el presupuesto.");
-        if (r.ensayo) return reply(true, "Ensayo OK: las dos patas del movimiento son válidas. Pedí el OK humano y volvé con approved=true.");
+        if (r.ensayo) return reply(true, `Ensayo OK: las dos patas del movimiento son válidas. Volvé a llamar sin ensayo con la justificacion: queda propuesto y el departamento lo ejecuta solo en la hora si los números de hoy lo sostienen.`);
         return reply(true, `Movidos $${Math.round(monto)} por día: "${r.desde?.entidad?.nombre}" bajó a $${Math.round(r.desde?.nuevo ?? 0)} y "${r.hacia?.entidad?.nombre}" subió a $${Math.round(r.hacia?.nuevo ?? 0)}.`);
       }
 
@@ -3014,7 +3023,7 @@ export function agentToolsRoutes(
         const { agregarNegativas } = await import("../services/ads-actions.js");
         const r = await agregarNegativas(db, {
           clientId, campaignId, terminos, agentId: ctx.agentId,
-          approved: firmaHumana, ensayo: params.ensayo === true,
+          approved: autorizada, ensayo: params.ensayo === true,
         });
         // El rechazo por marca se informa SIEMPRE, salga bien o mal: es el dato
         // que evita que el agente vuelva a proponer lo mismo en el próximo ciclo.
@@ -3027,7 +3036,7 @@ export function agentToolsRoutes(
             { tipo: "negativas", campaignId, terminos: ts }, ts.length, nota);
         }
         if (!r.ok) return reply(false, r.error ?? "No se pudieron agregar las negativas.");
-        if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.aplicados?.length ?? 0} negativa(s) y NO guardó nada.${nota} Pedí OK humano y volvé a llamar con approved=true.`);
+        if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.aplicados?.length ?? 0} negativa(s) y NO guardó nada.${nota} ${sola ? "Volvé a llamar sin ensayo y se aplican." : "Pedí OK humano y volvé a llamar con approved=true."}`);
         return reply(true, `Agregadas ${r.aplicados?.length ?? 0} negativa(s) en concordancia de frase.${nota} Acción registrada.`);
       }
 
@@ -3067,7 +3076,7 @@ export function agentToolsRoutes(
         const { agregarKeywords } = await import("../services/ads-actions.js");
         const r = await agregarKeywords(db, {
           clientId, items: accion.items, agentId: ctx.agentId,
-          approved: firmaHumana, ensayo: params.ensayo === true,
+          approved: autorizada, ensayo: params.ensayo === true,
         });
         const partes: string[] = [];
         if (r.yaEstaban?.length) partes.push(`ya eran keyword: ${r.yaEstaban.join(", ")}`);
@@ -3078,7 +3087,7 @@ export function agentToolsRoutes(
             accion, accion.items.length, nota);
         }
         if (!r.ok) return reply(false, (r.error ?? "No se pudieron sumar.") + nota);
-        if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.agregadas?.length ?? 0} keyword(s) y NO guardó nada.${nota} Mandá 'justificacion' para dejar la decisión en Hoy.`);
+        if (r.ensayo) return reply(true, `Ensayo OK: Google validó ${r.agregadas?.length ?? 0} keyword(s) y NO guardó nada.${nota} ${sola ? "Volvé a llamar sin ensayo y se suman." : "Mandá 'justificacion' para dejar la decisión en Hoy."}`);
         return reply(true, `Sumadas ${r.agregadas?.length ?? 0} keyword(s) en concordancia de frase.${nota} Acción registrada.`);
       }
 

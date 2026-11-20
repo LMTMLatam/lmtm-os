@@ -18,7 +18,7 @@ interface Impacto {
     clientes: Array<{ cliente: string; slug: string; cambios: number; cplAntes: number; cplDespues: number }>;
   };
   web: { webs: number; total: number; porTipo: Array<{ tipo: string; n: number }>; primerCambio: string | null; semanas: Array<{ semana: string; conAgentes: number; sinAgentes: number }> };
-  google: { abiertas: number; arsPorDia: number };
+  google: { enCola: number; esperan: number };
 }
 
 export function ImpactoAgentes() {
@@ -67,8 +67,11 @@ export function ImpactoAgentes() {
         <Panel titulo="Webs arregladas" bajada={`${d.web.total} cambios en ${d.web.webs} ${d.web.webs === 1 ? "web" : "webs"}, aprobados por el equipo`}>
           {d.web.porTipo.length > 0 ? <BarrasH filas={d.web.porTipo.map((t) => ({ etiqueta: t.tipo, valor: t.n }))} formato={(n) => String(n)} /> : <p className="text-[13px] text-l-tinta-3">Todavía ninguno.</p>}
           <div className="mt-5 flex items-center justify-between gap-3 border-t border-l-linea pt-4">
-            <Dato grande={String(d.google.abiertas)} texto={`optimizaciones de Google Ads esperando aprobación${d.google.arsPorDia > 0 ? ` · ${pesos(d.google.arsPorDia)} por día en juego` : ""}`} />
-            {d.google.abiertas > 0 && (
+            <Dato
+              grande={String(d.google.enCola)}
+              texto={`optimizaciones de Google Ads en cola: se hacen solas dentro de la hora${d.google.esperan ? ` · ${d.google.esperan} pausas de keywords esperan a una persona` : ""}`}
+            />
+            {d.google.esperan > 0 && (
               <Link to="/decisiones?vista=aprobar" className="shrink-0 text-[13px] font-semibold text-l-marca">
                 Ver
               </Link>

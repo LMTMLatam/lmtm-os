@@ -355,6 +355,13 @@ export function initLimpiezaPropuestas(db: Db): void {
     if (r.ejecutadas || r.fallas) console.log(`[pauta-optimiza] ${r.ejecutadas} hechas solas, ${r.fallas} fallas, ${r.quedanParaPersona} quedan para una persona`);
     const rev = await revisarOptimizaciones(db);
     if (rev.revisadas) console.log(`[pauta-optimiza] ${rev.revisadas} cambios revisados a las 72 h, ${rev.revertidas} deshechos por empeorar`);
+    // 20/11: lo de Google (negativas, keywords que convierten) y los cambios de web que no apagan nada no esperan al día siguiente.
+    const { correrPiloto } = await import("./piloto-automatico.js");
+    const g = await correrPiloto(db, { soloPlataforma: true });
+    if (g.decisiones || g.fallas) console.log(`[piloto] ${g.decisiones} optimizaciones de Google hechas solas, ${g.fallas} fallas`);
+    const { websSolas } = await import("./hostinger.js");
+    const w = await websSolas(db);
+    if (w.ejecutadas || w.fallas) console.log(`[web-sola] ${w.ejecutadas} cambios de web hechos solos, ${w.fallas} fallas`);
   };
   const correrOptimizar = () => void optimizar().catch((e) => console.warn("[pauta-optimiza] falló:", e instanceof Error ? e.message : e));
   setTimeout(correrOptimizar, 15 * 60_000);

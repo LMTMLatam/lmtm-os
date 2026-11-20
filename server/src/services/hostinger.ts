@@ -419,6 +419,77 @@ export async function proponerCambioWeb(
   };
 }
 
+/**
+ * Hace el cambio en el momento (20/11: las optimizaciones de web de un agente no esperan aprobación; la regla está en
+ * agentes/autonomia.ts). Mismas verificaciones que al proponer y el mismo ejecutor que al aprobar: queda en
+ * agent_actions, con el respaldo de lo que se cambió en los cambios de contenido.
+ */
+export async function hacerCambioWeb(
+  db: Db,
+  input: { agentId: string | null; clientId: string; dominio?: string; justificacion: string; accion: AccionWeb },
+): Promise<{ ok: boolean; detalle: string }> {
+  const r = await webDelCliente(db, input.clientId, input.dominio);
+  if ("error" in r) return { ok: false, detalle: r.error };
+  if (["actualizar_plugins", "actualizar_temas", "desactivar_plugin", "actualizar_wordpress", ...DE_CONTENIDO].includes(input.accion.accion) && !r.wp) {
+    return { ok: false, detalle: `${r.web.domain} no figura como WordPress en Hostinger: esa acción no aplica.` };
+  }
+  return ejecutarCambioWeb(
+    db,
+    { clientId: input.clientId, dominio: r.web.domain, justificacion: input.justificacion, resumen: `${r.web.domain}: ${describir(input.accion)}`, accion: input.accion },
+    input.agentId,
+  );
+}
+
+export const WEB_SOLA = { porVuelta: 8, porClientePorVuelta: 2 } as const;
+
+/**
+ * Cada hora (20/11): los cambios de web propuestos que no apagan ni deshabilitan nada (agentes/autonomia.ts) se hacen
+ * solos, de a pocos por vuelta y por cliente. Se marcan aprobados ANTES de ejecutar (como approve()) para que dos
+ * vueltas no los repitan; el resultado queda en el payload y el equipo recibe el resumen.
+ */
+export async function websSolas(db: Db, ahora = new Date()): Promise<{ ejecutadas: number; fallas: number }> {
+  const out = { ejecutadas: 0, fallas: 0 };
+  const { seHaceSola } = await import("../agentes/autonomia.js");
+  const pendientes = await db
+    .select({ id: approvals.id, payload: approvals.payload, agente: approvals.requestedByAgentId })
+    .from(approvals)
+    .where(and(eq(approvals.type, TIPO_ACCION_WEB), eq(approvals.status, "pending")))
+    .orderBy(approvals.createdAt);
+  const porCliente = new Map<string, number>();
+  const lineas: string[] = [];
+  for (const f of pendientes) {
+    if (out.ejecutadas + out.fallas >= WEB_SOLA.porVuelta) break;
+    if (!esAccionWeb(f.payload)) continue;
+    const p = f.payload;
+    if (!seHaceSola("proponer_cambio_web", p.accion as unknown as Record<string, unknown>)) continue;
+    const n = porCliente.get(p.clientId) ?? 0;
+    if (n >= WEB_SOLA.porClientePorVuelta) continue;
+    porCliente.set(p.clientId, n + 1);
+    const tomada = await db.update(approvals)
+      .set({ status: "approved", decisionNote: `Ejecutada sola (optimización): ${p.resumen}`.slice(0, 1000), decidedAt: ahora, updatedAt: ahora })
+      .where(and(eq(approvals.id, f.id), eq(approvals.status, "pending")))
+      .returning({ id: approvals.id });
+    if (!tomada.length) continue;
+    const res = await ejecutarCambioWeb(db, p, f.agente ?? null);
+    await db.update(approvals)
+      .set({ payload: { ...p, resultado: { ok: res.ok, detalle: res.detalle, ejecutadoAt: ahora.toISOString() } } as unknown as Record<string, unknown>, updatedAt: new Date() })
+      .where(eq(approvals.id, f.id));
+    if (res.ok) out.ejecutadas += 1;
+    else out.fallas += 1;
+    lineas.push(`${res.ok ? "✓" : "✗"} ${p.resumen}: ${res.detalle}`);
+  }
+  if (lineas.length) {
+    const { avisarAlEquipo } = await import("./wa-embudo.js");
+    await avisarAlEquipo(db, {
+      origen: "web",
+      nivel: out.fallas ? 4 : 3,
+      clave: `web-sola:${ahora.toISOString().slice(0, 13)}`,
+      texto: `*Webs: lo que el equipo de agentes arregló solo*\n\n${lineas.join("\n")}\n\nDesactivar plugins, sacar administradores, PHP y WordPress mayor siguen esperando a una persona en Pendientes.`,
+    }).catch((e) => console.warn("[web-sola] no se pudo avisar:", e instanceof Error ? e.message : e));
+  }
+  return out;
+}
+
 export function describir(a: AccionWeb): string {
   switch (a.accion) {
     case "actualizar_plugins": return `actualizar plugins ${a.plugins.join(", ")}`;

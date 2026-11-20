@@ -135,16 +135,18 @@ export async function impactoDeAgentes(db: Db) {
     semanas = indexarSemanas(filas, primeraWeb);
   }
 
-  // Google Ads: lo que espera una persona (no hay cambios ejecutados que medir).
+  // Google Ads (20/11): negativas y keywords nuevas se hacen solas en la hora; pausar keywords espera a una persona.
   const [google] = filasDe(
     (await db.execute(sql`
-      select count(*)::int as abiertas, coalesce(sum(ars_por_dia), 0)::float as "arsPorDia"
-      from decisiones where estado = 'abierta' and tipo in ('pauta:negativas', 'pauta:pausar_keywords', 'pauta:sumar_keywords')`)) as unknown as Filas<{ abiertas: number; arsPorDia: number }>,
+      select count(*) filter (where tipo in ('pauta:negativas', 'pauta:sumar_keywords'))::int as "enCola",
+             count(*) filter (where tipo = 'pauta:pausar_keywords')::int as esperan
+      from decisiones where estado in ('abierta', 'aprobada') and accion->'resultado' is null
+        and tipo in ('pauta:negativas', 'pauta:pausar_keywords', 'pauta:sumar_keywords')`)) as unknown as Filas<{ enCola: number; esperan: number }>,
   );
 
   return {
     pauta: impactoPauta(pauta),
     web: { ...cambiosWeb(web), primerCambio: primeraWeb, semanas },
-    google: google ?? { abiertas: 0, arsPorDia: 0 },
+    google: google ?? { enCola: 0, esperan: 0 },
   };
 }

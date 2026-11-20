@@ -5,6 +5,8 @@
 // CÓMO QUEDA
 // Con el interruptor general prendido (LMTM_AUTONOMIA_PAUTA=1), se hace solo:
 //   · negativas de Google (ya traen evidencia mínima y protegen la marca);
+//   · sumar como keyword las búsquedas que ya trajeron consultas (20/11: «las optimizaciones de Google Ads no tienen
+//     que esperar a ser aprobadas»; el servidor verifica cada una contra la cuenta);
 //   · pausar keywords que una persona ya aprobó en Hoy;
 //   · crear en ClickUp la tarea de una decisión nueva del equipo.
 // Nunca solo, aunque las reglas den: nada que mueva plata del cliente ni frene
@@ -31,7 +33,7 @@ export function pilotoPrendido(): boolean {
 export interface ResultadoPiloto { decisiones: number; tareas: number; fallas: number }
 
 /** Pasa por el piloto las decisiones abiertas del motor con acción que se puede hacer sola. */
-export async function correrPiloto(db: Db): Promise<ResultadoPiloto> {
+export async function correrPiloto(db: Db, opciones: { soloPlataforma?: boolean } = {}): Promise<ResultadoPiloto> {
   const r: ResultadoPiloto = { decisiones: 0, tareas: 0, fallas: 0 };
   if (!pilotoPrendido()) return r;
 
@@ -50,8 +52,8 @@ export async function correrPiloto(db: Db): Promise<ResultadoPiloto> {
     const tipo = (d.accion as { tipo?: string; resultado?: unknown } | null)?.tipo;
     if (!tipo || (d.accion as { resultado?: unknown }).resultado) continue;
     // Pausar keywords frena anuncios: solo si una persona ya la aprobó en Hoy (20/10).
-    const esPlataforma = tipo === "negativas" || (tipo === "pausar_keywords" && d.estado === "aprobada");
-    const esTarea = tipo === "tarea" && d.responsable === "equipo" && desde != null && new Date(d.createdAt) >= desde;
+    const esPlataforma = tipo === "negativas" || tipo === "sumar_keywords" || (tipo === "pausar_keywords" && d.estado === "aprobada");
+    const esTarea = !opciones.soloPlataforma && tipo === "tarea" && d.responsable === "equipo" && desde != null && new Date(d.createdAt) >= desde;
     if (!esPlataforma && !esTarea) continue;
     if (esTarea) {
       const n = tareasPorCliente.get(d.clientId) ?? 0;
