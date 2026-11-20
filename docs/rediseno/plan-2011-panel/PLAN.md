@@ -21,6 +21,17 @@ AgencyAnalytics (metas con barra de avance), Planable (bandeja de aprobaciones, 
 | 6 | Historial de corridas acotado, índice en el motor, canal en vivo, scripts hasta 1.000 | Hecha | 66230f0 |
 | 7 | Dashboard del cliente con la paleta nueva (sigue claro) | Hecha | 66230f0 |
 
+## Después del plan (20/11, pedidos de Naza)
+
+- **Ideas = Super Redes** (commit 6c2cef8): la sección «Ideas» de la ficha muestra la lista «Super Redes Sociales» de
+  ClickUp (donde caen y se aprueban las ideas) y cada idea tiene «Generar con el agente»: el mismo camino que la
+  etiqueta «generar contenido» (Productor con Magnific), corre a pedido y después pone la etiqueta en ClickUp.
+  Rutas: `GET /contenido/super-redes/:clientId`, `POST /contenido/super-redes/:clientId/:taskId/pedir`.
+- **Hoy más claro** (commit 34c5c6d): urgente, los números de la agencia, 5 sugerencias y lo que hicieron los agentes
+  (`ui/src/lmtm/hoy.ts`). La lista entera de decisiones está en `/decisiones`.
+- **Contenido = producción y edición**: el calendario de todos los clientes (`/contenido/calendario`) y la Biblioteca
+  salen del menú y siguen en el Ctrl+K.
+
 ## Dónde vive cada cosa
 
 - Mapa del panel (riel, Ctrl+K, grupos de la ficha): `ui/src/lmtm/secciones.ts`.
