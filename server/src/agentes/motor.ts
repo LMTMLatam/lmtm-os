@@ -12,7 +12,7 @@
 //    una sola por versión de la tarea (no vuelve a correr si nadie la tocó después).
 // Las tareas y las rutinas siguen siendo las de paperclip por ahora (paso 4 del plan).
 
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, heartbeatRuns, instanceSettings, issueComments, issues } from "@paperclipai/db";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
@@ -116,7 +116,8 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
              when i.client_id is not null and i.priority in ('critical', 'urgent', 'high') then 2 else 3 end as valor,
         -- Comentarios de otro (persona u otro agente). Los avisos administrativos de las limpiezas no despiertan a nadie.
         (select max(c.created_at) from issue_comments c where c.issue_id = i.id and c.author_agent_id is distinct from i.assignee_agent_id
-           and c.body !~ '^(Cerrada en la limpieza|Pasada a «en revisión»)') ultimo_ajeno,
+           -- Tampoco los del propio motor (20/11): el rastro del corte revivía la tarea en revisión (LMTM-7105 corrió 3 veces más).
+           and c.body !~ '^(Cerrada en la limpieza|Pasada a «en revisión»|La corrida se cortó por el tope|Frenada por cortes seguidos)') ultimo_ajeno,
         (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
         -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
         (select r.error_code from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
@@ -158,6 +159,18 @@ async function comentariosRecientes(db: Db, issueId: string) {
     where issue_id = ${issueId} order by created_at desc limit 5`);
   const filas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<Record<string, unknown>>;
   return filas.reverse().map((c) => ({ id: String(c.id), body: String(c.body ?? "").slice(0, 4000), authorType: c.author_type ?? null, authorAgentId: c.author_agent_id ?? null, authorUserId: c.author_user_id ?? null, createdAt: c.created_at }));
+}
+
+/** Cortes seguidos por el tope de turnos tras los que la tarea se frena para que la mire una persona. */
+export const CORTES_SEGUIDOS_MAX = 3;
+
+/**
+ * Puro. Con los códigos de error de las corridas ANTERIORES de la tarea (la más nueva primero), si el corte
+ * de ahora completa CORTES_SEGUIDOS_MAX seguidos (20/11: LMTM-7110 se cortó 9 veces y LMTM-7195 6, 0 bien).
+ */
+export function demasiadosCortes(anteriores: Array<string | null>): boolean {
+  const previos = anteriores.slice(0, CORTES_SEGUIDOS_MAX - 1);
+  return previos.length === CORTES_SEGUIDOS_MAX - 1 && previos.every((c) => c === "max_turns_exhausted");
 }
 
 /** Puro. La config del agente con el tope de turnos de la corrida (el menor entre el suyo y TURNOS_MAX). */
@@ -284,6 +297,18 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
         .where(and(eq(issueComments.issueId, p.issueId), eq(issueComments.authorAgentId, agent.id), gte(issueComments.createdAt, run.createdAt))).limit(1);
       const rastro = yaComento ? null : rastroDeCorte(salida);
       if (rastro) await db.insert(issueComments).values({ companyId: agent.companyId, issueId: p.issueId, authorType: "system", body: enmascararClaves(rastro) } as never);
+      // Tope de cortes seguidos: sin esto la tarea que no entra en el tope gasta 3 corridas por día toda su vigencia.
+      const anteriores = await db.select({ c: heartbeatRuns.errorCode }).from(heartbeatRuns)
+        .where(and(sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${p.issueId}`, ne(heartbeatRuns.id, run.id)))
+        .orderBy(desc(heartbeatRuns.createdAt)).limit(CORTES_SEGUIDOS_MAX - 1);
+      if (demasiadosCortes(anteriores.map((a) => a.c))) {
+        const frenada = await db.update(issues).set({ status: "blocked", updatedAt: new Date() })
+          .where(and(eq(issues.id, p.issueId), inArray(issues.status, ["todo", "in_progress"]))).returning({ id: issues.id });
+        if (frenada.length) await db.insert(issueComments).values({
+          companyId: agent.companyId, issueId: p.issueId, authorType: "system",
+          body: `Frenada por cortes seguidos: ${CORTES_SEGUIDOS_MAX} corridas al hilo llegaron al tope de ${TURNOS_MAX} turnos sin terminar. No entra en una corrida: hay que partirla en tareas más chicas o achicarle el alcance. Un comentario de una persona la vuelve a correr.`,
+        } as never);
+      }
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);

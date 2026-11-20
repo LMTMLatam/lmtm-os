@@ -2,7 +2,20 @@
 // corrida de 30 a 56 turnos gastaba 2 a 5 M de tokens releyendo el contexto. Estos tests
 // cuidan el tope por corrida y la vara de "cuota ajustada".
 import { describe, expect, it } from "vitest";
-import { consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUSTADA, rastroDeCorte, TURNOS_MAX } from "../motor.js";
+import { consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUSTADA, demasiadosCortes, rastroDeCorte, TURNOS_MAX } from "../motor.js";
+
+describe("tope de cortes seguidos", () => {
+  const corte = "max_turns_exhausted";
+  it("frena al tercer corte seguido (los 2 anteriores también cortados)", () => {
+    expect(demasiadosCortes([corte, corte, null])).toBe(true);
+  });
+  it("no frena si en el medio hubo una corrida buena, otra falla o todavía no hay 2 anteriores", () => {
+    expect(demasiadosCortes([corte, null, corte])).toBe(false);
+    expect(demasiadosCortes([corte, "timeout"])).toBe(false);
+    expect(demasiadosCortes([corte])).toBe(false);
+    expect(demasiadosCortes([])).toBe(false);
+  });
+});
 
 describe("rastro de una corrida cortada", () => {
   const ev = (content: unknown[]) => JSON.stringify({ type: "assistant", message: { content } });
