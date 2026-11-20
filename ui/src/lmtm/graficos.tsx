@@ -288,7 +288,11 @@ export function Lineas({ x, series, formato, marca, alto = 150 }: { x: string[];
           {hover != null && <line x1={px(hover)} x2={px(hover)} y1="0" y2={alto} stroke="var(--l-tinta-3)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
         </svg>
         {iMarca > 0 && marca && (
-          <span className="pointer-events-none absolute top-0 ml-1.5 text-[11px] text-l-tinta-2" style={{ left: `${(iMarca / (x.length - 1)) * 100}%` }}>
+          // Cerca del borde derecho la etiqueta va a la izquierda de la línea, para no salirse del panel.
+          <span
+            className={`pointer-events-none absolute top-0 whitespace-nowrap text-[11px] text-l-tinta-2 ${iMarca / (x.length - 1) > 0.6 ? "-translate-x-full pr-1.5" : "pl-1.5"}`}
+            style={{ left: `${(iMarca / (x.length - 1)) * 100}%` }}
+          >
             {marca.etiqueta}
           </span>
         )}
