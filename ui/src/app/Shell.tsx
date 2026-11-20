@@ -59,7 +59,8 @@ function Cuenta({ n, activo }: { n: number | null | undefined; activo?: boolean 
   return <span className={`ml-auto rounded-full px-2 py-px text-[12px] font-semibold tabular-nums ${activo ? "bg-black/15 text-l-marca-tinta" : "bg-l-linea-2 text-l-tinta"}`}>{n}</span>;
 }
 
-export function Shell() {
+/** Sin `children` muestra la ruta hija (Outlet); con `children`, eso (LayoutSistema envuelve las pantallas de paperclip). */
+export function Shell({ children }: { children?: ReactNode } = {}) {
   const { theme, toggleTheme } = useTheme();
   const { porSeccion, porCliente } = useContadores();
   porSeccion["/aprobaciones"] = useAprobaciones().total || null;
@@ -67,7 +68,8 @@ export function Shell() {
   const fijados = useFijados();
   const [comandos, setComandos] = useState(false);
   const { pathname } = useLocation();
-  const actual = seccionDe(pathname);
+  // Las pantallas de paperclip llevan la empresa adelante (/LMTM/issues): se mira la ruta sin ella.
+  const actual = seccionDe(pathname.replace(/^\/[A-Z][A-Z0-9]*(?=\/|$)/, ""));
   const agencia = AGENCIA.filter((s) => esAdmin || !s.soloAdmin);
 
   useEffect(() => {
@@ -149,7 +151,7 @@ export function Shell() {
         <main className="min-w-0 flex-1 pb-24 md:pb-10">
           <BarraSuperior onBuscar={() => setComandos(true)} oscuro={theme === "dark"} onTema={toggleTheme} />
           <Suspense fallback={<p className="px-4 py-6 text-[14px] text-l-tinta-3 md:px-8" role="status">Cargando…</p>}>
-            <Outlet />
+            {children ?? <Outlet />}
           </Suspense>
         </main>
       </div>

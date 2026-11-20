@@ -17,12 +17,11 @@ function perezosa<K extends string>(carga: () => Promise<{ [k in K]: ComponentTy
   return lazy(() => carga().then((m) => ({ default: m[nombre] })));
 }
 
-const Layout = perezosa(() => import("./components/Layout"), "Layout");
-const Companies = perezosa(() => import("./pages/Companies"), "Companies");
+// 20/11: las pantallas que quedan de paperclip van con el riel y el tema de la app, no con su menú viejo.
+const Layout = perezosa(() => import("./app/LayoutSistema"), "LayoutSistema");
 const ConnectAds = perezosa(() => import("./pages/ConnectAds"), "ConnectAds");
 const PublicDashboard = perezosa(() => import("./pages/PublicDashboard"), "PublicDashboard");
 const PublicDashboardDetalle = perezosa(() => import("./pages/PublicDashboardDetalle"), "PublicDashboardDetalle");
-const Agents = perezosa(() => import("./pages/Agents"), "Agents");
 const AgentDetail = perezosa(() => import("./pages/AgentDetail"), "AgentDetail");
 const Issues = perezosa(() => import("./pages/Issues"), "Issues");
 const Search = perezosa(() => import("./pages/Search"), "Search");
@@ -32,7 +31,6 @@ const Routines = perezosa(() => import("./pages/Routines"), "Routines");
 const RoutineDetail = perezosa(() => import("./pages/RoutineDetail"), "RoutineDetail");
 const UserProfile = perezosa(() => import("./pages/UserProfile"), "UserProfile");
 const ExecutionWorkspaceDetail = perezosa(() => import("./pages/ExecutionWorkspaceDetail"), "ExecutionWorkspaceDetail");
-const Approvals = perezosa(() => import("./pages/Approvals"), "Approvals");
 const ApprovalDetail = perezosa(() => import("./pages/ApprovalDetail"), "ApprovalDetail");
 const Costs = perezosa(() => import("./pages/Costs"), "Costs");
 const CompanySettings = perezosa(() => import("./pages/CompanySettings"), "CompanySettings");
@@ -44,7 +42,6 @@ const AdsIntegrations = perezosa(() => import("./pages/AdsIntegrations"), "AdsIn
 const WhatsApp = perezosa(() => import("./pages/WhatsApp"), "WhatsApp");
 const Intelligence = perezosa(() => import("./pages/Intelligence"), "Intelligence");
 const Growth = perezosa(() => import("./pages/Growth"), "Growth");
-const Readiness = perezosa(() => import("./pages/Readiness"), "Readiness");
 const Secrets = perezosa(() => import("./pages/Secrets"), "Secrets");
 const CompanyExport = perezosa(() => import("./pages/CompanyExport"), "CompanyExport");
 const CompanyImport = perezosa(() => import("./pages/CompanyImport"), "CompanyImport");
@@ -64,7 +61,7 @@ const BoardClaimPage = perezosa(() => import("./pages/BoardClaim"), "BoardClaimP
 const CliAuthPage = perezosa(() => import("./pages/CliAuth"), "CliAuthPage");
 const InviteLandingPage = perezosa(() => import("./pages/InviteLanding"), "InviteLandingPage");
 const JoinRequestQueue = perezosa(() => import("./pages/JoinRequestQueue"), "JoinRequestQueue");
-const NotFoundPage = perezosa(() => import("./pages/NotFound"), "NotFoundPage");
+const NoExiste = perezosa(() => import("./app/NoExiste"), "NoExiste");
 const ClientesApp = perezosa(() => import("./app/ClientesApp"), "ClientesApp");
 const ClienteApp = perezosa(() => import("./app/ClienteApp"), "ClienteApp");
 const AgentesApp = perezosa(() => import("./app/AgentesApp"), "AgentesApp");
@@ -99,7 +96,7 @@ function boardRoutes() {
       <Route path="dashboard" element={<Navigate to="/hoy" replace />} />
       <Route path="dashboard/live" element={<Navigate to="/agentes" replace />} />
       <Route path="onboarding" element={<OnboardingRoutePage />} />
-      <Route path="companies" element={<Companies />} />
+      <Route path="companies" element={<Navigate to="/hoy" replace />} />
       <Route path="clients" element={<Navigate to="/clientes" replace />} />
       {/* Pauta, Finanzas, WhatsApp, Inteligencia, Semáforo, Licitaciones y
           Contenido viven en la app propia (fase C1): los links viejos con
@@ -111,7 +108,7 @@ function boardRoutes() {
       <Route path="growth" element={<Navigate to="/semaforo" replace />} />
       <Route path="niches" element={<Navigate to="/nichos" replace />} />
       <Route path="licitaciones" element={<Navigate to="/licitaciones" replace />} />
-      <Route path="readiness" element={<Readiness />} />
+      <Route path="readiness" element={<Navigate to="/preparacion" replace />} />
       <Route path="contenido" element={<Navigate to="/contenido" replace />} />
       <Route path="videos" element={<Navigate to="/contenido" replace />} />
       {/* Competencia global se unificó: cliente→tab Competidores, agregado→Nichos (pedido 18/7) */}
@@ -136,11 +133,12 @@ function boardRoutes() {
       <Route path="plugins/:pluginId" element={<PluginPage />} />
       {/* Plan 15/11, fase 6: pantallas de paperclip con reemplazo propio → la pantalla nueva. */}
       <Route path="org" element={<Navigate to="/agentes" replace />} />
-      <Route path="agents" element={<Navigate to="/agents/all" replace />} />
-      <Route path="agents/all" element={<Agents />} />
-      <Route path="agents/active" element={<Agents />} />
-      <Route path="agents/paused" element={<Agents />} />
-      <Route path="agents/error" element={<Agents />} />
+      {/* La lista de agentes es Agentes de la app; el detalle de un agente (corridas y su registro) sigue acá. */}
+      <Route path="agents" element={<Navigate to="/agentes" replace />} />
+      <Route path="agents/all" element={<Navigate to="/agentes" replace />} />
+      <Route path="agents/active" element={<Navigate to="/agentes" replace />} />
+      <Route path="agents/paused" element={<Navigate to="/agentes" replace />} />
+      <Route path="agents/error" element={<Navigate to="/agentes" replace />} />
       <Route path="agents/new" element={<NewAgent />} />
       <Route path="agents/:agentId" element={<AgentDetail />} />
       <Route path="agents/:agentId/:tab" element={<AgentDetail />} />
@@ -167,9 +165,10 @@ function boardRoutes() {
       <Route path="execution-workspaces/:workspaceId/issues" element={<ExecutionWorkspaceDetail />} />
       <Route path="execution-workspaces/:workspaceId/routines" element={<ExecutionWorkspaceDetail />} />
       <Route path="goals/*" element={<Navigate to="/hoy" replace />} />
-      <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
-      <Route path="approvals/pending" element={<Approvals />} />
-      <Route path="approvals/all" element={<Approvals />} />
+      {/* Aprobaciones es la bandeja de la app; el detalle de una aprobación sigue acá. */}
+      <Route path="approvals" element={<Navigate to="/aprobaciones" replace />} />
+      <Route path="approvals/pending" element={<Navigate to="/aprobaciones" replace />} />
+      <Route path="approvals/all" element={<Navigate to="/aprobaciones" replace />} />
       <Route path="approvals/:approvalId" element={<ApprovalDetail />} />
       <Route path="costs" element={<Costs />} />
       <Route path="activity" element={<Navigate to="/actividad" replace />} />
@@ -186,7 +185,7 @@ function boardRoutes() {
       {import.meta.env.DEV ? <Route path="design-guide" element={<DesignGuide />} /> : null}
       <Route path="instance/settings/adapters" element={<AdapterManager />} />
       <Route path=":pluginRoutePath/*" element={<PluginPage />} />
-      <Route path="*" element={<NotFoundPage scope="board" />} />
+      <Route path="*" element={<NoExiste />} />
     </>
   );
 }
@@ -328,6 +327,8 @@ export function App() {
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<Navigate to="/hoy" replace />} />
+          <Route path="login" element={<Navigate to="/hoy" replace />} />
+          <Route path="signin" element={<Navigate to="/hoy" replace />} />
           <Route path="onboarding" element={<OnboardingRoutePage />} />
           <Route path="instance" element={<Navigate to="/instance/settings/general" replace />} />
           <Route path="instance/settings" element={<Layout />}>
@@ -453,7 +454,7 @@ export function App() {
           <Route path=":companyPrefix" element={<Layout />}>
             {boardRoutes()}
           </Route>
-          <Route path="*" element={<NotFoundPage scope="global" />} />
+          <Route path="*" element={<Shell><NoExiste /></Shell>} />
         </Route>
       </Routes>
       <OnboardingWizard />

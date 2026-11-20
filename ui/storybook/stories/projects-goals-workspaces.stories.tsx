@@ -13,7 +13,6 @@ import {
   buildWorkspaceRuntimeControlSections,
   type WorkspaceRuntimeControlRequest,
 } from "@/components/WorkspaceRuntimeControls";
-import { WorktreeBanner } from "@/components/WorktreeBanner";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queryKeys";
@@ -412,37 +411,6 @@ function setWorktreeMeta(name: string, content: string) {
   element.setAttribute("content", content);
 }
 
-function WorktreeBannerMatrix() {
-  setWorktreeMeta("paperclip-worktree-enabled", "true");
-  setWorktreeMeta("paperclip-worktree-name", "PAP-1675-projects-goals-workspaces");
-  setWorktreeMeta("paperclip-worktree-color", "#0f766e");
-  setWorktreeMeta("paperclip-worktree-text-color", "#ecfeff");
-
-  return (
-    <div className="space-y-4">
-      <div className="overflow-hidden rounded-lg border border-border bg-background">
-        <WorktreeBanner />
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        {[
-          { label: "Branch", value: "PAP-1675-projects-goals-workspaces", icon: GitBranch },
-          { label: "Workspace", value: "Project Storybook worktree", icon: FolderGit2 },
-          { label: "Context", value: "visible before layout chrome", icon: Boxes },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.label} className="rounded-lg border border-border bg-background p-4">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-              <div className="mt-3 text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.label}</div>
-              <div className="mt-1 break-all font-mono text-xs">{item.value}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function ProjectsGoalsWorkspacesStories() {
   return (
     <StorybookData>
@@ -487,9 +455,6 @@ function ProjectsGoalsWorkspacesStories() {
             <RuntimeControlsMatrix />
           </Section>
 
-          <Section eyebrow="WorktreeBanner" title="Worktree context banner with branch identity">
-            <WorktreeBannerMatrix />
-          </Section>
         </main>
       </div>
     </StorybookData>

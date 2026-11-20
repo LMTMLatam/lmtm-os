@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Copy } from "lucide-react";
 import { Link } from "@/lib/router";
 import { api } from "../api/client";
-import { AGENCIA } from "../lmtm/secciones";
+import { AGENCIA, SISTEMA } from "../lmtm/secciones";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 
@@ -115,7 +115,7 @@ function LinksDelConector() {
 
 const AJUSTES = [
   { to: "/actividad", titulo: "Actividad", detalle: "Todo lo que se hizo, en una línea de tiempo" },
-  { to: "/produccion", titulo: "Producción", detalle: "Tipos de video y contenido generado" },
+  { to: "/contenido", titulo: "Contenido", detalle: "Producción, edición y tipos de video" },
   { to: "/finanzas", titulo: "Finanzas", detalle: "Sin datos cargados todavía" },
   { to: "/conexiones", titulo: "Conexiones de pauta", detalle: "Meta Ads y Google Ads de cada cliente" },
   { to: "/avisos", titulo: "Avisos de WhatsApp", detalle: "Qué se mandó, qué va al resumen y qué se descartó, con el motivo" },
@@ -148,6 +148,22 @@ export function ConfigApp() {
         </Tarjeta>
         <Medicion />
         <LinksDelConector />
+        <Tarjeta>
+          <TituloFranja>Sistema</TituloFranja>
+          <ul>
+            {SISTEMA.map((m) => (
+              <li key={m.to} className="border-b border-l-linea last:border-b-0">
+                <Link to={m.to} className="flex items-center gap-3 py-3 text-inherit hover:text-l-marca">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-medium">{m.label}</span>
+                    <span className="block text-[12px] text-l-tinta-3">{m.detalle}</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-l-tinta-3" aria-hidden />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Tarjeta>
         <Tarjeta>
           <TituloFranja>Más pantallas</TituloFranja>
           <ul>

@@ -45,7 +45,7 @@ export function Comandos({ abierto, onCambio, esAdmin }: { abierto: boolean; onC
   const secciones = [
     ...PRINCIPALES.flatMap((p) => [p, ...(p.hijas ?? []).filter((h) => h.to !== p.to)]),
     ...AGENCIA.filter((s) => esAdmin || !s.soloAdmin),
-    ...OTRAS,
+    ...OTRAS.filter((s) => esAdmin || !s.soloAdmin),
   ];
 
   return (

@@ -47,6 +47,23 @@ export const AGENCIA: Seccion[] = [
   { to: "/config", label: "Configuración", soloAdmin: true },
 ];
 
+/**
+ * Lo que queda de paperclip (20/11): se abre con el riel y el tema de la app (LayoutSistema). Está en Configuración y
+ * en el Ctrl+K; ya no tiene menú propio.
+ */
+export const SISTEMA: Array<Seccion & { detalle: string }> = [
+  { to: "/issues", label: "Tareas de los agentes", detalle: "Cada pedido y lo que respondió el agente, con sus comentarios" },
+  { to: "/routines", label: "Rutinas de los agentes", detalle: "Qué corre solo y cuándo", soloAdmin: true },
+  { to: "/skills", label: "Skills de los agentes", detalle: "Lo que sabe hacer cada agente", soloAdmin: true },
+  { to: "/costs", label: "Costos de los agentes", detalle: "Lo que gastó cada agente en modelos", soloAdmin: true },
+  { to: "/company/settings/invites", label: "Invitaciones al equipo", detalle: "Sumar a alguien al panel", soloAdmin: true },
+  { to: "/inbox/requests", label: "Pedidos para sumarse", detalle: "Quién pidió entrar", soloAdmin: true },
+  { to: "/company/settings/secrets", label: "Claves y secretos", detalle: "Las claves que usan los agentes", soloAdmin: true },
+  { to: "/instance/settings/plugins", label: "Plugins", detalle: "Extensiones instaladas", soloAdmin: true },
+  { to: "/instance/settings/general", label: "Ajustes del sistema", detalle: "Opciones generales de la instalación", soloAdmin: true },
+  { to: "/instance/settings/profile", label: "Mi perfil", detalle: "Tu nombre y tu foto" },
+];
+
 /** Se abren desde Configuración; están acá para el título de la pestaña y el Ctrl+K. */
 export const OTRAS: Seccion[] = [
   { to: "/decisiones", label: "Todas las decisiones" },
@@ -55,7 +72,10 @@ export const OTRAS: Seccion[] = [
   { to: "/preparacion", label: "Preparación" },
   { to: "/conexiones", label: "Conexiones" },
   { to: "/avisos", label: "Avisos" },
+  ...SISTEMA.map((x) => ({ to: x.to, label: x.label, soloAdmin: x.soloAdmin })),
 ];
+
+
 
 /** Puro. La sección (o hija) que corresponde a una ruta, para marcarla y titular la pestaña. */
 export function seccionDe(pathname: string): { madre: SeccionPrincipal | null; label: string | null } {
