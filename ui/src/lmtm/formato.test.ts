@@ -2,7 +2,18 @@
 // plata y las acciones como las diría una persona, y que "no sé" nunca se
 // muestre como 0.
 import { describe, expect, it } from "vitest";
-import { cronLegible, etiquetaAccion, fechaLarga, formatoDato, haceCuanto, pesos, tocaLaPauta } from "./formato";
+import { cronLegible, diaLocal, etiquetaAccion, fechaLarga, formatoDato, haceCuanto, pesos, sumarDias, tocaLaPauta } from "./formato";
+
+describe("días en Buenos Aires", () => {
+  it("a las 22 h de Argentina sigue siendo el mismo día (en UTC ya es el siguiente)", () => {
+    expect(diaLocal(new Date("2026-11-21T01:00:00Z"))).toBe("2026-11-20");
+  });
+  it("suma y resta días cruzando meses", () => {
+    expect(sumarDias("2026-11-20", -1)).toBe("2026-11-19");
+    expect(sumarDias("2026-12-01", -1)).toBe("2026-11-30");
+    expect(sumarDias("2026-11-20", -30)).toBe("2026-10-21");
+  });
+});
 
 describe("cronLegible", () => {
   it("dice el horario de una rutina como una persona", () => {

@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PubvizTheme, AreaChart, Donut, FunnelViz, RankedBars, Delta, PV_SLOTS, StatRow, ComboChart, CumulativeFlow, Spark, BarsVsRef } from "@/components/pubviz";
 import type { OptimizacionPublica, Resultado } from "../api/trabajo";
 import { ScrollLateral } from "../lmtm/ScrollLateral";
+import { diaLocal, sumarDias } from "../lmtm/formato";
 import {
   LayoutDashboard,
   ClipboardCheck,
@@ -210,14 +211,9 @@ function useFormatters(currency: string) {
 
 /** Previous window of the same length, ending the day before `since`. */
 function prevRange(since: string, until: string): { since: string; until: string } {
-  const s = new Date(since + "T12:00:00");
-  const u = new Date(until + "T12:00:00");
-  const days = Math.max(1, Math.round((u.getTime() - s.getTime()) / 86400000) + 1);
-  const pu = new Date(s);
-  pu.setDate(pu.getDate() - 1);
-  const ps = new Date(pu);
-  ps.setDate(ps.getDate() - (days - 1));
-  return { since: ps.toISOString().slice(0, 10), until: pu.toISOString().slice(0, 10) };
+  const days = Math.max(1, Math.round((Date.parse(`${until}T00:00:00Z`) - Date.parse(`${since}T00:00:00Z`)) / 86400000) + 1);
+  const pu = sumarDias(since, -1);
+  return { since: sumarDias(pu, -(days - 1)), until: pu };
 }
 
 const ACCENTS = {
@@ -357,9 +353,10 @@ function useForceLightTheme() {
 
 function PublicDashboardInner({ slug, client, dashboard }: { slug: string; client: PublicClient; dashboard: PublicHeader }) {
   useForceLightTheme();
-  const today = useMemo(() => new Date(), []);
+  // El día en Buenos Aires (20/11): con toISOString, de 21 a 24 h "ayer" salía hoy y entraba el día a medio cargar.
+  const hoy = useMemo(() => diaLocal(new Date()), []);
   /** Tope de lo que se puede elegir a mano: hoy. Distinto del default. */
-  const maxFecha = useMemo(() => today.toISOString().slice(0, 10), [today]);
+  const maxFecha = hoy;
   // El rango por defecto TERMINA AYER, no hoy.
   //
   // ads_insights del dia en curso esta a medio sincronizar, y eso ya rompio dos
@@ -373,16 +370,8 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
   // Es ademas lo que hace Meta con su preset "Ultimos 30 dias", asi que el
   // panel ahora COINCIDE con el Administrador de anuncios en vez de diferir.
   // Elegir hoy a mano sigue siendo posible.
-  const defaultUntil = useMemo(() => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
-  }, [today]);
-  const defaultSince = useMemo(() => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  }, [today]);
+  const defaultUntil = useMemo(() => sumarDias(hoy, -1), [hoy]);
+  const defaultSince = useMemo(() => sumarDias(hoy, -30), [hoy]);
 
   const [range, setRange] = useState({ since: defaultSince, until: defaultUntil });
   const [platform, setPlatform] = useState<"all" | "meta" | "google">("all");

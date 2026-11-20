@@ -12,7 +12,22 @@ import { microCache } from "../services/micro-cache.js";
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import { adsAccountMappings, adsCampaigns, adsCreatives, adsInsights, clients, organicPosts, organicPostInsights, publicDashboards } from "@paperclipai/db";
-import { and, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
+import { fechaLocal, restarDias } from "../decisiones/motor-datos.js";
+
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+const valida = (s: string) => FECHA.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s);
+
+/**
+ * Puro. La ventana del dashboard público: por defecto de hoy-30 a ayer (`hoy` en hora local).
+ * null si una fecha vino mal escrita o el rango está al revés.
+ */
+export function ventanaPublica(since: unknown, until: unknown, hoy: string): { since: string; until: string } | null {
+  const s = typeof since === "string" && since ? since : restarDias(hoy, 30);
+  const u = typeof until === "string" && until ? until : restarDias(hoy, 1);
+  if (!valida(s) || !valida(u) || s > u) return null;
+  return { since: s, until: u };
+}
 
 export function publicDashboardRoutes(db: Db): Router {
   const router = Router();
@@ -39,30 +54,27 @@ export function publicDashboardRoutes(db: Db): Router {
     return { dashboard: row, client };
   }
 
-  function defaultSince(): string {
-    const d = new Date(); d.setUTCDate(d.getUTCDate() - 30);
-    return d.toISOString().slice(0, 10);
-  }
   // Termina AYER: el dia en curso esta a medio sincronizar y arrastra hacia
   // abajo el ultimo punto de las series y los deltas contra el periodo
   // anterior (que si esta completo). Mismo criterio que balance-monitor.ts y
   // que el preset "Ultimos 30 dias" de Meta. Pedir hoy con ?until= sigue
-  // andando: esto es solo el default.
-  function defaultUntil(): string {
-    const d = new Date(); d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  }
+  // andando: esto es solo el default. En hora de Buenos Aires (20/11): en UTC,
+  // de 21 a 24 h "ayer" era hoy y entraba el dia a medio cargar.
   // Filtro de plataforma (28/7): ?platform=meta|google separa; sin param unifica.
   function platformOf(req: Request): "meta" | "google" | null {
     const p = String(req.query.platform ?? "");
     return p === "meta" || p === "google" ? p : null;
   }
-  function windowOf(req: Request): { since: string; until: string } {
-    return {
-      since: (req.query.since as string) || defaultSince(),
-      until: (req.query.until as string) || defaultUntil(),
-    };
+  /** null = fechas mal escritas: la ruta responde 400 sin tocar la base. */
+  function windowOf(req: Request): { since: string; until: string } | null {
+    return ventanaPublica(req.query.since, req.query.until, fechaLocal(new Date()));
   }
+  const fechasMal = (res: Response) => res.status(400).json({ error: "Fechas inválidas: usá AAAA-MM-DD." });
+  /** Al cliente no le llega el detalle interno del error (20/11: devolvía el mensaje de la base). */
+  const fallo = (res: Response, donde: string, e: unknown) => {
+    console.warn(`[dashboard-publico] ${donde}:`, e instanceof Error ? e.message : e);
+    res.status(500).json({ error: "No se pudieron leer los datos." });
+  };
 
   // GET /api/public/dashboards/:slug
   // returns: { client, dashboard: { label, enabled, createdAt, lastViewedAt } }
@@ -85,8 +97,7 @@ export function publicDashboardRoutes(db: Db): Router {
         },
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 
@@ -142,7 +153,7 @@ export function publicDashboardRoutes(db: Db): Router {
       for (const k of Object.keys(out)) out[k].sort((a, b) => b.spend - a.spend);
       res.json({ audiencia: out });
     } catch (e) {
-      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 
@@ -151,7 +162,9 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      const { since, until } = windowOf(req);
+      const w = windowOf(req);
+      if (!w) return fechasMal(res);
+      const { since, until } = w;
       const platform = platformOf(req);
       // Por plataforma, para no sumar consultas que no son consultas (12/11: MA
       // PROPIEDADES mostraba 8.812 en 30 días; 8.541 eran conversiones de Google
@@ -216,8 +229,7 @@ export function publicDashboardRoutes(db: Db): Router {
         },
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 
@@ -226,7 +238,9 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      const { since, until } = windowOf(req);
+      const w = windowOf(req);
+      if (!w) return fechasMal(res);
+      const { since, until } = w;
       const platform = platformOf(req);
       const rows = await db
         .select({
@@ -270,8 +284,7 @@ export function publicDashboardRoutes(db: Db): Router {
       });
       res.json({ client: { id: r.client.id, slug: r.client.slug, name: r.client.name, currency: r.client.currency }, since, until, series });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 
@@ -280,7 +293,9 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      const { since, until } = windowOf(req);
+      const w = windowOf(req);
+      if (!w) return fechasMal(res);
+      const { since, until } = w;
       const platform = platformOf(req);
       const campaignRows = await db
         .select({
@@ -335,8 +350,7 @@ export function publicDashboardRoutes(db: Db): Router {
         since, until, totals, campaigns: rows,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 
@@ -348,7 +362,9 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      const { since, until } = windowOf(req);
+      const w = windowOf(req);
+      if (!w) return fechasMal(res);
+      const { since, until } = w;
       const { optimizacionesPublicas } = await import("../services/trabajo.js");
       res.json({ since, until, optimizaciones: await optimizacionesPublicas(db, r.client.id, since, until) });
     } catch (e) {
@@ -384,7 +400,9 @@ export function publicDashboardRoutes(db: Db): Router {
     try {
       const r = await resolve(req.params.slug);
       if (!r) return res.status(404).json({ error: "dashboard not found or disabled" });
-      const { since, until } = windowOf(req);
+      const w = windowOf(req);
+      if (!w) return fechasMal(res);
+      const { since, until } = w;
       const platform = platformOf(req);
       const perf = await db
         .select({
@@ -432,7 +450,7 @@ export function publicDashboardRoutes(db: Db): Router {
         .slice(0, 12);
       res.json({ since, until, creatives });
     } catch (e) {
-      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 
@@ -451,18 +469,16 @@ export function publicDashboardRoutes(db: Db): Router {
           if (orCond) posts = await db.select().from(organicPosts).where(orCond);
         }
       }
+      // Una sola consulta (20/11): la de ARRAY[$1…] armaba los parámetros como texto sin pasarlos, fallaba
+      // siempre y recién andaba el plan B.
       const postIds = posts.map((p) => p.id);
-      let metrics: any[] = [];
-      if (postIds.length > 0) {
-        metrics = await db.select().from(organicPostInsights)
-          .where(sql`${organicPostInsights.postId} = ANY(${sql.raw(`ARRAY[${postIds.map((_, i) => `$${i + 1}`).join(",")}])`)}`)
-          .catch(async () => {
-            // Fallback: simple inArray
-            return db.select().from(organicPostInsights).where(sql`${organicPostInsights.postId} IN ${postIds}`);
-          });
-      }
+      const metrics = postIds.length
+        ? await db.select({ postId: organicPostInsights.postId, metric: organicPostInsights.metric, value: organicPostInsights.value })
+            .from(organicPostInsights).where(inArray(organicPostInsights.postId, postIds))
+        : [];
       const byPost = new Map<string, Record<string, number>>();
       for (const m of metrics) {
+        if (!m.postId) continue;
         const row = byPost.get(m.postId) ?? {};
         row[m.metric] = Number(m.value);
         byPost.set(m.postId, row);
@@ -488,8 +504,7 @@ export function publicDashboardRoutes(db: Db): Router {
       }).sort((a, b) => Number(b.createdTime ? new Date(b.createdTime).getTime() : 0) - Number(a.createdTime ? new Date(a.createdTime).getTime() : 0));
       res.json({ client: { id: r.client.id, slug: r.client.slug, name: r.client.name, currency: r.client.currency }, posts: merged });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: "Internal server error", detail: msg.slice(0, 300) });
+      fallo(res, req.path, e);
     }
   });
 

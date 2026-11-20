@@ -31,6 +31,7 @@ import { clickupWebhookRoutes } from "./routes/clickup-webhook.js";
 import { financeRoutes } from "./routes/finance.js";
 import { agentToolsRoutes } from "./routes/agent-tools.js";
 import { publicDashboardRoutes } from "./routes/public-dashboards.js";
+import { limitePublico } from "./middleware/limite-publico.js";
 import { materialRoutes } from "./routes/material.js";
 import { agentChatRoutes } from "./routes/agent-chat.js";
 import { waBotRoutes } from "./routes/wa-bot.js";
@@ -287,6 +288,8 @@ export async function createApp(
   api.use(financeRoutes(db));
   // Public dashboard routes (no auth required; auth is enforced per-route).
   // Mounted at /api/public so the URL space stays under /api.
+  // Tope de pedidos por IP para todo lo público (auditoría 20/11).
+  api.use("/public", limitePublico());
   api.use("/public", publicDashboardRoutes(db));
   // Material de Drive de un cliente con link firmado de la guía de contenido (21/10).
   api.use("/public", materialRoutes(db));

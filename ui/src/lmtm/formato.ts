@@ -84,13 +84,20 @@ export function cronLegible(cron: string | null): string {
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
+/** "2026-11-20": el día en Buenos Aires, como lo guarda la base (ads_insights.date). */
+export function diaLocal(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
+/** Suma (o resta) días a un "AAAA-MM-DD" sin pasar por husos horarios. */
+export function sumarDias(ymd: string, dias: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + dias * 86_400_000).toISOString().slice(0, 10);
+}
+
 /** "lunes 6 de octubre", en Buenos Aires (la pantalla se mira desde acá). */
 export function fechaLarga(d: Date): string {
-  const partes = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" })
-    .format(d)
-    .split("-")
-    .map(Number);
-  const [y, m, dd] = partes;
+  const [y, m, dd] = diaLocal(d).split("-").map(Number);
   return `${DIAS[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${dd} de ${MESES[m - 1]}`;
 }
 
