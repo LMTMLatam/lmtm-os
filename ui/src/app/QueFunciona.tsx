@@ -9,6 +9,7 @@ import { ExternalLink, Loader2, OctagonAlert, Sparkles } from "lucide-react";
 import { Link } from "@/lib/router";
 import { api } from "../api/client";
 import { Tarjeta, TituloFranja } from "./HoyApp";
+import { BarrasH, BarrasPar } from "../lmtm/graficos";
 
 export interface Ejemplo {
   clientId: string; cliente: string; slug: string; red: string; formato: string;
@@ -180,77 +181,6 @@ export function QueFunciona() {
 }
 
 /** Lo de un rubro, para la pantalla de Nichos. */
-export function QueFuncionaNicho({ nicho }: { nicho: string }) {
-  const q = useQueFunciona();
-  const mismo = (x: { nicho: string }) => x.nicho.toLowerCase() === nicho.toLowerCase();
-  const n = q.data?.nichos.find(mismo);
-  const comp = q.data?.competencia;
-  const c = comp?.nichos.find(mismo);
-  if (q.isLoading) return <p className="text-[13px] text-l-tinta-3">Midiendo…</p>;
-  return (
-    <div className="space-y-6">
-      {n ? <RankingNicho n={n} /> : <p className="text-[13px] text-l-tinta-3">Menos de dos cuentas propias de este rubro tienen publicaciones suficientes leídas: no se puede comparar entre clientes todavía.</p>}
-      <div>
-        <div className="mb-1 text-[13px] font-semibold">La competencia</div>
-        {c ? (
-          <>
-            <RankingNicho n={c} />
-            <p className="mt-2 text-[12px] text-l-tinta-3">Cuentas de Instagram de los competidores cargados en cada cliente, cada publicación contra lo normal de su cuenta. Se toma el ángulo o el formato, nunca el texto.</p>
-          </>
-        ) : (
-          <p className="text-[13px] text-l-tinta-3">
-            Todavía no hay dos cuentas de la competencia medidas en este rubro.
-            {comp ? ` ${resumenEstado(comp.estado)}` : ""}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function RankingNicho({ n }: { n: { cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] } }) {
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div>
-        <div className="mb-1 text-[12px] font-medium text-l-tinta-2">Ángulos · {n.cuentas} cuentas, {n.publicaciones} publicaciones</div>
-        {n.angulos.length ? <ul>{n.angulos.map((f) => <FilaRanking key={f.clave} f={f} />)}</ul> : <p className="text-[13px] text-l-tinta-3">Sin muestra suficiente por ángulo.</p>}
-      </div>
-      <div>
-        <div className="mb-1 text-[12px] font-medium text-l-tinta-2">Formatos</div>
-        {n.formatos.length ? <ul>{n.formatos.map((f) => <FilaRanking key={f.clave} f={f} />)}</ul> : <p className="text-[13px] text-l-tinta-3">Sin muestra suficiente por formato.</p>}
-      </div>
-    </div>
-  );
-}
-
-/** Tarjeta chica para Hoy: lo que más rinde y lo que se puede reutilizar. */
-export function TarjetaQueFunciona() {
-  const q = useQueFunciona();
-  const a = q.data;
-  const angulo = a?.angulos[0] ?? null;
-  const formato = a?.formatos[0] ?? null;
-  return (
-    <Link to="/contenido/calendario#que-funciona" className="block text-inherit">
-      <Tarjeta className="h-full hover:border-l-tinta-3">
-        <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
-          <Sparkles className="h-4 w-4" aria-hidden /> Lo que funciona
-        </div>
-        {q.isLoading ? (
-          <div className="mt-2 text-[13px] text-l-tinta-3">Midiendo…</div>
-        ) : !a || (!angulo && !formato) ? (
-          <div className="mt-1 text-[24px] italic text-l-tinta-3">sin dato</div>
-        ) : (
-          <div className="mt-1.5 space-y-1 text-[13px]">
-            {angulo && <div><span className="font-semibold">{angulo.nombre}</span> <span className="text-l-tinta-3">rinde {veces(angulo.indice)} lo normal</span></div>}
-            {formato && <div><span className="font-semibold">{formato.clave}</span> <span className="text-l-tinta-3">{veces(formato.indice)}</span></div>}
-            <div className="text-[12px] text-l-tinta-3">{a.reutilizar.length} publicaciones para reutilizar</div>
-          </div>
-        )}
-      </Tarjeta>
-    </Link>
-  );
-}
-
 /** Lo de un cliente, para su ficha: sus mejores publicaciones, su mejor ángulo
  *  y lo que funciona en su rubro y no usa. */
 export function QueFuncionaCliente({ clientId }: { clientId: string }) {
@@ -308,23 +238,71 @@ export function QueFuncionaCliente({ clientId }: { clientId: string }) {
           </div>
         </Tarjeta>
       </div>
-      {c.nicho && (
-        <Tarjeta>
-          <TituloFranja>Lo que funciona en {c.nicho}</TituloFranja>
-          <QueFuncionaNicho nicho={c.nicho} />
-        </Tarjeta>
-      )}
+      {c.nicho && <NichoVsCompetencia nicho={c.nicho} />}
     </div>
   );
 }
 
-/** "En toda la agencia: 40 de 171 cuentas de Instagram medidas, 30 por leer, 12 usuarios que no existen…" */
-function resumenEstado(e: NonNullable<AnalisisContenido["competencia"]>["estado"]): string {
-  const porLeer = e.sinRevisar + e.noEncontradas + e.noEmpresa;
-  const partes = [`${e.medidas} de ${e.conInstagram} cuentas de Instagram medidas`];
-  if (porLeer) partes.push(`${porLeer} por leer`);
-  if (e.noExisten) partes.push(`${e.noExisten} con un usuario que no existe (mal cargado)`);
-  if (e.privadas) partes.push(`${e.privadas} privadas`);
-  if (e.conFacebook) partes.push(`${e.medidasFacebook ?? 0} de ${e.conFacebook} páginas de Facebook medidas${e.motivoFacebook ? ` (${e.motivoFacebook})` : ""}`);
-  return `En toda la agencia: ${partes.join(", ")}.`;
+/**
+ * Nuestros clientes del rubro contra su competencia en Instagram (20/11: «las comparativas, más visuales»): qué ángulo
+ * y qué formato rinde en cada lado y cuánto publica cada cuenta. Cada publicación contra lo normal de su cuenta.
+ */
+export function NichoVsCompetencia({ nicho }: { nicho: string }) {
+  const q = useQueFunciona();
+  const mismo = (x: { nicho: string }) => x.nicho.toLowerCase() === nicho.toLowerCase();
+  const nuestro = q.data?.nichos.find(mismo);
+  const comp = q.data?.competencia?.nichos.find(mismo);
+  if (q.isLoading) return <p className="text-[13px] text-l-tinta-3">Midiendo las publicaciones del rubro…</p>;
+  if (!nuestro && !comp) return null;
+  const veces = (x: number) => `${x.toFixed(1).replace(".", ",")}×`;
+  const par = (de: "angulos" | "formatos", max: number) => {
+    const claves = [...new Set([...(nuestro?.[de] ?? []), ...(comp?.[de] ?? [])].sort((a, b) => b.indice - a.indice).map((f) => f.clave))].slice(0, max);
+    return claves.map((clave) => {
+      const a = nuestro?.[de].find((f) => f.clave === clave);
+      const b = comp?.[de].find((f) => f.clave === clave);
+      return { etiqueta: (a ?? b)!.nombre.replace(/^Instagram · /, ""), a: a?.indice ?? 0, b: b?.indice ?? 0 };
+    });
+  };
+  return (
+    <Tarjeta>
+      <TituloFranja>Qué funciona en redes · nosotros contra la competencia · {q.data!.dias} días</TituloFranja>
+      {comp && nuestro ? (
+        <div className="grid gap-8 lg:grid-cols-2">
+          <div>
+            <h3 className="mb-3 text-[14px] font-semibold">Ángulos que más rinden <span className="font-normal text-l-tinta-3">· 1× = lo normal de cada cuenta</span></h3>
+            <BarrasPar grupos={par("angulos", 6)} nombres={["Nuestros clientes", "Competencia"]} formato={veces} />
+          </div>
+          <div className="space-y-8">
+            <div>
+              <h3 className="mb-3 text-[14px] font-semibold">Formatos</h3>
+              <BarrasPar grupos={par("formatos", 4)} nombres={["Nuestros clientes", "Competencia"]} formato={veces} />
+            </div>
+            <div>
+              <h3 className="mb-3 text-[14px] font-semibold">Publicaciones por cuenta</h3>
+              <BarrasPar
+                grupos={[{ etiqueta: `${nuestro.cuentas} cuentas nuestras · ${comp.cuentas} de la competencia`, a: nuestro.publicaciones / nuestro.cuentas, b: comp.publicaciones / comp.cuentas }]}
+                nombres={["Nuestros clientes", "Competencia"]}
+                formato={(x) => Math.round(x).toLocaleString("es-AR")}
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-8 lg:grid-cols-2">
+          <div>
+            <h3 className="mb-3 text-[14px] font-semibold">Ángulos que más rinden</h3>
+            <BarrasH filas={(nuestro ?? comp)!.angulos.slice(0, 6).map((f) => ({ etiqueta: f.nombre, valor: f.indice, detalle: `${f.publicaciones} publicaciones` }))} formato={veces} referencia={{ valor: 1, etiqueta: "lo normal de cada cuenta (1×)" }} />
+          </div>
+          <div>
+            <h3 className="mb-3 text-[14px] font-semibold">Formatos</h3>
+            <BarrasH filas={(nuestro ?? comp)!.formatos.map((f) => ({ etiqueta: f.nombre.replace(/^Instagram · /, ""), valor: f.indice, detalle: `${f.publicaciones} publicaciones` }))} formato={veces} referencia={{ valor: 1, etiqueta: "lo normal de cada cuenta (1×)" }} />
+            <p className="mt-4 text-[12px] text-l-tinta-3">{comp ? "Son de la competencia: de nuestras cuentas del rubro todavía no hay muestra suficiente." : "Todavía no hay dos cuentas de la competencia medidas en este rubro."}</p>
+          </div>
+        </div>
+      )}
+      <p className="mt-5 text-[12px] text-l-tinta-3">
+        <Link to="/contenido/calendario#que-funciona" className="text-l-tinta-2 hover:text-l-marca">Todas las cuentas →</Link>
+      </p>
+    </Tarjeta>
+  );
 }
