@@ -8,7 +8,7 @@ import { esDecisionHumana } from "../decision-humana.js";
 // de pauta es aprobarla, y aprobar exige una persona (assertBoard).
 // 17/11 (Naza): el departamento de pauta optimiza solo (subir y mover presupuesto)
 // pero nunca frena ni apaga. Fuera de una aprobación humana, el ÚNICO que ejecuta
-// es pauta-optimiza-sola.ts, y su regla (nada de pausas ni bajas) está en su test.
+// es pauta-optimiza-sola.ts, y su regla está en su test (20/11: también baja y duplica; nunca pausa ni apaga).
 describe("pauta: solo una persona o el optimizador ejecutan", () => {
   it("ejecutarAccionAprobada solo se llama al aprobar o desde el optimizador", () => {
     const src = join(__dirname, "..", "..");
