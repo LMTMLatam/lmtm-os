@@ -101,7 +101,7 @@ function BarraAcciones({ c }: { c: Client }) {
       <ShareDialog client={c} />
       <span className="mx-1 hidden h-6 w-px bg-l-linea-2 sm:block" aria-hidden />
       {/* En el celular, los recursos en una sola fila que se desliza (antes ocupaban tres renglones). */}
-      <div className="-mx-1 flex w-full gap-0 overflow-x-auto sm:mx-0 sm:w-auto sm:flex-wrap">
+      <div className="-mx-1 flex w-full gap-0 overflow-x-auto [scrollbar-width:none] sm:mx-0 sm:w-auto sm:flex-wrap">
       {recursosDe(c).map((r) =>
         r.url ? (
           <a key={r.nombre} href={r.url} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-[12px] px-3 text-[13px] text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta">

@@ -62,7 +62,7 @@ export function PendientesApp() {
         <CargaHoy hoy={hoy} />
 
         <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-[1fr_1fr_1fr_1.25fr]" role="tablist" aria-label="Qué mirar">
-          <Mosaico Icono={Siren} titulo="Urgente" n={nUrgente} pie="corta la pauta o la publicación" tono="critico" activo={vista === "urgente"} onClick={() => elegir("urgente")} />
+          <Mosaico Icono={Siren} titulo="Urgente" n={nUrgente} pie="corta la pauta o la publicación" tono="critico" activo={vista === "urgente"} onClick={() => elegir("urgente")} ancho />
           <Mosaico
             Icono={CheckCheck}
             titulo="Para aprobar"
@@ -123,6 +123,8 @@ function Mosaico(p: {
   tramos?: Array<{ etiqueta: string; valor: number }>;
   activo: boolean;
   onClick: () => void;
+  /** En el celular ocupa la fila entera (los otros dos van de a par). */
+  ancho?: boolean;
 }) {
   const tramos = (p.tramos ?? []).filter((t) => t.valor > 0);
   const total = tramos.reduce((t, x) => t + x.valor, 0);
@@ -133,7 +135,7 @@ function Mosaico(p: {
       role="tab"
       aria-selected={p.activo}
       onClick={p.onClick}
-      className={`flex min-w-0 flex-col gap-3 rounded-[20px] border p-4 text-left transition-colors md:p-5 ${
+      className={`flex min-w-0 flex-col gap-3 rounded-[20px] border p-4 text-left transition-colors md:p-5 ${p.ancho ? "col-span-2 xl:col-span-1" : ""} ${
         p.activo ? "border-l-marca bg-l-marca-suave" : "border-l-linea bg-l-sup hover:border-l-tinta-3"
       }`}
     >
