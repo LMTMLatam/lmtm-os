@@ -18,6 +18,7 @@ import { agentesApi, nombreRol, type Trabajo } from "./api";
 import { Encabezado } from "./Shell";
 import { TareasEsperando } from "./Esperando";
 import { useQueFunciona } from "./QueFunciona";
+import { ImpactoAgentes } from "./ImpactoAgentes";
 import { PublicacionTrabada } from "./PublicacionTrabada";
 import { agruparUrgentes, repartirHoy } from "../lmtm/hoy";
 import { alertasDeAgencia, movimientoCartera, type Alerta } from "../lmtm/alertas";
@@ -137,6 +138,8 @@ export function HoyApp() {
           <Numero titulo="Costo por consulta · 30 días" valor={k && k.leads30d > 0 ? pesos(k.spend30d / k.leads30d) : null} chispa={serie.map((p) => (p.leads > 0 ? p.spend / p.leads : 0))} />
           <Numero titulo="Plata parada por día" valor={h?.plataParada != null ? pesos(h.plataParada) : null} chispa={(h?.evolucion ?? []).map((p) => p.plataParada ?? 0)} pie={h ? `en ${h.clientesParados} ${h.clientesParados === 1 ? "cliente" : "clientes"}` : undefined} />
         </div>
+
+        <ImpactoAgentes />
 
         {alertas.length > 0 && (
           <section>

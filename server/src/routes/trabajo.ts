@@ -7,7 +7,7 @@ import { resumirTrabajo, trabajoDeAgentes } from "../services/trabajo.js";
 
 export function trabajoRoutes(db: Db): Router {
   const router = Router();
-  router.use(["/trabajo", "/novedades"], (req, _res, next) => {
+  router.use(["/trabajo", "/novedades", "/impacto"], (req, _res, next) => {
     assertMiembro(req);
     next();
   });
@@ -28,6 +28,12 @@ export function trabajoRoutes(db: Db): Router {
     // ?resumen=1 (Hoy, 20/11): solo los números; con los ítems eran ~670 KB para 30 días.
     if (req.query.resumen === "1") return res.json({ dias, resumen: resumirTrabajo(items) });
     res.json({ dias, items, resumen: resumirTrabajo(items) });
+  });
+
+  // GET /api/impacto — lo que cambió por el trabajo de los agentes, antes y después (Hoy, 20/11). Ver services/impacto.ts.
+  router.get("/impacto", async (_req, res) => {
+    const { impactoDeAgentes } = await import("../services/impacto.js");
+    res.json(await impactoDeAgentes(db));
   });
 
   return router;

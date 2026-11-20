@@ -23,7 +23,8 @@ describe("orden de la pantalla Hoy", () => {
   it("Hoy: los números de la agencia, después las alertas y recién ahí los gráficos; sin acciones a mano", () => {
     const hoy = posicionDe("export function HoyApp()");
     const fin = posicionDe("const AREA =", hoy);
-    const orden = [posicionDe('titulo="Inversión · 30 días"', hoy), posicionDe("Alertas</h2>", hoy), posicionDe('titulo="Inversión por día"', hoy)];
+    // 20/11: lo que lograron los agentes va arriba, apenas después de los números («que muestren que está sirviendo»).
+    const orden = [posicionDe('titulo="Inversión · 30 días"', hoy), posicionDe("<ImpactoAgentes />", hoy), posicionDe("Alertas</h2>", hoy), posicionDe('titulo="Inversión por día"', hoy)];
     expect([...orden].sort((a, b) => a - b)).toEqual(orden);
     expect(SRC.slice(hoy, fin)).not.toContain("<Urgente ");
     expect(SRC.slice(hoy, fin)).not.toContain("<Lista ");

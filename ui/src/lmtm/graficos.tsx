@@ -192,3 +192,111 @@ export function PuntosVsReferencia({ puntos, referencia, formato }: { puntos: Ar
     </div>
   );
 }
+
+/**
+ * Antes y después por fila (20/11, «comparativas de lo que era antes y después de pasar por los agentes»): un punto
+ * gris para antes, uno de color para después, unidos por una línea; a la derecha el cambio, con flecha y palabra.
+ */
+export function AntesDespues({ filas, formato, menorEsMejor }: { filas: Array<{ etiqueta: string; antes: number; despues: number; detalle?: string }>; formato: (n: number) => string; menorEsMejor?: boolean }) {
+  const max = Math.max(...filas.flatMap((f) => [f.antes, f.despues])) * 1.05 || 1;
+  const pos = (v: number) => `${(v / max) * 100}%`;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-4 text-[12px] text-l-tinta-2" aria-hidden>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-l-tinta-3" /> Antes</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[var(--l-serie-1)]" /> Después</span>
+      </div>
+      {filas.map((f) => {
+        const cambio = f.antes > 0 ? (f.despues - f.antes) / f.antes : 0;
+        const mejor = menorEsMejor ? cambio < -0.05 : cambio > 0.05;
+        const peor = menorEsMejor ? cambio > 0.05 : cambio < -0.05;
+        const [a, b] = [f.antes, f.despues].sort((x, y) => x - y);
+        return (
+          <div key={f.etiqueta} className="grid grid-cols-[minmax(90px,150px)_1fr_auto] items-center gap-3" title={`${f.etiqueta}: ${formato(f.antes)} → ${formato(f.despues)}${f.detalle ? ` · ${f.detalle}` : ""}`}>
+            <span className="truncate text-[13px] text-l-tinta-2">{f.etiqueta}</span>
+            <span className="relative h-4" role="img" aria-label={`${f.etiqueta}: antes ${formato(f.antes)}, después ${formato(f.despues)}`}>
+              <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-l-linea" />
+              <span className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-l-linea-2" style={{ left: pos(a), width: `calc(${pos(b)} - ${pos(a)})` }} />
+              <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-l-tinta-3 ring-2 ring-l-sup" style={{ left: pos(f.antes) }} />
+              <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--l-serie-1)] ring-2 ring-l-sup" style={{ left: pos(f.despues) }} />
+            </span>
+            <span className={`w-24 text-right text-[13px] font-semibold tabular-nums ${mejor ? "text-l-bien-texto" : peor ? "text-l-critico-texto" : "text-l-tinta-2"}`}>
+              {cambio < 0 ? "↓" : cambio > 0 ? "↑" : "="} {Math.abs(Math.round(cambio * 100))}% <span className="text-[11px] font-normal">{mejor ? "mejor" : peor ? "peor" : "igual"}</span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Varias líneas en el mismo eje (misma unidad), con leyenda y una marca vertical opcional («primer cambio»). Pasando el
+ * mouse, la semana y el valor de cada serie.
+ */
+export function Lineas({ x, series, formato, marca, alto = 150 }: { x: string[]; series: Array<{ nombre: string; valores: number[] }>; formato: (n: number) => string; marca?: { x: string; etiqueta: string }; alto?: number }) {
+  const [hover, setHover] = useState<number | null>(null);
+  if (x.length < 2) return <p className="text-[13px] text-l-tinta-3">Sin datos suficientes.</p>;
+  const ancho = 600;
+  const max = topeRedondo(Math.max(...series.flatMap((s) => s.valores)));
+  const px = (i: number) => (i / (x.length - 1)) * ancho;
+  const colores = ["var(--l-serie-1)", "var(--l-serie-2)"];
+  const fecha = (s: string) => `${Number(s.slice(8, 10))}/${Number(s.slice(5, 7))}`;
+  const iMarca = marca ? x.findIndex((s) => s >= marca.x) : -1;
+  const i = hover ?? x.length - 1;
+  return (
+    <figure className="m-0">
+      <figcaption className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12px] text-l-tinta-2">
+        <span className="text-l-tinta-3">{hover != null ? `semana del ${fecha(x[i])}` : "última semana"}</span>
+        <span className="flex flex-wrap gap-4">
+          {series.map((s, k) => (
+            <span key={s.nombre} className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: colores[k] }} aria-hidden />
+              {s.nombre} <span className="font-semibold tabular-nums text-l-tinta">{formato(s.valores[i])}</span>
+            </span>
+          ))}
+        </span>
+      </figcaption>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-0 top-0 -translate-y-full pb-0.5 text-[11px] tabular-nums text-l-tinta-3">{formato(max)}</span>
+        <svg
+          viewBox={`0 0 ${ancho} ${alto}`}
+          preserveAspectRatio="none"
+          className="block w-full overflow-visible"
+          style={{ height: alto }}
+          role="img"
+          aria-label={series.map((s) => `${s.nombre}: de ${formato(s.valores[0])} a ${formato(s.valores[s.valores.length - 1])}`).join("; ")}
+          onMouseLeave={() => setHover(null)}
+          onMouseMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setHover(Math.max(0, Math.min(x.length - 1, Math.round(((e.clientX - r.left) / r.width) * (x.length - 1)))));
+          }}
+        >
+          <line x1="0" x2={ancho} y1={escalaY(max, max, alto)} y2={escalaY(max, max, alto)} stroke="var(--l-linea-2)" strokeWidth="1" vectorEffect="non-scaling-stroke" strokeDasharray="3 4" />
+          {iMarca > 0 && <line x1={px(iMarca)} x2={px(iMarca)} y1="0" y2={alto} stroke="var(--l-tinta-3)" strokeWidth="1" vectorEffect="non-scaling-stroke" strokeDasharray="2 3" />}
+          {series.map((s, k) => (
+            <path
+              key={s.nombre}
+              d={s.valores.map((v, j) => `${j === 0 ? "M" : "L"}${px(j).toFixed(1)},${escalaY(v, max, alto).toFixed(1)}`).join(" ")}
+              fill="none"
+              stroke={colores[k]}
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+              strokeLinejoin="round"
+            />
+          ))}
+          {hover != null && <line x1={px(hover)} x2={px(hover)} y1="0" y2={alto} stroke="var(--l-tinta-3)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+        </svg>
+        {iMarca > 0 && marca && (
+          <span className="pointer-events-none absolute top-0 ml-1.5 text-[11px] text-l-tinta-2" style={{ left: `${(iMarca / (x.length - 1)) * 100}%` }}>
+            {marca.etiqueta}
+          </span>
+        )}
+      </div>
+      <div className="mt-1 flex justify-between text-[11px] text-l-tinta-3">
+        <span>{fecha(x[0])}</span>
+        <span>{fecha(x[x.length - 1])}</span>
+      </div>
+    </figure>
+  );
+}
