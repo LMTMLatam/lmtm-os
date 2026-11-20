@@ -9,6 +9,9 @@ import { tocaLaPauta } from "./formato";
 
 export interface Propuesta {
   clave: string;
+  /** accion_pauta, accion_web, accion_codigo o request_board_approval. */
+  tipo: string;
+  accion: unknown;
   ids: string[];
   agentes: string[];
   clientId: string | null;

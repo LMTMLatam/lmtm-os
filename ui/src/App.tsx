@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
 import { Shell } from "./app/Shell";
-import { DecisionesApp, HoyApp } from "./app/HoyApp";
+import { HoyApp } from "./app/HoyApp";
 import { useCompany } from "./context/CompanyContext";
 
 /**
@@ -78,7 +78,7 @@ const TrabajoApp = perezosa(() => import("./app/Trabajo"), "TrabajoApp");
 const BibliotecaApp = perezosa(() => import("./app/BibliotecaApp"), "BibliotecaApp");
 const ActividadApp = perezosa(() => import("./app/ActividadApp"), "ActividadApp");
 const PreparacionApp = perezosa(() => import("./app/PreparacionApp"), "PreparacionApp");
-const AprobacionesApp = perezosa(() => import("./app/AprobacionesApp"), "AprobacionesApp");
+const PendientesApp = perezosa(() => import("./app/PendientesApp"), "PendientesApp");
 
 /** Mientras baja una pantalla: el fondo de la app, sin saltos. */
 export function CargandoPantalla() {
@@ -166,9 +166,9 @@ function boardRoutes() {
       <Route path="execution-workspaces/:workspaceId/routines" element={<ExecutionWorkspaceDetail />} />
       <Route path="goals/*" element={<Navigate to="/hoy" replace />} />
       {/* Aprobaciones es la bandeja de la app; el detalle de una aprobación sigue acá. */}
-      <Route path="approvals" element={<Navigate to="/aprobaciones" replace />} />
-      <Route path="approvals/pending" element={<Navigate to="/aprobaciones" replace />} />
-      <Route path="approvals/all" element={<Navigate to="/aprobaciones" replace />} />
+      <Route path="approvals" element={<Navigate to="/decisiones?vista=aprobar" replace />} />
+      <Route path="approvals/pending" element={<Navigate to="/decisiones?vista=aprobar" replace />} />
+      <Route path="approvals/all" element={<Navigate to="/decisiones?vista=aprobar" replace />} />
       <Route path="approvals/:approvalId" element={<ApprovalDetail />} />
       <Route path="costs" element={<Costs />} />
       <Route path="activity" element={<Navigate to="/actividad" replace />} />
@@ -352,8 +352,9 @@ export function App() {
           {/* La app propia de LMTM (fase C1): shell y pantallas nuestras. */}
           <Route element={<Shell />}>
             <Route path="hoy" element={<HoyApp />} />
-            <Route path="aprobaciones" element={<AprobacionesApp />} />
-            <Route path="decisiones" element={<DecisionesApp />} />
+            {/* 20/11: Aprobaciones y Pendientes son una sola sección. */}
+            <Route path="aprobaciones" element={<Navigate to="/decisiones?vista=aprobar" replace />} />
+            <Route path="decisiones" element={<PendientesApp />} />
             <Route path="clientes" element={<ClientesApp />} />
             <Route path="clientes/:slug" element={<ClienteApp />} />
             <Route path="clientes/:slug/:seccion" element={<ClienteApp />} />

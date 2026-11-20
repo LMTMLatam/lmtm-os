@@ -4,7 +4,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronRight, CircleHelp, Clock, LayoutGrid, Moon, OctagonAlert, Pause, Sun, Unplug, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircleHelp, Clock, LayoutGrid, Moon, OctagonAlert, Pause, Sun, Target, Unplug, X, type LucideIcon } from "lucide-react";
+import { ChartColumn } from "lucide-react";
 import { Link } from "@/lib/router";
 import { ApiError } from "../api/client";
 import { useTheme } from "../context/ThemeContext";
@@ -326,25 +327,47 @@ export function PorQue({ d, max = 3 }: { d: Decision; max?: number }) {
   return (
     <div className="mt-1 text-[14px] leading-[1.5] text-l-tinta-2">
       {d.porque?.nota && <p className="mb-1 font-medium text-l-atencion-texto">{d.porque.nota}</p>}
-      <p>{d.porque?.resumen}</p>
+      {/* 20/11: los números primero, como fichas que se leen de un vistazo; el texto abajo. */}
       {datos.length > 0 && (
-        // Cada dato es una línea de texto corrido: en el celular la etiqueta y
-        // el valor parten juntos, no en dos columnas que quiebran por separado.
-        <ul className="mt-1.5 space-y-0.5 text-[13px]">
+        <ul className="mb-2 flex flex-wrap gap-2">
           {datos.map((x) => (
-            <li key={x.etiqueta}>
-              <span className="text-l-tinta-3">{x.etiqueta}: </span>
+            <li key={x.etiqueta} className="rounded-[10px] border border-l-linea bg-l-papel/60 px-2.5 py-1.5">
+              <span className="block text-[11px] leading-tight text-l-tinta-3">{x.etiqueta}</span>
               {typeof x.valor === "string" && /^https?:\/\//.test(x.valor) ? (
-                <a href={x.valor} target="_blank" rel="noreferrer" className="font-medium text-l-marca underline underline-offset-2">
+                <a href={x.valor} target="_blank" rel="noreferrer" className="text-[14px] font-semibold text-l-marca underline underline-offset-2">
                   Ver
                 </a>
               ) : (
-                <span className="font-medium text-l-tinta">{formatoDato(x.valor, x.unidad)}</span>
+                <span className="text-[15px] font-semibold tabular-nums text-l-tinta">{formatoDato(x.valor, x.unidad)}</span>
               )}
             </li>
           ))}
         </ul>
       )}
+      <p>{d.porque?.resumen}</p>
+    </div>
+  );
+}
+
+/** «Para qué»: el resultado que se busca, en una línea (20/11: «que digan para qué serviría el resultado»). */
+export function ParaQue({ texto }: { texto: string | null }) {
+  if (!texto) return null;
+  return <Rotulo Icono={Target} titulo="Para qué">{texto}</Rotulo>;
+}
+
+/** «En qué se basa»: los datos o el razonamiento de quien lo propone. */
+export function EnQueSeBasa({ children }: { children: ReactNode }) {
+  return <Rotulo Icono={ChartColumn} titulo="En qué se basa">{children}</Rotulo>;
+}
+
+function Rotulo({ Icono, titulo, children }: { Icono: LucideIcon; titulo: string; children: ReactNode }) {
+  return (
+    <div className="mt-2 flex gap-2 text-[13px] leading-[1.5]">
+      <Icono className="mt-0.5 h-4 w-4 shrink-0 text-l-marca" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-l-tinta-3">{titulo}</span>
+        <span className="text-l-tinta-2 [&>p:first-child]:inline">{children}</span>
+      </div>
     </div>
   );
 }

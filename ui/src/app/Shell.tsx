@@ -13,7 +13,6 @@ import { agentesApi } from "./api";
 import { accessApi } from "../api/access";
 import { AGENCIA, PRINCIPALES, seccionDe } from "../lmtm/secciones";
 import { useFijados } from "../lmtm/fijados";
-import { useAprobaciones } from "../lmtm/aprobaciones";
 import { repartirHoy } from "../lmtm/hoy";
 import { Comandos, Tecla } from "../lmtm/Comandos";
 
@@ -24,14 +23,12 @@ function useContadores() {
     queryFn: () => agentesApi.trabajos({ estado: "corriendo", limite: 50 }),
     refetchInterval: 60_000,
   });
-  const aprobar = useAprobaciones().total;
   // Lo que hay para decidir, por cliente: el punto de los fijados.
   const porCliente = new Map<string, number>();
   for (const d of [...(hoy.data?.incidentes ?? []), ...(hoy.data?.decisiones ?? [])]) porCliente.set(d.clienteSlug, (porCliente.get(d.clienteSlug) ?? 0) + 1);
   const porSeccion: Record<string, number | null> = {
     // Solo lo urgente (20/11): con las 110 decisiones abiertas el número no decía nada.
     "/decisiones": hoy.data ? hoy.data.incidentes.length + repartirHoy(hoy.data.decisiones, []).urgentes.length || null : null,
-    "/aprobaciones": aprobar || null,
     "/agentes": corriendo.data?.trabajos.length || null,
   };
   return { porSeccion, porCliente };

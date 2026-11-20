@@ -21,6 +21,8 @@ const UUID = /^[0-9a-f-]{36}$/i;
 
 export interface PropuestaAgrupada {
   clave: string;
+  /** El tipo de aprobación (accion_pauta, accion_web, accion_codigo, request_board_approval): la pantalla dice para qué sirve. */
+  tipo: string;
   ids: string[];
   agentes: string[];
   clientId: string | null;
@@ -35,25 +37,27 @@ export interface PropuestaAgrupada {
 /** Aprobaciones que esperan a una persona y no son de pauta (16/11: sin pantalla desde que salió la de paperclip). */
 export const TIPOS_OTRAS_APROBACIONES = ["accion_web", "accion_codigo", "request_board_approval"] as const;
 
-type Payload = { clientId?: string; resumen?: string; justificacion?: string; accion?: Record<string, unknown>; title?: string; summary?: string; instructions?: string } | null;
+type Payload = { clientId?: string; resumen?: string; justificacion?: string; accion?: Record<string, unknown>; title?: string; summary?: string; instructions?: string; diff?: string } | null;
 
 /** Puro: lleva cada tipo de aprobación a resumen + justificación + acción. Los pedidos al equipo no traen acción. */
 function normalizar(p: Payload): { clientId: string | null; resumen: string; justificacion: string; accion: unknown } | null {
   if (!p) return null;
   if (p.accion) return { clientId: p.clientId ?? null, resumen: p.resumen ?? "", justificacion: p.justificacion ?? "", accion: p.accion };
   if (p.title) return { clientId: p.clientId ?? null, resumen: p.title, justificacion: p.summary ?? p.instructions ?? "", accion: { pedido: p.title } };
+  // Cambio de código: sin acción, el diff es la propuesta (20/11: no se mostraban en ningún lado).
+  if (p.resumen && p.diff) return { clientId: null, resumen: p.resumen, justificacion: p.justificacion ?? "", accion: null };
   return null;
 }
 
 /** Puro: una fila por cliente + acción (tipo, entidad, monto), en el orden en que llegaron. */
 export function agruparPropuestas(
-  filas: Array<{ id: string; payload: unknown; createdAt: Date | string; agente: string | null; cliente: string | null; slug: string | null }>,
+  filas: Array<{ id: string; tipo?: string; payload: unknown; createdAt: Date | string; agente: string | null; cliente: string | null; slug: string | null }>,
 ): PropuestaAgrupada[] {
   const porClave = new Map<string, PropuestaAgrupada>();
   for (const f of filas) {
     const p = normalizar(f.payload as Payload);
     if (!p) continue;
-    const clave = `${p.clientId ?? "agencia"}|${JSON.stringify(p.accion)}`;
+    const clave = p.accion == null ? f.id : `${p.clientId ?? "agencia"}|${JSON.stringify(p.accion)}`;
     const ya = porClave.get(clave);
     if (ya) {
       ya.ids.push(f.id);
@@ -62,6 +66,7 @@ export function agruparPropuestas(
     }
     porClave.set(clave, {
       clave,
+      tipo: f.tipo ?? "",
       ids: [f.id],
       agentes: f.agente ? [f.agente] : [],
       clientId: p.clientId,
@@ -153,6 +158,7 @@ export function agentesRoutes(db: Db) {
       const filas = await db
         .select({
           id: approvals.id,
+          tipo: approvals.type,
           payload: approvals.payload,
           createdAt: approvals.createdAt,
           agente: agents.name,

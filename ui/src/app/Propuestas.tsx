@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, OctagonAlert } from "lucide-react";
+import { paraQuePropuesta } from "../lmtm/para-que";
+import { ParaQue, EnQueSeBasa } from "../lmtm/componentes";
 import { Link } from "@/lib/router";
 import { approvalsApi } from "../api/approvals";
 import { Boton } from "../lmtm/componentes";
@@ -53,15 +55,17 @@ export function PropuestasAgentes({ grupo = "pauta" }: { grupo?: Grupo }) {
       <p className="-mt-1.5 mb-3 text-[13px] text-l-tinta-3">{t.bajada}</p>
       <div className="space-y-4">
         {[...porCliente.values()].map((lista) => (
-          <GrupoCliente key={lista[0].slug ?? ""} lista={lista} pregunta={t.tanda(lista.length)} />
+          <GrupoCliente key={lista[0].slug ?? ""} lista={lista} pregunta={t.tanda} />
         ))}
       </div>
     </section>
   );
 }
 
-function GrupoCliente({ lista, pregunta }: { lista: Propuesta[]; pregunta: string }) {
+function GrupoCliente({ lista: todas, pregunta }: { lista: Propuesta[]; pregunta: (n: number) => string }) {
   const qc = useQueryClient();
+  // Los cambios de código no van en tanda: cada diff se mira antes de aplicarlo.
+  const lista = todas.filter((p) => p.tipo !== "accion_codigo");
   const [confirmando, setConfirmando] = useState(false);
   const [resultados, setResultados] = useState<Record<string, Resultado>>({});
   const tanda = useMutation({
@@ -79,9 +83,9 @@ function GrupoCliente({ lista, pregunta }: { lista: Propuesta[]; pregunta: strin
   return (
     <div className="overflow-hidden rounded-2xl border border-l-linea bg-l-sup">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-l-linea px-4 py-2.5">
-        {lista[0].slug ? (
-          <Link to={`/clientes/${lista[0].slug}`} className="text-[13px] font-semibold uppercase tracking-[0.06em] text-l-tinta hover:text-l-marca">
-            {lista[0].cliente}
+        {todas[0].slug ? (
+          <Link to={`/clientes/${todas[0].slug}`} className="text-[13px] font-semibold uppercase tracking-[0.06em] text-l-tinta hover:text-l-marca">
+            {todas[0].cliente}
           </Link>
         ) : (
           <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-l-tinta">Agencia</span>
@@ -89,7 +93,7 @@ function GrupoCliente({ lista, pregunta }: { lista: Propuesta[]; pregunta: strin
         {lista.length > 1 &&
           (confirmando ? (
             <span className="flex items-center gap-2 text-[13px]">
-              <span className="text-l-tinta-2">{pregunta}</span>
+              <span className="text-l-tinta-2">{pregunta(lista.length)}</span>
               <Boton tipo="primario" onClick={() => tanda.mutate()} disabled={tanda.isPending}>
                 {tanda.isPending ? "Ejecutando…" : "Confirmar"}
               </Boton>
@@ -104,7 +108,7 @@ function GrupoCliente({ lista, pregunta }: { lista: Propuesta[]; pregunta: strin
           ))}
       </div>
       <ul>
-        {lista.map((p) => (
+        {todas.map((p) => (
           <FilaPropuesta key={p.clave} p={p} resultadoTanda={resultados[p.clave]} />
         ))}
       </ul>
@@ -137,7 +141,17 @@ function FilaPropuesta({ p, resultadoTanda }: { p: Propuesta; resultadoTanda?: R
         </span>
         <ChevronDown className={`mt-1 h-4 w-4 shrink-0 text-l-tinta-3 transition-transform ${abierta ? "rotate-180" : ""}`} aria-hidden />
       </button>
-      {abierta && <p className="mt-2 whitespace-pre-line text-[13px] leading-[1.5] text-l-tinta-2">{p.justificacion}</p>}
+      <ParaQue texto={paraQuePropuesta(p)} />
+      {p.justificacion && (
+        <EnQueSeBasa>
+          <p className={`whitespace-pre-line ${abierta ? "" : "line-clamp-2"}`}>{p.justificacion}</p>
+          {p.tipo === "accion_codigo" && (
+            <Link to={`/approvals/${p.ids[0]}`} className="mt-1 inline-block text-[13px] font-semibold text-l-marca">
+              Ver el cambio completo
+            </Link>
+          )}
+        </EnQueSeBasa>
+      )}
       {r ? (
         <p className={`mt-2 flex gap-1.5 text-[13px] ${r.ok ? "text-l-bien-texto" : "text-l-critico-texto"}`} role="status">
           {r.ok ? <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : <OctagonAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}

@@ -2,7 +2,7 @@
 // comandos (Ctrl+K) y la ficha del cliente leen de acá. No se perdió ninguna sección:
 // se agruparon.
 
-import { Bot, Clapperboard, Inbox, LayoutDashboard, LineChart, ListChecks, Users, type LucideIcon } from "lucide-react";
+import { Bot, Clapperboard, Inbox, LayoutDashboard, LineChart, Users, type LucideIcon } from "lucide-react";
 
 export interface Seccion { to: string; label: string; soloAdmin?: boolean }
 export interface SeccionPrincipal extends Seccion { Icono: LucideIcon; hijas?: Seccion[] }
@@ -12,7 +12,6 @@ export const PRINCIPALES: SeccionPrincipal[] = [
   { to: "/hoy", label: "Hoy", Icono: LayoutDashboard },
   // 20/11: lo que tiene que hacer una persona salió de Hoy (Hoy es para mirar).
   { to: "/decisiones", label: "Pendientes", Icono: Inbox },
-  { to: "/aprobaciones", label: "Aprobaciones", Icono: ListChecks },
   { to: "/clientes", label: "Clientes", Icono: Users },
   {
     to: "/contenido",

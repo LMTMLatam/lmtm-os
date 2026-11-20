@@ -14,7 +14,7 @@ export function escalaY(valor: number, max: number, alto: number): number {
 export function topeRedondo(max: number): number {
   if (max <= 0) return 1;
   const p = 10 ** Math.floor(Math.log10(max));
-  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((t) => t >= max)!;
+  return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * p).find((t) => t >= max)!;
 }
 
 /**
@@ -33,10 +33,16 @@ export function Linea({ puntos, formato, etiqueta, alto = 140 }: { puntos: Array
   const fecha = (s: string) => `${Number(s.slice(8, 10))}/${Number(s.slice(5, 7))}`;
   return (
     <figure className="m-0">
-      <figcaption className="mb-1 flex items-baseline justify-between gap-2 text-[12px] text-l-tinta-3">
+      <figcaption className="mb-5 flex items-baseline justify-between gap-2 text-[12px] text-l-tinta-3">
         <span>{hover != null ? fecha(actual.x) : "último día"}</span>
         <span className="text-[14px] font-semibold tabular-nums text-l-tinta">{formato(actual.y)}</span>
       </figcaption>
+      <div className="relative">
+      {[0.5, 1].map((f) => (
+        <span key={f} className="pointer-events-none absolute left-0 -translate-y-full pb-0.5 text-[11px] tabular-nums text-l-tinta-3" style={{ top: `${(1 - f) * 100}%` }}>
+          {formato(max * f)}
+        </span>
+      ))}
       <svg
         viewBox={`0 0 ${ancho} ${alto}`}
         preserveAspectRatio="none"
@@ -64,9 +70,9 @@ export function Linea({ puntos, formato, etiqueta, alto = 140 }: { puntos: Array
           <line x1={x(hover)} x2={x(hover)} y1="0" y2={alto} stroke="var(--l-tinta-3)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         )}
       </svg>
+      </div>
       <div className="mt-1 flex justify-between text-[11px] text-l-tinta-3">
         <span>{fecha(puntos[0].x)}</span>
-        <span>tope {formato(max)}</span>
         <span>{fecha(puntos[puntos.length - 1].x)}</span>
       </div>
     </figure>

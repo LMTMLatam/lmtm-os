@@ -29,9 +29,13 @@ describe("orden de la pantalla Hoy", () => {
     expect(SRC.slice(hoy, fin)).not.toContain("<Lista ");
   });
 
-  it("Pendientes: lo urgente va antes que la lista entera", () => {
-    const pendientes = posicionDe("export function DecisionesApp()");
-    expect(posicionDe("<Urgente ", pendientes)).toBeLessThan(posicionDe("<Contenido ", pendientes));
+  // 20/11 (Naza): «unificá pendientes y aprobaciones en una sección».
+  it("Pendientes: urgente, después lo que se aprueba y al final lo que se hace", () => {
+    const P = readFileSync(join(__dirname, "PendientesApp.tsx"), "utf8");
+    const app = P.indexOf("export function PendientesApp()");
+    const orden = [P.indexOf("<Urgente ", app), P.indexOf("<DecisionesDePauta ", app), P.indexOf("<PropuestasAgentes />", app), P.indexOf("<ParaHacer ", app)];
+    expect(orden.every((i) => i > app)).toBe(true);
+    expect([...orden].sort((a, b) => a - b)).toEqual(orden);
   });
 
   it("dentro de lo urgente, los incidentes van antes que el resto", () => {
@@ -59,9 +63,11 @@ describe("orden de la pantalla Hoy", () => {
     expect(SRC.slice(i, i + 900)).toContain("sin dato");
   });
 
-  it("los cambios de pauta que proponen los agentes van DESPUÉS de las decisiones", () => {
-    // 07/10: arriba de todo, Hoy parecía una lista de campañas para pausar.
-    expect(posicionDe("<PropuestasAgentes />")).toBeGreaterThan(posicionDe('aria-label="Filtrar por tema"'));
+  it("la lista de para hacer no repite lo urgente ni lo que se aprueba", () => {
+    const i = posicionDe("export function ParaHacer(");
+    const fin = posicionDe("export function ", i + 10);
+    expect(SRC.slice(i, fin)).not.toContain("<BloqueIncidente");
+    expect(SRC.slice(i, fin)).not.toContain("<PropuestasAgentes");
   });
 
   it("cada decisión cae en un tema", async () => {

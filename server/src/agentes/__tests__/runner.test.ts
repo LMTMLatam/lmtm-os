@@ -47,6 +47,13 @@ describe("agruparPropuestas", () => {
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ ids: ["p"], clientId: null, cliente: null, resumen: "INBELT: OK para crear el tenant", justificacion: "No tiene empresa en el CRM" });
   });
+  it("los cambios de código (sin acción) entran uno por diff, con su tipo", async () => {
+    const { agruparPropuestas } = await import("../rutas.js");
+    const f = (id: string) => ({ id, tipo: "accion_codigo", agente: "Esteban", cliente: null, slug: null, createdAt: "2026-11-17T15:00:00Z", payload: { resumen: "crm: leads_intake.py", justificacion: "QUE ARREGLA…", diff: `--- ${id}` } });
+    const r = agruparPropuestas([f("a"), f("b")]);
+    expect(r.map((x) => x.ids)).toEqual([["a"], ["b"]]);
+    expect(r[0]).toMatchObject({ tipo: "accion_codigo", accion: null, resumen: "crm: leads_intake.py" });
+  });
 });
 
 describe("compuerta", () => {
