@@ -17,6 +17,7 @@ import type { Db } from "@paperclipai/db";
 import { agents, heartbeatRuns, instanceSettings, issueComments, issues } from "@paperclipai/db";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { enmascararClaves } from "../redaction.js";
+import { publishLiveEvent } from "../services/live-events.js";
 
 export const FUENTE = "motor_propio";
 /** Corridas por tarea en 24 h: si no la resolvió en 3, que la mire una persona. */
@@ -119,10 +120,10 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
         (select max(c.created_at) from issue_comments c where c.issue_id = i.id and c.author_agent_id is distinct from i.assignee_agent_id
            -- Tampoco los del propio motor (20/11): el rastro del corte revivía la tarea en revisión (LMTM-7105 corrió 3 veces más).
            and c.body !~ ${AVISOS_QUE_NO_DESPIERTAN}) ultimo_ajeno,
-        (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
+        (select max(r.created_at) from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
         -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
-        (select r.error_code from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
-        (select r.session_id_after from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultima_sesion,
+        (select r.error_code from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
+        (select r.session_id_after from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultima_sesion,
         -- Reparto justo (17/11): ordenando por id de agente, Luna/Milo/Caro se llevaban todos los turnos
         -- y los otros 9 no corrieron en 5 h. Primero va el que hace más que no corre.
         (select max(r.created_at) from heartbeat_runs r where r.agent_id = i.assignee_agent_id and r.invocation_source = ${FUENTE}) ultima_del_agente
@@ -132,8 +133,8 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
         -- Vigencia, como el reloj de paperclip (DIAS_ISSUE_VIGENTE): una tarea que nadie toca hace más de
         -- DIAS_VIGENTE días no se revive sola (16/11: ~100 tareas de 7 a 30 días habrían corrido en fila).
         and i.updated_at > now() - make_interval(days => ${DIAS_VIGENTE})
-        and not exists (select 1 from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.status in ('queued', 'running'))
-        and (select count(*) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text
+        and not exists (select 1 from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.status in ('queued', 'running'))
+        and (select count(*) from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text
              and r.invocation_source = ${FUENTE} and r.created_at > now() - interval '24 hours') < ${MAX_CORRIDAS_POR_TAREA_DIA}
     )
     select * from (
@@ -263,6 +264,7 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
   }).returning({ id: heartbeatRuns.id, createdAt: heartbeatRuns.createdAt });
   if (!run) return { runId: null, estado: "fallo", motivo: "no se pudo registrar la corrida" };
   corridasVivas.add(run.id);
+  avisarCorrida(agent.companyId, run.id, agent.id, "running", null);
 
   let salida = "";
   let errores = "";
@@ -344,8 +346,21 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     // Estado del agente en el panel, como lo dejaba paperclip (finalizeAgentStatus); no pisa pausado/terminado.
     // Cortada por el tope = previsto (la próxima la retoma): no pinta al agente de rojo (19/11: 9 en «error» por esto).
     await ponerEstado(db, agent.id, estado === "succeeded" || errorCode === "max_turns_exhausted" ? "idle" : "error", true);
+    avisarCorrida(agent.companyId, run.id, agent.id, estado, errorCode);
   }
   return { runId: run.id, estado, ...(error ? { motivo: error.slice(0, 200) } : {}) };
+}
+
+/**
+ * Avisa por el canal en vivo que una corrida empezó o terminó, con el mismo evento que usaba paperclip: el panel
+ * refresca lo de agentes al instante en vez de preguntar cada 20 s (auditoría 20/11). Si falla, no frena la corrida.
+ */
+function avisarCorrida(companyId: string, runId: string, agentId: string, status: string, errorCode: string | null): void {
+  try {
+    publishLiveEvent({ companyId, type: "heartbeat.run.status", payload: { runId, agentId, status, invocationSource: FUENTE, errorCode } });
+  } catch {
+    /* el aviso es cortesía */
+  }
 }
 
 async function ponerEstado(db: Db, agentId: string, status: "running" | "idle" | "error", latido = false): Promise<void> {

@@ -496,10 +496,12 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
 
   return (
     // Scrollea el documento (useScrollDelDocumento), no este contenedor.
-    <div className="min-h-dvh bg-background pv">
+    // Rediseño 20/11: la paleta del panel en su versión clara (el reporte del cliente sigue claro y prolijo, se
+    // imprime), y la franja de arriba con el oscuro y el brillo magenta de la marca.
+    <div className="lmtm min-h-dvh bg-background pv" data-tema="claro">
       <PubvizTheme />
       {/* Hero header */}
-      <header className="text-white" style={{ background: "linear-gradient(120deg, #1c3f8f 0%, #2a78d6 45%, #4a3aa7 100%)" }}>
+      <header className="text-white" style={{ background: "radial-gradient(900px 420px at 0% 0%, rgba(240,92,245,.45), rgba(240,92,245,0) 62%), #0b0710" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 pb-5">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="min-w-0">
@@ -555,10 +557,10 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
                   data-activo={isActive}
                   onClick={() => irASeccion(s.value)}
                   className={`-mb-px inline-flex min-h-12 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] transition-colors ${
-                    isActive ? "border-[#2a78d6] font-semibold text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
+                    isActive ? "border-[#a3168f] font-semibold text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${isActive ? "text-[#2a78d6]" : ""}`} />
+                  <Icon className={`h-4 w-4 ${isActive ? "text-[#a3168f]" : ""}`} />
                   {s.label}
                 </button>
               );
@@ -730,7 +732,7 @@ function ResumenPublic({ series, campaigns, totalSpend, totalImpr, totalClicks, 
         )}
       </Card>
       <Card className="p-4">
-        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Sparkles className="h-4 w-4" style={{ color: "#4a3aa7" }} /> ¿A dónde fue la inversión?</h3>
+        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Sparkles className="h-4 w-4" style={{ color: "#a3168f" }} /> ¿A dónde fue la inversión?</h3>
         <Donut slices={donutSlices} fmtValue={(n) => fmt.fmtMoney(n)} centerLabel="invertido" />
       </Card>
     </div>

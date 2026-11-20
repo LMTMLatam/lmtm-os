@@ -33,7 +33,7 @@ function ListaTrabajos() {
   const q = useQuery({
     queryKey: ["lmtm", "agentes", "lista", estado],
     queryFn: () => agentesApi.trabajos({ estado: estado === "todos" ? undefined : estado, limite: 200 }),
-    refetchInterval: 20_000,
+    refetchInterval: 60_000, // el canal en vivo refresca al instante; esto es el respaldo (20/11)
   });
   const cartera = useQuery({ queryKey: ["lmtm", "cartera"], queryFn: () => carteraApi.leer(), staleTime: 3 * 60_000 });
   const nombres = new Map((cartera.data?.clientes ?? []).map((c) => [c.clientId, c.cliente]));

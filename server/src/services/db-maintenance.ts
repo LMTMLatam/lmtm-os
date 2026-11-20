@@ -39,6 +39,23 @@ export async function runWakeupRetention(db: Db): Promise<{ noise: number; termi
   return { noise, terminal };
 }
 
+/**
+ * Historial de corridas (auditoría 20/11): heartbeat_runs pesaba 282 MB y sus eventos 185 MB, sin borrado nunca. Los
+ * eventos de más de 30 días no los referencia nadie: se borran. Las corridas no se borran (cost_events, finance_events,
+ * activity_log y agent_task_sessions las referencian sin cascada, y el historial de costos se queda): a las de más de 90
+ * días se les vacía la salida guardada, que es lo que pesa. De a tandas, para no trabar la base.
+ */
+const TANDA_HISTORIAL = 5_000;
+export async function runRunHistoryRetention(db: Db): Promise<{ eventos: number; salidas: number }> {
+  const filas = (r: unknown) => (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])).length;
+  const eventos = await db.execute(sql`delete from heartbeat_run_events where id in (
+      select id from heartbeat_run_events where created_at < now() - interval '30 days' limit ${TANDA_HISTORIAL}) returning id`);
+  const salidas = await db.execute(sql`update heartbeat_runs set stdout_excerpt = null, stderr_excerpt = null where id in (
+      select id from heartbeat_runs where created_at < now() - interval '90 days'
+        and (stdout_excerpt is not null or stderr_excerpt is not null) limit ${TANDA_HISTORIAL}) returning id`);
+  return { eventos: filas(eventos), salidas: filas(salidas) };
+}
+
 let timer: ReturnType<typeof setInterval> | null = null;
 export function initDbMaintenance(db: Db): void {
   if (timer) return;
@@ -52,6 +69,11 @@ export function initDbMaintenance(db: Db): void {
         if (r.noise || r.terminal) console.log(`[db-maintenance] wakeups purgados: ${r.noise} noise (>7d), ${r.terminal} terminal (>30d)`);
       })
       .catch((e) => console.warn("[db-maintenance] wakeup retention failed:", e));
+    await runRunHistoryRetention(db)
+      .then((r) => {
+        if (r.eventos || r.salidas) console.log(`[db-maintenance] historial de corridas: ${r.eventos} eventos (>30d) borrados, ${r.salidas} salidas (>90d) vaciadas`);
+      })
+      .catch((e) => console.warn("[db-maintenance] historial de corridas failed:", e));
     // Lo bloqueado tampoco se acumula sin fecha: lo que espera a una persona
     // sube a la cola humana, lo que nadie tocó en 21 días se cierra.
     await import("./cola-humana.js")

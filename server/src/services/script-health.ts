@@ -44,7 +44,10 @@ function norm(s: string): string {
 async function loadScriptIndex(folderId: string): Promise<Array<{ id: string; name: string; norm: string }>> {
   const res = (await driveList({
     query: `'${folderId}' in parents and mimeType='application/vnd.google-apps.script' and trashed=false`,
-    pageSize: 100,
+    // shortcut: una sola página de hasta 1.000 (el máximo de Drive; el tope de 100 del esquema es para los agentes).
+    // Con 100, al pasar los 100 scripts los de más quedaban sin vigilar y sin aviso (auditoría 20/11). Si algún día
+    // hay más de 1.000 scripts en una carpeta, paginar con nextPageToken.
+    pageSize: 1000,
   })) as { files?: Array<{ id: string; name: string }> };
   return (res.files ?? []).map((f) => ({ id: f.id, name: f.name, norm: norm(f.name) }));
 }

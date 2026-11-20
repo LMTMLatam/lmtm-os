@@ -278,7 +278,7 @@ function useCobertura(clientId: string) {
 
 function AgentesDelCliente({ clientId }: { clientId: string }) {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["lmtm", "agentes", "cliente", clientId], queryFn: () => agentesApi.trabajos({ clientId, limite: 50 }), refetchInterval: 20_000 });
+  const q = useQuery({ queryKey: ["lmtm", "agentes", "cliente", clientId], queryFn: () => agentesApi.trabajos({ clientId, limite: 50 }), refetchInterval: 60_000 }); // el canal en vivo refresca al instante (20/11)
   const [rol, setRol] = useState(Object.keys(ROLES)[0]);
   const [pedido, setPedido] = useState("");
   const pedir = useMutation({
