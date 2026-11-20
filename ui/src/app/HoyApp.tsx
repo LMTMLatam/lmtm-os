@@ -22,7 +22,7 @@ import { ImpactoAgentes } from "./ImpactoAgentes";
 import { PublicacionTrabada } from "./PublicacionTrabada";
 import { agruparUrgentes, repartirHoy } from "../lmtm/hoy";
 import { alertasDeAgencia, movimientoCartera, type Alerta } from "../lmtm/alertas";
-import { BarrasH, BarrasPar, Chispa, Linea, Proporcion } from "../lmtm/graficos";
+import { AntesDespues, BarrasH, BarrasPar, Chispa, Linea, Proporcion } from "../lmtm/graficos";
 import { growthApi } from "../api/growth";
 import { carteraApi } from "../api/informes";
 import { nichesApi } from "../api/niches";
@@ -110,6 +110,12 @@ export function HoyApp() {
   const serie = overview.data?.spendTrend ?? [];
   const k = overview.data?.kpis;
   const mov = movimientoCartera(cartera.data);
+  // Los cinco que más cambiaron su costo por consulta contra la semana anterior (sin los dudosos).
+  const movidos = (cartera.data?.clientes ?? [])
+    .filter((f) => f.semana.cpl != null && f.semana.cplAnterior != null && f.semana.cplAnterior > 0 && !f.semana.leadsDudosos)
+    .map((f) => ({ etiqueta: f.cliente, antes: f.semana.cplAnterior!, despues: f.semana.cpl! }))
+    .sort((a, b) => Math.abs(b.despues / b.antes - 1) - Math.abs(a.despues / a.antes - 1))
+    .slice(0, 5);
   const res = trabajo.data?.resumen;
   const c = contenido.data;
   const enAmbos = (c?.nichos ?? [])
@@ -167,6 +173,12 @@ export function HoyApp() {
                 { etiqueta: "subieron", valor: mov.subio, tono: "critico", marca: "↑" },
               ]}
             />
+            {movidos.length > 0 && (
+              <div className="mt-5 border-t border-l-linea pt-4">
+                <p className="mb-3 text-[12px] text-l-tinta-3">Los que más se movieron</p>
+                <AntesDespues filas={movidos} formato={pesos} menorEsMejor />
+              </div>
+            )}
           </Panel>
           <Panel titulo="Trabajo de los agentes" bajada="Lo que hicieron en 30 días, por área">
             {res ? (
@@ -177,10 +189,6 @@ export function HoyApp() {
                     .sort((a, b) => b.valor - a.valor)}
                   formato={entero}
                 />
-                <p className="mt-4 border-t border-l-linea pt-3 text-[13px] text-l-tinta-2">
-                  <span className="font-semibold text-l-tinta">{res.midiendo}</span> cambios midiendo su resultado ·{" "}
-                  <span className="font-semibold text-l-tinta">{res.mejoraron}</span> mejoraron de {res.medidos} medidos
-                </p>
               </>
             ) : (
               <p className="text-[13px] text-l-tinta-3">Cargando…</p>

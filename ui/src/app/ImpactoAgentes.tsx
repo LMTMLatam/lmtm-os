@@ -14,7 +14,6 @@ interface Impacto {
     igual: number;
     empeoraron: number;
     midiendo: number;
-    pausado: { gastoSemana: number; consultasSemana: number };
     clientes: Array<{ cliente: string; slug: string; cambios: number; cplAntes: number; cplDespues: number }>;
   };
   web: { webs: number; total: number; porTipo: Array<{ tipo: string; n: number }>; primerCambio: string | null; semanas: Array<{ semana: string; conAgentes: number; sinAgentes: number }> };
@@ -46,12 +45,9 @@ export function ImpactoAgentes() {
               { etiqueta: "empeoraron", valor: p.empeoraron, tono: "critico", marca: "↑" },
             ]}
           />
-          {p.pausado.gastoSemana > 0 && (
-            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-l-linea pt-4">
-              <Dato grande={pesos(p.pausado.gastoSemana)} texto="por semana dejaron de ir a anuncios pausados" />
-              <Dato grande={String(p.pausado.consultasSemana)} texto={`consultas por semana traían esos anuncios${p.pausado.consultasSemana > 0 ? ` (${pesos(p.pausado.gastoSemana / p.pausado.consultasSemana)} cada una)` : ""}`} />
-            </div>
-          )}
+          <p className="mt-5 border-t border-l-linea pt-4 text-[12px] text-l-tinta-3">
+            Cada cambio (pausar, mover presupuesto) se mide a los 7 días con el costo por consulta de todo el cliente, contra la semana anterior al cambio.
+          </p>
         </Panel>
         {d.web.semanas.length > 1 && (
           <Panel titulo="Webs: clics desde Google" bajada="Las webs que tocaron los agentes contra las que no · base 100 = su promedio antes del primer cambio">

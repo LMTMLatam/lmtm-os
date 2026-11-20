@@ -25,7 +25,7 @@ const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : t
 
 /** Puro. Veredictos de los cambios de pauta y, por cliente, el costo por consulta antes del primer cambio medido y después del último. */
 export function impactoPauta(acciones: AccionMedida[]) {
-  const r = { mejoraron: 0, igual: 0, empeoraron: 0, midiendo: 0, pausado: { gastoSemana: 0, consultasSemana: 0 } };
+  const r = { mejoraron: 0, igual: 0, empeoraron: 0, midiendo: 0 };
   const porCliente = new Map<string, { cliente: string; slug: string; cambios: number; primera: AccionMedida; ultima: AccionMedida }>();
   const orden = [...acciones].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   for (const a of orden) {
@@ -37,10 +37,6 @@ export function impactoPauta(acciones: AccionMedida[]) {
     if (o.verdict === "improved") r.mejoraron += 1;
     else if (o.verdict === "worse") r.empeoraron += 1;
     else r.igual += 1;
-    if (a.kind === "pause_ad_entity") {
-      r.pausado.gastoSemana += num(o.entitySpend7dBefore) ?? 0;
-      r.pausado.consultasSemana += num(o.entityLeads7dBefore) ?? 0;
-    }
     if (num(o.clientCplBefore) == null || num(o.clientCplAfter) == null) continue;
     const c = porCliente.get(a.clientId);
     if (c) {
@@ -82,21 +78,32 @@ export function cambiosWeb(filas: Array<{ kind: string; clientId: string }>) {
 }
 
 /**
- * Puro. Clics de Google por semana de dos grupos de webs, cada grupo en base 100 = su promedio de las semanas antes del
- * corte. Solo semanas completas (7 días con dato en los dos grupos): la última suele venir a medias.
+ * Puro. Clics de Google por semana de dos grupos de webs (las que tocaron los agentes y las que no), cada grupo en base
+ * 100 = su promedio de las semanas antes del corte. Cada web cuenta recién desde la semana siguiente a su primer clic:
+ * antes Google no estaba conectado (0 o vacío) y sumarla haría parecer que «creció» (20/11: las webs de los agentes se
+ * conectaron el 19/10 y el gráfico mostraba un salto que no era de los agentes). Ventana común: desde que la última web
+ * con agentes empezó a medir; las de afuera entran solo si ya medían. Solo semanas completas, al menos dos antes del
+ * corte y una después; si no, no hay comparación.
  */
-export function indexarSemanas(filas: Array<{ semana: string; conAgentes: boolean; clics: number; dias: number }>, corte: string) {
+export function indexarSemanas(filas: Array<{ clientId: string; semana: string; conAgentes: boolean; clics: number | null; dias: number }>, corte: string) {
   const semanas = [...new Set(filas.map((f) => f.semana))].sort();
-  const de = (s: string, con: boolean) => filas.find((f) => f.semana === s && f.conAgentes === con);
-  const completas = semanas.filter((s) => (de(s, true)?.dias ?? 0) >= 7 && (de(s, false)?.dias ?? 0) >= 7);
-  const base = (con: boolean) => {
-    const antes = completas.filter((s) => s < corte).map((s) => de(s, con)!.clics);
-    return antes.length ? antes.reduce((t, x) => t + x, 0) / antes.length : null;
-  };
+  const primerClic = new Map<string, string>();
+  for (const f of [...filas].sort((a, b) => a.semana.localeCompare(b.semana))) if ((f.clics ?? 0) > 0 && !primerClic.has(f.clientId)) primerClic.set(f.clientId, f.semana);
+  const desdeDe = new Map([...primerClic].map(([id, s]) => [id, semanas[semanas.indexOf(s) + 1]] as const).filter(([, s]) => s));
+  const con = new Set(filas.filter((f) => f.conAgentes).map((f) => f.clientId));
+  const inicios = [...desdeDe].filter(([id]) => con.has(id)).map(([, s]) => s!);
+  if (inicios.length === 0) return [];
+  const desde = inicios.sort().at(-1)!;
+  const incluidos = new Set([...desdeDe].filter(([, s]) => s! <= desde).map(([id]) => id));
+  const ventana = semanas.filter((s) => s >= desde && filas.filter((f) => f.semana === s && incluidos.has(f.clientId)).every((f) => f.dias >= 7));
+  const suma = (s: string, conAgentes: boolean) => filas.filter((f) => f.semana === s && f.conAgentes === conAgentes && incluidos.has(f.clientId)).reduce((t, f) => t + (f.clics ?? 0), 0);
+  const antes = ventana.filter((s) => s < corte);
+  if (antes.length < 2 || antes.length === ventana.length) return [];
+  const base = (c: boolean) => antes.reduce((t, s) => t + suma(s, c), 0) / antes.length;
   const bCon = base(true);
   const bSin = base(false);
   if (!bCon || !bSin) return [];
-  return completas.map((s) => ({ semana: s, conAgentes: Math.round((de(s, true)!.clics / bCon) * 100), sinAgentes: Math.round((de(s, false)!.clics / bSin) * 100) }));
+  return ventana.map((s) => ({ semana: s, conAgentes: Math.round((suma(s, true) / bCon) * 100), sinAgentes: Math.round((suma(s, false) / bSin) * 100) }));
 }
 
 type Filas<T> = T[] | { rows?: T[] };
@@ -119,11 +126,11 @@ export async function impactoDeAgentes(db: Db) {
     const filas = filasDe(
       (await db.execute(sql`
         with tocadas as (select distinct client_id from agent_actions where kind like 'web_%')
-        select date_trunc('week', w.fecha)::date::text as semana, (w.client_id in (select client_id from tocadas)) as "conAgentes",
+        select w.client_id::text as "clientId", date_trunc('week', w.fecha)::date::text as semana, (w.client_id in (select client_id from tocadas)) as "conAgentes",
                sum(w.gsc_clics)::int as clics, count(distinct w.fecha)::int as dias
         from web_diario w
         where w.fecha >= current_date - 84
-        group by 1, 2`)) as unknown as Filas<{ semana: string; conAgentes: boolean; clics: number; dias: number }>,
+        group by 1, 2, 3`)) as unknown as Filas<{ clientId: string; semana: string; conAgentes: boolean; clics: number | null; dias: number }>,
     );
     semanas = indexarSemanas(filas, primeraWeb);
   }
