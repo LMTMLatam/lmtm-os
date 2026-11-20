@@ -46,13 +46,11 @@ export function ClienteApp() {
       {c && (
         <>
           <TarjetasEstado c={c} ads={ads.data} />
-          <div className="mt-5 flex flex-wrap items-start gap-4">
-            <MenuCliente slug={c.slug} activa={activa} />
-            <div className="min-w-0 flex-[999_1_480px]">
-              <Suspense fallback={<p className="text-[14px] text-l-tinta-3" role="status">Cargando la sección…</p>}>
-                {activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : activa === "que-funciona" ? <QueFuncionaCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}
-              </Suspense>
-            </div>
+          <MenuCliente slug={c.slug} activa={activa} />
+          <div className="mt-5 min-w-0">
+            <Suspense fallback={<p className="text-[14px] text-l-tinta-3" role="status">Cargando la sección…</p>}>
+              {activa === "agentes" ? <AgentesDelCliente clientId={c.id} /> : activa === "que-funciona" ? <QueFuncionaCliente clientId={c.id} /> : <TabContent tab={activa} client={c} ads={ads.data} />}
+            </Suspense>
           </div>
         </>
       )}
@@ -187,64 +185,49 @@ function TarjetasEstado({ c, ads }: { c: Client; ads?: ClientAdsSummary }) {
   );
 }
 
-/** Las 5 agrupaciones con sus secciones: a la izquierda en escritorio, en fila en el celular. */
+/**
+ * Las 5 agrupaciones como pestañas arriba y, debajo, las secciones del grupo abierto. 20/11 (Naza): con la barra
+ * lateral del panel, un segundo menú a la izquierda le robaba ancho al contenido y dejaba aire a los costados.
+ */
 function MenuCliente({ slug, activa }: { slug: string; activa: Seccion }) {
   const grupoActivo = GRUPOS_CLIENTE.find((g) => g.secciones.some((s) => s.id === activa)) ?? GRUPOS_CLIENTE[0];
   return (
-    <>
-      <nav className="hidden w-[220px] shrink-0 flex-col gap-0.5 rounded-[20px] border border-l-linea bg-l-sup p-3 md:flex" aria-label="Secciones del cliente">
-        {GRUPOS_CLIENTE.map((g) => (
-          <div key={g.grupo} className="flex flex-col gap-0.5">
-            <Link
-              to={`/clientes/${slug}/${g.secciones[0].id}`}
-              className={`flex min-h-11 items-center rounded-[12px] px-3 text-[14px] font-semibold ${g === grupoActivo ? "bg-l-marca-suave text-l-tinta" : "text-l-tinta-2 hover:bg-l-papel hover:text-l-tinta"}`}
-            >
-              {g.grupo}
-            </Link>
-            {g.secciones.map((s) => (
+    <nav className="mt-6 border-b border-l-linea" aria-label="Secciones del cliente">
+      <ScrollLateral>
+        <ul className="flex shrink-0 gap-1">
+          {GRUPOS_CLIENTE.map((g) => (
+            <li key={g.grupo}>
               <Link
-                key={s.id}
-                to={`/clientes/${slug}/${s.id}`}
-                aria-current={s.id === activa ? "page" : undefined}
-                className={`flex min-h-9 items-center rounded-[10px] pl-6 pr-3 text-[13px] ${s.id === activa ? "font-semibold text-l-marca" : "text-l-tinta-2 hover:text-l-tinta"}`}
+                to={`/clientes/${slug}/${g.secciones[0].id}`}
+                aria-current={g === grupoActivo ? "true" : undefined}
+                className={`relative inline-flex min-h-11 items-center whitespace-nowrap px-4 text-[15px] ${
+                  g === grupoActivo
+                    ? "font-semibold text-l-tinta after:absolute after:inset-x-3 after:-bottom-px after:h-[3px] after:rounded-full after:bg-[image:var(--l-marca-grad)]"
+                    : "text-l-tinta-2 hover:text-l-tinta"
+                }`}
               >
-                {s.label}
+                {g.grupo}
               </Link>
-            ))}
-          </div>
-        ))}
-      </nav>
-      {/* Celular: el grupo y sus secciones en dos filas que se deslizan. */}
-      <nav className="w-full md:hidden" aria-label="Secciones del cliente">
-        <ScrollLateral>
-          <ul className="flex shrink-0 gap-1.5">
-            {GRUPOS_CLIENTE.map((g) => (
-              <li key={g.grupo}>
-                <Link
-                  to={`/clientes/${slug}/${g.secciones[0].id}`}
-                  className={`inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-4 text-[14px] ${g === grupoActivo ? "bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border border-l-linea-2 text-l-tinta-2"}`}
-                >
-                  {g.grupo}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </ScrollLateral>
-        <ul className="mt-2 flex flex-wrap gap-1">
+            </li>
+          ))}
+        </ul>
+      </ScrollLateral>
+      {grupoActivo.secciones.length > 1 && (
+        <ul className="flex flex-wrap gap-1.5 py-3">
           {grupoActivo.secciones.map((s) => (
             <li key={s.id}>
               <Link
                 to={`/clientes/${slug}/${s.id}`}
                 aria-current={s.id === activa ? "page" : undefined}
-                className={`inline-flex min-h-10 items-center rounded-[10px] px-3 text-[13px] ${s.id === activa ? "bg-l-marca-suave font-semibold text-l-tinta" : "text-l-tinta-2"}`}
+                className={`inline-flex min-h-9 items-center rounded-full px-3.5 text-[13px] ${s.id === activa ? "bg-l-marca-suave font-semibold text-l-tinta" : "border border-l-linea-2 text-l-tinta-2 hover:text-l-tinta"}`}
               >
                 {s.label}
               </Link>
             </li>
           ))}
         </ul>
-      </nav>
-    </>
+      )}
+    </nav>
   );
 }
 

@@ -10,7 +10,7 @@ import { ChevronDown, Lightbulb, Loader2, OctagonAlert, Search, Sparkles, Trendi
 import { Link } from "@/lib/router";
 import { api } from "../api/client";
 import { decisionesApi, type Decision, type Fuente, type Hoy } from "../api/decisiones";
-import { AccionesDecision, BarraCobertura, BloqueIncidente, EnQueSeBasa, LeyendaCobertura, ParaQue, Plata, PorQue } from "../lmtm/componentes";
+import { AccionesDecision, BarraCobertura, BloqueIncidente, EnQueSeBasa, LeyendaCobertura, Panel, ParaQue, Plata, PorQue } from "../lmtm/componentes";
 import { paraQueDecision } from "../lmtm/para-que";
 import { etiquetaResponsable, fechaLarga, haceCuanto, horaCorta, pesos, tocaLaPauta } from "../lmtm/formato";
 import { frasePlegadas, plegarSinPlata } from "../lmtm/plegar";
@@ -220,16 +220,6 @@ export function HoyApp() {
 
 const AREA = { pauta: "Pauta", web: "Web", contenido: "Contenido", analisis: "Análisis", informe: "Informes" } as const;
 const entero = (n: number) => Math.round(n).toLocaleString("es-AR");
-
-function Panel({ titulo, bajada, children }: { titulo: string; bajada?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-[20px] border border-l-linea bg-l-sup p-5">
-      <h3 className="text-[16px] font-semibold">{titulo}</h3>
-      {bajada && <p className="mb-4 mt-0.5 text-[12px] text-l-tinta-3">{bajada}</p>}
-      {children}
-    </section>
-  );
-}
 
 function Numero({ titulo, valor, chispa, pie, brillo }: { titulo: string; valor: string | null; chispa: number[]; pie?: string; brillo?: boolean }) {
   return (

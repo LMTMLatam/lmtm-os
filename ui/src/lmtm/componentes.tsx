@@ -8,7 +8,6 @@ import { AlertTriangle, Check, ChevronRight, CircleHelp, Clock, LayoutGrid, Moon
 import { ChartColumn } from "lucide-react";
 import { Link } from "@/lib/router";
 import { ApiError } from "../api/client";
-import { useTheme } from "../context/ThemeContext";
 import { decisionesApi, type Decision, type EstadoFuente, type ResultadoEjecucion } from "../api/decisiones";
 import type { EstadoObjetivo } from "../api/informes";
 import { etiquetaAccion, etiquetaResponsable, formatoDato, pesos, tocaLaPauta } from "./formato";
@@ -89,22 +88,6 @@ export function LmtmPantalla({
         </header>
         {children}
       </div>
-    </div>
-  );
-}
-
-/**
- * Un bloque con los tokens LMTM dentro de una pantalla de paperclip (la
- * pestaña Resumen de Cliente vive en el layout con barra lateral). Usa el tema
- * que la persona eligió en Hoy; sin botón propio para no tener dos lunas.
- */
-export function LmtmBloque({ children }: { children: ReactNode }) {
-  // Sigue el tema de la app (el del botón del riel): dentro del shell propio un
-  // bloque con su propio tema quedaba claro sobre oscuro.
-  const { theme } = useTheme();
-  return (
-    <div className="lmtm rounded-xl px-4 pb-8 pt-2 sm:px-6" data-tema={theme === "dark" ? "oscuro" : "claro"}>
-      <div className="mx-auto max-w-[680px]">{children}</div>
     </div>
   );
 }
@@ -349,6 +332,17 @@ export function PorQue({ d, max = 3 }: { d: Decision; max?: number }) {
   );
 }
 
+/** Un panel de tablero (Hoy, Pendientes, ficha del cliente): título, bajada corta y el gráfico o la lista. */
+export function Panel({ titulo, bajada, children, className = "" }: { titulo: string; bajada?: string; children: ReactNode; className?: string }) {
+  return (
+    <section className={`rounded-[20px] border border-l-linea bg-l-sup p-5 ${className}`}>
+      <h3 className="text-[16px] font-semibold">{titulo}</h3>
+      {bajada ? <p className="mb-4 mt-0.5 text-[12px] text-l-tinta-3">{bajada}</p> : <div className="mb-3" />}
+      {children}
+    </section>
+  );
+}
+
 /** «Para qué»: el resultado que se busca, en una línea (20/11: «que digan para qué serviría el resultado»). */
 export function ParaQue({ texto }: { texto: string | null }) {
   if (!texto) return null;
@@ -381,33 +375,6 @@ function LineaCliente({ d }: { d: Decision }) {
       <span className="text-[12px] font-semibold uppercase tracking-[0.06em] text-l-tinta-2">{d.cliente}</span>
       <span className="text-[12px] text-l-tinta-3">{etiquetaResponsable(d.responsable)}</span>
     </div>
-  );
-}
-
-/**
- * Una decisión de la lista: número, cliente, qué, por qué y la plata a la
- * derecha (para leer la columna de plata de arriba abajo). Los botones van
- * abajo, a lo ancho: en el celular la columna de plata no les tiene que robar
- * lugar.
- */
-export function FilaDecision({ d, n }: { d: Decision; n: number }) {
-  return (
-    <li className="border-t border-l-linea py-[18px] last:border-b">
-      <div className="grid grid-cols-[22px_1fr_auto] gap-x-3">
-        <div className="pt-0.5 text-[13px] font-medium text-l-tinta-3">{n}</div>
-        <div className="min-w-0">
-          <LineaCliente d={d} />
-          <div className="mt-0.5 text-[16px] font-medium leading-[1.4]">{d.que}</div>
-          <PorQue d={d} max={2} />
-        </div>
-        <div className="pl-1 text-right">
-          <Plata valor={d.arsPorDia} />
-        </div>
-      </div>
-      <div className="pl-[34px]">
-        <AccionesDecision d={d} />
-      </div>
-    </li>
   );
 }
 

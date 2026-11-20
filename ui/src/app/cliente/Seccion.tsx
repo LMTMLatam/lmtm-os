@@ -27,7 +27,7 @@ export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads
   const navigate = useNavigate();
   switch (tab) {
     case "resumen":
-      return <ResumenCliente clientId={client.id} onCalendario={() => navigate(`/clientes/${client.slug}/calendario`)} />;
+      return <ResumenCliente clientId={client.id} slug={client.slug} onCalendario={() => navigate(`/clientes/${client.slug}/calendario`)} />;
     case "plan-accion":
       return <PlanAccionTab client={client} />;
     case "dashboard":

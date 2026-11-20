@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/lib/router";
 import { api } from "../api/client";
+import { Panel } from "../lmtm/componentes";
 import { pesos } from "../lmtm/formato";
 import { AntesDespues, BarrasH, Lineas, Proporcion } from "../lmtm/graficos";
 
@@ -75,16 +76,6 @@ export function ImpactoAgentes() {
           </div>
         </Panel>
       </div>
-    </section>
-  );
-}
-
-function Panel({ titulo, bajada, children }: { titulo: string; bajada?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-[20px] border border-l-linea bg-l-sup p-5">
-      <h3 className="text-[16px] font-semibold">{titulo}</h3>
-      {bajada && <p className="mb-4 mt-0.5 text-[12px] text-l-tinta-3">{bajada}</p>}
-      {children}
     </section>
   );
 }

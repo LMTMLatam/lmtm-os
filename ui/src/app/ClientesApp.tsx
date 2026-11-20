@@ -10,7 +10,9 @@ import { ArrowDown, Hourglass, OctagonAlert, Search, Unplug, X } from "lucide-re
 import { Link, useSearchParams } from "@/lib/router";
 import { api } from "../api/client";
 import { carteraApi, type FilaCartera } from "../api/informes";
-import { EstadoObjetivoMarca } from "../lmtm/componentes";
+import { EstadoObjetivoMarca, Panel } from "../lmtm/componentes";
+import { Proporcion } from "../lmtm/graficos";
+import { movimientoCartera } from "../lmtm/alertas";
 import { etiquetaResponsable, pesos } from "../lmtm/formato";
 import { Encabezado } from "./Shell";
 
@@ -137,6 +139,7 @@ export function ClientesApp() {
           <>
             {data.sinLeer.length > 0 && <p className="mb-3 text-[13px] text-l-tinta-2">No se pudieron leer las métricas de {data.sinLeer.join(", ")}.</p>}
             {vista !== "pauta" && (tablero.error || trabadas.error) && <p className="mb-3 text-[13px] text-l-tinta-2">No se pudo leer el contenido de ClickUp: esa parte puede faltar.</p>}
+            <ResumenCartera filas={todas} vista={vista} />
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <div className="flex gap-1.5 overflow-x-auto" role="tablist" aria-label="Filtrar clientes">
                 {FILTROS.map((f) => {
@@ -328,12 +331,67 @@ function Th({ children, activo, onClick, derecha }: { children: React.ReactNode;
 function Cpl({ f }: { f: FilaCartera }) {
   const s = f.semana;
   if (f.sinPauta) return <span className="text-[13px] text-l-tinta-3">Sin cuenta de pauta conectada</span>;
+  const pct = s.cpl != null && s.objetivo ? (s.cpl / s.objetivo) * 100 : null;
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-      {s.cpl != null ? <span className="font-medium tabular-nums">{pesos(s.cpl)}</span> : <span className="text-l-tinta-3">{s.leads === 0 ? "sin consultas" : "sin dato"}</span>}
-      <EstadoObjetivoMarca e={f.estado} chico />
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        {s.cpl != null ? <span className="font-medium tabular-nums">{pesos(s.cpl)}</span> : <span className="text-l-tinta-3">{s.leads === 0 ? "sin consultas" : "sin dato"}</span>}
+        <EstadoObjetivoMarca e={f.estado} chico />
+        {s.leadsDudosos && <span className="text-[12px] text-l-tinta-3">· Google dudoso</span>}
+      </div>
+      {/* 20/11: el costo contra el objetivo se lee en la barra; la marca al 100% es el objetivo. */}
+      {pct != null && (
+        <div className="relative h-1.5 w-full max-w-[220px] rounded-full bg-l-linea" title={`objetivo ${pesos(s.objetivo!)}`} aria-hidden>
+          <span className={`absolute inset-y-0 left-0 rounded-full ${pct > 100 ? "bg-l-atencion" : "bg-l-bien"}`} style={{ width: `${Math.min(100, (pct / 200) * 100)}%` }} />
+          <span className="absolute -inset-y-1 left-1/2 w-px bg-l-tinta-2" />
+        </div>
+      )}
       {s.objetivo != null && <span className="text-[12px] text-l-tinta-3">objetivo {pesos(s.objetivo)}</span>}
-      {s.leadsDudosos && <span className="text-[12px] text-l-tinta-3">· Google dudoso</span>}
+    </div>
+  );
+}
+
+/** Arriba de la lista, la cartera de un vistazo: contra su objetivo, contra la semana anterior y el contenido. */
+function ResumenCartera({ filas, vista }: { filas: Fila[]; vista: Vista }) {
+  const conPauta = filas.filter((f) => !f.sinPauta);
+  const cuenta = (e: FilaCartera["estado"]) => conPauta.filter((f) => f.estado === e).length;
+  const mov = movimientoCartera({ clientes: filas } as never);
+  const cont = filas.reduce((t, f) => ({ programadas: t.programadas + f.contenido.programadas, sinCompletar: t.sinCompletar + f.contenido.sinCompletar, noSalieron: t.noSalieron + f.contenido.noSalieron }), { programadas: 0, sinCompletar: 0, noSalieron: 0 });
+  return (
+    <div className="mb-5 grid gap-4 md:grid-cols-3">
+      {vista !== "contenido" && (
+        <Panel titulo="Contra su objetivo" bajada={`Costo por consulta de la semana · ${conPauta.length} clientes con pauta`}>
+          <Proporcion
+            tramos={[
+              { etiqueta: "en objetivo", valor: cuenta("en_objetivo"), tono: "bien", marca: "✓" },
+              { etiqueta: "arriba", valor: cuenta("arriba") + cuenta("muy_arriba"), tono: "critico", marca: "↑" },
+              { etiqueta: "sin dato", valor: cuenta("sin_dato"), tono: "neutro", marca: "·" },
+            ]}
+          />
+        </Panel>
+      )}
+      {vista !== "contenido" && (
+        <Panel titulo="Contra la semana anterior" bajada="Cuántos bajaron o subieron su costo por consulta (±10%)">
+          <Proporcion
+            tramos={[
+              { etiqueta: "bajaron", valor: mov.bajo, tono: "bien", marca: "↓" },
+              { etiqueta: "igual", valor: mov.igual, tono: "neutro", marca: "=" },
+              { etiqueta: "subieron", valor: mov.subio, tono: "critico", marca: "↑" },
+            ]}
+          />
+        </Panel>
+      )}
+      {vista !== "pauta" && (
+        <Panel titulo="Contenido · 7 días" bajada="Lo programado de toda la cartera">
+          <Proporcion
+            tramos={[
+              { etiqueta: "listas", valor: Math.max(0, cont.programadas - cont.sinCompletar), tono: "bien", marca: "✓" },
+              { etiqueta: "sin completar", valor: cont.sinCompletar, tono: "neutro", marca: "…" },
+              { etiqueta: "no salieron", valor: cont.noSalieron, tono: "critico", marca: "✕" },
+            ]}
+          />
+        </Panel>
+      )}
     </div>
   );
 }
