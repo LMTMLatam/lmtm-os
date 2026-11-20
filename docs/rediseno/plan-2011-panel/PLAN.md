@@ -32,6 +32,10 @@ AgencyAnalytics (metas con barra de avance), Planable (bandeja de aprobaciones, 
 - **Contenido = producción y edición**: el calendario de todos los clientes (`/contenido/calendario`) y la Biblioteca
   salen del menú y siguen en el Ctrl+K.
 
+- **Fuera el layout de paperclip** (commit 9bd86da): lo que queda de paperclip (tareas, rutinas, skills, costos,
+  invitaciones, secretos, ajustes) se abre con el riel y el tema de la app (`ui/src/app/LayoutSistema.tsx`); está en
+  Configuración → «Sistema» y en el Ctrl+K. 404 en castellano. Pendiente: esas pantallas siguen en inglés por dentro.
+
 ## Dónde vive cada cosa
 
 - Mapa del panel (riel, Ctrl+K, grupos de la ficha): `ui/src/lmtm/secciones.ts`.

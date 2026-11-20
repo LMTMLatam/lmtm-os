@@ -8,6 +8,16 @@ import type { Decision } from "../api/decisiones";
 const URGENTES = new Set(["cadena:conexion_caida", "cadena:escenario_apagado", "cadena:destino_sin_escenario", "pauta:gasto_caido"]);
 export const esUrgente = (d: Pick<Decision, "tipo">) => d.tipo.startsWith("saldo:") || URGENTES.has(d.tipo);
 
+/** Puro. Lo urgente agrupado por tipo, para leerlo de un vistazo (20/11: 17 filas seguidas tapaban el resto de Hoy). */
+export function agruparUrgentes(urgentes: Decision[]): Array<{ titulo: string; items: Decision[] }> {
+  const grupos = [
+    { titulo: "Saldos por agotarse", pasa: (d: Decision) => d.tipo.startsWith("saldo:") },
+    { titulo: "Publicación cortada", pasa: (d: Decision) => d.tipo.startsWith("cadena:") },
+    { titulo: "Pauta que dejó de gastar", pasa: (d: Decision) => d.tipo === "pauta:gasto_caido" },
+  ];
+  return grupos.map((g) => ({ titulo: g.titulo, items: urgentes.filter(g.pasa) })).filter((g) => g.items.length > 0);
+}
+
 /** Cuántas sugerencias mostrar: más que esto es volver a la lista. */
 export const MAX_SUGERENCIAS = 5;
 

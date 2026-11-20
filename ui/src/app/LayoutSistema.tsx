@@ -71,6 +71,18 @@ export function LayoutSistema() {
   );
 }
 
+/** Los títulos que ponen las páginas de paperclip, en castellano (el contenido de adentro sigue como está). */
+const TITULOS: Record<string, string> = {
+  Issues: "Tareas de los agentes", Routines: "Rutinas de los agentes", Skills: "Skills de los agentes", Costs: "Costos de los agentes",
+  Secrets: "Claves y secretos", Settings: "Ajustes", "Instance Settings": "Ajustes del sistema", General: "General", Access: "Accesos",
+  Invites: "Invitaciones", "Join Requests": "Pedidos para sumarse", Plugins: "Plugins", Profile: "Mi perfil", Heartbeats: "Latidos",
+  Experimental: "Experimental", Agents: "Agentes", Runs: "Corridas", "Recent Runs": "Corridas recientes", Configuration: "Configuración",
+  Instructions: "Instrucciones", Budget: "Presupuesto", Dashboard: "Inicio", Users: "Usuarios", Search: "Buscar", Export: "Exportar",
+  Import: "Importar", "New Agent": "Nuevo agente", Inbox: "Bandeja", Workspaces: "Espacios de trabajo", "Runtime logs": "Registro",
+  Services: "Servicios", Status: "Estado", Approvals: "Aprobaciones", Projects: "Proyectos", "Not Found": "No existe",
+};
+const traducir = (t: string) => TITULOS[t] ?? t;
+
 /** El título de la pantalla, armado con las migas que pone cada página de paperclip. */
 function TituloSistema() {
   const { breadcrumbs } = useBreadcrumbs();
@@ -83,13 +95,13 @@ function TituloSistema() {
         <nav className="mb-1 flex flex-wrap items-center gap-1.5 text-[13px] text-l-tinta-3" aria-label="Dónde estás">
           {anteriores.map((b, i) => (
             <span key={`${b.label}-${i}`} className="flex items-center gap-1.5">
-              {b.href ? <Link to={b.href} className="hover:text-l-marca">{b.label}</Link> : <span>{b.label}</span>}
+              {b.href ? <Link to={b.href} className="hover:text-l-marca">{traducir(b.label)}</Link> : <span>{traducir(b.label)}</span>}
               <span aria-hidden>›</span>
             </span>
           ))}
         </nav>
       )}
-      <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] md:text-[30px]">{actual.label}</h1>
+      <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] md:text-[30px]">{traducir(actual.label)}</h1>
     </header>
   );
 }

@@ -20,7 +20,7 @@ import { TareasEsperando } from "./Esperando";
 import { TarjetaQueFunciona } from "./QueFunciona";
 import { PublicacionTrabada } from "./PublicacionTrabada";
 import { useAprobaciones } from "../lmtm/aprobaciones";
-import { repartirHoy } from "../lmtm/hoy";
+import { agruparUrgentes, repartirHoy } from "../lmtm/hoy";
 
 // Por tema y no por "quién": el 07/10 Nazareno pidió que sea más fácil de
 // atacar. Se entra por lo que hay que hacer (plata, contenido, conexiones,
@@ -143,7 +143,7 @@ export function HoyApp() {
                 Ver todo
               </Link>
             </div>
-            <FeedAgentes trabajos={trabajos.slice(0, 8)} />
+            <FeedAgentes trabajos={trabajos.filter((t) => t.estado === "hecho").slice(0, 8)} />
           </Tarjeta>
           <TarjetaQueFunciona />
         </aside>
@@ -173,10 +173,31 @@ function Urgente({ h, urgentes, porDecision }: { h: Hoy; urgentes: Decision[]; p
           ))}
         </ul>
       )}
-      {urgentes.length > 0 && <Lista decisiones={urgentes} porDecision={porDecision} />}
+      {agruparUrgentes(urgentes).map((g) => (
+        <GrupoUrgente key={g.titulo} titulo={g.titulo} items={g.items} porDecision={porDecision} />
+      ))}
       <PublicacionTrabada />
       {nada && <p className="text-[14px] text-l-tinta-2">Sin incidentes, saldos por agotarse ni publicación cortada.</p>}
     </section>
+  );
+}
+
+/** Un grupo de lo urgente: las 3 que más pesan a la vista, el resto a un clic. */
+function GrupoUrgente({ titulo, items, porDecision }: { titulo: string; items: Decision[]; porDecision: Map<string, Trabajo> }) {
+  const [todas, setTodas] = useState(false);
+  const visibles = todas ? items : items.slice(0, 3);
+  return (
+    <div>
+      <h3 className="mb-2 text-[14px] font-semibold text-l-tinta">
+        {titulo} <span className="font-normal text-l-tinta-3">· {items.length}</span>
+      </h3>
+      <Lista decisiones={visibles} porDecision={porDecision} />
+      {items.length > 3 && (
+        <button type="button" onClick={() => setTodas((v) => !v)} aria-expanded={todas} className="mt-2 inline-flex min-h-10 items-center gap-1 text-[13px] font-semibold text-l-marca">
+          {todas ? "Ver menos" : `Ver las ${items.length}`} <ChevronDown className={`h-4 w-4 transition-transform ${todas ? "rotate-180" : ""}`} aria-hidden />
+        </button>
+      )}
+    </div>
   );
 }
 

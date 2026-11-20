@@ -31,7 +31,7 @@ describe("orden de la pantalla Hoy", () => {
 
   it("dentro de lo urgente, los incidentes van antes que el resto", () => {
     const urgente = posicionDe("function Urgente(");
-    expect(posicionDe("<BloqueIncidente", urgente)).toBeLessThan(posicionDe("<Lista decisiones={urgentes}", urgente));
+    expect(posicionDe("<BloqueIncidente", urgente)).toBeLessThan(posicionDe("<GrupoUrgente", urgente));
   });
 
   it("Decisiones: los filtros, lo que espera el dato y la cobertura, en ese orden", () => {

@@ -176,6 +176,8 @@ function FilaIdea({ i, clientId }: { i: IdeaSuperRedes; clientId: string }) {
             <span className="text-[13px] text-l-tinta-2">
               Pedido al Productor · {i.productor.identifier} · <span className="font-semibold text-l-tinta">{ESTADO_PEDIDO[i.productor.status] ?? i.productor.status}</span>
             </span>
+          ) : /^\s*vivo/i.test(i.tipo ?? "") ? (
+            <span className="text-[13px] text-l-tinta-3">Es un vivo: no se genera</span>
           ) : pedir.data ? (
             <span className={`text-[13px] ${pedir.data.ok ? "text-l-bien-texto" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>
           ) : confirmando ? (

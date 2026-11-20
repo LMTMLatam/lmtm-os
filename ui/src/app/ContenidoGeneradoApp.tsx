@@ -246,6 +246,35 @@ export function ContenidoGeneradoApp() {
   );
 }
 
+/**
+ * Los pedidos al Productor o al Editor (20/11: «info clara»): sin los cancelados, los 6 más nuevos a la vista y el
+ * resto a un clic. Antes eran dos copias de la misma lista, con todo junto.
+ */
+function ListaPedidos({ pedidos }: { pedidos: PedidoProductor[] }) {
+  const [todos, setTodos] = useState(false);
+  const vivos = pedidos.filter((p) => p.estado !== "cancelled");
+  if (vivos.length === 0) return null;
+  const visibles = todos ? vivos : vivos.slice(0, 6);
+  return (
+    <div className="mt-3 border-t border-l-linea pt-2">
+      <p className="text-[12px] font-semibold text-l-tinta-3">Pedidos · {vivos.length}</p>
+      <ul>
+        {visibles.map((p) => (
+          <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-[13px]">
+            <span className="min-w-0 flex-1 truncate" title={p.titulo}>{p.identifier ? `${p.identifier} · ` : ""}{p.titulo}</span>
+            <span className={`tabular-nums ${p.estado === "blocked" ? "text-l-atencion-texto" : "text-l-tinta-3"}`}>{ESTADO[p.estado] ?? p.estado} · {fecha(p.creado)}</span>
+          </li>
+        ))}
+      </ul>
+      {vivos.length > 6 && (
+        <button type="button" onClick={() => setTodos((v) => !v)} className="mt-1 min-h-9 text-[13px] font-semibold text-l-marca">
+          {todos ? "Ver menos" : `Ver los ${vivos.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Pedido de un video al Productor de contenido y lo que tiene en curso. */
 function PedirVideo() {
   const qc = useQueryClient();
@@ -301,16 +330,7 @@ function PedirVideo() {
           </div>
           <p className="text-[12px] text-l-tinta-3">Cada pedido es una corrida del agente: gasta OpenAI y voces de Gemini. Para corregir un video ya hecho, usá «Pedir cambios» en el video (sale mucho más barato que pedirlo de nuevo).</p>
         </form>
-        {(pedidos.data?.pedidos.length ?? 0) > 0 && (
-          <ul className="mt-3 border-t border-l-linea pt-2">
-            {pedidos.data!.pedidos.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-[13px]">
-                <span className="min-w-0 flex-1 truncate" title={p.titulo}>{p.identifier ? `${p.identifier} · ` : ""}{p.titulo}</span>
-                <span className={`tabular-nums ${p.estado === "blocked" ? "text-l-atencion-texto" : "text-l-tinta-3"}`}>{ESTADO[p.estado] ?? p.estado} · {fecha(p.creado)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ListaPedidos pedidos={pedidos.data?.pedidos ?? []} />
       </Tarjeta>
     </section>
   );
@@ -385,16 +405,7 @@ function PedirAlEditor() {
           </div>
           <p className="text-[12px] text-l-tinta-3">Las piezas vuelven a esta pantalla para validar (filtro «Videos sin validar») y quedan en Drive, en la carpeta VIDEOS del cliente.</p>
         </form>
-        {(pedidos.data?.pedidos.length ?? 0) > 0 && (
-          <ul className="mt-3 border-t border-l-linea pt-2">
-            {pedidos.data!.pedidos.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-[13px]">
-                <span className="min-w-0 flex-1 truncate" title={p.titulo}>{p.identifier ? `${p.identifier} · ` : ""}{p.titulo}</span>
-                <span className={`tabular-nums ${p.estado === "blocked" ? "text-l-atencion-texto" : "text-l-tinta-3"}`}>{ESTADO[p.estado] ?? p.estado} · {fecha(p.creado)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ListaPedidos pedidos={pedidos.data?.pedidos ?? []} />
       </Tarjeta>
     </section>
   );

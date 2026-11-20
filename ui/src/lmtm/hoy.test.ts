@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Decision } from "../api/decisiones";
-import { MAX_SUGERENCIAS, repartirHoy } from "./hoy";
+import { agruparUrgentes, MAX_SUGERENCIAS, repartirHoy } from "./hoy";
+
+describe("lo urgente, agrupado", () => {
+  it("cada urgente cae en su grupo y los grupos vacíos no aparecen", () => {
+    const g = agruparUrgentes([d("1", "saldo:bajo"), d("2", "saldo:frenada"), d("3", "cadena:conexion_caida")]);
+    expect(g.map((x) => [x.titulo, x.items.length])).toEqual([["Saldos por agotarse", 2], ["Publicación cortada", 1]]);
+  });
+});
 
 const d = (id: string, tipo: string, arsPorDia: number | null = null) => ({ id, tipo, arsPorDia }) as unknown as Decision;
 
