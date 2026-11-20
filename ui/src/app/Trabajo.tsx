@@ -183,7 +183,7 @@ function SelectorDias({ dias, onChange }: { dias: number; onChange: (d: number) 
           type="button"
           aria-pressed={dias === d}
           onClick={() => onChange(d)}
-          className={`min-h-9 rounded-full border px-3 text-[13px] tabular-nums ${dias === d ? "border-l-tinta bg-l-tinta font-semibold text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}
+          className={`min-h-9 rounded-full border px-3 text-[13px] tabular-nums ${dias === d ? "border-transparent bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2"}`}
         >
           {d} días
         </button>
@@ -234,7 +234,7 @@ function PanelTrabajo({
                 role="tab"
                 aria-selected={vista === v.k}
                 onClick={() => setVista(v.k)}
-                className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${vista === v.k ? "border-l-tinta bg-l-tinta font-semibold text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}
+                className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${vista === v.k ? "border-transparent bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2"}`}
               >
                 {v.label} <span className="tabular-nums opacity-70">{n}</span>
               </button>
@@ -273,7 +273,7 @@ function BotonCopiar({ texto }: { texto: string }) {
       <button
         type="button"
         onClick={() => navigator.clipboard.writeText(texto).then(() => setEstado("ok"), () => setEstado("manual"))}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] bg-l-tinta px-3 text-[13px] font-semibold text-l-papel"
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] bg-[image:var(--l-marca-grad)] px-3 text-[13px] font-semibold text-l-marca-tinta"
       >
         <Copy className="h-4 w-4" aria-hidden /> {estado === "ok" ? "Copiado" : "Copiar para WhatsApp"}
       </button>

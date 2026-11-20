@@ -12,7 +12,7 @@ import { Encabezado } from "./Shell";
 import { PestanasProduccion } from "./ProduccionApp";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 
-interface TotalHerramienta {
+export interface TotalHerramienta {
   herramienta: string;
   generaciones: number;
   creditos: number | null;
@@ -20,7 +20,7 @@ interface TotalHerramienta {
   sinCosto: number;
   noEntregadas: number;
 }
-interface PiezaGenerada {
+export interface PiezaGenerada {
   id: string;
   titulo: string;
   kind: string;
@@ -284,7 +284,7 @@ function PedirVideo() {
             <button
               type="submit"
               disabled={!clientId || pedido.trim().length < 10 || pedir.isPending}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-white disabled:opacity-50"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50"
             >
               {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Clapperboard className="h-4 w-4" aria-hidden />} Pedir el video
             </button>
@@ -369,7 +369,7 @@ function PedirAlEditor() {
           <label className="text-[13px] text-l-tinta-2" htmlFor="pedido-editor">Algo puntual (opcional): cuántas piezas, de qué producto, para qué</label>
           <textarea id="pedido-editor" value={pedido} onChange={(e) => setPedido(e.target.value)} rows={2} placeholder="Sacá 3 reels: uno de cada ambiente y un testimonio" className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]" />
           <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={!valida || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-white disabled:opacity-50">
+            <button type="submit" disabled={!valida || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50">
               {pedir.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FolderOpen className="h-4 w-4" aria-hidden />} Pasarle los crudos
             </button>
             {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}
@@ -467,7 +467,7 @@ export function Calidad({ p }: { p: Pick<PiezaGenerada, "id" | "revision" | "ver
         <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (porque.trim().length >= 5) juzgar.mutate(false); }}>
           <label className="sr-only" htmlFor={`porque-${p.id}`}>Por qué no sirve</label>
           <input id={`porque-${p.id}`} value={porque} onChange={(e) => setPorque(e.target.value)} placeholder="Por qué no sirve (lo va a leer el agente la próxima vez)" className="min-h-8 min-w-0 flex-1 rounded-[8px] border border-l-linea-2 bg-transparent px-2 text-[12px]" />
-          <button type="submit" disabled={porque.trim().length < 5 || juzgar.isPending} className="min-h-8 rounded-[8px] bg-l-marca px-2 text-[12px] font-semibold text-white disabled:opacity-50">Guardar</button>
+          <button type="submit" disabled={porque.trim().length < 5 || juzgar.isPending} className="min-h-8 rounded-[8px] bg-l-marca px-2 text-[12px] font-semibold text-l-marca-tinta disabled:opacity-50">Guardar</button>
         </form>
       )}
       {juzgar.data && !juzgar.data.ok && <span className="text-l-atencion-texto" role="alert">{juzgar.data.motivo}</span>}
@@ -475,7 +475,7 @@ export function Calidad({ p }: { p: Pick<PiezaGenerada, "id" | "revision" | "ver
   );
 }
 
-function FilaPieza({ p }: { p: PiezaGenerada }) {
+export function FilaPieza({ p }: { p: PiezaGenerada }) {
   const archivos = p.links.length > 1 ? p.links : p.driveLink ? [p.driveLink] : [];
   const qc = useQueryClient();
   const [abierto, setAbierto] = useState(false);
@@ -570,7 +570,7 @@ function FilaPieza({ p }: { p: PiezaGenerada }) {
             className="w-full min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-3 py-2 text-[14px]"
           />
           <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={cambios.trim().length < 5 || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-white disabled:opacity-50">
+            <button type="submit" disabled={cambios.trim().length < 5 || pedir.isPending} className="inline-flex min-h-9 items-center gap-1.5 rounded-[8px] bg-l-marca px-3 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50">
               {pedir.isPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Enviar al Productor
             </button>
             {pedir.data && <span className={`text-[13px] ${pedir.data.ok ? "text-l-tinta-2" : "text-l-critico-texto"}`} role="status">{pedir.data.mensaje}</span>}

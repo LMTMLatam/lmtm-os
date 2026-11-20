@@ -1,74 +1,92 @@
+import { lazy, Suspense, type ComponentType } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
-import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
-import { Companies } from "./pages/Companies";
-import { ConnectAds } from "./pages/ConnectAds";
-import { PublicDashboard } from "./pages/PublicDashboard";
-import { PublicDashboardDetalle } from "./pages/PublicDashboardDetalle";
-import { Agents } from "./pages/Agents";
-import { AgentDetail } from "./pages/AgentDetail";
-import { Issues } from "./pages/Issues";
-import { Search } from "./pages/Search";
-import { IssueDetail } from "./pages/IssueDetail";
-import { IssueChatLongThreadPerf } from "./pages/IssueChatLongThreadPerf";
-import { Routines } from "./pages/Routines";
-import { RoutineDetail } from "./pages/RoutineDetail";
-import { UserProfile } from "./pages/UserProfile";
-import { ExecutionWorkspaceDetail } from "./pages/ExecutionWorkspaceDetail";
-import { Approvals } from "./pages/Approvals";
-import { ApprovalDetail } from "./pages/ApprovalDetail";
-import { Costs } from "./pages/Costs";
-import { CompanySettings } from "./pages/CompanySettings";
-import { CompanyEnvironments } from "./pages/CompanyEnvironments";
-import { CompanyAccess } from "./pages/CompanyAccess";
-import { CompanyInvites } from "./pages/CompanyInvites";
-import { CompanySkills } from "./pages/CompanySkills";
-import { AdsIntegrations } from "./pages/AdsIntegrations";
-import { WhatsApp } from "./pages/WhatsApp";
-import { Intelligence } from "./pages/Intelligence";
-import { Growth } from "./pages/Growth";
-import { Readiness } from "./pages/Readiness";
-import { Secrets } from "./pages/Secrets";
-import { CompanyExport } from "./pages/CompanyExport";
-import { CompanyImport } from "./pages/CompanyImport";
-import { DesignGuide } from "./pages/DesignGuide";
-import { InstanceGeneralSettings } from "./pages/InstanceGeneralSettings";
-import { InstanceAccess } from "./pages/InstanceAccess";
-import { InstanceSettings } from "./pages/InstanceSettings";
-import { InstanceExperimentalSettings } from "./pages/InstanceExperimentalSettings";
-import { ProfileSettings } from "./pages/ProfileSettings";
-import { PluginManager } from "./pages/PluginManager";
-import { PluginSettings } from "./pages/PluginSettings";
-import { AdapterManager } from "./pages/AdapterManager";
-import { PluginPage } from "./pages/PluginPage";
-import { NewAgent } from "./pages/NewAgent";
-import { AuthPage } from "./pages/Auth";
-import { BoardClaimPage } from "./pages/BoardClaim";
-import { CliAuthPage } from "./pages/CliAuth";
-import { InviteLandingPage } from "./pages/InviteLanding";
-import { JoinRequestQueue } from "./pages/JoinRequestQueue";
-import { NotFoundPage } from "./pages/NotFound";
 import { Shell } from "./app/Shell";
 import { HoyApp } from "./app/HoyApp";
-import { ClientesApp } from "./app/ClientesApp";
-import { ClienteApp } from "./app/ClienteApp";
-import { AgentesApp } from "./app/AgentesApp";
-import { ConfigApp } from "./app/ConfigApp";
-import { ContenidoApp } from "./app/ContenidoApp";
-import { ContenidoGeneradoApp } from "./app/ContenidoGeneradoApp";
-import { TiposDeVideoApp } from "./app/ProduccionApp";
-import { NichosApp } from "./app/NichosApp";
-import { LicitacionesApp } from "./app/LicitacionesApp";
-import { PautaApp } from "./app/PautaApp";
-import { AvisosApp } from "./app/AvisosApp";
-import { FinanzasApp } from "./app/FinanzasApp";
-import { TrabajoApp } from "./app/Trabajo";
-import { BibliotecaApp } from "./app/BibliotecaApp";
-import { ActividadApp } from "./app/ActividadApp";
-import { PreparacionApp } from "./app/PreparacionApp";
 import { useCompany } from "./context/CompanyContext";
+
+/**
+ * Cada pantalla baja cuando se abre (auditoría 20/11: el panel entero era un solo paquete, y el cliente que
+ * abría su dashboard bajaba también las pantallas de paperclip). Shell y Hoy quedan en el paquete principal:
+ * son la entrada de todos los días.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function perezosa<K extends string>(carga: () => Promise<{ [k in K]: ComponentType<any> }>, nombre: K) {
+  return lazy(() => carga().then((m) => ({ default: m[nombre] })));
+}
+
+const Layout = perezosa(() => import("./components/Layout"), "Layout");
+const Companies = perezosa(() => import("./pages/Companies"), "Companies");
+const ConnectAds = perezosa(() => import("./pages/ConnectAds"), "ConnectAds");
+const PublicDashboard = perezosa(() => import("./pages/PublicDashboard"), "PublicDashboard");
+const PublicDashboardDetalle = perezosa(() => import("./pages/PublicDashboardDetalle"), "PublicDashboardDetalle");
+const Agents = perezosa(() => import("./pages/Agents"), "Agents");
+const AgentDetail = perezosa(() => import("./pages/AgentDetail"), "AgentDetail");
+const Issues = perezosa(() => import("./pages/Issues"), "Issues");
+const Search = perezosa(() => import("./pages/Search"), "Search");
+const IssueDetail = perezosa(() => import("./pages/IssueDetail"), "IssueDetail");
+const IssueChatLongThreadPerf = perezosa(() => import("./pages/IssueChatLongThreadPerf"), "IssueChatLongThreadPerf");
+const Routines = perezosa(() => import("./pages/Routines"), "Routines");
+const RoutineDetail = perezosa(() => import("./pages/RoutineDetail"), "RoutineDetail");
+const UserProfile = perezosa(() => import("./pages/UserProfile"), "UserProfile");
+const ExecutionWorkspaceDetail = perezosa(() => import("./pages/ExecutionWorkspaceDetail"), "ExecutionWorkspaceDetail");
+const Approvals = perezosa(() => import("./pages/Approvals"), "Approvals");
+const ApprovalDetail = perezosa(() => import("./pages/ApprovalDetail"), "ApprovalDetail");
+const Costs = perezosa(() => import("./pages/Costs"), "Costs");
+const CompanySettings = perezosa(() => import("./pages/CompanySettings"), "CompanySettings");
+const CompanyEnvironments = perezosa(() => import("./pages/CompanyEnvironments"), "CompanyEnvironments");
+const CompanyAccess = perezosa(() => import("./pages/CompanyAccess"), "CompanyAccess");
+const CompanyInvites = perezosa(() => import("./pages/CompanyInvites"), "CompanyInvites");
+const CompanySkills = perezosa(() => import("./pages/CompanySkills"), "CompanySkills");
+const AdsIntegrations = perezosa(() => import("./pages/AdsIntegrations"), "AdsIntegrations");
+const WhatsApp = perezosa(() => import("./pages/WhatsApp"), "WhatsApp");
+const Intelligence = perezosa(() => import("./pages/Intelligence"), "Intelligence");
+const Growth = perezosa(() => import("./pages/Growth"), "Growth");
+const Readiness = perezosa(() => import("./pages/Readiness"), "Readiness");
+const Secrets = perezosa(() => import("./pages/Secrets"), "Secrets");
+const CompanyExport = perezosa(() => import("./pages/CompanyExport"), "CompanyExport");
+const CompanyImport = perezosa(() => import("./pages/CompanyImport"), "CompanyImport");
+const DesignGuide = perezosa(() => import("./pages/DesignGuide"), "DesignGuide");
+const InstanceGeneralSettings = perezosa(() => import("./pages/InstanceGeneralSettings"), "InstanceGeneralSettings");
+const InstanceAccess = perezosa(() => import("./pages/InstanceAccess"), "InstanceAccess");
+const InstanceSettings = perezosa(() => import("./pages/InstanceSettings"), "InstanceSettings");
+const InstanceExperimentalSettings = perezosa(() => import("./pages/InstanceExperimentalSettings"), "InstanceExperimentalSettings");
+const ProfileSettings = perezosa(() => import("./pages/ProfileSettings"), "ProfileSettings");
+const PluginManager = perezosa(() => import("./pages/PluginManager"), "PluginManager");
+const PluginSettings = perezosa(() => import("./pages/PluginSettings"), "PluginSettings");
+const AdapterManager = perezosa(() => import("./pages/AdapterManager"), "AdapterManager");
+const PluginPage = perezosa(() => import("./pages/PluginPage"), "PluginPage");
+const NewAgent = perezosa(() => import("./pages/NewAgent"), "NewAgent");
+const AuthPage = perezosa(() => import("./pages/Auth"), "AuthPage");
+const BoardClaimPage = perezosa(() => import("./pages/BoardClaim"), "BoardClaimPage");
+const CliAuthPage = perezosa(() => import("./pages/CliAuth"), "CliAuthPage");
+const InviteLandingPage = perezosa(() => import("./pages/InviteLanding"), "InviteLandingPage");
+const JoinRequestQueue = perezosa(() => import("./pages/JoinRequestQueue"), "JoinRequestQueue");
+const NotFoundPage = perezosa(() => import("./pages/NotFound"), "NotFoundPage");
+const ClientesApp = perezosa(() => import("./app/ClientesApp"), "ClientesApp");
+const ClienteApp = perezosa(() => import("./app/ClienteApp"), "ClienteApp");
+const AgentesApp = perezosa(() => import("./app/AgentesApp"), "AgentesApp");
+const ConfigApp = perezosa(() => import("./app/ConfigApp"), "ConfigApp");
+const ContenidoApp = perezosa(() => import("./app/ContenidoApp"), "ContenidoApp");
+const ContenidoGeneradoApp = perezosa(() => import("./app/ContenidoGeneradoApp"), "ContenidoGeneradoApp");
+const TiposDeVideoApp = perezosa(() => import("./app/ProduccionApp"), "TiposDeVideoApp");
+const NichosApp = perezosa(() => import("./app/NichosApp"), "NichosApp");
+const LicitacionesApp = perezosa(() => import("./app/LicitacionesApp"), "LicitacionesApp");
+const PautaApp = perezosa(() => import("./app/PautaApp"), "PautaApp");
+const AvisosApp = perezosa(() => import("./app/AvisosApp"), "AvisosApp");
+const FinanzasApp = perezosa(() => import("./app/FinanzasApp"), "FinanzasApp");
+const TrabajoApp = perezosa(() => import("./app/Trabajo"), "TrabajoApp");
+const BibliotecaApp = perezosa(() => import("./app/BibliotecaApp"), "BibliotecaApp");
+const ActividadApp = perezosa(() => import("./app/ActividadApp"), "ActividadApp");
+const PreparacionApp = perezosa(() => import("./app/PreparacionApp"), "PreparacionApp");
+const AprobacionesApp = perezosa(() => import("./app/AprobacionesApp"), "AprobacionesApp");
+
+/** Mientras baja una pantalla: el fondo de la app, sin saltos. */
+export function CargandoPantalla() {
+  return <div className="min-h-dvh bg-[#0b0710] p-8 text-[14px] text-[#9c8fab]" role="status">Cargando…</div>;
+}
 import { useDialogActions } from "./context/DialogContext";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 
@@ -288,7 +306,7 @@ function PublicDashboardPrefixRedirect() {
 
 export function App() {
   return (
-    <>
+    <Suspense fallback={<CargandoPantalla />}>
       <Routes>
         <Route path="auth" element={<AuthPage />} />
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
@@ -333,6 +351,7 @@ export function App() {
           {/* La app propia de LMTM (fase C1): shell y pantallas nuestras. */}
           <Route element={<Shell />}>
             <Route path="hoy" element={<HoyApp />} />
+            <Route path="aprobaciones" element={<AprobacionesApp />} />
             <Route path="clientes" element={<ClientesApp />} />
             <Route path="clientes/:slug" element={<ClienteApp />} />
             <Route path="clientes/:slug/:seccion" element={<ClienteApp />} />
@@ -435,6 +454,6 @@ export function App() {
         </Route>
       </Routes>
       <OnboardingWizard />
-    </>
+    </Suspense>
   );
 }

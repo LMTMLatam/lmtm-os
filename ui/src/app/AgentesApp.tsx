@@ -54,7 +54,7 @@ function ListaTrabajos() {
                 role="tab"
                 aria-selected={estado === e.k}
                 onClick={() => setEstado(e.k)}
-                className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${estado === e.k ? "border-l-tinta bg-l-tinta font-semibold text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}
+                className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${estado === e.k ? "border-transparent bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2"}`}
               >
                 {e.label}
               </button>
@@ -287,7 +287,7 @@ function Pedir({ clientes }: { clientes: Array<{ id: string; nombre: string }> }
         <button
           type="submit"
           disabled={pedido.trim().length < 5 || m.isPending}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-[10px] bg-l-tinta px-3.5 text-[14px] font-semibold text-l-papel disabled:opacity-50"
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-[10px] bg-[image:var(--l-marca-grad)] px-3.5 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50"
         >
           <Send className="h-4 w-4" aria-hidden /> {m.isPending ? "Mandando…" : "Pedir"}
         </button>

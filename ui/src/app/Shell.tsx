@@ -1,63 +1,37 @@
-// LMTM: el shell de la app propia (fase C1). Navegación nuestra, sin la barra,
-// el selector de empresa ni el organigrama de paperclip (07/10: sin la puerta a
-// "Sistema"; lo que hace falta de ahí se muda a la app).
-//
-// Escritorio: riel a la izquierda. Celular: barra abajo con las 5 secciones.
+// LMTM: el shell de la app propia. Rediseño 20/11 (maqueta aprobada): oscuro con
+// magenta, riel con lo de todos los días, los clientes fijados y lo de la agencia;
+// arriba el buscador (Ctrl+K) y los avisos. Celular: barra abajo con 5 secciones.
 
-import { useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Bot, Clapperboard, Film, Inbox, Library, Moon, Settings2, Sun, Users } from "lucide-react";
-import { NavLink, Outlet, useLocation } from "@/lib/router";
+import { Bell, Moon, Search, Sun } from "lucide-react";
+import { Link, NavLink, Outlet, useLocation } from "@/lib/router";
 import { useTheme } from "../context/ThemeContext";
 import { decisionesApi } from "../api/decisiones";
 import { agentesApi } from "./api";
 import { accessApi } from "../api/access";
-
-const SECCIONES = [
-  { to: "/hoy", label: "Hoy", Icono: Inbox },
-  { to: "/clientes", label: "Clientes", Icono: Users },
-  { to: "/contenido", label: "Contenido", Icono: Clapperboard },
-  { to: "/biblioteca", label: "Biblioteca", Icono: Library },
-  { to: "/actividad", label: "Actividad", Icono: Activity },
-  { to: "/produccion", label: "Producción", Icono: Film },
-  { to: "/agentes", label: "Agentes", Icono: Bot },
-  { to: "/config", label: "Config", Icono: Settings2, soloAdmin: true },
-] as const;
-
-/**
- * Las demás pantallas propias. Plan 15/11: Trabajo quedó acá (lo hecho por los
- * agentes está también en Actividad y Biblioteca); Finanzas salió del menú (D4,
- * sin datos) pero la ruta sigue.
- */
-export const MAS = [
-  { to: "/pauta", label: "Pauta" },
-  { to: "/trabajo", label: "Trabajo de los agentes" },
-  { to: "/semaforo", label: "Semáforo de clientes" },
-  { to: "/nichos", label: "Nichos" },
-  { to: "/inteligencia", label: "Inteligencia" },
-  { to: "/licitaciones", label: "Licitaciones", soloAdmin: true },
-  { to: "/whatsapp", label: "WhatsApp", soloAdmin: true },
-] as const;
-
-/** Pantallas que se abren desde Config: solo para el título de la pestaña. */
-const OTRAS = [
-  { to: "/preparacion", label: "Preparación" },
-  { to: "/conexiones", label: "Conexiones" },
-  { to: "/avisos", label: "Avisos" },
-  { to: "/finanzas", label: "Finanzas" },
-] as const;
+import { AGENCIA, PRINCIPALES, seccionDe } from "../lmtm/secciones";
+import { useFijados } from "../lmtm/fijados";
+import { useAprobaciones } from "../lmtm/aprobaciones";
+import { Comandos, Tecla } from "../lmtm/Comandos";
 
 function useContadores() {
   const hoy = useQuery({ queryKey: ["lmtm", "hoy"], queryFn: () => decisionesApi.hoy(), staleTime: 60_000, refetchInterval: 5 * 60_000 });
   const corriendo = useQuery({
     queryKey: ["lmtm", "agentes", "corriendo"],
     queryFn: () => agentesApi.trabajos({ estado: "corriendo", limite: 50 }),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
+  // Lo que hay para decidir, por cliente: el punto de los fijados.
+  const porCliente = new Map<string, number>();
+  for (const d of [...(hoy.data?.incidentes ?? []), ...(hoy.data?.decisiones ?? [])]) porCliente.set(d.clienteSlug, (porCliente.get(d.clienteSlug) ?? 0) + 1);
   return {
-    "/hoy": hoy.data ? hoy.data.incidentes.length + hoy.data.decisiones.length : null,
-    "/agentes": corriendo.data?.trabajos.length || null,
-  } as Record<string, number | null>;
+    porSeccion: {
+      "/hoy": hoy.data ? hoy.data.incidentes.length + hoy.data.decisiones.length : null,
+      "/agentes": corriendo.data?.trabajos.length || null,
+    } as Record<string, number | null>,
+    porCliente,
+  };
 }
 
 /**
@@ -73,93 +47,158 @@ export function useEsAdmin(): boolean {
   return a.source === "local_implicit" || a.isInstanceAdmin || (a.memberships ?? []).some((m) => m.status === "active" && (m.membershipRole === "owner" || m.membershipRole === "admin"));
 }
 
+const claseNav = (activo: boolean) =>
+  `flex min-h-11 items-center gap-3 rounded-[12px] px-3 text-[14px] font-medium transition-colors ${
+    activo ? "bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta shadow-[0_8px_28px_rgba(240,92,245,.3)]" : "text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta"
+  }`;
+
+function Cuenta({ n, activo }: { n: number | null | undefined; activo?: boolean }) {
+  if (!n) return null;
+  return <span className={`ml-auto rounded-full px-2 py-px text-[12px] font-semibold tabular-nums ${activo ? "bg-black/15 text-l-marca-tinta" : "bg-l-linea-2 text-l-tinta"}`}>{n}</span>;
+}
+
 export function Shell() {
   const { theme, toggleTheme } = useTheme();
-  const contadores = useContadores();
+  const { porSeccion, porCliente } = useContadores();
+  porSeccion["/aprobaciones"] = useAprobaciones().total || null;
   const esAdmin = useEsAdmin();
-  const secciones = SECCIONES.filter((s) => esAdmin || !("soloAdmin" in s));
-  // En el celular entran 6: Actividad y Producción quedan en el riel de escritorio y en Config.
-  const enCelular = secciones.filter((s) => ["/hoy", "/clientes", "/contenido", "/biblioteca", "/agentes", "/config"].includes(s.to));
-  const mas = MAS.filter((m) => esAdmin || !("soloAdmin" in m));
+  const fijados = useFijados();
+  const [comandos, setComandos] = useState(false);
   const { pathname } = useLocation();
+  const actual = seccionDe(pathname);
+  const agencia = AGENCIA.filter((s) => esAdmin || !s.soloAdmin);
+
   useEffect(() => {
-    const s = [...SECCIONES, ...MAS, ...OTRAS].find((x) => pathname.startsWith(x.to));
-    document.title = s ? `${s.label} · LMTM` : "LMTM";
-  }, [pathname]);
+    document.title = actual.label ? `${actual.label} · LMTM` : "LMTM";
+  }, [actual.label]);
+
   return (
     // El shell es su propio contenedor de scroll: el body de paperclip tiene
     // overflow hidden (su layout scrollea adentro) y sin esto la página no bajaba.
     <div className="lmtm h-dvh overflow-y-auto" data-tema={theme === "dark" ? "oscuro" : "claro"}>
-      <div className="mx-auto flex min-h-dvh max-w-[1440px]">
+      <div className="mx-auto flex min-h-dvh max-w-[1520px]">
         {/* Riel (escritorio) */}
-        <aside className="sticky top-0 hidden h-dvh w-[220px] shrink-0 flex-col border-r border-l-linea px-3 py-5 md:flex">
-          <div className="px-2 pb-6 text-[17px] font-semibold tracking-[-0.01em]">
-            <span className="text-l-marca">LMTM</span>
-          </div>
-          <nav className="flex flex-col gap-0.5" aria-label="Secciones">
-            {secciones.map(({ to, label, Icono }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  `flex min-h-10 items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] transition-colors ${
-                    isActive ? "bg-l-marca-suave font-semibold text-l-marca" : "text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta"
-                  }`
-                }
-              >
-                <Icono className="h-[18px] w-[18px]" aria-hidden />
-                <span className="flex-1">{label}</span>
-                {contadores[to] != null && <span className="text-[12px] tabular-nums text-l-tinta-3">{contadores[to]}</span>}
-              </NavLink>
-            ))}
+        <aside className="sticky top-0 hidden h-dvh w-[240px] shrink-0 flex-col overflow-y-auto px-4 py-6 md:flex">
+          <Link to="/hoy" className="px-3 pb-6 text-[20px] font-bold tracking-[-0.01em] text-l-tinta">
+            LMTM <span className="text-l-marca">OS</span>
+          </Link>
+          <nav className="flex flex-col gap-1" aria-label="Secciones">
+            {PRINCIPALES.map(({ to, label, Icono, hijas }) => {
+              const abierta = actual.madre?.to === to;
+              return (
+                <div key={to}>
+                  <NavLink to={to} className={({ isActive }) => claseNav(isActive || abierta)}>
+                    <Icono className="h-[18px] w-[18px] shrink-0" aria-hidden />
+                    <span className="flex-1">{label}</span>
+                    <Cuenta n={porSeccion[to]} activo={abierta || pathname.startsWith(to)} />
+                  </NavLink>
+                  {abierta && hijas && (
+                    <div className="mt-1 flex flex-col gap-0.5 pl-9">
+                      {hijas.map((h) => (
+                        <NavLink
+                          key={h.to}
+                          to={h.to}
+                          end
+                          className={({ isActive }) => `flex min-h-9 items-center rounded-[10px] px-3 text-[13px] ${isActive ? "bg-l-marca-suave font-semibold text-l-tinta" : "text-l-tinta-2 hover:text-l-tinta"}`}
+                        >
+                          {h.label}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </nav>
-          <div className="mt-7 px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-l-tinta-3">Más</div>
-          <ul className="mt-1.5 flex flex-col">
-            {mas.map((m) => (
+
+          <div className="mt-6 px-3 text-[13px] font-semibold text-l-tinta">Fijados</div>
+          {fijados.lista.length === 0 ? (
+            <p className="mt-1 px-3 text-[12px] leading-snug text-l-tinta-3">Fijá un cliente desde su ficha y queda acá.</p>
+          ) : (
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {fijados.lista.map((f) => {
+                const n = porCliente.get(f.slug);
+                return (
+                  <li key={f.slug}>
+                    <NavLink to={`/clientes/${f.slug}`} className={({ isActive }) => claseNav(isActive)}>
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${n ? "bg-l-marca" : "bg-l-neutro"}`} aria-hidden />
+                      <span className="flex-1 truncate">{f.nombre}</span>
+                      <Cuenta n={n} />
+                      {n ? <span className="sr-only">{n} para decidir</span> : null}
+                    </NavLink>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <div className="mt-6 px-3 text-[13px] font-semibold text-l-tinta">Agencia</div>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {agencia.map((m) => (
               <li key={m.to}>
-                <NavLink
-                  to={m.to}
-                  className={({ isActive }) =>
-                    `flex min-h-8 items-center rounded-[8px] px-2.5 text-[13px] ${isActive ? "bg-l-marca-suave font-semibold text-l-marca" : "text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta"}`
-                  }
-                >
+                <NavLink to={m.to} className={({ isActive }) => `flex min-h-9 items-center rounded-[10px] px-3 text-[13px] ${isActive ? "bg-l-marca-suave font-semibold text-l-tinta" : "text-l-tinta-2 hover:bg-l-sup hover:text-l-tinta"}`}>
                   {m.label}
                 </NavLink>
               </li>
             ))}
           </ul>
-          <div className="mt-auto flex items-center justify-end px-1 pt-4">
-            <BotonTema oscuro={theme === "dark"} onClick={toggleTheme} />
-          </div>
         </aside>
 
         <main className="min-w-0 flex-1 pb-24 md:pb-10">
-          <Outlet />
+          <BarraSuperior onBuscar={() => setComandos(true)} oscuro={theme === "dark"} onTema={toggleTheme} />
+          <Suspense fallback={<p className="px-4 py-6 text-[14px] text-l-tinta-3 md:px-8" role="status">Cargando…</p>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 
       {/* Barra (celular) */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-l-linea bg-l-papel/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden"
         aria-label="Secciones"
-        style={{ gridTemplateColumns: `repeat(${enCelular.length}, minmax(0, 1fr))` }}
       >
-        {enCelular.map(({ to, label, Icono }) => (
+        {/* En el celular va lo de tomar acción; Pauta queda en el Ctrl+K y en cada cliente. */}
+        {PRINCIPALES.filter((s) => s.to !== "/pauta").map(({ to, label, Icono }) => (
           <NavLink
             key={to}
             to={to}
-            className={({ isActive }) => `relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] ${isActive ? "font-semibold text-l-marca" : "text-l-tinta-3"}`}
+            className={() => `relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] ${actual.madre?.to === to ? "font-semibold text-l-marca" : "text-l-tinta-3"}`}
           >
             <Icono className="h-5 w-5" aria-hidden />
             {label}
-            {contadores[to] != null && (
-              <span className="absolute right-[calc(50%-22px)] top-1.5 min-w-4 rounded-full bg-l-tinta px-1 text-center text-[10px] font-semibold leading-4 text-l-papel">
-                {contadores[to]}
+            {porSeccion[to] != null && (
+              <span className="absolute right-[calc(50%-22px)] top-1.5 min-w-4 rounded-full bg-l-marca px-1 text-center text-[10px] font-semibold leading-4 text-l-marca-tinta">
+                {porSeccion[to]}
               </span>
             )}
           </NavLink>
         ))}
       </nav>
+
+      <Comandos abierto={comandos} onCambio={setComandos} esAdmin={esAdmin} />
+    </div>
+  );
+}
+
+function BarraSuperior({ onBuscar, oscuro, onTema }: { onBuscar: () => void; oscuro: boolean; onTema: () => void }) {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-4 md:px-8 md:pt-6">
+      <button
+        type="button"
+        onClick={onBuscar}
+        className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 rounded-[14px] border border-l-linea-2 bg-l-sup/80 px-3.5 text-left text-[14px] text-l-tinta-3 hover:border-l-marca sm:max-w-[440px]"
+      >
+        <Search className="h-[18px] w-[18px] shrink-0" aria-hidden />
+        <span className="flex-1 truncate">Buscar cliente, sección o acción</span>
+        <span className="hidden sm:inline">
+          <Tecla>Ctrl K</Tecla>
+        </span>
+      </button>
+      <span className="flex-1" />
+      <Link to="/avisos" aria-label="Avisos" className="grid h-12 w-12 place-items-center rounded-[14px] border border-l-linea-2 bg-l-sup/80 text-l-tinta hover:border-l-marca">
+        <Bell className="h-[18px] w-[18px]" aria-hidden />
+      </Link>
+      <BotonTema oscuro={oscuro} onClick={onTema} />
     </div>
   );
 }
@@ -169,29 +208,23 @@ export function BotonTema({ oscuro, onClick }: { oscuro: boolean; onClick: () =>
     <button
       type="button"
       onClick={onClick}
-      className="grid h-9 w-9 place-items-center rounded-[8px] text-l-tinta-3 hover:bg-l-sup hover:text-l-tinta"
+      className="grid h-12 w-12 place-items-center rounded-[14px] border border-l-linea-2 bg-l-sup/80 text-l-tinta hover:border-l-marca"
       aria-label={oscuro ? "Pasar a modo claro" : "Pasar a modo oscuro"}
     >
-      {oscuro ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {oscuro ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
     </button>
   );
 }
 
 /** Encabezado de una pantalla de la app: título, bajada y lo de la derecha. */
 export function Encabezado({ titulo, bajada, derecha }: { titulo: ReactNode; bajada?: ReactNode; derecha?: ReactNode }) {
-  const { theme, toggleTheme } = useTheme();
   return (
-    <header className="flex flex-wrap items-end justify-between gap-3 px-4 pb-5 pt-6 md:px-8 md:pt-8">
+    <header className="flex flex-wrap items-end justify-between gap-3 px-4 pb-5 pt-6 md:px-8">
       <div className="min-w-0">
-        <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.02em] md:text-[28px]">{titulo}</h1>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] md:text-[30px]">{titulo}</h1>
         {bajada && <div className="mt-1 text-[13px] text-l-tinta-3">{bajada}</div>}
       </div>
-      <div className="flex items-center gap-2">
-        {derecha}
-        <span className="md:hidden">
-          <BotonTema oscuro={theme === "dark"} onClick={toggleTheme} />
-        </span>
-      </div>
+      {derecha && <div className="flex flex-wrap items-center gap-2">{derecha}</div>}
     </header>
   );
 }

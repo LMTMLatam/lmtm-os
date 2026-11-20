@@ -6,7 +6,8 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, OctagonAlert, Send } from "lucide-react";
+import { ArrowLeft, ExternalLink, OctagonAlert, Pin, Send } from "lucide-react";
+import { useFijados } from "../lmtm/fijados";
 import { Link, useParams } from "@/lib/router";
 import { api } from "../api/client";
 import { clientsApi } from "../api/clients";
@@ -42,6 +43,7 @@ export function ClienteApp() {
             {c?.name ?? slug}
             {/* Saltar de cliente cayendo en la misma sección. */}
             <SelectorCliente slugActual={slug} tab={activa} />
+            {c && <BotonFijar slug={c.slug} nombre={c.name.trim()} />}
           </span>
         }
         bajada={
@@ -99,6 +101,22 @@ export function ClienteApp() {
         )}
       </div>
     </>
+  );
+}
+
+/** Fija el cliente en el riel (rediseño 20/11). */
+export function BotonFijar({ slug, nombre }: { slug: string; nombre: string }) {
+  const f = useFijados();
+  const fijado = f.fijado(slug);
+  return (
+    <button
+      type="button"
+      onClick={() => f.alternar({ slug, nombre })}
+      aria-pressed={fijado}
+      className={`inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border px-3 text-[13px] font-medium ${fijado ? "border-l-marca bg-l-marca-suave text-l-tinta" : "border-l-linea-2 text-l-tinta-2 hover:text-l-tinta"}`}
+    >
+      <Pin className="h-3.5 w-3.5" aria-hidden /> {fijado ? "Fijado" : "Fijar"}
+    </button>
   );
 }
 
@@ -179,7 +197,7 @@ function AgentesDelCliente({ clientId }: { clientId: string }) {
           <button
             type="submit"
             disabled={pedido.trim().length < 5 || pedir.isPending}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-[10px] bg-l-tinta px-3.5 text-[14px] font-semibold text-l-papel disabled:opacity-50"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-[10px] bg-[image:var(--l-marca-grad)] px-3.5 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50"
           >
             <Send className="h-4 w-4" aria-hidden /> {pedir.isPending ? "Mandando…" : "Pedir"}
           </button>

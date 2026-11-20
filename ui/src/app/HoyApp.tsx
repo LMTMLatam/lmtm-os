@@ -189,7 +189,7 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
                       role="tab"
                       aria-selected={activo}
                       onClick={() => setFiltro(f.k)}
-                      className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] transition-colors ${activo ? "border-l-tinta bg-l-tinta font-semibold text-l-papel" : "border-l-linea-2 text-l-tinta-2 hover:border-l-tinta-3"}`}
+                      className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] transition-colors ${activo ? "border-transparent bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2 hover:border-l-tinta-3"}`}
                     >
                       {f.label} <span className={activo ? "opacity-70" : "text-l-tinta-3"}>{n}</span>
                     </button>
@@ -339,7 +339,7 @@ function TarjetaParaValidar() {
   });
   if (!q.data?.videos) return null;
   return (
-    <Link to="/produccion/generado" className="block text-inherit">
+    <Link to="/aprobaciones" className="block text-inherit">
       <Tarjeta className="h-full hover:border-l-tinta-3">
         <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
           <Clapperboard className="h-4 w-4" aria-hidden /> Videos para validar
@@ -435,7 +435,7 @@ function Agrupadas({ decisiones, porDecision }: { decisiones: Decision[]; porDec
 }
 
 /** Una decisión: cerrada es una línea; abierta trae el por qué, el agente y la acción. */
-function FilaAbrible({ d, agente, sinCliente }: { d: Decision; agente?: Trabajo; sinCliente?: boolean }) {
+export function FilaAbrible({ d, agente, sinCliente }: { d: Decision; agente?: Trabajo; sinCliente?: boolean }) {
   const [abierta, setAbierta] = useState(false);
   return (
     <li className="border-b border-l-linea last:border-b-0">

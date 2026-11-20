@@ -58,7 +58,7 @@ export function AvisosApp() {
                   role="tab"
                   aria-selected={activo}
                   onClick={() => setFiltro(k)}
-                  className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${activo ? "border-l-tinta bg-l-tinta font-semibold text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}
+                  className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${activo ? "border-transparent bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2"}`}
                 >
                   {k === "todos" ? "Todos" : ESTADO[k].label} <span className={activo ? "opacity-70" : "text-l-tinta-3"}>{n}</span>
                 </button>

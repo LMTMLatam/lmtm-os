@@ -111,7 +111,7 @@ export function TiposDeVideo() {
         <select
           value={cliente ? alcance : ""}
           onChange={(e) => e.target.value && elegir(e.target.value)}
-          className={`min-h-9 rounded-full border px-3 text-[13px] ${cliente ? "border-l-tinta bg-l-tinta text-l-papel" : "border-l-linea-2 bg-l-papel text-l-tinta-2"}`}
+          className={`min-h-9 rounded-full border px-3 text-[13px] ${cliente ? "border-transparent bg-[image:var(--l-marca-grad)] text-l-marca-tinta" : "border-l-linea-2 bg-l-papel text-l-tinta-2"}`}
           aria-label="Cliente"
         >
           <option value="">Por cliente…</option>
@@ -166,7 +166,7 @@ export function TiposDeVideo() {
 function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" role="tab" aria-selected={activo} onClick={onClick}
-      className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${activo ? "border-l-tinta bg-l-tinta text-l-papel" : "border-l-linea-2 text-l-tinta-2"}`}>
+      className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] ${activo ? "border-transparent bg-[image:var(--l-marca-grad)] text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2"}`}>
       {children}
     </button>
   );

@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Copy } from "lucide-react";
 import { Link } from "@/lib/router";
 import { api } from "../api/client";
-import { MAS } from "./Shell";
+import { AGENCIA } from "../lmtm/secciones";
 import { Encabezado } from "./Shell";
 import { Tarjeta, TituloFranja } from "./HoyApp";
 
@@ -101,7 +101,7 @@ function LinksDelConector() {
       <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (nombre.trim().length >= 2) agregar.mutate(); }}>
         <label className="sr-only" htmlFor="persona-conector">Nombre</label>
         <input id="persona-conector" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre (Marcos, Nazareno…)" className="min-h-9 min-w-0 flex-1 rounded-[8px] border border-l-linea-2 bg-transparent px-2 text-[13px]" />
-        <button type="submit" disabled={nombre.trim().length < 2 || agregar.isPending} className="min-h-9 rounded-[8px] bg-l-marca px-3 text-[13px] font-semibold text-white disabled:opacity-50">Dar link</button>
+        <button type="submit" disabled={nombre.trim().length < 2 || agregar.isPending} className="min-h-9 rounded-[8px] bg-l-marca px-3 text-[13px] font-semibold text-l-marca-tinta disabled:opacity-50">Dar link</button>
       </form>
       {agregar.data && !agregar.data.ok && <p className="mt-1 text-[12px] text-l-atencion-texto" role="alert">{agregar.data.motivo}</p>}
       {q.data?.linkCompartido.activo && (
@@ -151,7 +151,7 @@ export function ConfigApp() {
         <Tarjeta>
           <TituloFranja>Más pantallas</TituloFranja>
           <ul>
-            {MAS.map((m) => (
+            {AGENCIA.filter((m) => m.to !== "/config").map((m) => (
               <li key={m.to} className="border-b border-l-linea last:border-b-0">
                 <Link to={m.to} className="flex items-center gap-3 py-3 text-[14px] text-inherit hover:text-l-marca">
                   <span className="flex-1">{m.label}</span>

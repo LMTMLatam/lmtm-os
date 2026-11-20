@@ -40,7 +40,7 @@ export function PublicacionTrabada() {
             ) : confirmar === t.dlqId ? (
               <span className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="text-l-tinta-2">¿Publicarlo ahora en la cuenta de {t.cliente}?</span>
-                <button type="button" disabled={repro.isPending} onClick={() => repro.mutate(t.dlqId)} className="min-h-9 rounded-[8px] bg-l-marca px-3 font-semibold text-white disabled:opacity-50">Sí, reprocesar</button>
+                <button type="button" disabled={repro.isPending} onClick={() => repro.mutate(t.dlqId)} className="min-h-9 rounded-[8px] bg-l-marca px-3 font-semibold text-l-marca-tinta disabled:opacity-50">Sí, reprocesar</button>
                 <button type="button" onClick={() => setConfirmar(null)} className="min-h-9 rounded-[8px] px-2 text-l-tinta-2">Cancelar</button>
               </span>
             ) : (

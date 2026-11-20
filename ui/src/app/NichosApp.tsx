@@ -46,7 +46,7 @@ export function NichosApp() {
                   role="tab"
                   aria-selected={activo}
                   onClick={() => setElegido(x.niche)}
-                  className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] transition-colors ${activo ? "border-l-tinta bg-l-tinta font-semibold text-l-papel" : "border-l-linea-2 text-l-tinta-2 hover:border-l-tinta-3"}`}
+                  className={`min-h-9 shrink-0 rounded-full border px-3 text-[13px] transition-colors ${activo ? "border-transparent bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "border-l-linea-2 text-l-tinta-2 hover:border-l-tinta-3"}`}
                 >
                   {x.niche} <span className={activo ? "opacity-70" : "text-l-tinta-3"}>{x.clients.length}</span>
                 </button>

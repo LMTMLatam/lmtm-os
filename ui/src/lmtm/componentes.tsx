@@ -309,7 +309,7 @@ export function Boton({ tipo, children, ...props }: { tipo: "primario" | "secund
   const base = "min-h-11 rounded-[10px] px-3.5 text-[14px] disabled:opacity-50";
   const estilo =
     tipo === "primario"
-      ? "bg-l-tinta font-semibold text-l-papel"
+      ? "bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta"
       : "border border-l-linea-2 font-medium text-l-tinta-2";
   return (
     <button type={props.type ?? (tipo === "primario" && !props.onClick ? "submit" : "button")} className={`${base} ${estilo}`} {...props}>

@@ -1050,6 +1050,7 @@ span.paperclip-project-mention-chip {
   --color-l-linea-2: var(--l-linea-2);
   --color-l-marca: var(--l-marca);
   --color-l-marca-suave: var(--l-marca-suave);
+  --color-l-marca-tinta: var(--l-marca-tinta);
   --color-l-bien: var(--l-bien);
   --color-l-bien-texto: var(--l-bien-texto);
   --color-l-atencion: var(--l-atencion);
@@ -1071,8 +1072,13 @@ span.paperclip-project-mention-chip {
   --l-tinta-3: #666a77;
   --l-linea: #e7e5df;
   --l-linea-2: #d9d6ce;
-  --l-marca: #3545d6;
-  --l-marca-suave: #eef0ff;
+  /* Magenta oscuro en claro (20/11): 6.5:1 sobre el papel. */
+  --l-marca: #a3168f;
+  --l-marca-suave: #fbeefa;
+  --l-marca-tinta: #ffffff;
+  --l-marca-grad: linear-gradient(90deg, #c22bb5, #a3168f);
+  --l-brillo: radial-gradient(900px 520px at 0% 0%, rgba(240, 92, 245, 0.1), rgba(240, 92, 245, 0) 62%);
+  --l-brillo-caja: none;
   /* Estado: fijos (paleta validada de dataviz), siempre con ícono y palabra. */
   --l-bien: #0ca30c;
   --l-bien-texto: #0b7a0b;
@@ -1084,7 +1090,7 @@ span.paperclip-project-mention-chip {
   --l-critico-suave: #fdf1f0;
   --l-neutro: #c9c6bd;
   --l-neutro-2: #dcd8ce;
-  background: var(--l-papel);
+  background: var(--l-brillo), var(--l-papel);
   color: var(--l-tinta);
   font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -1111,21 +1117,28 @@ span.paperclip-project-mention-chip {
   --ring: var(--l-marca);
 }
 
+/* Rediseño 20/11: oscuro con magenta (la maqueta aprobada). Texto sobre papel y
+   superficie ≥ 4.5:1; la tinta-3 (#9c8fab) da 6:1 sobre #150e1c. */
 .lmtm[data-tema="oscuro"] {
   color-scheme: dark;
-  --l-papel: #101116;
-  --l-sup: #191b22;
-  --l-tinta: #f4f3ef;
-  --l-tinta-2: #bfc2cc;
-  --l-tinta-3: #9a9daa;
-  --l-linea: #2a2d36;
-  --l-linea-2: #363a45;
-  --l-marca: #8f98ff;
-  --l-marca-suave: #22264a;
+  --l-papel: #0b0710;
+  --l-sup: #150e1c;
+  --l-tinta: #f4eef8;
+  --l-tinta-2: #b9aec4;
+  --l-tinta-3: #9c8fab;
+  --l-linea: #241a2c;
+  --l-linea-2: #34283f;
+  --l-marca: #f05cf5;
+  --l-marca-suave: #34123a;
+  --l-marca-tinta: #1a0420;
+  --l-marca-grad: linear-gradient(90deg, #ff7af7, #e23df0);
+  --l-brillo: radial-gradient(900px 520px at 0% 0%, rgba(240, 92, 245, 0.32), rgba(240, 92, 245, 0) 62%);
+  --l-brillo-caja: radial-gradient(420px 240px at 0% 0%, rgba(240, 92, 245, 0.26), rgba(240, 92, 245, 0) 70%);
   --l-bien-texto: #3cc23c;
   --l-atencion-texto: #fab219;
   --l-critico-texto: #ef6b6b;
   --l-critico-suave: #2a1617;
-  --l-neutro: #4a4d57;
-  --l-neutro-2: #30333c;
+  --l-neutro: #4a3f55;
+  --l-neutro-2: #2c2235;
+  --primary-foreground: var(--l-marca-tinta);
 }

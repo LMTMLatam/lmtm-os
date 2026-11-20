@@ -11,29 +11,12 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, OctagonAlert } from "lucide-react";
 import { Link } from "@/lib/router";
-import { api } from "../api/client";
 import { approvalsApi } from "../api/approvals";
 import { Boton } from "../lmtm/componentes";
+import { propuestasApi, type GrupoPropuestas as Grupo, type Propuesta } from "../lmtm/aprobaciones";
 import { TituloFranja } from "./HoyApp";
 
-interface Propuesta {
-  clave: string;
-  ids: string[];
-  agentes: string[];
-  clientId: string | null;
-  cliente: string | null;
-  slug: string | null;
-  resumen: string;
-  justificacion: string;
-  createdAt: string;
-}
-
 type Resultado = { ok: boolean; detalle: string };
-type Grupo = "pauta" | "otras";
-
-const propuestasApi = {
-  listar: (grupo: Grupo) => api.get<{ propuestas: Propuesta[] }>(grupo === "otras" ? "/agentes/propuestas?grupo=otras" : "/agentes/propuestas"),
-};
 
 // 16/11: web, código y pedidos al equipo no tenían pantalla desde que salió la de Aprobaciones de paperclip.
 const TEXTOS: Record<Grupo, { titulo: string; bajada: string; tanda: (n: number) => string }> = {
