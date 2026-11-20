@@ -119,7 +119,7 @@ interface AgenteFlota {
  * mientras cada rol pasa al runner y le gana en el evaluador
  * (docs/rediseno/OPTIMIZACION-EQUIPO.md).
  */
-interface AgenteMotor { id: string; nombre: string; estado: string; enMotorPropio: boolean; corridas7d: number; bien7d: number; ultima: string | null }
+interface AgenteMotor { id: string; nombre: string; estado: string; enMotorPropio: boolean; corridas7d: number; bien7d: number; cortadas7d: number; tareasTerminadas7d: number; ultima: string | null }
 
 function Flota() {
   const qc = useQueryClient();
@@ -135,7 +135,7 @@ function Flota() {
     <Tarjeta>
       <TituloFranja>La flota · 7 días</TituloFranja>
       <p className="-mt-1.5 mb-2 text-[12px] leading-[1.45] text-l-tinta-3">
-        «Motor LMTM»: lo corre el motor propio (mismas herramientas y skills, topes de cuota y de 3 corridas por tarea por día). «Paperclip»: el heartbeat viejo.
+        «Motor LMTM»: lo corre el motor propio (mismas herramientas y skills, tope de 30 turnos por corrida y de 3 corridas por tarea por día; al tercer corte seguido la tarea se frena para que la mire una persona). «Paperclip»: el heartbeat viejo. Las fallas no cuentan los cortes por el tope.
       </p>
       {migrar.data && !migrar.data.ok && <p className="mb-2 text-[12px] text-l-critico-texto" role="alert">{migrar.data.motivo}</p>}
       {as.some((a) => a.frenadas > 0) && (
@@ -170,7 +170,14 @@ function Flota() {
                   <span className={`rounded-full px-2 py-px font-semibold ${m.enMotorPropio ? "bg-l-marca-suave text-l-marca" : "bg-l-papel text-l-tinta-3"}`}>
                     {m.enMotorPropio ? "Motor LMTM" : "Paperclip"}
                   </span>
-                  {m.enMotorPropio && <span className="tabular-nums text-l-tinta-3">{m.bien7d}/{m.corridas7d} bien en el motor</span>}
+                  {/* Lo que cuenta es la tarea terminada; cortarse por el tope y retomar es diseño, no falla (20/11). */}
+                  {m.enMotorPropio && (
+                    <span className="tabular-nums text-l-tinta-3">
+                      <span className="font-semibold text-l-tinta">{m.tareasTerminadas7d} {m.tareasTerminadas7d === 1 ? "tarea terminada" : "tareas terminadas"}</span>
+                      {` · ${m.corridas7d} corridas`}
+                      {m.cortadas7d > 0 ? ` (${m.cortadas7d} cortadas por el tope y retomadas)` : ""}
+                    </span>
+                  )}
                   <button type="button" disabled={migrar.isPending} onClick={() => migrar.mutate({ agentId: m.id, alMotor: !m.enMotorPropio })}
                     className="min-h-7 rounded-[8px] border border-l-linea-2 px-2 text-l-tinta-2 hover:text-l-tinta disabled:opacity-50">
                     {m.enMotorPropio ? "Volver a paperclip" : "Pasar al motor LMTM"}

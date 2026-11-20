@@ -2,7 +2,7 @@
 // corrida de 30 a 56 turnos gastaba 2 a 5 M de tokens releyendo el contexto. Estos tests
 // cuidan el tope por corrida y la vara de "cuota ajustada".
 import { describe, expect, it } from "vitest";
-import { consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUSTADA, demasiadosCortes, rastroDeCorte, TURNOS_MAX } from "../motor.js";
+import { AVISOS_QUE_NO_DESPIERTAN, consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUSTADA, demasiadosCortes, rastroDeCorte, textoFrenada, TURNOS_MAX } from "../motor.js";
 
 describe("tope de cortes seguidos", () => {
   const corte = "max_turns_exhausted";
@@ -69,5 +69,19 @@ describe("puntos adelantados de la cuota semanal", () => {
     const ahora = inicio + 0.5 * SEMANA;
     expect(puntosAdelantado(e(0.5), ahora)).toBeCloseTo(0, 5);
     expect(vaAdelantado(e(0.39), ahora)).toBe(true);
+  });
+});
+
+describe("comentarios del motor que no despiertan al agente (20/11)", () => {
+  const noDespierta = (t: string) => new RegExp(AVISOS_QUE_NO_DESPIERTAN).test(t);
+  it("los avisos que escribe el motor no reviven una tarea en revisión", () => {
+    const rastro = rastroDeCorte(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Miro la cuenta" }] } }))!;
+    expect(noDespierta(rastro)).toBe(true);
+    expect(noDespierta(textoFrenada())).toBe(true);
+    expect(noDespierta("Pasada a «en revisión»: hoy no se puede hacer")).toBe(true);
+  });
+  it("el comentario de una persona sí la despierta", () => {
+    expect(noDespierta("Seguí con esto, ya cargué la clave.")).toBe(false);
+    expect(noDespierta("Ojo: La corrida se cortó por el tope, pero ya está")).toBe(false); // solo al principio
   });
 });

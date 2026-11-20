@@ -224,7 +224,7 @@ export function agentesRoutes(db: Db) {
         select a.name, a.status,
           (a.runtime_config->'heartbeat'->>'intervalSec')::int as latido,
           (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days') as corridas,
-          (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days' and r.status in ('failed', 'timed_out')) as fallas,
+          (select count(*)::int from heartbeat_runs r where r.agent_id = a.id and r.created_at > now() - interval '7 days' and r.status in ('failed', 'timed_out') and r.error_code is distinct from 'max_turns_exhausted') as fallas,
           (select max(r.created_at) from heartbeat_runs r where r.agent_id = a.id) as ultima,
           -- Por qué corrió poco: los despertares que se cortaron por la cuota
           -- del modelo (10/11: ~17.000 en una semana y el panel no lo decía).

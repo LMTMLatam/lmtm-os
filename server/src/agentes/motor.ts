@@ -12,7 +12,7 @@
 //    una sola por versión de la tarea (no vuelve a correr si nadie la tocó después).
 // Las tareas y las rutinas siguen siendo las de paperclip por ahora (paso 4 del plan).
 
-import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, heartbeatRuns, instanceSettings, issueComments, issues } from "@paperclipai/db";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
@@ -118,7 +118,7 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
         -- Comentarios de otro (persona u otro agente). Los avisos administrativos de las limpiezas no despiertan a nadie.
         (select max(c.created_at) from issue_comments c where c.issue_id = i.id and c.author_agent_id is distinct from i.assignee_agent_id
            -- Tampoco los del propio motor (20/11): el rastro del corte revivía la tarea en revisión (LMTM-7105 corrió 3 veces más).
-           and c.body !~ '^(Cerrada en la limpieza|Pasada a «en revisión»|La corrida se cortó por el tope|Frenada por cortes seguidos)') ultimo_ajeno,
+           and c.body !~ ${AVISOS_QUE_NO_DESPIERTAN}) ultimo_ajeno,
         (select max(r.created_at) from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
         -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
         (select r.error_code from heartbeat_runs r where r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
@@ -165,6 +165,18 @@ async function comentariosRecientes(db: Db, issueId: string) {
 /** Cortes seguidos por el tope de turnos tras los que la tarea se frena para que la mire una persona. */
 export const CORTES_SEGUIDOS_MAX = 3;
 
+/** Puro. El aviso que deja el motor al frenar una tarea por cortes seguidos. */
+export function textoFrenada(): string {
+  return `Frenada por cortes seguidos: ${CORTES_SEGUIDOS_MAX} corridas al hilo llegaron al tope de ${TURNOS_MAX} turnos sin terminar. No entra en una corrida: hay que partirla en tareas más chicas o achicarle el alcance. Un comentario de una persona la vuelve a correr.`;
+}
+
+/**
+ * Los comentarios administrativos que NO despiertan al agente (regex de Postgres, también válida en JS). Todo aviso
+ * nuevo que escriba el motor o una limpieza tiene que entrar acá: el 20/11 el rastro del corte no estaba y revivía
+ * tareas en revisión (LMTM-7105 corrió 3 veces más). El test lo controla contra los textos reales.
+ */
+export const AVISOS_QUE_NO_DESPIERTAN = "^(Cerrada en la limpieza|Pasada a «en revisión»|La corrida se cortó por el tope|Frenada por cortes seguidos)";
+
 /**
  * Puro. Con los códigos de error de las corridas ANTERIORES de la tarea (la más nueva primero), si el corte
  * de ahora completa CORTES_SEGUIDOS_MAX seguidos (20/11: LMTM-7110 se cortó 9 veces y LMTM-7195 6, 0 bien).
@@ -209,6 +221,12 @@ export function rastroDeCorte(salida: string): string | null {
   ].join("\n");
 }
 
+/**
+ * Las corridas que este proceso está corriendo ahora (las del reloj y las manuales). La limpieza de colgadas solo da
+ * por muerta una «running» que no esté acá: antes cortaba a los 90 min fijos, y el Editor tiene 90 de tope (auditoría 20/11).
+ */
+const corridasVivas = new Set<string>();
+
 /** Corre UNA tarea con el adaptador del agente. Devuelve el estado de la corrida. */
 export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean } = {}): Promise<{ runId: string | null; estado: string; motivo?: string }> {
   const [agent] = await db.select().from(agents).where(eq(agents.id, p.agentId)).limit(1);
@@ -244,6 +262,7 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
     startedAt: new Date(), contextSnapshot: contexto, triggerDetail: FUENTE, sessionIdBefore: p.sesion ?? null,
   }).returning({ id: heartbeatRuns.id, createdAt: heartbeatRuns.createdAt });
   if (!run) return { runId: null, estado: "fallo", motivo: "no se pudo registrar la corrida" };
+  corridasVivas.add(run.id);
 
   let salida = "";
   let errores = "";
@@ -307,13 +326,14 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
           .where(and(eq(issues.id, p.issueId), inArray(issues.status, ["todo", "in_progress"]))).returning({ id: issues.id });
         if (frenada.length) await db.insert(issueComments).values({
           companyId: agent.companyId, issueId: p.issueId, authorType: "system",
-          body: `Frenada por cortes seguidos: ${CORTES_SEGUIDOS_MAX} corridas al hilo llegaron al tope de ${TURNOS_MAX} turnos sin terminar. No entra en una corrida: hay que partirla en tareas más chicas o achicarle el alcance. Un comentario de una persona la vuelve a correr.`,
+          body: textoFrenada(),
         } as never);
       }
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   } finally {
+    corridasVivas.delete(run.id);
     await db.update(heartbeatRuns).set({
       status: estado, finishedAt: new Date(), error: error ? enmascararClaves(error).slice(0, 2000) : null, errorCode,
       stdoutExcerpt: enmascararClaves(salida).slice(-8_000), stderrExcerpt: enmascararClaves(errores).slice(-4_000), updatedAt: new Date(),
@@ -346,9 +366,14 @@ export function iniciarMotor(db: Db): void {
     try {
       const { agentes } = await configMotor(db);
       if (!agentes.length) return;
-      // Corridas que quedaron «running» de un proceso que se murió (deploy): a fallo.
+      // Corridas que quedaron «running» de un proceso que se murió (deploy): a fallo. Las que corre este proceso no se
+      // tocan; los 10 min cubren el rato en que, durante un deploy, el contenedor viejo todavía está terminando las suyas.
+      const vivas = [...corridasVivas];
       await db.update(heartbeatRuns).set({ status: "failed", error: "Se cortó sin terminar (reinicio del servidor).", finishedAt: new Date() })
-        .where(and(eq(heartbeatRuns.invocationSource, FUENTE), eq(heartbeatRuns.status, "running"), sql`${heartbeatRuns.startedAt} < now() - interval '90 minutes'`));
+        .where(and(
+          eq(heartbeatRuns.invocationSource, FUENTE), eq(heartbeatRuns.status, "running"), sql`${heartbeatRuns.startedAt} < now() - interval '10 minutes'`,
+          ...(vivas.length ? [notInArray(heartbeatRuns.id, vivas)] : []),
+        ));
       // Tareas tomadas por una corrida del motor que ya terminó (cortada por el reaper o un deploy): se sueltan. Si no, la
       // rutina del día siguiente no puede tomar la suya (índice único issues_open_routine_execution_uq; Luna 18/11).
       await db.update(issues).set({ executionRunId: null, executionLockedAt: null })
@@ -377,11 +402,21 @@ export async function estadoMotor(db: Db) {
   const { agentes } = await configMotor(db);
   const todos = await db.select({ id: agents.id, name: agents.name, status: agents.status, adapterType: agents.adapterType }).from(agents)
     .where(inArray(agents.adapterType, ["claude_local"]));
+  // Auditoría 20/11: una corrida cortada por el tope de turnos es diseño (la siguiente la retoma), no una falla; y lo que
+  // importa es cuántas TAREAS terminó el agente, no cuántas corridas hizo.
   const r = await db.execute(sql`select agent_id, count(*)::int total, count(*) filter (where status = 'succeeded')::int bien,
+      count(*) filter (where error_code = 'max_turns_exhausted')::int cortadas,
       max(created_at) ultima from heartbeat_runs where invocation_source = ${FUENTE} and created_at > now() - interval '7 days' group by 1`);
-  const corridas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ agent_id: string; total: number; bien: number; ultima: string }>;
+  const t = await db.execute(sql`select assignee_agent_id agent_id, count(*)::int terminadas from issues
+      where status = 'done' and completed_at > now() - interval '7 days' and assignee_agent_id is not null group by 1`);
+  const corridas = (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ agent_id: string; total: number; bien: number; cortadas: number; ultima: string }>;
+  const tareas = (Array.isArray(t) ? t : ((t as { rows?: unknown[] }).rows ?? [])) as Array<{ agent_id: string; terminadas: number }>;
   return todos.map((a) => {
     const c = corridas.find((x) => x.agent_id === a.id);
-    return { id: a.id, nombre: a.name, estado: a.status, enMotorPropio: agentes.includes(a.id), corridas7d: c?.total ?? 0, bien7d: c?.bien ?? 0, ultima: c?.ultima ?? null };
+    return {
+      id: a.id, nombre: a.name, estado: a.status, enMotorPropio: agentes.includes(a.id),
+      corridas7d: c?.total ?? 0, bien7d: c?.bien ?? 0, cortadas7d: c?.cortadas ?? 0,
+      tareasTerminadas7d: tareas.find((x) => x.agent_id === a.id)?.terminadas ?? 0, ultima: c?.ultima ?? null,
+    };
   }).sort((x, y) => Number(y.enMotorPropio) - Number(x.enMotorPropio) || x.nombre.localeCompare(y.nombre));
 }
