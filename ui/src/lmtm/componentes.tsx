@@ -17,12 +17,12 @@ import { etiquetaAccion, etiquetaResponsable, formatoDato, pesos, tocaLaPauta } 
 const CLAVE_TEMA = "lmtm.tema";
 
 function temaGuardado(): "claro" | "oscuro" {
-  // El almacenamiento del navegador puede no estar (ventana privada, bloqueado):
-  // sin él, claro, que es el de por defecto.
+  // 20/11: el informe del cliente usa el tema del panel, oscuro por defecto (claro con el botón, para imprimir).
+  // Sin almacenamiento (ventana privada, bloqueado), oscuro.
   try {
-    return window.localStorage.getItem(CLAVE_TEMA) === "oscuro" ? "oscuro" : "claro";
+    return window.localStorage.getItem(CLAVE_TEMA) === "claro" ? "claro" : "oscuro";
   } catch {
-    return "claro";
+    return "oscuro";
   }
 }
 

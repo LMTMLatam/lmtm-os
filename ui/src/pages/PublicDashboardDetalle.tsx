@@ -48,6 +48,8 @@ import {
   Sparkles,
   ExternalLink,
   RefreshCcw,
+  Moon,
+  Sun,
   BarChart3,
   Image as ImageIcon,
   MessageCircle,
@@ -216,16 +218,11 @@ function prevRange(since: string, until: string): { since: string; until: string
   return { since: sumarDias(pu, -(days - 1)), until: pu };
 }
 
-const ACCENTS = {
-  blue: { chip: "linear-gradient(135deg, #2a78d6, #4a3aa7)" },
-  green: { chip: "linear-gradient(135deg, #1baf7a, #0e8a60)" },
-  amber: { chip: "linear-gradient(135deg, #eda100, #eb6834)" },
-  rose: { chip: "linear-gradient(135deg, #e87ba4, #d03b6b)" },
-  violet: { chip: "linear-gradient(135deg, #7c5ce0, #4a3aa7)" },
-} as const;
+// 20/11: las tarjetas ya no llevan color propio; la curva de cada una, con la paleta de series del panel.
+const ACCENTS = { blue: {}, green: {}, amber: {}, rose: {}, violet: {} } as const;
 
 const SPARK_COLORS: Record<keyof typeof ACCENTS, string> = {
-  blue: "#2a78d6", green: "#1baf7a", amber: "#eda100", rose: "#e87ba4", violet: "#7c5ce0",
+  blue: "var(--l-serie-1)", green: "var(--pv-c3)", amber: "var(--l-serie-2)", rose: "var(--l-serie-1)", violet: "var(--l-serie-1)",
 };
 
 function Kpi({ title, value, sub, icon: Icon, accent = "blue", delta, big = false, alert = false, spark, sparkId }: {
@@ -243,23 +240,18 @@ function Kpi({ title, value, sub, icon: Icon, accent = "blue", delta, big = fals
   sparkId?: string;
 }) {
   return (
-    <Card className={`p-3.5 relative overflow-hidden ${alert ? "border-rose-500/60 bg-rose-500/5" : ""}`}>
-      <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: alert ? "#d03b3b" : ACCENTS[accent].chip }} />
-      <div className="flex items-start justify-between gap-2">
-        <div className="space-y-0.5 min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium truncate">{title}</p>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <p className={`${big ? "text-xl sm:text-2xl" : "text-lg sm:text-xl"} font-bold tabular-nums truncate`} title={typeof value === "string" ? value : undefined}>{value}</p>
-            {delta}
-          </div>
-          {sub && <p className="text-[10px] text-muted-foreground truncate">{sub}</p>}
-        </div>
-        <div className="hidden shrink-0 rounded-lg p-2 text-white shadow-sm min-[420px]:block" style={{ background: ACCENTS[accent].chip }}>
-          <Icon className="h-4 w-4" />
-        </div>
+    <div className={`relative flex flex-col gap-1.5 overflow-hidden rounded-[20px] border bg-l-sup p-4 ${alert ? "border-l-critico" : "border-l-linea"}`}>
+      <p className="flex items-center justify-between gap-2 text-[12px] text-l-tinta-2">
+        <span className="truncate">{title}</span>
+        <Icon className={`h-4 w-4 shrink-0 ${alert ? "text-l-critico" : "text-l-marca"}`} aria-hidden />
+      </p>
+      <div className="flex flex-wrap items-baseline gap-2">
+        <p className={`${big ? "text-[26px]" : "text-[22px]"} truncate font-semibold leading-tight tracking-[-0.02em] tabular-nums`} title={typeof value === "string" ? value : undefined}>{value}</p>
+        {delta}
       </div>
-      {spark && spark.length > 1 && <Spark points={spark} color={alert ? "#d03b3b" : SPARK_COLORS[accent]} id={sparkId ?? title} />}
-    </Card>
+      {sub && <p className="truncate text-[11px] text-l-tinta-3">{sub}</p>}
+      {spark && spark.length > 1 && <Spark points={spark} color={alert ? "var(--l-critico)" : SPARK_COLORS[accent]} id={sparkId ?? title} />}
+    </div>
   );
 }
 
@@ -334,25 +326,41 @@ export function PublicDashboardDetalle() {
   return <PublicDashboardInner slug={slug!} client={client} dashboard={dashboard} />;
 }
 
-/** El reporte que ve el CLIENTE es siempre claro y prolijo, sin importar el
- *  tema del panel interno (que suele estar en dark). Se fuerza light mientras
- *  la página está montada y se restaura al salir. */
-function useForceLightTheme() {
+/**
+ * El reporte del cliente con la estética del panel (20/11, Naza: «pasá el dashboard del cliente al tema nuevo de
+ * colores y estética nueva del panel»): oscuro magenta por defecto, con un botón a claro (para imprimir). La elección
+ * queda en el navegador de quien lo mira; sin almacenamiento, arranca oscuro. Se restaura el tema de la app al salir.
+ */
+const CLAVE_TEMA_REPORTE = "lmtm.reporte.tema";
+function useTemaReporte(): ["oscuro" | "claro", () => void] {
+  const [tema, setTema] = useState<"oscuro" | "claro">(() => {
+    try {
+      return window.localStorage.getItem(CLAVE_TEMA_REPORTE) === "claro" ? "claro" : "oscuro";
+    } catch {
+      return "oscuro";
+    }
+  });
   useEffect(() => {
     const root = document.documentElement;
     const wasDark = root.classList.contains("dark");
     const prevScheme = root.style.colorScheme;
-    root.classList.remove("dark");
-    root.style.colorScheme = "light";
+    root.classList.toggle("dark", tema === "oscuro");
+    root.style.colorScheme = tema === "oscuro" ? "dark" : "light";
+    try {
+      window.localStorage.setItem(CLAVE_TEMA_REPORTE, tema);
+    } catch {
+      /* sin almacenamiento: dura lo que la pestaña */
+    }
     return () => {
-      if (wasDark) root.classList.add("dark");
+      root.classList.toggle("dark", wasDark);
       root.style.colorScheme = prevScheme;
     };
-  }, []);
+  }, [tema]);
+  return [tema, () => setTema((t) => (t === "oscuro" ? "claro" : "oscuro"))];
 }
 
 function PublicDashboardInner({ slug, client, dashboard }: { slug: string; client: PublicClient; dashboard: PublicHeader }) {
-  useForceLightTheme();
+  const [tema, cambiarTema] = useTemaReporte();
   // El día en Buenos Aires (20/11): con toISOString, de 21 a 24 h "ayer" salía hoy y entraba el día a medio cargar.
   const hoy = useMemo(() => diaLocal(new Date()), []);
   /** Tope de lo que se puede elegir a mano: hoy. Distinto del default. */
@@ -496,9 +504,9 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
 
   return (
     // Scrollea el documento (useScrollDelDocumento), no este contenedor.
-    // Rediseño 20/11: la paleta del panel en su versión clara (el reporte del cliente sigue claro y prolijo, se
-    // imprime), y la franja de arriba con el oscuro y el brillo magenta de la marca.
-    <div className="lmtm min-h-dvh bg-background pv" data-tema="claro">
+    // 20/11: la estética del panel (oscuro magenta por defecto, claro con el botón para imprimir) y su paleta de
+    // gráficos (pv-lmtm, validada con dataviz).
+    <div className="lmtm min-h-dvh bg-l-papel pv pv-lmtm" data-tema={tema}>
       <PubvizTheme />
       {/* Hero header */}
       <header className="text-white" style={{ background: "radial-gradient(900px 420px at 0% 0%, rgba(240,92,245,.45), rgba(240,92,245,0) 62%), #0b0710" }}>
@@ -515,13 +523,24 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
                 Ver el informe de la semana →
               </a>
             </div>
-            <div className="flex items-center gap-2 text-[10px] text-white/70 bg-white/10 rounded-full px-3 py-1.5 backdrop-blur">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-300" />
-              </span>
-              <span>En vivo · actualizado {lastSync}</span>
-              <RefreshCcw className="h-3 w-3" />
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: "var(--l-bien)" }} />
+                  <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "var(--l-bien)" }} />
+                </span>
+                <span>En vivo · actualizado {lastSync}</span>
+                <RefreshCcw className="h-3 w-3" aria-hidden />
+              </div>
+              <button
+                type="button"
+                onClick={cambiarTema}
+                className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 backdrop-blur hover:text-white"
+                aria-label={tema === "oscuro" ? "Ver en claro (para imprimir)" : "Ver en oscuro"}
+                title={tema === "oscuro" ? "Ver en claro (para imprimir)" : "Ver en oscuro"}
+              >
+                {tema === "oscuro" ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
+              </button>
             </div>
           </div>
         </div>
@@ -533,7 +552,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
               <button
                 key={p}
                 onClick={() => setPlatform(p)}
-                className={`text-xs px-2.5 py-1.5 rounded-full transition-colors ${platform === p ? "bg-white text-slate-900 font-semibold shadow-sm" : "text-white/80 hover:text-white hover:bg-white/10"}`}
+                className={`text-xs px-3 py-1.5 rounded-full transition-colors ${platform === p ? "bg-[image:var(--l-marca-grad)] font-semibold text-l-marca-tinta" : "text-white/80 hover:text-white hover:bg-white/10"}`}
               >
                 {p === "all" ? "Todas" : p === "meta" ? "Meta" : "Google"}
               </button>
@@ -544,9 +563,9 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
 
       {/* Las secciones, con su nombre tambien en el celular (antes eran solo
           iconos) y siempre a mano: la barra queda arriba al bajar. */}
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 shadow-[0_1px_0_rgba(15,23,42,0.03)] backdrop-blur">
+      <div className="sticky top-0 z-20 border-b border-l-linea bg-l-papel/95 backdrop-blur">
         <div className="max-w-7xl mx-auto px-2 sm:px-4">
-          <ScrollLateral fondo="#ffffff" etiqueta="Secciones del reporte">
+          <ScrollLateral fondo="var(--l-papel)" etiqueta="Secciones del reporte">
             {SECTIONS.map((s) => {
               const Icon = s.icon;
               const isActive = s.value === activeSection;
@@ -557,10 +576,10 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
                   data-activo={isActive}
                   onClick={() => irASeccion(s.value)}
                   className={`-mb-px inline-flex min-h-12 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] transition-colors ${
-                    isActive ? "border-[#a3168f] font-semibold text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
+                    isActive ? "border-l-marca font-semibold text-l-tinta" : "border-transparent text-l-tinta-3 hover:text-l-tinta"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${isActive ? "text-[#a3168f]" : ""}`} />
+                  <Icon className={`h-4 w-4 ${isActive ? "text-l-marca" : ""}`} />
                   {s.label}
                 </button>
               );
@@ -575,7 +594,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
       </main>
 
       <footer className="border-t mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 text-[10px] text-muted-foreground text-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 text-[11px] text-l-tinta-3 text-center">
           Powered by LMTM-OS · {dashboard.label ?? client.name}
         </div>
       </footer>
@@ -732,7 +751,7 @@ function ResumenPublic({ series, campaigns, totalSpend, totalImpr, totalClicks, 
         )}
       </Card>
       <Card className="p-4">
-        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Sparkles className="h-4 w-4" style={{ color: "#a3168f" }} /> ¿A dónde fue la inversión?</h3>
+        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Sparkles className="h-4 w-4 text-l-marca" /> ¿A dónde fue la inversión?</h3>
         <Donut slices={donutSlices} fmtValue={(n) => fmt.fmtMoney(n)} centerLabel="invertido" />
       </Card>
     </div>
@@ -762,7 +781,7 @@ function PresupuestoPublic({ totalSpend, series, campaigns, fmt }: any) {
         <Card className="p-4">
           <h3 className="text-sm font-semibold mb-3">Presupuesto consumido</h3>
           <div className="h-3 rounded-full bg-muted overflow-hidden">
-            <div className={`h-full ${overBudget ? "bg-rose-500" : consumedPct > 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(consumedPct, 100)}%` }} />
+            <div className={`h-full ${overBudget ? "bg-l-critico" : consumedPct > 80 ? "bg-l-atencion" : "bg-l-bien"}`} style={{ width: `${Math.min(consumedPct, 100)}%` }} />
           </div>
         </Card>
       )}
@@ -828,12 +847,12 @@ function NovedadesPublic({ items }: { items: Array<{ area: string; titular: stri
   return (
     <Card className="mb-4 p-4">
       <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
-        <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden /> Novedades
+        <Sparkles className="h-4 w-4 text-l-marca" aria-hidden /> Novedades
       </h3>
       <ul className="grid gap-3 md:grid-cols-2">
         {items.map((n, i) => (
           <li key={i} className="flex gap-2">
-            <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-l-bien-texto" aria-hidden />
             <div className="min-w-0">
               <p className="text-sm font-semibold leading-snug">{n.titular}</p>
               <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{n.detalle}</p>
@@ -938,7 +957,7 @@ function CampanasPublic({ campaigns, fmt }: { campaigns: Campaign[]; fmt: any })
                   <td className="py-2 px-2 font-medium max-w-[220px] truncate" title={c.name}>{c.name}</td>
                   <td className="py-2 px-2">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: active ? "#0ca30c" : "var(--pv-muted)" }} />
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: active ? "var(--l-bien)" : "var(--pv-muted)" }} />
                       <span className={active ? "font-medium" : "text-muted-foreground"}>{active ? "Activa" : c.status}</span>
                     </span>
                   </td>
@@ -1164,7 +1183,7 @@ function AudienciaPublic({ data, fmt }: { data: Record<string, AudFila[]>; fmt: 
   return (
     <div className="space-y-4">
       {(mejorEdad || mejorGenero) && (
-        <Card className="p-4 border-l-4" style={{ borderLeftColor: "#1baf7a" }}>
+        <Card className="p-4 border-l-4" style={{ borderLeftColor: "var(--l-bien)" }}>
           <h3 className="text-sm font-semibold mb-1">¿A quién le está hablando tu pauta?</h3>
           <p className="text-sm text-muted-foreground">
             {mejorGenero && <>El público que más responde es <strong className="text-foreground">{lindo(mejorGenero.key).toLowerCase()}</strong>{" "}({fmt.fmtInt(mejorGenero.leads)} consultas). </>}

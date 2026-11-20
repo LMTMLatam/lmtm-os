@@ -1149,12 +1149,14 @@ span.paperclip-project-mention-chip {
 }
 
 /* LMTM 20/11: el tablero de Campañas de la ficha usa la paleta del panel (magenta, ámbar, verde, azul; validada con
-   dataviz en claro y oscuro). El tablero público para el cliente no lleva pv-lmtm y queda como estaba. */
-.lmtm .pv.pv-lmtm {
+   dataviz en claro y oscuro). Desde el 20/11 también el tablero público del cliente (PublicDashboardDetalle). */
+.lmtm .pv.pv-lmtm,
+.lmtm.pv.pv-lmtm {
   --pv-c1: var(--l-serie-1); --pv-c2: var(--l-serie-2); --pv-c3: #1b9e6e; --pv-c4: #2a78d6; --pv-c5: var(--l-tinta-3);
   --pv-other: var(--l-linea-2); --pv-grid: var(--l-linea); --pv-axis: var(--l-linea-2); --pv-muted: var(--l-tinta-3);
   --pv-up: var(--l-bien); --pv-down: var(--l-critico);
   --pv-f1: color-mix(in srgb, var(--l-serie-1) 30%, var(--l-sup)); --pv-f2: color-mix(in srgb, var(--l-serie-1) 50%, var(--l-sup));
   --pv-f3: color-mix(in srgb, var(--l-serie-1) 70%, var(--l-sup)); --pv-f4: color-mix(in srgb, var(--l-serie-1) 85%, var(--l-sup)); --pv-f5: var(--l-serie-1);
 }
-.lmtm[data-tema="oscuro"] .pv.pv-lmtm { --pv-c3: #199e70; --pv-c4: #3987e5; }
+.lmtm[data-tema="oscuro"] .pv.pv-lmtm,
+.lmtm.pv.pv-lmtm[data-tema="oscuro"] { --pv-c3: #199e70; --pv-c4: #3987e5; }

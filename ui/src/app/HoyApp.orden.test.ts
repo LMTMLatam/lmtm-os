@@ -80,5 +80,6 @@ describe("orden de la pantalla Hoy", () => {
     expect(temaDe({ tipo: "cola:esperando_persona" })).toBe("esperan");
     expect(temaDe({ tipo: "web:caida_google" })).toBe("web");
     expect(temaDe({ tipo: "contenido:busquedas" })).toBe("web");
-  });
+    // Importa la pantalla entera (gráficos incluidos): con todos los tests en paralelo pasaba los 5 s por defecto.
+  }, 30_000);
 });
