@@ -10,7 +10,8 @@ describe("mapa del panel", () => {
     }
   });
   it("una hija marca a su madre, y la ruta más específica gana", () => {
-    expect(seccionDe("/biblioteca")).toMatchObject({ madre: { to: "/contenido" }, label: "Biblioteca" });
+    expect(seccionDe("/trabajo")).toMatchObject({ madre: { to: "/agentes" }, label: "Trabajo" });
+    expect(seccionDe("/contenido/calendario")).toMatchObject({ madre: null, label: "Calendario de todos los clientes" });
     expect(seccionDe("/produccion/tipos").label).toBe("Tipos de video");
     expect(seccionDe("/clientes/boero/calendario")).toMatchObject({ madre: { to: "/clientes" }, label: "Clientes" });
     expect(seccionDe("/nada").label).toBeNull();

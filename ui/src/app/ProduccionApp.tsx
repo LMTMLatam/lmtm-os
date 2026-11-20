@@ -8,8 +8,8 @@ import { Encabezado } from "./Shell";
 import { TiposDeVideo } from "./TiposDeVideo";
 
 export const PESTANAS_PRODUCCION = [
+  { to: "/contenido", label: "Producción y edición" },
   { to: "/produccion/tipos", label: "Tipos de video" },
-  { to: "/produccion/generado", label: "Contenido generado" },
 ] as const;
 
 export function PestanasProduccion() {
@@ -33,7 +33,7 @@ export function PestanasProduccion() {
 export function TiposDeVideoApp() {
   return (
     <>
-      <Encabezado titulo="Producción" bajada="Cómo se edita cada tipo de video, para todos, por rubro o para un cliente" />
+      <Encabezado titulo="Contenido" bajada="Cómo se edita cada tipo de video, para todos, por rubro o para un cliente" />
       <PestanasProduccion />
       <div className="px-4 pb-10 md:px-8">
         <TiposDeVideo />

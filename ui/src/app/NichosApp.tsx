@@ -99,7 +99,7 @@ function Rubro({ n }: { n: NicheIntel }) {
       <Tarjeta>
         <TituloFranja>Qué funciona en orgánico · cuentas del rubro</TituloFranja>
         <QueFuncionaNicho nicho={n.niche} />
-        <p className="mt-3 text-[12px] text-l-tinta-3">Cada publicación contra lo normal de su cuenta (1× = lo normal). <Link to="/contenido#que-funciona" className="text-l-tinta-2 hover:text-l-marca">Todas las cuentas →</Link></p>
+        <p className="mt-3 text-[12px] text-l-tinta-3">Cada publicación contra lo normal de su cuenta (1× = lo normal). <Link to="/contenido/calendario#que-funciona" className="text-l-tinta-2 hover:text-l-marca">Todas las cuentas →</Link></p>
       </Tarjeta>
 
       <Tarjeta>

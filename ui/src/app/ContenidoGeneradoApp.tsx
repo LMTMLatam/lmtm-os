@@ -123,8 +123,8 @@ export function ContenidoGeneradoApp() {
   return (
     <>
       <Encabezado
-        titulo="Producción"
-        bajada="Pedile videos al Productor, pasale crudos al Editor, validá lo que hicieron y mirá lo generado con su link de Drive"
+        titulo="Contenido"
+        bajada="Producción y edición: pedile piezas nuevas al Productor, pasale crudos al Editor y mirá lo que entregaron"
         derecha={
           <div className="flex gap-1" role="group" aria-label="Período">
             {PERIODOS.map((n) => (
@@ -143,8 +143,11 @@ export function ContenidoGeneradoApp() {
       />
       <PestanasProduccion />
       <div className="space-y-8 px-4 pb-10 md:px-8">
-        <PedirVideo />
-        <PedirAlEditor />
+        {/* Rediseño 20/11 (Naza): «en contenido solo lo de edición y lo de producción, bien intuitivo». */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <PedirVideo />
+          <PedirAlEditor />
+        </div>
         {q.isLoading && (
           <p className="flex items-center gap-2 text-[14px] text-l-tinta-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Cargando…</p>
         )}
@@ -156,50 +159,7 @@ export function ContenidoGeneradoApp() {
 
         {d && (
           <section>
-            <TituloFranja>Gasto por herramienta · últimos {d.dias} días</TituloFranja>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {Object.keys(HERRAMIENTAS).map((h) => (
-                <TarjetaHerramienta key={h} h={h} t={d.totales.find((x) => x.herramienta === h)} e={estado.data} />
-              ))}
-            </div>
-            <p className="mt-2 text-[12px] text-l-tinta-3">
-              El costo es el que cotiza cada herramienta al momento de pedir. Las bolsas no se suman entre sí. Lo generado antes del 11/10 no tiene el gasto registrado.
-            </p>
-          </section>
-        )}
-
-        {d && d.porCliente.length > 0 && (
-          <section>
-            <TituloFranja>Por cliente</TituloFranja>
-            <div className="overflow-x-auto rounded-2xl border border-l-linea bg-l-sup">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr className="border-b border-l-linea text-left text-[12px] text-l-tinta-3">
-                    <th className="px-3 py-2 font-medium">Cliente</th>
-                    <th className="px-3 py-2 font-medium">Herramienta</th>
-                    <th className="px-3 py-2 text-right font-medium">Generaciones</th>
-                    <th className="px-3 py-2 font-medium">Gasto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.porCliente.flatMap((c) =>
-                    c.herramientas.map((t, i) => (
-                      <tr key={`${c.clientId}-${t.herramienta}`} className="border-b border-l-linea last:border-0">
-                        <td className="px-3 py-2">{i === 0 ? c.cliente : ""}</td>
-                        <td className="px-3 py-2 text-l-tinta-2">{nombreHerramienta(t.herramienta)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{t.generaciones}</td>
-                        <td className="px-3 py-2 tabular-nums text-l-tinta-2">{costo(t)}</td>
-                      </tr>
-                    )))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {d && (
-          <section>
-            <TituloFranja>Piezas · {visibles.length}</TituloFranja>
+            <TituloFranja>Lo que entregaron · {visibles.length}</TituloFranja>
             <div className="mb-3 flex flex-wrap gap-2">
               <label className="relative min-w-0 flex-1 sm:max-w-xs">
                 <span className="sr-only">Buscar</span>
@@ -233,6 +193,54 @@ export function ContenidoGeneradoApp() {
             )}
           </section>
         )}
+        {d && (
+          <details className="rounded-2xl border border-l-linea bg-l-sup px-4 py-3">
+            <summary className="min-h-10 cursor-pointer text-[14px] font-semibold text-l-tinta-2">Gasto de las herramientas · últimos {d.dias} días</summary>
+            <div className="mt-4 space-y-8">
+          <section>
+            <TituloFranja>Por herramienta</TituloFranja>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {Object.keys(HERRAMIENTAS).map((h) => (
+                <TarjetaHerramienta key={h} h={h} t={d.totales.find((x) => x.herramienta === h)} e={estado.data} />
+              ))}
+            </div>
+            <p className="mt-2 text-[12px] text-l-tinta-3">
+              El costo es el que cotiza cada herramienta al momento de pedir. Las bolsas no se suman entre sí. Lo generado antes del 11/10 no tiene el gasto registrado.
+            </p>
+          </section>
+
+        {d.porCliente.length > 0 && (
+          <section>
+            <TituloFranja>Por cliente</TituloFranja>
+            <div className="overflow-x-auto rounded-2xl border border-l-linea bg-l-sup">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-l-linea text-left text-[12px] text-l-tinta-3">
+                    <th className="px-3 py-2 font-medium">Cliente</th>
+                    <th className="px-3 py-2 font-medium">Herramienta</th>
+                    <th className="px-3 py-2 text-right font-medium">Generaciones</th>
+                    <th className="px-3 py-2 font-medium">Gasto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.porCliente.flatMap((c) =>
+                    c.herramientas.map((t, i) => (
+                      <tr key={`${c.clientId}-${t.herramienta}`} className="border-b border-l-linea last:border-0">
+                        <td className="px-3 py-2">{i === 0 ? c.cliente : ""}</td>
+                        <td className="px-3 py-2 text-l-tinta-2">{nombreHerramienta(t.herramienta)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{t.generaciones}</td>
+                        <td className="px-3 py-2 tabular-nums text-l-tinta-2">{costo(t)}</td>
+                      </tr>
+                    )))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+            </div>
+          </details>
+        )}
       </div>
     </>
   );
@@ -259,7 +267,7 @@ function PedirVideo() {
   const lista = [...(clientes.data?.clients ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <section>
-      <TituloFranja>Pedile un video al Productor</TituloFranja>
+      <TituloFranja>Producción · pedile una pieza al Productor</TituloFranja>
       <Tarjeta>
         <form
           className="flex flex-col gap-2"
@@ -339,7 +347,7 @@ function PedirAlEditor() {
   const valida = !!clientId && ruta.trim().startsWith("/LMTM/");
   return (
     <section>
-      <TituloFranja>Pedile al Editor: crudos → piezas listas</TituloFranja>
+      <TituloFranja>Edición · pasale los crudos al Editor</TituloFranja>
       <Tarjeta>
         <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (valida) pedir.mutate(); }}>
           <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-9 min-w-0 rounded-[8px] border border-l-linea-2 bg-l-sup px-2 text-[14px]" aria-label="Cliente" required>

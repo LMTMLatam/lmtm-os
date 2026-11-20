@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
 import { Shell } from "./app/Shell";
-import { HoyApp } from "./app/HoyApp";
+import { DecisionesApp, HoyApp } from "./app/HoyApp";
 import { useCompany } from "./context/CompanyContext";
 
 /**
@@ -352,6 +352,7 @@ export function App() {
           <Route element={<Shell />}>
             <Route path="hoy" element={<HoyApp />} />
             <Route path="aprobaciones" element={<AprobacionesApp />} />
+            <Route path="decisiones" element={<DecisionesApp />} />
             <Route path="clientes" element={<ClientesApp />} />
             <Route path="clientes/:slug" element={<ClienteApp />} />
             <Route path="clientes/:slug/:seccion" element={<ClienteApp />} />
@@ -364,11 +365,13 @@ export function App() {
             <Route path="semaforo" element={<Growth />} />
             <Route path="pauta" element={<PautaApp />} />
             <Route path="avisos" element={<AvisosApp />} />
-            <Route path="contenido" element={<ContenidoApp />} />
-            <Route path="contenido/generado" element={<Navigate to="/produccion/generado" replace />} />
-            <Route path="produccion" element={<Navigate to="/produccion/tipos" replace />} />
+            {/* 20/11 (Naza): Contenido es producción y edición; el calendario de todos los clientes quedó aparte. */}
+            <Route path="contenido" element={<ContenidoGeneradoApp />} />
+            <Route path="contenido/calendario" element={<ContenidoApp />} />
+            <Route path="contenido/generado" element={<Navigate to="/contenido" replace />} />
+            <Route path="produccion" element={<Navigate to="/contenido" replace />} />
             <Route path="produccion/tipos" element={<TiposDeVideoApp />} />
-            <Route path="produccion/generado" element={<ContenidoGeneradoApp />} />
+            <Route path="produccion/generado" element={<Navigate to="/contenido" replace />} />
             <Route path="nichos" element={<NichosApp />} />
             <Route path="inteligencia" element={<Intelligence />} />
             <Route path="licitaciones" element={<LicitacionesApp />} />

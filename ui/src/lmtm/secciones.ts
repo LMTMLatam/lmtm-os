@@ -2,7 +2,7 @@
 // comandos (Ctrl+K) y la ficha del cliente leen de acá. No se perdió ninguna sección:
 // se agruparon.
 
-import { Activity, Bot, Clapperboard, Film, Inbox, Library, LineChart, ListChecks, Users, type LucideIcon } from "lucide-react";
+import { Bot, Clapperboard, Inbox, LineChart, ListChecks, Users, type LucideIcon } from "lucide-react";
 
 export interface Seccion { to: string; label: string; soloAdmin?: boolean }
 export interface SeccionPrincipal extends Seccion { Icono: LucideIcon; hijas?: Seccion[] }
@@ -16,10 +16,10 @@ export const PRINCIPALES: SeccionPrincipal[] = [
     to: "/contenido",
     label: "Contenido",
     Icono: Clapperboard,
+    // 20/11 (Naza): «en contenido solo producción y edición; lo otro es de cada cliente». El calendario de todos y
+    // la Biblioteca siguen abriéndose desde el Ctrl+K (OTRAS).
     hijas: [
-      { to: "/contenido", label: "Calendario y piezas" },
-      { to: "/biblioteca", label: "Biblioteca" },
-      { to: "/produccion/generado", label: "Producción" },
+      { to: "/contenido", label: "Producción y edición" },
       { to: "/produccion/tipos", label: "Tipos de video" },
     ],
   },
@@ -49,13 +49,13 @@ export const AGENCIA: Seccion[] = [
 
 /** Se abren desde Configuración; están acá para el título de la pestaña y el Ctrl+K. */
 export const OTRAS: Seccion[] = [
+  { to: "/decisiones", label: "Todas las decisiones" },
+  { to: "/contenido/calendario", label: "Calendario de todos los clientes" },
+  { to: "/biblioteca", label: "Biblioteca" },
   { to: "/preparacion", label: "Preparación" },
   { to: "/conexiones", label: "Conexiones" },
   { to: "/avisos", label: "Avisos" },
 ];
-
-/** Iconos de las hijas de una madre, para la barra del celular. */
-export const ICONO_HIJA: Record<string, LucideIcon> = { "/biblioteca": Library, "/produccion/generado": Film, "/actividad": Activity };
 
 /** Puro. La sección (o hija) que corresponde a una ruta, para marcarla y titular la pestaña. */
 export function seccionDe(pathname: string): { madre: SeccionPrincipal | null; label: string | null } {

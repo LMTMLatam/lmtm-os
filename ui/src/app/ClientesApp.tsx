@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, Hourglass, OctagonAlert, Search, Unplug, X } from "lucide-react";
-import { Link } from "@/lib/router";
+import { Link, useSearchParams } from "@/lib/router";
 import { api } from "../api/client";
 import { carteraApi, type FilaCartera } from "../api/informes";
 import { EstadoObjetivoMarca } from "../lmtm/componentes";
@@ -66,7 +66,9 @@ export function ClientesApp() {
     queryFn: () => api.get<{ trabadas: Array<{ clientId: string | null }> }>("/publicacion/trabadas"),
     staleTime: 5 * 60_000,
   });
-  const [vista, setVista] = useState<Vista>("todo");
+  // ?vista=contenido abre directo esa vista (la tarjeta «Contenido, 7 días» de Hoy).
+  const [params] = useSearchParams();
+  const [vista, setVista] = useState<Vista>(params.get("vista") === "contenido" ? "contenido" : params.get("vista") === "pauta" ? "pauta" : "todo");
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [orden, setOrden] = useState<Orden>("plata");
   const [buscar, setBuscar] = useState("");

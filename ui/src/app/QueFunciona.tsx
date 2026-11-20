@@ -230,7 +230,7 @@ export function TarjetaQueFunciona() {
   const angulo = a?.angulos[0] ?? null;
   const formato = a?.formatos[0] ?? null;
   return (
-    <Link to="/contenido#que-funciona" className="block text-inherit">
+    <Link to="/contenido/calendario#que-funciona" className="block text-inherit">
       <Tarjeta className="h-full hover:border-l-tinta-3">
         <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
           <Sparkles className="h-4 w-4" aria-hidden /> Lo que funciona

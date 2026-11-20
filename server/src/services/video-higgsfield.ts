@@ -193,7 +193,8 @@ export async function ideasSuperRedes(db: Db, clientId: string): Promise<{ lista
     return {
       id: t.id, nombre: t.name, url: t.url, status: raw.status?.status ?? null,
       creada: raw.date_created ? new Date(Number(raw.date_created)).toISOString() : null,
-      tipo: t.tipo, estado: campo(raw, /^\s*estado/i), aprobacion: campo(raw, /aprobaci[oó]n/i), copy: t.copy,
+      // El texto completo vive en ClickUp: con la descripción entera eran ~320 KB por cliente (mediana 2.800 caracteres).
+      tipo: t.tipo, estado: campo(raw, /^\s*estado/i), aprobacion: campo(raw, /aprobaci[oó]n/i), copy: t.copy && t.copy.length > 900 ? `${t.copy.slice(0, 900)}…` : t.copy,
       pedida: t.tags.includes(TAG_PEDIDO) || TAGS_PEDIDO_LEGACY.some((x) => t.tags.includes(x)),
       generada: t.tags.includes(TAG_LISTO) || TAGS_LISTO_LEGACY.some((x) => t.tags.includes(x)),
       productor: porTarea.get(t.id) ?? null,

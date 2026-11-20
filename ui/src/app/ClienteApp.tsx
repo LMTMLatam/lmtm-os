@@ -91,7 +91,7 @@ function BarraAcciones({ c }: { c: Client }) {
       <Link to={`/clientes/${c.slug}/agentes`} className="inline-flex min-h-11 items-center gap-2 rounded-[12px] bg-[image:var(--l-marca-grad)] px-4 text-[14px] font-semibold text-l-marca-tinta">
         <Send className="h-4 w-4" aria-hidden /> Pedir a un agente
       </Link>
-      <Link to="/produccion/generado" className={claseAccion}>
+      <Link to="/contenido" className={claseAccion}>
         <Clapperboard className="h-4 w-4" aria-hidden /> Nueva pieza
       </Link>
       {informe && (

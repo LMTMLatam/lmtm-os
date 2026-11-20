@@ -124,7 +124,7 @@ export function ContenidoApp() {
   return (
     <>
       <Encabezado
-        titulo="Contenido"
+        titulo="Calendario de todos los clientes"
         bajada={
           <>
             Redes de todos los clientes, de ClickUp en vivo
@@ -203,7 +203,7 @@ export function ContenidoApp() {
         <section>
           <div className="flex flex-wrap items-baseline gap-x-3">
             <TituloFranja>Generado</TituloFranja>
-            <Link to="/produccion/generado" className="text-[13px] text-l-tinta-2 hover:text-l-marca">Todo, con sus links y lo que gastó (Producción) →</Link>
+            <Link to="/contenido" className="text-[13px] text-l-tinta-2 hover:text-l-marca">Todo, con sus links y lo que gastó (Producción) →</Link>
           </div>
           <Galeria items={generados.data?.videos ?? []} cargando={generados.isLoading} />
         </section>

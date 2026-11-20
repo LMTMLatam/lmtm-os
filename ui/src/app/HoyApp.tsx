@@ -1,15 +1,13 @@
-// LMTM: Hoy como bandeja (fase C1). Lo que cambió respecto de la lista de B2:
-//  · filtros (aprobar / equipo / cliente) y búsqueda, y agrupar por cliente;
-//  · cada fila se abre en el lugar: por qué completo, lo que encontró el agente
-//    y la acción, sin salir de la pantalla;
-//  · al costado, lo que hicieron los agentes (escritorio).
-// Modelo de la bandeja: avisar / preguntar / aprobar (Agent Inbox, ver
-// docs/rediseno/INVESTIGACION.md).
+// LMTM: Hoy y Decisiones. Rediseño 20/11 (pedido de Naza): Hoy muestra solo lo
+// urgente, los números de la agencia, unas pocas sugerencias y lo que hicieron los
+// agentes. La lista entera de decisiones, con filtros, búsqueda y agrupar por
+// cliente, quedó en /decisiones (DecisionesApp). Cada fila se abre en el lugar:
+// por qué completo, lo que encontró el agente y la acción.
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, ChevronDown, Clapperboard, Loader2, OctagonAlert, Search, Sparkles, WifiOff } from "lucide-react";
-import { Link } from "@/lib/router";
+import { Link, useSearchParams } from "@/lib/router";
 import { api } from "../api/client";
 import { decisionesApi, type Decision, type Fuente, type Hoy } from "../api/decisiones";
 import { AccionesDecision, BarraCobertura, BloqueIncidente, LeyendaCobertura, Plata, PorQue } from "../lmtm/componentes";
@@ -20,6 +18,9 @@ import { Encabezado } from "./Shell";
 import { PropuestasAgentes } from "./Propuestas";
 import { TareasEsperando } from "./Esperando";
 import { TarjetaQueFunciona } from "./QueFunciona";
+import { PublicacionTrabada } from "./PublicacionTrabada";
+import { useAprobaciones } from "../lmtm/aprobaciones";
+import { repartirHoy } from "../lmtm/hoy";
 
 // Por tema y no por "quién": el 07/10 Nazareno pidió que sea más fácil de
 // atacar. Se entra por lo que hay que hacer (plata, contenido, conexiones,
@@ -44,7 +45,7 @@ const FILTROS: Array<{ k: Filtro; label: string; pasa: (d: Decision) => boolean 
 const ES_COLA = (d: Decision) => d.tipo === "cola:esperando_persona";
 const NOMBRE_FUENTE: Record<Fuente, string> = { meta_ads: "Meta", google_ads: "Google", organico: "Redes" };
 
-export function HoyApp() {
+function useDatosHoy() {
   const hoy = useQuery({ queryKey: ["lmtm", "hoy"], queryFn: () => decisionesApi.hoy(), staleTime: 60_000, refetchInterval: 5 * 60_000 });
   const trabajos = useQuery({
     queryKey: ["lmtm", "agentes", "trabajos"],
@@ -57,34 +58,191 @@ export function HoyApp() {
     for (const t of trabajos.data?.trabajos ?? []) if (t.ref?.startsWith("decision:") && !m.has(t.ref.slice(9))) m.set(t.ref.slice(9), t);
     return m;
   }, [trabajos.data]);
+  return { hoy, trabajos: trabajos.data?.trabajos ?? [], porDecision };
+}
 
+function Bajada({ h }: { h?: Hoy }) {
+  return (
+    <>
+      {fechaLarga(new Date())}
+      {h?.ultimaCorrida ? ` · actualizado a las ${horaCorta(h.ultimaCorrida)}` : ""}
+    </>
+  );
+}
+
+function CargaHoy({ hoy }: { hoy: ReturnType<typeof useDatosHoy>["hoy"] }) {
+  if (hoy.isLoading) return <p className="text-[14px] text-l-tinta-3" role="status">Cargando…</p>;
+  if (!hoy.error) return null;
+  return (
+    <p className="flex gap-1.5 text-[14px] text-l-critico-texto" role="alert">
+      <OctagonAlert className="mt-0.5 h-4 w-4" aria-hidden /> No se pudo cargar: {hoy.error instanceof Error ? hoy.error.message : "error"}
+    </p>
+  );
+}
+
+/**
+ * Hoy (pedido de Naza 20/11): solo lo urgente, los números que importan a la agencia, unas pocas sugerencias y lo que
+ * hicieron los agentes. «Las decisiones a mano no las usamos mucho»: la lista entera quedó en /decisiones, a un clic.
+ */
+export function HoyApp() {
+  const { hoy, trabajos, porDecision } = useDatosHoy();
+  const h = hoy.data;
+  const r = h ? repartirHoy(h.decisiones, h.oportunidades ?? []) : null;
   return (
     <>
       <Encabezado
         titulo="Hoy"
-        bajada={
-          <>
-            {fechaLarga(new Date())}
-            {hoy.data?.ultimaCorrida ? ` · decisiones actualizadas a las ${horaCorta(hoy.data.ultimaCorrida)}` : ""}
-          </>
+        bajada={<Bajada h={h} />}
+        derecha={
+          r && (
+            <Link to="/decisiones" className="inline-flex min-h-11 items-center rounded-[12px] border border-l-linea-2 px-4 text-[14px] text-l-tinta-2 hover:border-l-marca hover:text-l-tinta">
+              Todas las decisiones · {r.total}
+            </Link>
+          )
         }
-        derecha={hoy.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-l-tinta-3" aria-label="Actualizando" /> : null}
       />
-      <div className="px-4 md:px-8">
-        {hoy.isLoading && <p className="text-[14px] text-l-tinta-3">Cargando…</p>}
-        {hoy.error && (
-          <p className="flex gap-1.5 text-[14px] text-l-critico-texto" role="alert">
-            <OctagonAlert className="mt-0.5 h-4 w-4" aria-hidden /> No se pudo cargar Hoy: {hoy.error instanceof Error ? hoy.error.message : "error"}
-          </p>
-        )}
-        {hoy.data && <Contenido h={hoy.data} porDecision={porDecision} trabajos={trabajos.data?.trabajos ?? []} />}
+      <div className="grid gap-8 px-4 md:px-8 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-8">
+          <CargaHoy hoy={hoy} />
+          {h && r && <Urgente h={h} urgentes={r.urgentes} porDecision={porDecision} />}
+          {h && <NumerosAgencia h={h} trabajos={trabajos} />}
+          {r && r.sugerencias.length > 0 && (
+            <section>
+              <TituloFranja>Sugerencias para hoy</TituloFranja>
+              <p className="-mt-1.5 mb-3 text-[13px] text-l-tinta-3">Lo que más vale de lo que detectaron las reglas y los agentes. Lo demás está en «Todas las decisiones».</p>
+              <Lista decisiones={r.sugerencias} porDecision={porDecision} />
+            </section>
+          )}
+        </div>
+        <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+          {r && (r.esperan.length > 0 || r.conexiones.length > 0) && (
+            <Tarjeta>
+              <TituloFranja>Para cuando haya un rato</TituloFranja>
+              <ul className="space-y-1 text-[14px]">
+                {r.esperan.length > 0 && (
+                  <li>
+                    <Link to="/decisiones?filtro=esperan" className="flex min-h-10 items-center justify-between gap-2 text-l-tinta hover:text-l-marca">
+                      Agentes esperando una respuesta <span className="tabular-nums text-l-tinta-3">{r.esperan.length}</span>
+                    </Link>
+                  </li>
+                )}
+                {r.conexiones.length > 0 && (
+                  <li>
+                    <Link to="/decisiones?filtro=conexiones" className="flex min-h-10 items-center justify-between gap-2 text-l-tinta hover:text-l-marca">
+                      Clientes con datos sin conectar <span className="tabular-nums text-l-tinta-3">{r.conexiones.length}</span>
+                    </Link>
+                  </li>
+                )}
+              </ul>
+            </Tarjeta>
+          )}
+          <Tarjeta>
+            <div className="mb-3 flex items-center justify-between">
+              <TituloFranja sinMargen>Lo que hicieron los agentes</TituloFranja>
+              <Link to="/agentes" className="text-[12px] font-semibold text-l-marca">
+                Ver todo
+              </Link>
+            </div>
+            <FeedAgentes trabajos={trabajos.slice(0, 8)} />
+          </Tarjeta>
+          <TarjetaQueFunciona />
+        </aside>
       </div>
     </>
   );
 }
 
-function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<string, Trabajo>; trabajos: Trabajo[] }) {
-  const [filtro, setFiltro] = useState<Filtro>("todo");
+/** Lo que corta la pauta o la publicación hoy. Sin nada, una línea: no una pantalla vacía. */
+function Urgente({ h, urgentes, porDecision }: { h: Hoy; urgentes: Decision[]; porDecision: Map<string, Trabajo> }) {
+  const nada = h.whatsapp !== "desconectado" && h.incidentes.length === 0 && urgentes.length === 0;
+  return (
+    <section className="space-y-4">
+      <TituloFranja critico={!nada}>Urgente</TituloFranja>
+      {h.whatsapp === "desconectado" && (
+        <p className="flex gap-2 rounded-xl border-l-[3px] border-l-l-critico bg-l-critico-suave px-3 py-2.5 text-[14px]" role="alert">
+          <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-l-critico" aria-hidden />
+          <span>
+            <span className="font-semibold">El WhatsApp de avisos está desconectado.</span> Mientras siga así no sale ningún aviso.
+          </span>
+        </p>
+      )}
+      {h.incidentes.length > 0 && (
+        <ul>
+          {h.incidentes.map((d) => (
+            <BloqueIncidente key={d.id} d={d} />
+          ))}
+        </ul>
+      )}
+      {urgentes.length > 0 && <Lista decisiones={urgentes} porDecision={porDecision} />}
+      <PublicacionTrabada />
+      {nada && <p className="text-[14px] text-l-tinta-2">Sin incidentes, saldos por agotarse ni publicación cortada.</p>}
+    </section>
+  );
+}
+
+/** Los cuatro números que importan a la agencia, cada uno con su link. */
+function NumerosAgencia({ h, trabajos }: { h: Hoy; trabajos: Trabajo[] }) {
+  const aprobar = useAprobaciones();
+  const hechosHoy = trabajos.filter((t) => t.estado === "hecho" && t.finishedAt && Date.now() - new Date(t.finishedAt).getTime() < 86_400_000).length;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+      <Tarjeta className="bg-[image:var(--l-brillo-caja)]">
+        <div className="text-[13px] font-medium text-l-tinta-2">Plata parada por día</div>
+        {h.plataParada != null ? (
+          <div className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.03em]">{pesos(h.plataParada)}</div>
+        ) : (
+          <div className="mt-1 text-[24px] italic text-l-tinta-3">sin dato</div>
+        )}
+        <div className="mt-1.5 text-[12px] text-l-tinta-3">
+          {h.plataParada != null && `en ${h.clientesParados} ${h.clientesParados === 1 ? "cliente" : "clientes"} · `}datos hasta ayer
+        </div>
+        <Evolucion puntos={h.evolucion ?? []} />
+      </Tarjeta>
+      <Link to="/aprobaciones" className="block text-inherit">
+        <Tarjeta className="h-full hover:border-l-tinta-3">
+          <div className="text-[13px] font-medium text-l-tinta-2">Para aprobar</div>
+          <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{aprobar.cargando ? "…" : aprobar.total}</div>
+          <div className="mt-1.5 text-[12px] text-l-tinta-3">
+            {aprobar.n.pauta} de pauta · {aprobar.n.contenido} piezas · {aprobar.n.web} web y pedidos
+          </div>
+        </Tarjeta>
+      </Link>
+      <TarjetaContenido />
+      <Link to="/agentes" className="block text-inherit">
+        <Tarjeta className="h-full hover:border-l-tinta-3">
+          <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
+            <Bot className="h-4 w-4" aria-hidden /> Agentes
+          </div>
+          <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{hechosHoy}</div>
+          <div className="mt-1.5 text-[12px] text-l-tinta-3">trabajos terminados en 24 h</div>
+        </Tarjeta>
+      </Link>
+    </div>
+  );
+}
+
+/** La lista entera de lo que detectaron las reglas, con sus filtros (antes era Hoy). */
+export function DecisionesApp() {
+  const { hoy, porDecision } = useDatosHoy();
+  const [params] = useSearchParams();
+  const inicial = FILTROS.find((f) => f.k === params.get("filtro"))?.k ?? "todo";
+  return (
+    <>
+      <Encabezado
+        titulo="Decisiones"
+        bajada={<Bajada h={hoy.data} />}
+        derecha={hoy.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-l-tinta-3" aria-label="Actualizando" /> : null}
+      />
+      <div className="px-4 md:px-8">
+        <CargaHoy hoy={hoy} />
+        {hoy.data && <Contenido key={inicial} h={hoy.data} porDecision={porDecision} filtroInicial={inicial} />}
+      </div>
+    </>
+  );
+}
+
+function Contenido({ h, porDecision, filtroInicial }: { h: Hoy; porDecision: Map<string, Trabajo>; filtroInicial: Filtro }) {
+  const [filtro, setFiltro] = useState<Filtro>(filtroInicial);
   const [buscar, setBuscar] = useState("");
   const [agrupar, setAgrupar] = useState(false);
   const [verTodas, setVerTodas] = useState(false);
@@ -97,8 +255,6 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
   const { visibles: aLaVista, plegadas, porFamilia } = plegarSinPlata(filtradas);
   const plegar = !verTodas && filtro === "todo" && !texto;
   const visibles = plegar ? aLaVista : filtradas;
-  const investigadas = h.decisiones.filter((d) => porDecision.get(d.id)?.estado === "hecho").length;
-  const hechosHoy = trabajos.filter((t) => t.estado === "hecho" && t.finishedAt && Date.now() - new Date(t.finishedAt).getTime() < 86_400_000).length;
 
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -137,42 +293,6 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
             </ul>
           </section>
         )}
-
-        {/* Los números del día. La plata es el héroe. */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
-          <Tarjeta>
-            <div className="text-[13px] font-medium text-l-tinta-2">Plata parada por día</div>
-            {h.plataParada != null ? (
-              <div className="mt-1 text-[44px] font-semibold leading-none tracking-[-0.03em]">{pesos(h.plataParada)}</div>
-            ) : (
-              <div className="mt-1 text-[24px] italic text-l-tinta-3">sin dato</div>
-            )}
-            <div className="mt-1.5 text-[12px] text-l-tinta-3">
-              {h.plataParada != null && `en ${h.clientesParados} ${h.clientesParados === 1 ? "cliente" : "clientes"} · `}datos hasta ayer
-            </div>
-            <Evolucion puntos={h.evolucion ?? []} />
-          </Tarjeta>
-          <Tarjeta>
-            <div className="text-[13px] font-medium text-l-tinta-2">Para decidir</div>
-            <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{h.incidentes.length + h.decisiones.length}</div>
-            <div className="mt-1.5 text-[12px] text-l-tinta-3">
-              {h.incidentes.length > 0 ? `${h.incidentes.length} ${h.incidentes.length === 1 ? "incidente" : "incidentes"} · ` : ""}
-              {h.decisiones.filter((d) => tocaLaPauta(d.accion)).length} para aprobar
-            </div>
-          </Tarjeta>
-          <Tarjeta>
-            <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
-              <Bot className="h-4 w-4" aria-hidden /> Agentes
-            </div>
-            <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{hechosHoy}</div>
-            <div className="mt-1.5 text-[12px] text-l-tinta-3">
-              trabajos en 24 h · {investigadas} {investigadas === 1 ? "decisión investigada" : "decisiones investigadas"}
-            </div>
-          </Tarjeta>
-          <TarjetaContenido />
-          <TarjetaParaValidar />
-          <TarjetaQueFunciona />
-        </div>
 
         <section className="mt-7">
           <div className="sticky top-0 z-10 -mx-4 bg-l-papel/95 px-4 pb-3 pt-2 backdrop-blur md:-mx-8 md:px-8">
@@ -253,15 +373,6 @@ function Contenido({ h, porDecision, trabajos }: { h: Hoy; porDecision: Map<stri
 
       <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
         <Tarjeta>
-          <div className="mb-3 flex items-center justify-between">
-            <TituloFranja sinMargen>Lo que hicieron los agentes</TituloFranja>
-            <Link to="/agentes" className="text-[12px] font-semibold text-l-marca">
-              Ver todo
-            </Link>
-          </div>
-          <FeedAgentes trabajos={trabajos.slice(0, 8)} />
-        </Tarjeta>
-        <Tarjeta>
           <TituloFranja>Qué estamos viendo</TituloFranja>
           {h.cobertura ? (
             <>
@@ -330,29 +441,6 @@ function Evolucion({ puntos }: { puntos: Array<{ fecha: string; plataParada: num
  * piezas hay y a cuántas les falta algo para salir. Lo que no esté completo
  * al llegar su fecha, el despachador lo descarta.
  */
-/** Videos de los agentes (Productor, Editor) que nadie validó todavía: sin veredicto no aprenden (plan 17/11). */
-function TarjetaParaValidar() {
-  const q = useQuery({
-    queryKey: ["lmtm", "contenido", "para-validar"],
-    queryFn: () => api.get<{ videos: number; desde: string | null }>("/contenido/para-validar"),
-    staleTime: 5 * 60_000,
-  });
-  if (!q.data?.videos) return null;
-  return (
-    <Link to="/aprobaciones" className="block text-inherit">
-      <Tarjeta className="h-full hover:border-l-tinta-3">
-        <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
-          <Clapperboard className="h-4 w-4" aria-hidden /> Videos para validar
-        </div>
-        <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.02em]">{q.data.videos}</div>
-        <div className="mt-1.5 text-[12px] font-medium text-l-atencion-texto">
-          ¿Sirven? Sin tu respuesta el agente no aprende{q.data.desde ? ` · el más viejo, ${haceCuanto(q.data.desde)}` : ""}
-        </div>
-      </Tarjeta>
-    </Link>
-  );
-}
-
 function TarjetaContenido() {
   const q = useQuery({
     queryKey: ["lmtm", "contenido", "tablero"],
@@ -366,7 +454,7 @@ function TarjetaContenido() {
   });
   const faltan = semana.filter((p) => !p.readyToPublish).length;
   return (
-    <Link to="/contenido" className="block text-inherit">
+    <Link to="/clientes?vista=contenido" className="block text-inherit">
       <Tarjeta className="h-full hover:border-l-tinta-3">
         <div className="flex items-center gap-1.5 text-[13px] font-medium text-l-tinta-2">
           <Clapperboard className="h-4 w-4" aria-hidden /> Contenido, 7 días

@@ -13,6 +13,7 @@ import { accessApi } from "../api/access";
 import { AGENCIA, PRINCIPALES, seccionDe } from "../lmtm/secciones";
 import { useFijados } from "../lmtm/fijados";
 import { useAprobaciones } from "../lmtm/aprobaciones";
+import { repartirHoy } from "../lmtm/hoy";
 import { Comandos, Tecla } from "../lmtm/Comandos";
 
 function useContadores() {
@@ -27,7 +28,8 @@ function useContadores() {
   for (const d of [...(hoy.data?.incidentes ?? []), ...(hoy.data?.decisiones ?? [])]) porCliente.set(d.clienteSlug, (porCliente.get(d.clienteSlug) ?? 0) + 1);
   return {
     porSeccion: {
-      "/hoy": hoy.data ? hoy.data.incidentes.length + hoy.data.decisiones.length : null,
+      // Solo lo urgente (20/11): con las 110 decisiones abiertas el número no decía nada.
+      "/hoy": hoy.data ? hoy.data.incidentes.length + repartirHoy(hoy.data.decisiones, []).urgentes.length || null : null,
       "/agentes": corriendo.data?.trabajos.length || null,
     } as Record<string, number | null>,
     porCliente,
