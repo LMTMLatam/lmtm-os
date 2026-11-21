@@ -252,7 +252,7 @@ export async function ejecutarAccionAprobada(
   db: Db,
   payload: PayloadAccionPauta,
   agentId: string | null,
-): Promise<{ ok: boolean; detalle: string }> {
+): Promise<{ ok: boolean; detalle: string; minimo?: number }> {
   const { clientId, accion } = payload;
 
   try {
@@ -288,7 +288,7 @@ export async function ejecutarAccionAprobada(
       });
       return r.ok
         ? { ok: true, detalle: `Presupuesto de "${r.entidad?.nombre}" movido de $${Math.round(r.anterior ?? 0)} a $${Math.round(r.nuevo ?? 0)} por día.` }
-        : { ok: false, detalle: r.error ?? "No se pudo cambiar el presupuesto." };
+        : { ok: false, detalle: r.error ?? "No se pudo cambiar el presupuesto.", minimo: r.minimoPlataforma };
     }
 
     const { shiftBudget } = await import("./ads-budget.js");

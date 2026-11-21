@@ -62,6 +62,27 @@ export interface ResultadoPresupuesto {
   anterior?: number;
   nuevo?: number;
   entidad?: { tipo: string; id: string; nombre: string | null };
+  /** Meta rechazó por quedar debajo de su mínimo para esa entidad: el mínimo, en pesos. */
+  minimoPlataforma?: number;
+}
+
+/**
+ * Puro. El error de Meta en algo legible, y el mínimo si rechazó por «presupuesto demasiado bajo».
+ * Ese mínimo depende de la optimización y de cuántos conjuntos tiene la campaña: no se ve antes de pedir.
+ */
+export function leerErrorMeta(texto: string): { mensaje: string; minimo: number | null } {
+  let e: { message?: string; error_user_title?: string; error_user_msg?: string } | undefined;
+  try { e = (JSON.parse(texto) as { error?: typeof e }).error; } catch { /* no es JSON: va el texto crudo */ }
+  const mensaje = e?.error_user_msg ? [e.error_user_title, e.error_user_msg].filter(Boolean).join(": ") : e?.message ?? texto;
+  const m = /(?:al menos|at least)\D{0,5}(\d[\d.,]*\d|\d)/i.exec(e?.error_user_msg ?? "");
+  let minimo: number | null = null;
+  if (m) {
+    // "3.106,50" o "3,106.50": el último separador con 1-2 dígitos detrás es el decimal.
+    const p = /^(.*?)(?:[.,](\d{1,2}))?$/.exec(m[1])!;
+    const n = Number(`${p[1].replace(/[.,]/g, "")}.${p[2] ?? "0"}`);
+    minimo = Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return { mensaje: mensaje.slice(0, 400), minimo };
 }
 
 // ── Unidades ─────────────────────────────────────────────────────────────────
@@ -309,8 +330,8 @@ export async function setBudget(db: Db, input: EntradaPresupuesto): Promise<Resu
         body: JSON.stringify({ daily_budget: String(aMenor(nuevoDiario)), access_token: conn.accessToken }),
       });
       if (!r.ok) {
-        const texto = await r.text();
-        return { ok: false, error: `Meta rechazó el cambio de presupuesto (${r.status}): ${texto.slice(0, 250)}`, anterior: actualUnidades };
+        const e = leerErrorMeta(await r.text());
+        return { ok: false, error: `Meta rechazó el cambio de presupuesto (${r.status}): ${e.mensaje}`, anterior: actualUnidades, minimoPlataforma: e.minimo ?? undefined };
       }
     }
 

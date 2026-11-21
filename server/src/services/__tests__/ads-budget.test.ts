@@ -10,8 +10,31 @@ import {
   HORAS_ENTRE_CAMBIOS,
   MINIMO_DIARIO,
   PASO_MAXIMO,
+  leerErrorMeta,
   validarPaso,
 } from "../ads-budget.js";
+
+describe("leerErrorMeta", () => {
+  // El rechazo real de BOERO (20/11): pidió $2.450 y la campaña no baja de $3.106,50.
+  const boero = JSON.stringify({ error: {
+    message: "Invalid parameter", code: 100, error_subcode: 1885650, error_user_title: "Presupuesto demasiado bajo",
+    error_user_msg: "El presupuesto debe ser de al menos $3.106,50. Este requisito es por la cantidad de conjuntos.",
+  } });
+  it("saca el mínimo en formato argentino", () => {
+    expect(leerErrorMeta(boero)).toEqual({
+      mensaje: "Presupuesto demasiado bajo: El presupuesto debe ser de al menos $3.106,50. Este requisito es por la cantidad de conjuntos.",
+      minimo: 3106.5,
+    });
+  });
+  it("y en inglés", () => {
+    expect(leerErrorMeta(JSON.stringify({ error: { error_user_msg: "Your budget must be at least $3,106.50." } })).minimo).toBe(3106.5);
+    expect(leerErrorMeta(JSON.stringify({ error: { error_user_msg: "Your budget must be at least $1.000." } })).minimo).toBe(1000);
+  });
+  it("otro error: el mensaje, sin mínimo", () => {
+    expect(leerErrorMeta(JSON.stringify({ error: { message: "Invalid OAuth access token" } }))).toEqual({ mensaje: "Invalid OAuth access token", minimo: null });
+    expect(leerErrorMeta("<html>502</html>")).toEqual({ mensaje: "<html>502</html>", minimo: null });
+  });
+});
 
 describe("unidades", () => {
   // Confundir una por otra no da error: da un presupuesto 100 o 1.000.000 de

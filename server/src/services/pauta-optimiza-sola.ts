@@ -77,6 +77,16 @@ export function puedeIrSola(accion: AccionPauta, d: DatosDecision): { ok: true }
   return { ok: true };
 }
 
+/**
+ * Puro. Meta rechaza una baja que queda debajo de su mínimo para esa entidad (no se ve antes de pedirla):
+ * el presupuesto hasta el que sí se puede bajar, o null si con ese mínimo ya no hay baja posible.
+ */
+export function bajaHastaMinimo(accion: AccionPauta, antes: number | null, minimo: number | undefined): number | null {
+  if (accion.accion !== "set_budget" || antes == null || minimo == null) return null;
+  const piso = Math.ceil(minimo);
+  return accion.nuevoDiario < piso && piso < antes ? piso : null;
+}
+
 export interface ResultadoOptimiza { ejecutadas: number; fallas: number; quedanParaPersona: number; lineas: string[] }
 
 /** Lo que se guarda al ejecutar para poder juzgarlo y deshacerlo. */
@@ -234,12 +244,20 @@ export async function optimizarSolo(db: Db, ahora = new Date()): Promise<Resulta
       .returning({ id: approvals.id });
     if (!tomada.length) continue;
 
-    const res = await ejecutarAccionAprobada(db, p, f.agente ?? null);
+    let hecha = p;
+    let res = await ejecutarAccionAprobada(db, p, f.agente ?? null);
+    // BOERO 20/11: pidió $2.450 y Meta no deja esa campaña debajo de $3.106,50. Se baja hasta ahí (sigue siendo bajar).
+    const piso = res.ok ? null : bajaHastaMinimo(a, ent?.numeros.presupuestoDiario ?? null, res.minimo);
+    if (piso != null && a.accion === "set_budget") {
+      hecha = { ...p, accion: { ...a, nuevoDiario: piso } };
+      const otra = await ejecutarAccionAprobada(db, hecha, f.agente ?? null);
+      res = { ...otra, detalle: `Meta no deja menos de $${piso} por día: se bajó hasta ahí. ${otra.detalle}` };
+    }
     // Lo que hace falta para deshacerlo a las 72 h si empeora (revisarOptimizaciones).
     const entidad = a.accion === "set_budget" ? { entityType: a.entityType, entityId: a.entityId } : a.accion === "shift_budget" ? a.hacia : null;
     const seguimiento: Seguimiento = { entidad, presupuestoAntes: ent?.numeros.presupuestoDiario ?? null, cplAntes: ent?.numeros.cpl ?? null };
     await db.update(approvals)
-      .set({ payload: { ...p, resultado: { ok: res.ok, detalle: res.detalle, ejecutadoAt: ahora.toISOString() }, seguimiento } as unknown as Record<string, unknown>, updatedAt: new Date() })
+      .set({ payload: { ...hecha, resultado: { ok: res.ok, detalle: res.detalle, ejecutadoAt: ahora.toISOString() }, seguimiento } as unknown as Record<string, unknown>, updatedAt: new Date() })
       .where(eq(approvals.id, f.id));
     if (res.ok) r.ejecutadas += 1;
     else r.fallas += 1;

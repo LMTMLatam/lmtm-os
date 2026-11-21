@@ -1,7 +1,23 @@
 // La regla de Naza (17/11): el departamento de pauta optimiza solo, pero nunca
 // frena ni apaga. Estos tests fallan si alguna vez se cuela una pausa o una baja.
 import { describe, expect, it } from "vitest";
-import { empeoro, OPTIMIZA, puedeIrSola } from "../pauta-optimiza-sola.js";
+import { bajaHastaMinimo, empeoro, OPTIMIZA, puedeIrSola } from "../pauta-optimiza-sola.js";
+
+describe("bajaHastaMinimo (Meta rechazó la baja por su mínimo)", () => {
+  const baja = { accion: "set_budget" as const, entityType: "campaign" as const, entityId: "c1", nuevoDiario: 2_450 };
+  it("baja hasta el mínimo de Meta, redondeado para arriba", () => {
+    expect(bajaHastaMinimo(baja, 3_500, 3_106.5)).toBe(3_107);
+  });
+  it("si el mínimo no deja bajar nada, no se toca", () => {
+    expect(bajaHastaMinimo(baja, 3_500, 3_500)).toBeNull();
+    expect(bajaHastaMinimo(baja, 3_500, 4_000)).toBeNull();
+  });
+  it("una suba, sin mínimo o sin presupuesto de antes: nada", () => {
+    expect(bajaHastaMinimo({ ...baja, nuevoDiario: 4_000 }, 3_500, 3_106.5)).toBeNull();
+    expect(bajaHastaMinimo(baja, 3_500, undefined)).toBeNull();
+    expect(bajaHastaMinimo(baja, null, 3_106.5)).toBeNull();
+  });
+});
 
 describe("empeoro (deshacer a las 72 h)", () => {
   it("si a su costo anterior debía traer 10 y trajo 2, empeoró", () => {
