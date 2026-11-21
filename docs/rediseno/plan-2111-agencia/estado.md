@@ -59,3 +59,38 @@ Tests: `server/src/services/__tests__/cuenta.test.ts` (12) y el de engranado en 
   niega, las historias se guardan igual y seguidores queda «sin dato».
 - `video_engranar` en el servidor: la misma secuencia (`vtool unir` + `normalizar`) se probó en esta PC con los
   archivos de DUNOD, no en el contenedor.
+
+---
+
+# Segunda vuelta (21/11, tarde): lo que había quedado sin hacer
+
+Naza: «implementá todo lo que mencionaste en no hecho, testealo y dejalo bien». Commit `661806a`, desplegado.
+
+| Qué | Cómo quedó | Probado en producción |
+|---|---|---|
+| El cliente aprueba desde su link | `GET/POST /api/public/dashboards/:slug/aprobaciones`. Apagado por cliente; se prende en la ficha → Cuenta (`metadata.aprobacionPorLink`). Muestra lo que sale en 21 días sin aprobar; «Aprobar» escribe SOLO «Aprobación de cliente» = APROBADO y deja un comentario; «Pedir cambios» deja un comentario. Solo tareas de la lista de Redes de ese cliente. | Sí, con una tarea de prueba en la lista de LMTM: el campo quedó en APROBADO (orderindex 2, lo que mira el despachador), los dos comentarios están, una tarea de otra lista se rechaza, y con el interruptor apagado da 404. La tarea se borró y el interruptor de LMTM volvió a apagado. |
+| Trackers de video | `services/tracker-video.ts`: lee la hoja Resumen de `TRACKER_<MES>.xlsx` (zip + XML con zlib, sin librería). Fila «Videos (tracker del equipo)» en la cuenta y en el informe trimestral. | Sí: DUNOD da 8/4 (nov), 8/5 (oct), 8/16 (sep), 8/2 (ago), igual que el ranking del equipo. |
+| Margen por cliente | Último mes cerrado: abono − gastos cargados a ese cliente en Finanzas − su parte de los gastos generales, repartidos por piezas vendidas. Los gastos en otra moneda no se convierten: se cuentan aparte. Solo admin. | A medias: sin abonos ni gastos cargados responde «Falta cargar el abono». La cuenta con números está probada en los tests, no con datos reales (no se cargaron datos de prueba en Finanzas). |
+| Botón de engranar | Contenido → «¿Qué necesitás?» → «Engranar gancho + propiedad + cierre». Lista el NAS del cliente, une, nivela, revisa con vtool, sube a Drive y deja el video para validar a nombre del Editor. | Sí, de punta a punta con DUNOD: 42 s en `Super Redes/DUNOD/VIDEOS`. **Quedó una pieza de PRUEBA** («JULIO SOSA 8900 … (engranado)») en Drive y en «Videos sin validar»: descartarla o usarla. |
+| Engranado para los agentes | `lmtmVideoEngranar` sumado a `PAPERCLIP_MCP_TOOLS` del Editor y del Productor (respaldo en la tabla `respaldo_allowlist_20261121`). La skill `lmtm-video` dice cuándo usarlo. | La lista, sí (verificado en `agentes_config`). Que un agente lo use bien en una corrida real, no. |
+
+También verificado de la primera vuelta: los seguidores de Instagram ya se guardan (DUNOD 17.296, LMTM 1.862).
+
+## Decisiones de esta vuelta
+
+- **Margen sin tipo de cambio.** El costo de los agentes está en 0 (plan fijo) y los créditos no tienen precio en
+  dólares: no hay costo medido en plata por cliente. El margen sale de lo que se cargue en Finanzas, en la moneda del
+  cliente. `/growth/profitability` (resta dólares de pesos) sigue ahí sin pantalla; no se tocó.
+- **Engranado sin disparo nocturno.** Qué persona va con qué propiedad lo elige quien aprieta el botón; un disparo
+  solo tendría que adivinarlo.
+- **La aprobación no muestra la pieza.** Los adjuntos de ClickUp dejaron de ser públicos (13/11): el cliente ve
+  nombre, fecha, red, formato y texto, no la imagen.
+
+## Para saber
+
+- Los comentarios de la aprobación salen en ClickUp a nombre de Marcos Lewis: es el dueño del token de la API.
+- «Pedir cambios» avisa a todos los que siguen la tarea.
+- El lector de Excel toma el año del tracker de la fecha de creación del archivo. Si alguien duplica un tracker viejo
+  y lo renombra, el año sale bien igual (se crea de nuevo), pero un archivo movido desde otro año no.
+- Nombres del tracker que no se pudieron emparejar con un cliente quedan afuera sin aviso en pantalla
+  (`videosDelTracker` los devuelve en `sinCliente`).
