@@ -183,9 +183,9 @@ const NOMBRE_SENAL: Record<Senal, string> = {
   "sin-datos": "No hay meses medidos suficientes para decir",
 };
 
-const fila = (nombre: string, r: Renglon, plata = false) => {
+const fila = (nombre: string, r: Renglon, plata = false, sinMedir = false) => {
   const f = (n: number) => (plata ? `$${n.toLocaleString("es-AR")}` : String(n));
-  return `| ${nombre} | ${r.cotizado == null ? "sin cargar" : f(r.cotizado)} | ${f(r.realizado)} |`;
+  return `| ${nombre} | ${r.cotizado == null ? "sin cargar" : f(r.cotizado)} | ${sinMedir ? "sin medir" : f(r.realizado)} |`;
 };
 
 /** El informe trimestral, en texto: solo números del sistema. Pura. */
@@ -196,7 +196,8 @@ export function textoInformeTrimestral(d: Awaited<ReturnType<typeof cuentaDeClie
   l.push(`Período: ${cerrados[0].mes} a ${cerrados[cerrados.length - 1].mes}.`, "", `**${NOMBRE_SENAL[d.cuenta!.senal]}.**`, "");
   for (const m of cerrados) {
     l.push(`## ${m.mes}`, "", "| | Cotizado | Realizado |", "|---|---|---|");
-    l.push(fila("Posteos", m.posteos), fila("Videos y reels", m.videos), fila("Historias", m.historias), fila("Avisos", m.avisos));
+    // Sin fuente no hay conteo de contenido: un 0 se leería como «no publicó nada».
+    l.push(fila("Posteos", m.posteos, false, !m.fuente), fila("Videos y reels", m.videos, false, !m.fuente), fila("Historias", m.historias), fila("Avisos", m.avisos));
     l.push(fila("Inversión Meta", m.inversionMeta, true), fila("Inversión Google", m.inversionGoogle, true), "");
     l.push(m.cumplimientoPct == null ? "Contenido: sin medir (no se lee la cuenta de Instagram de este cliente)." : `Cumplimiento de contenido: ${m.cumplimientoPct} %.`, "");
   }

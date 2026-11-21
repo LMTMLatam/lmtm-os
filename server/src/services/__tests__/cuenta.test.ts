@@ -80,6 +80,14 @@ describe("informe trimestral", () => {
     expect(t).toContain("Seguidores en instagram: 1.100 (+100 desde 2026-08)");
     expect(t).toContain("sin pauta corriendo");
   });
+  it("un mes sin fuente dice «sin medir», no cero", () => {
+    const t = textoInformeTrimestral({
+      meses: [], cuenta: { clientId: "1", slug: "x", name: "X", meses: [mesDeFila({ ...filaBase, fuente: null, cumplimientoPct: null, realizado: { ...filaBase.realizado, posteosMes: 0, videosMes: 0 } }, "2026-10", true, 100)], senal: "sin-datos" },
+      salud, cotizado: { metaMes: null, googleMes: null, avisosMes: null }, abonoMes: null, moneda: "ARS", nombre: "X",
+    });
+    expect(t).toContain("| Posteos | 13 | sin medir |");
+    expect(t).toContain("| Avisos | 6 | 4 |");
+  });
   it("sin planilla no inventa", () => {
     const t = textoInformeTrimestral({ meses: [], cuenta: null, salud, cotizado: { metaMes: null, googleMes: null, avisosMes: null }, abonoMes: null, moneda: "ARS", nombre: "X" });
     expect(t).toContain("no está en la planilla");

@@ -127,7 +127,11 @@ export function CuentaTab({ client }: { client: Client }) {
                 {renglones.map(([nombre, k, plata]) => (
                   <tr key={k} className="border-b border-l-linea/60">
                     <td className="py-1.5 pr-2 text-l-tinta-2">{nombre}</td>
-                    {meses.map((m) => <Celda key={m.mes} r={m[k] as Renglon} plata={plata} />)}
+                    {meses.map((m) =>
+                      // Sin fuente no hay conteo de contenido: un 0 se leería como «no publicó nada».
+                      !m.fuente && (k === "posteos" || k === "videos")
+                        ? <td key={m.mes} className="px-2 py-1.5 text-right text-l-tinta-3">sin medir <span className="text-[11px]">/ {num((m[k] as Renglon).cotizado ?? 0)}</span></td>
+                        : <Celda key={m.mes} r={m[k] as Renglon} plata={plata} />)}
                   </tr>
                 ))}
                 <tr>
