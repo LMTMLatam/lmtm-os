@@ -5,7 +5,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, ExternalLink, FolderOpen, Loader2, OctagonAlert, Scissors, Search, Sparkles, Wand2 } from "lucide-react";
+import { Clapperboard, ExternalLink, FolderOpen, Link2, Loader2, OctagonAlert, Scissors, Search, Sparkles, Wand2 } from "lucide-react";
 import { Link } from "@/lib/router";
 import { columnasEnMarcha, type PedidoAgente } from "./contenido-en-marcha";
 import { api } from "../api/client";
@@ -237,10 +237,11 @@ export function ContenidoGeneradoApp() {
 const campo = "w-full min-w-0 rounded-[12px] border border-l-linea-2 bg-l-papel px-3 text-[14px] text-l-tinta outline-none focus:border-l-marca";
 const botonPedir = "inline-flex min-h-11 items-center gap-2 rounded-[12px] bg-[image:var(--l-marca-grad)] px-5 text-[14px] font-semibold text-l-marca-tinta disabled:opacity-50";
 
-type Quien = "productor" | "editor";
+type Quien = "productor" | "editor" | "engranar";
 const OPCIONES: Array<{ k: Quien; titulo: string; detalle: string; Icono: typeof Sparkles }> = [
   { k: "productor", titulo: "Pieza nueva", detalle: "El Productor arma un reel, clip, placa o carrusel desde cero, con el material del cliente.", Icono: Sparkles },
   { k: "editor", titulo: "Editar material filmado", detalle: "El Editor toma los crudos del NAS y los deja listos para redes.", Icono: Scissors },
+  { k: "engranar", titulo: "Engranar gancho + propiedad + cierre", detalle: "Une videos ya terminados del NAS y nivela el audio. Sin agente: no gasta.", Icono: Link2 },
 ];
 
 /**
@@ -252,7 +253,7 @@ function PedirContenido() {
   return (
     <section className="rounded-[20px] border border-l-linea bg-l-sup bg-[image:var(--l-brillo-caja)] p-5 md:p-6">
       <h2 className="text-[18px] font-semibold">¿Qué necesitás?</h2>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Qué pedir">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" role="radiogroup" aria-label="Qué pedir">
         {OPCIONES.map((o) => {
           const activo = o.k === quien;
           return (
@@ -275,7 +276,7 @@ function PedirContenido() {
           );
         })}
       </div>
-      <div className="mt-5 border-t border-l-linea pt-5">{quien === "productor" ? <FormProductor /> : <FormEditor />}</div>
+      <div className="mt-5 border-t border-l-linea pt-5">{quien === "productor" ? <FormProductor /> : quien === "editor" ? <FormEditor /> : <FormEngranar />}</div>
     </section>
   );
 }
@@ -406,6 +407,80 @@ function FormEditor() {
         <Resultado m={pedir} />
       </div>
       <p className="text-[12px] text-l-tinta-3">Las piezas vuelven a «Lo que entregaron», más abajo, y quedan en Drive, en la carpeta VIDEOS del cliente.</p>
+    </form>
+  );
+}
+
+interface ArchivoNas { nombre: string; ruta: string; mb: number | null }
+interface Material { sinNas?: boolean; carpeta?: string; propiedades: ArchivoNas[]; ganchos: ArchivoNas[]; cierres: ArchivoNas[] }
+
+/**
+ * Plan 21/11 (inmobiliarias): la propiedad ya viene editada y hay un banco de ganchos y cierres por persona. Acá se
+ * eligen las tres piezas y el servidor las une, nivela el audio y deja el video en Drive. Qué persona va con qué
+ * propiedad lo decide quien lo pide.
+ */
+function FormEngranar() {
+  const [clientId, setClientId] = useState("");
+  const [cuerpo, setCuerpo] = useState("");
+  const [gancho, setGancho] = useState("");
+  const [cierre, setCierre] = useState("");
+  const [subtitular, setSubtitular] = useState(false);
+  const [trabajo, setTrabajo] = useState<string | null>(null);
+  const material = useQuery({
+    queryKey: ["lmtm", "contenido", "engranado", clientId],
+    queryFn: () => api.get<Material>(`/contenido/engranado/material?clientId=${encodeURIComponent(clientId)}`),
+    enabled: !!clientId, retry: false,
+  });
+  const pedir = useMutation({
+    mutationFn: () => api.post<RespuestaPedido & { id?: string }>("/contenido/engranado", { clientId, cuerpo, gancho: gancho || undefined, cierre: cierre || undefined, subtitular }),
+    onSuccess: (r) => { if (r.ok && r.id) setTrabajo(r.id); },
+  });
+  const estado = useQuery({
+    queryKey: ["lmtm", "contenido", "engranado-estado", trabajo],
+    queryFn: () => api.get<{ estado: "en_curso" | "lista" | "fallo" | "desconocida"; mensaje: string }>(`/contenido/engranado/estado/${trabajo}`),
+    enabled: !!trabajo,
+    refetchInterval: (q) => (q.state.data && q.state.data.estado !== "en_curso" ? false : 5000),
+  });
+  const listo = estado.data?.estado === "lista";
+  const m = material.data;
+  const elegir = (id: string, etiqueta: string, valor: string, cambiar: (v: string) => void, opciones: ArchivoNas[], vacio: string) => (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[13px] font-medium text-l-tinta-2" htmlFor={id}>{etiqueta}</label>
+      <select id={id} value={valor} onChange={(e) => cambiar(e.target.value)} className={`${campo} h-11`}>
+        <option value="">{vacio}</option>
+        {opciones.map((o) => <option key={o.ruta} value={o.ruta}>{o.nombre}{o.mb != null ? ` · ${Math.round(o.mb)} MB` : ""}</option>)}
+      </select>
+    </div>
+  );
+  return (
+    <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); if (clientId && cuerpo) { setTrabajo(null); pedir.mutate(); } }}>
+      <ElegirCliente id="cliente-engranar" value={clientId} onChange={(v) => { setClientId(v); setCuerpo(""); setGancho(""); setCierre(""); setTrabajo(null); }} />
+      {material.isLoading && <p className="text-[13px] text-l-tinta-3" role="status">Leyendo el NAS…</p>}
+      {material.isError && <p className="text-[13px] text-l-critico-texto" role="alert">{material.error instanceof Error ? material.error.message : "No se pudo leer el NAS."}</p>}
+      {m?.sinNas && <p className="text-[13px] text-l-tinta-3">Este cliente no tiene carpeta en el NAS.</p>}
+      {m && !m.sinNas && m.propiedades.length === 0 && <p className="text-[13px] text-l-tinta-3">No hay videos terminados en {m.carpeta}.</p>}
+      {m && m.propiedades.length > 0 && (
+        <>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {elegir("eng-gancho", "Gancho (adelante)", gancho, setGancho, m.ganchos, m.ganchos.length ? "Sin gancho" : "No hay ganchos en el banco")}
+            {elegir("eng-cuerpo", "Propiedad", cuerpo, setCuerpo, m.propiedades, "Elegí el video")}
+            {elegir("eng-cierre", "Cierre (al final)", cierre, setCierre, m.cierres, m.cierres.length ? "Sin cierre" : "No hay cierres en el banco")}
+          </div>
+          <label className="flex items-start gap-2 text-[13px] text-l-tinta-2">
+            <input type="checkbox" checked={subtitular} onChange={(e) => setSubtitular(e.target.checked)} className="mt-0.5 h-4 w-4" />
+            <span>Ponerle subtítulos. Solo si las piezas NO los traen ya: si no, quedan duplicados. Los nombres de calles y barrios hay que leerlos antes de publicar.</span>
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={!cuerpo || pedir.isPending || estado.data?.estado === "en_curso"} className={botonPedir}>
+              {pedir.isPending || estado.data?.estado === "en_curso" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />} Engranar
+            </button>
+            {estado.data ? (
+              <span className={`text-[13px] ${estado.data.estado === "fallo" || estado.data.estado === "desconocida" ? "text-l-critico-texto" : listo ? "text-l-bien-texto" : "text-l-tinta-3"}`} role="status">{estado.data.mensaje}</span>
+            ) : <Resultado m={pedir} />}
+          </div>
+          <p className="text-[12px] text-l-tinta-3">El video queda en Drive, en la carpeta VIDEOS del cliente, y en «Lo que entregaron» para validar. Si la propiedad termina con el logo, el cierre queda después del logo: pedila exportada sin logo.</p>
+        </>
+      )}
     </form>
   );
 }

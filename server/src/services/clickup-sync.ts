@@ -294,6 +294,9 @@ export interface RedesCalendarItem {
   readyToPublish: boolean;
   /** Caracteres del copy cargado, para validarlo contra el tope de cada red. */
   copyLargo: number;
+  /** El copy y el estado de «Aprobación de cliente», para que el cliente apruebe desde su link (21/11). */
+  copy: string | null;
+  aprobacion: string | null;
   /** Qué le falta, para poder avisarlo sin que nadie abra la tarea. */
   missing: string[];
 }
@@ -418,11 +421,67 @@ export async function getRedesCalendar(
       url: t.url ?? null,
       readyToPublish: missing.length === 0,
       copyLargo: largoTexto(cfs.find((c) => COPY_RE.test(c.name ?? ""))),
+      copy: tieneTexto(cfs.find((c) => COPY_RE.test(c.name ?? ""))) ? String(cfs.find((c) => COPY_RE.test(c.name ?? ""))!.value).trim() : null,
+      aprobacion,
       missing,
     });
   }
   out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
+}
+
+// ── Aprobación del cliente desde su link (plan 21/11) ───────────────────────
+// Un post sin «Aprobación de cliente» = APROBADO al llegar su fecha se descarta
+// en silencio: es la causa n.º 1 de «no publica». Acá el cliente ve lo que tiene
+// por delante y aprueba; se escribe ESE campo y nada más (ni fecha ni copy).
+
+const APROBACION_CLIENTE_RE = /aprobaci[oó]n\s+de(l)?\s+cliente/i;
+export const DIAS_PARA_APROBAR = 21;
+
+export interface PiezaParaAprobar { id: string; nombre: string; fecha: string; redes: string[]; formato: string | null; copy: string | null; falta: string[] }
+
+/** Lo que el cliente tiene para aprobar: con fecha en los próximos días, sin aprobar y sin haber salido. Pura. */
+export function paraAprobar(items: RedesCalendarItem[]): PiezaParaAprobar[] {
+  return items
+    .filter((i) => !i.published && !/aprobad/i.test(i.aprobacion ?? ""))
+    .map((i) => ({ id: i.id, nombre: i.name, fecha: i.date, redes: i.networks, formato: i.format, copy: i.copy, falta: i.missing.filter((m) => m !== "aprobación") }));
+}
+
+export async function piezasParaAprobar(db: Db, clientId: string, ahora = Date.now()): Promise<PiezaParaAprobar[] | null> {
+  const items = await getRedesCalendar(db, clientId, ahora, ahora + DIAS_PARA_APROBAR * 86_400_000);
+  return items ? paraAprobar(items) : null;
+}
+
+/** El campo «Aprobación de cliente» de una tarea y su opción APROBADO; null si la lista no los tiene. Pura. */
+export function campoYOpcionAprobado(campos: Array<CuLabelField & { id?: string }>): { campoId: string; opcionId: string } | null {
+  const campo = campos.find((c) => APROBACION_CLIENTE_RE.test(c.name ?? ""));
+  const opcion = (campo?.type_config?.options ?? []).find((o) => /^aprobado$/i.test((o.label ?? o.name ?? "").trim()));
+  return campo?.id && opcion?.id ? { campoId: campo.id, opcionId: opcion.id } : null;
+}
+
+/**
+ * El cliente aprueba una pieza (o pide cambios) desde su link. Solo sobre tareas de
+ * SU lista de Redes: el id de la tarea viene de afuera y no se confía en él.
+ */
+export async function decisionDelCliente(
+  db: Db, clientId: string, taskId: string, accion: "aprobar" | "cambios", texto = "",
+): Promise<{ ok: boolean; motivo?: string }> {
+  const [client] = await db.select({ lista: clients.clickupListRedesId }).from(clients).where(eq(clients.id, clientId));
+  if (!client?.lista) return { ok: false, motivo: "el cliente no tiene calendario de Redes" };
+  if (!/^[a-z0-9]{6,12}$/i.test(taskId)) return { ok: false, motivo: "tarea inválida" };
+  const t = await cu<{ list?: { id?: string }; custom_fields?: Array<CuLabelField & { id?: string }> }>(`/task/${taskId}`);
+  if (t.list?.id !== client.lista) return { ok: false, motivo: "esa pieza no es de este cliente" };
+  if (accion === "cambios") {
+    const pedido = texto.trim().slice(0, 1000);
+    if (!pedido) return { ok: false, motivo: "falta decir qué cambiar" };
+    await cu(`/task/${taskId}/comment`, { method: "POST", body: { comment_text: `✏️ El cliente pidió cambios desde su link:\n\n${pedido}`, notify_all: true } });
+    return { ok: true };
+  }
+  const destino = campoYOpcionAprobado(t.custom_fields ?? []);
+  if (!destino) return { ok: false, motivo: "la lista no tiene el campo «Aprobación de cliente» con la opción APROBADO" };
+  await cu(`/task/${taskId}/field/${destino.campoId}`, { method: "POST", body: { value: destino.opcionId } });
+  await cu(`/task/${taskId}/comment`, { method: "POST", body: { comment_text: "✅ Aprobado por el cliente desde su link.", notify_all: false } });
+  return { ok: true };
 }
 
 /** Los comentarios de una tarea (texto y fecha). Ahí deja Make "X Post was not successfull". */

@@ -18,6 +18,7 @@ mira y decide.
 | Voz en off GRABADA + tomas | **Reel filmado con motion gráficos** con `tramos` |
 | Voz en off generada + planos del material (fotos y videos sin nadie hablando) | la plantilla de esta skill (lo que sigue) |
 | Crudos de una jornada de rodaje en el NAS, sin editar | `lmtmEncargarAlEditor`: los edita el Editor de video, no vos. |
+| Videos YA TERMINADOS del NAS para unir (inmobiliarias: gancho + propiedad + cierre; el banco está en `<cliente>/VIDEO/TERMINADOS/NO_SUBIDO/HOOKS y CIERRES`) | `lmtmVideoEngranar` con las tres rutas: une y nivela el audio, sin editar. NO pidas `subtitular` si las piezas ya traen el texto quemado. Qué persona va con qué propiedad lo dice el pedido; si no lo dice, preguntá. Después `lmtmVideoRevisar` y `lmtmVideoEntregar`. |
 
 Mirá el material antes de elegir: si el audio del video es alguien hablando del producto, ese es el guion; no le
 pongas una voz en off encima.

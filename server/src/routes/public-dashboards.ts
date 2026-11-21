@@ -54,6 +54,39 @@ export function publicDashboardRoutes(db: Db): Router {
     return { dashboard: row, client };
   }
 
+  // ── Aprobación de piezas desde el link (plan 21/11) ───────────────────────
+  // Apagado por defecto: se prende por cliente (metadata.aprobacionPorLink) desde
+  // la ficha. Con el link, el cliente solo puede aprobar o pedir cambios de las
+  // piezas de SU calendario: no toca fecha, copy ni nada más.
+  const apruebaPorLink = (c: { metadata: unknown }) => (c.metadata as Record<string, unknown> | null)?.aprobacionPorLink === true;
+
+  router.get("/dashboards/:slug/aprobaciones", async (req, res) => {
+    const r = await resolve(req.params.slug);
+    if (!r) return res.status(404).json({ error: "Dashboard not found or disabled" });
+    if (!apruebaPorLink(r.client)) return res.json({ activo: false, piezas: [] });
+    try {
+      const { piezasParaAprobar } = await import("../services/clickup-sync.js");
+      res.json({ activo: true, piezas: (await piezasParaAprobar(db, r.client.id)) ?? [] });
+    } catch {
+      res.status(502).json({ error: "No se pudo leer el calendario. Probá de nuevo en un rato." });
+    }
+  });
+
+  router.post("/dashboards/:slug/aprobaciones/:taskId", async (req, res) => {
+    const r = await resolve(req.params.slug);
+    if (!r || !apruebaPorLink(r.client)) return res.status(404).json({ error: "Dashboard not found or disabled" });
+    const accion = req.body?.accion;
+    if (accion !== "aprobar" && accion !== "cambios") return res.status(400).json({ error: "accion tiene que ser «aprobar» o «cambios»" });
+    try {
+      const { decisionDelCliente } = await import("../services/clickup-sync.js");
+      const d = await decisionDelCliente(db, r.client.id, String(req.params.taskId), accion, typeof req.body?.texto === "string" ? req.body.texto : "");
+      if (!d.ok) return res.status(400).json({ error: d.motivo });
+      res.json({ ok: true });
+    } catch {
+      res.status(502).json({ error: "No se pudo guardar. Probá de nuevo en un rato." });
+    }
+  });
+
   // Termina AYER: el dia en curso esta a medio sincronizar y arrastra hacia
   // abajo el ultimo punto de las series y los deltas contra el periodo
   // anterior (que si esta completo). Mismo criterio que balance-monitor.ts y

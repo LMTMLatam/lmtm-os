@@ -23,7 +23,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Db } from "@paperclipai/db";
-import { agentDeliverables, clientBrand, clients, contenidoGastos, heartbeatRuns, issues } from "@paperclipai/db";
+import { agentDeliverables, agents, clientBrand, clients, contenidoGastos, heartbeatRuns, issues } from "@paperclipai/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 
 const run = promisify(execFile);
@@ -657,7 +657,84 @@ async function engranar(piezas: string[], carpeta: string, subtitular: boolean):
   const final = actual.replace(/\.[^.]+$/, "__audio.mp4");
   if (!fs.existsSync(final)) throw new Error(`vtool no dejó ${final}`);
   await aNombreDelAgente(carpeta);
-  return `Engranado listo: ${final} (${piezas.length} pieza${piezas.length === 1 ? "" : "s"}${subtitular ? ", con subtítulos: que una persona lea los nombres propios" : ", sin subtitular"}). Falta video_revisar y video_entregar.`;
+  return final;
+}
+
+const ES_VIDEO_TERMINADO = /\.(mp4|mov|m4v)$/i;
+
+/** Del banco de un cliente, cuáles son ganchos y cuáles cierres, por el nombre del archivo. Pura. */
+export function clasificarBanco<T extends { nombre: string }>(archivos: T[]): { ganchos: T[]; cierres: T[] } {
+  const videos = archivos.filter((a) => ES_VIDEO_TERMINADO.test(a.nombre));
+  return {
+    ganchos: videos.filter((a) => /hook|gancho/i.test(a.nombre)),
+    cierres: videos.filter((a) => /cierre/i.test(a.nombre) && !/hook|gancho/i.test(a.nombre)),
+  };
+}
+
+export interface MaterialEngranado {
+  carpeta: string;
+  propiedades: Array<{ nombre: string; ruta: string; mb: number | null }>;
+  ganchos: Array<{ nombre: string; ruta: string; mb: number | null }>;
+  cierres: Array<{ nombre: string; ruta: string; mb: number | null }>;
+}
+
+/** Lo que hay para engranar en el NAS de un cliente: los terminados sin subir y su banco de ganchos y cierres. */
+export async function materialDeEngranado(raizNas: string): Promise<MaterialEngranado> {
+  const nas = await import("./nas.js");
+  const carpeta = `${raizNas.replace(/\/$/, "")}/VIDEO/TERMINADOS/NO_SUBIDO`;
+  const items = await nas.listarNas(carpeta);
+  const aFila = (i: { nombre: string; ruta: string; mb?: number | null }) => ({ nombre: i.nombre, ruta: i.ruta, mb: i.mb ?? null });
+  const banco: Array<{ nombre: string; ruta: string; mb: number | null }> = [];
+  // El banco vive en una subcarpeta («HOOKS y CIERRES» en DUNOD); el nombre lo pone cada equipo.
+  for (const sub of items.filter((i) => i.carpeta && /hook|gancho|cierre/i.test(i.nombre))) {
+    banco.push(...(await nas.listarNas(sub.ruta)).filter((i) => !i.carpeta).map(aFila));
+  }
+  const sueltos = items.filter((i) => !i.carpeta && ES_VIDEO_TERMINADO.test(i.nombre)).map(aFila);
+  const enRaiz = clasificarBanco(sueltos);
+  const delBanco = clasificarBanco(banco);
+  const esBanco = new Set([...enRaiz.ganchos, ...enRaiz.cierres].map((x) => x.ruta));
+  return {
+    carpeta,
+    propiedades: sueltos.filter((s) => !esBanco.has(s.ruta)),
+    ganchos: [...delBanco.ganchos, ...enRaiz.ganchos],
+    cierres: [...delBanco.cierres, ...enRaiz.cierres],
+  };
+}
+
+/**
+ * El botón del panel (21/11): engrana y ENTREGA en Drive, a nombre del Editor para
+ * que caiga en «Videos sin validar». La revisión es la técnica de vtool (formato,
+ * audio, cuadros congelados): no gasta en un modelo, y a la pieza la mira una persona.
+ */
+export function engranarYEntregar(db: Db, x: { clientId: string; clienteNombre: string; piezas: string[]; subtitular: boolean }): string {
+  return lanzar("engranado", async () => {
+    const [editor] = await db.select({ id: agents.id, companyId: agents.companyId }).from(agents).where(eq(agents.name, AGENTE_EDITOR)).limit(1);
+    if (!editor) throw new Error("no está el agente Editor de video");
+    const carpeta = path.join(RAIZ, "engranado", `${x.clientId.slice(0, 8)}-${Date.now()}`);
+    const final = await engranar(x.piezas, carpeta, x.subtitular);
+    const revision = await run("vtool", ["revisar", final], { timeout: 600_000, maxBuffer: 20e6 })
+      .then((r) => r.stdout.split("\n").filter((l) => /REVISION|ALERTA/.test(l)).join("\n").trim())
+      .catch((e) => `no se pudo revisar: ${e instanceof Error ? e.message.slice(0, 150) : String(e)}`);
+    const cuerpo = x.piezas.length === 3 ? x.piezas[1] : x.piezas.find((p) => !/hook|gancho|cierre/i.test(p)) ?? x.piezas[0];
+    const titulo = `${path.basename(cuerpo).replace(/\.[^.]+$/, "").replace(/_/g, " ")} (engranado)`.slice(0, 120);
+    const { entregarVideo } = await import("./video-entrega.js");
+    const e = await entregarVideo(db, { clientId: x.clientId, clienteNombre: x.clienteNombre, nombrePieza: titulo, videoUrl: pathToFileURL(final).href });
+    if (!e.driveLink) throw new Error(`se engranó pero no se pudo subir a Drive (${e.driveError ?? "sin detalle"})`);
+    await db.insert(agentDeliverables).values({
+      companyId: editor.companyId, clientId: x.clientId, agentId: editor.id, kind: "video",
+      title: `Video: ${titulo}`.slice(0, 200), content: `Engranado sin editar: ${x.piezas.map((p) => path.basename(p)).join(" + ")}.\n\n${revision}`, url: e.driveLink,
+      metadata: { via: "engranado", piezas: x.piezas, subtitulado: x.subtitular, duracion: await duracion(final), revision },
+    });
+    fs.rmSync(carpeta, { recursive: true, force: true }); // ya está en Drive: el disco del servidor es de 5 GB
+    return `Listo en Drive (Super Redes/${x.clienteNombre}/VIDEOS): ${e.driveLink}`;
+  });
+}
+
+/** El estado de un trabajo en segundo plano, sin esperar (para el panel). */
+export function estadoDeTarea(id: string): { estado: "en_curso" | "lista" | "fallo" | "desconocida"; mensaje: string } {
+  const t = tareas.get(id);
+  if (!t) return { estado: "desconocida", mensaje: "No encuentro ese trabajo: si el servidor se reinició, se perdió. Volvé a pedirlo." };
+  return { estado: t.estado, mensaje: t.estado === "lista" ? t.resultado ?? "" : t.estado === "fallo" ? t.error ?? "" : `En curso hace ${Math.round((Date.now() - t.creada) / 1000)} s` };
 }
 
 /**
@@ -1143,7 +1220,10 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       if (!piezas || piezas.some((x) => !x)) return mal("cuerpo, gancho y cierre tienen que ser archivos de video del NAS (.mp4, .mov, .m4v), sin «..»");
       const carpeta = rutaSegura(p.carpeta);
       if (!carpeta) return mal(`carpeta tiene que estar bajo ${RAIZ}/`);
-      const id = lanzar("engranado", () => engranar(piezas as string[], carpeta, p.subtitular === true));
+      const id = lanzar("engranado", async () => {
+        const final = await engranar(piezas as string[], carpeta, p.subtitular === true);
+        return `Engranado listo: ${final} (${piezas.length} pieza${piezas.length === 1 ? "" : "s"}${p.subtitular === true ? ", con subtítulos: que una persona lea los nombres propios" : ", sin subtitular"}). Falta video_revisar y video_entregar.`;
+      });
       return ok(`Engranando ${piezas.length} pieza(s) en ${carpeta}. Consultá con video_estado id=${id}.`);
     }
 

@@ -12,7 +12,7 @@
 
 import { and, desc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { accountScores, clients, decisiones, opportunities } from "@paperclipai/db";
+import { accountScores, clients, decisiones, financeEntries, opportunities } from "@paperclipai/db";
 import { cotizadoVsRealizado, type CotizadoRow } from "./cotizado.js";
 import { metricasCliente } from "../metricas/index.js";
 import { OPORTUNIDAD_CERRADA } from "./semaforo-pauta.js";
@@ -55,6 +55,8 @@ export interface MesCuenta {
   inversionMeta: Renglon;
   inversionGoogle: Renglon;
   cumplimientoPct: number | null;
+  /** Videos según el tracker del equipo de video (Excel del mes en Drive); null = el cliente no está en ese tracker. */
+  videosTracker: { encargados: number; entregados: number } | null;
 }
 export interface CuentaCliente { clientId: string; slug: string; name: string; meses: MesCuenta[]; senal: Senal }
 
@@ -73,6 +75,7 @@ export function mesDeFila(r: CotizadoRow, mes: string, cerrado: boolean, prorrat
     inversionMeta: { cotizado: parte(r.cotizado.inversionMetaMes), realizado: r.realizado.spendMeta },
     inversionGoogle: { cotizado: parte(r.cotizado.inversionGoogleMes), realizado: r.realizado.spendGoogle },
     cumplimientoPct: r.cumplimientoPct,
+    videosTracker: null,
   };
 }
 
@@ -91,6 +94,14 @@ export async function cuentaCartera(db: Db, ahora = new Date()): Promise<{ meses
     }
   }
   const clientes = [...porCliente.values()];
+  // El tracker de video del equipo, al lado de lo medido. Si Drive falla, la cuenta sale igual sin esa fila.
+  try {
+    const { videosDelTracker } = await import("./tracker-video.js");
+    const { porMes } = await videosDelTracker(db, meses);
+    for (const c of clientes) for (const m of c.meses) m.videosTracker = porMes.get(m.mes)?.get(c.clientId) ?? null;
+  } catch (e) {
+    console.warn("[cuenta] sin tracker de video:", e instanceof Error ? e.message.slice(0, 200) : e);
+  }
   for (const c of clientes) c.senal = senalDeCobro(c.meses.filter((m) => m.cerrado).map((m) => m.cumplimientoPct));
   const orden: Record<Senal, number> = { "sobre-servicio": 0, "sub-servicio": 1, "en-linea": 2, "sin-datos": 3 };
   clientes.sort((a, b) => orden[a.senal] - orden[b.senal] || a.name.localeCompare(b.name));
@@ -156,21 +167,73 @@ export async function saludCuenta(db: Db, clientId: string, ahora = new Date()):
   };
 }
 
+/** Cuánto pesa un gasto de Finanzas en un mes «YYYY-MM»: el fijo mensual entero, el anual en doceavos, el suelto solo en su mes. Pura. */
+export function gastoDelMes(e: { amountCents: number; recurrence: string; occurredAt: Date }, mes: string): number {
+  const [a, m] = mes.split("-").map(Number);
+  const desde = Date.UTC(a, m - 1, 1);
+  const fin = Date.UTC(a, m, 1);
+  const t = e.occurredAt.getTime();
+  if (e.recurrence === "monthly") return t < fin ? e.amountCents / 100 : 0;
+  if (e.recurrence === "yearly") return t < fin ? e.amountCents / 1200 : 0;
+  return t >= desde && t < fin ? e.amountCents / 100 : 0;
+}
+
+export type Margen =
+  | { mes: string; abono: number; directos: number; imputado: number; participacionPct: number; margen: number; otrasMonedas: number }
+  | { motivo: string };
+
+/**
+ * Margen estimado: abono − gastos cargados a ese cliente − su parte de los gastos
+ * generales, repartidos según las piezas vendidas (quien compró más trabajo carga
+ * más gasto). Es una estimación y la pantalla lo dice. Pura.
+ */
+export function margenEstimado(x: { mes: string; abono: number; directos: number; generales: number; piezas: number; piezasTotal: number; otrasMonedas: number }): Margen {
+  if (x.abono <= 0) return { motivo: "Falta cargar el abono del cliente." };
+  if (x.directos + x.generales <= 0) return { motivo: "No hay gastos cargados en Finanzas para ese mes: sin gastos no hay margen que calcular." };
+  const parte = x.piezasTotal > 0 ? x.piezas / x.piezasTotal : 0;
+  const imputado = Math.round(x.generales * parte);
+  return { mes: x.mes, abono: x.abono, directos: Math.round(x.directos), imputado, participacionPct: Math.round(parte * 1000) / 10, margen: Math.round(x.abono - x.directos - imputado), otrasMonedas: x.otrasMonedas };
+}
+
+/** El margen del último mes cerrado. Los gastos salen de Finanzas (en la moneda del cliente; los de otra moneda se cuentan aparte, no se convierten). */
+async function margenDe(db: Db, clientId: string, abono: number, moneda: string, cartera: { meses: string[]; clientes: CuentaCliente[] }): Promise<Margen> {
+  const mes = cartera.meses[1];
+  if (abono <= 0) return { motivo: "Falta cargar el abono del cliente." };
+  const gastos = await db.select({ clientId: financeEntries.clientId, amountCents: financeEntries.amountCents, recurrence: financeEntries.recurrence, occurredAt: financeEntries.occurredAt, currency: financeEntries.currency })
+    .from(financeEntries).where(eq(financeEntries.type, "expense"));
+  let directos = 0, generales = 0, otrasMonedas = 0;
+  for (const g of gastos) {
+    const monto = gastoDelMes(g, mes);
+    if (!monto) continue;
+    if (g.currency !== moneda) { otrasMonedas += 1; continue; }
+    if (g.clientId === clientId) directos += monto;
+    else if (!g.clientId) generales += monto;
+  }
+  const piezasDe = (c: CuentaCliente) => { const m = c.meses.find((x) => x.mes === mes); return m ? (m.posteos.cotizado ?? 0) + (m.videos.cotizado ?? 0) : 0; };
+  const piezasTotal = cartera.clientes.reduce((s, c) => s + piezasDe(c), 0);
+  const propio = cartera.clientes.find((c) => c.clientId === clientId);
+  return margenEstimado({ mes, abono, directos, generales, piezas: propio ? piezasDe(propio) : 0, piezasTotal, otrasMonedas });
+}
+
 export async function cuentaDeCliente(db: Db, clientId: string, ahora = new Date()) {
-  const [{ meses, clientes }, salud, [c]] = await Promise.all([
+  const [cartera, salud, [c]] = await Promise.all([
     cuentaCartera(db, ahora),
     saludCuenta(db, clientId, ahora),
     db.select({ name: clients.name, slug: clients.slug, metadata: clients.metadata, abono: clients.monthlyRetainerCents, moneda: clients.currency })
       .from(clients).where(eq(clients.id, clientId)).limit(1),
   ]);
+  const { meses, clientes } = cartera;
   const cotizado = ((c?.metadata as Record<string, unknown> | null)?.cotizado ?? {}) as Record<string, unknown>;
+  const abonoMes = c?.abono != null ? Number(c.abono) / 100 : null;
   return {
     meses,
     // Si el cliente no está en la planilla del equipo no hay cotizado de contenido: la pantalla lo dice.
     cuenta: clientes.find((x) => x.clientId === clientId) ?? null,
     salud,
     cotizado: { metaMes: cotizado.metaMes ?? null, googleMes: cotizado.googleMes ?? null, avisosMes: cotizado.avisosMes ?? null },
-    abonoMes: c?.abono != null ? Number(c.abono) / 100 : null,
+    abonoMes,
+    margen: await margenDe(db, clientId, abonoMes ?? 0, c?.moneda ?? "ARS", cartera) as Margen | null,
+    aprobacionPorLink: (c?.metadata as Record<string, unknown> | null)?.aprobacionPorLink === true,
     moneda: c?.moneda ?? "ARS",
     nombre: c?.name ?? "",
   };
@@ -198,6 +261,7 @@ export function textoInformeTrimestral(d: Awaited<ReturnType<typeof cuentaDeClie
     l.push(`## ${m.mes}`, "", "| | Cotizado | Realizado |", "|---|---|---|");
     // Sin fuente no hay conteo de contenido: un 0 se leería como «no publicó nada».
     l.push(fila("Posteos", m.posteos, false, !m.fuente), fila("Videos y reels", m.videos, false, !m.fuente), fila("Historias", m.historias), fila("Avisos", m.avisos));
+    if (m.videosTracker) l.push(`| Videos (tracker del equipo) | ${m.videosTracker.encargados} | ${m.videosTracker.entregados} |`);
     l.push(fila("Inversión Meta", m.inversionMeta, true), fila("Inversión Google", m.inversionGoogle, true), "");
     l.push(m.cumplimientoPct == null ? "Contenido: sin medir (no se lee la cuenta de Instagram de este cliente)." : `Cumplimiento de contenido: ${m.cumplimientoPct} %.`, "");
   }

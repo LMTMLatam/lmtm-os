@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PubvizTheme, AreaChart, Donut, FunnelViz, RankedBars, Delta, PV_SLOTS, StatRow, ComboChart, CumulativeFlow, Spark, BarsVsRef } from "@/components/pubviz";
 import type { OptimizacionPublica, Resultado } from "../api/trabajo";
 import { ScrollLateral } from "../lmtm/ScrollLateral";
+import { AprobacionesPublic } from "./AprobacionesPublic";
 import { diaLocal, sumarDias } from "../lmtm/formato";
 import {
   LayoutDashboard,
@@ -589,6 +590,7 @@ function PublicDashboardInner({ slug, client, dashboard }: { slug: string; clien
       </div>
 
       <main ref={mainRef} className="max-w-7xl mx-auto scroll-mt-14 px-4 sm:px-6 py-6">
+        {activeSection === "resumen" && <AprobacionesPublic slug={slug ?? ""} />}
         {activeSection === "resumen" && <NovedadesPublic items={novedadesQuery.data?.novedades ?? []} />}
         {funnelQuery.isLoading && SECCIONES_CON_TOTALES.has(activeSection) ? <CargandoNumeros /> : renderSection()}
       </main>

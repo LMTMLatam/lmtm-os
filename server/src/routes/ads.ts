@@ -977,8 +977,10 @@ export function adsRoutes(db: Db): Router {
     // 21/11: lo vendido en plata y avisos (metadata.cotizado) y el abono. Es plata: solo admin.
     const tocaCotizado = "cotizado" in body;
     const tocaAbono = "abonoMes" in body;
-    if (!tocaIndustry && !tocaDecisor && !tocaCotizado && !tocaAbono) return res.status(400).json({ error: "nothing to update" });
-    if (tocaCotizado || tocaAbono) assertAdminEmpresa(req);
+    // El cliente aprueba piezas desde su link: toca a clientes, lo prende un admin.
+    const tocaAprobacion = "aprobacionPorLink" in body;
+    if (!tocaIndustry && !tocaDecisor && !tocaCotizado && !tocaAbono && !tocaAprobacion) return res.status(400).json({ error: "nothing to update" });
+    if (tocaCotizado || tocaAbono || tocaAprobacion) assertAdminEmpresa(req);
 
     const cambios: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -995,10 +997,15 @@ export function adsRoutes(db: Db): Router {
       if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: "abonoMes tiene que ser un número" });
       cambios.monthlyRetainerCents = Math.round(n * 100);
     }
-    if (tocaCotizado) {
+    if (tocaCotizado || tocaAprobacion) {
       const [actual] = await db.select({ metadata: clients.metadata }).from(clients).where(condition).limit(1);
       if (!actual) return res.status(404).json({ error: "client not found" });
       const meta = { ...((actual.metadata as Record<string, unknown> | null) ?? {}) };
+      if (tocaAprobacion) { if (body.aprobacionPorLink === true) meta.aprobacionPorLink = true; else delete meta.aprobacionPorLink; }
+      cambios.metadata = meta;
+    }
+    if (tocaCotizado) {
+      const meta = { ...(cambios.metadata as Record<string, unknown>) };
       const limpio: Record<string, number> = {};
       for (const k of ["metaMes", "googleMes", "avisosMes"] as const) {
         const v = (body.cotizado ?? {})[k];
@@ -3558,7 +3565,7 @@ export function adsRoutes(db: Db): Router {
       // El abono es de finanzas: el equipo ve la cuenta, no lo que paga el cliente.
       let admin = true;
       try { assertAdminEmpresa(req); } catch { admin = false; }
-      const visible = admin ? d : { ...d, abonoMes: null };
+      const visible = admin ? d : { ...d, abonoMes: null, margen: null };
       res.json({ ...visible, puedeEditar: admin, informe: textoInformeTrimestral(visible) });
     } catch (e) {
       res.status(502).json({ error: "No se pudo armar la cuenta", detail: (e instanceof Error ? e.message : String(e)).slice(0, 300) });

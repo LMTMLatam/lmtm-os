@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MOVIMIENTOS, chequearVariedad, faltaAvisoLegal } from "../video-variedad.js";
-import { AVISO_TERCEROS, NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, elegirVozElevenLabs, idDeDrive, piezasDeEngranado, rutaSegura } from "../video-agente.js";
+import { AVISO_TERCEROS, NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, clasificarBanco, elegirVozElevenLabs, idDeDrive, piezasDeEngranado, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
 import { proveedorDelProxy } from "@paperclipai/adapter-claude-local/server";
 
@@ -118,6 +118,13 @@ describe("video-agente: rutas", () => {
     expect(piezasDeEngranado({ cuerpo: `${b}/../../x.mp4` })).toBeNull();
     expect(piezasDeEngranado({ cuerpo: `${b}/p.prproj` })).toBeNull();
     expect(NOMBRES_VIDEO.has("video_engranar")).toBe(true);
+  });
+
+  it("banco de ganchos y cierres: se separan por el nombre y lo que no es video no entra", () => {
+    const banco = ["BELEN_HOOK1_DUN_28_05_26_V1.mp4", "GASPAR_CIERRE2_DUN_28_05_26_V1.mp4", "SEBA_GANCHO.MOV", "JULIO_SOSA_8900_DUN_25_09_26_V1.prproj", "Thumbs.db", "hook_y_cierre.mp4"].map((nombre) => ({ nombre }));
+    const r = clasificarBanco(banco);
+    expect(r.ganchos.map((x) => x.nombre)).toEqual(["BELEN_HOOK1_DUN_28_05_26_V1.mp4", "SEBA_GANCHO.MOV", "hook_y_cierre.mp4"]);
+    expect(r.cierres.map((x) => x.nombre)).toEqual(["GASPAR_CIERRE2_DUN_28_05_26_V1.mp4"]);
   });
 
   it("saca el id de cualquier link de Drive", () => {

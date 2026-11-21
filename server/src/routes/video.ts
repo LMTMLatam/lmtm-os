@@ -191,6 +191,50 @@ export function videoRoutes(db: Db): Router {
     res.status(r.ok ? 200 : 502).json(r);
   });
 
+  // ── Engranar (plan 21/11): gancho + propiedad + cierre de una inmobiliaria, sin agente ──
+  // GET /api/contenido/engranado/material?clientId= — lo que hay en el NAS del cliente para engranar.
+  router.get("/contenido/engranado/material", async (req, res) => {
+    assertMiembro(req);
+    const clientId = typeof req.query.clientId === "string" && /^[0-9a-f-]{36}$/i.test(req.query.clientId) ? req.query.clientId : null;
+    if (!clientId) return res.status(422).json({ error: "Falta el cliente." });
+    const [c] = await db.select({ metadata: clients.metadata }).from(clients).where(eq(clients.id, clientId)).limit(1);
+    const raiz = ((c?.metadata as Record<string, unknown> | null)?.nas as string[] | undefined)?.[0];
+    if (!raiz) return res.json({ sinNas: true, propiedades: [], ganchos: [], cierres: [] });
+    try {
+      const { materialDeEngranado } = await import("../services/video-agente.js");
+      res.json(await materialDeEngranado(raiz));
+    } catch (e) {
+      res.status(502).json({ error: `No se pudo leer el NAS: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}` });
+    }
+  });
+
+  // POST /api/contenido/engranado { clientId, cuerpo, gancho?, cierre?, subtitular? }
+  router.post("/contenido/engranado", async (req, res) => {
+    assertBoard(req);
+    const b = (req.body ?? {}) as { clientId?: string; cuerpo?: string; gancho?: string; cierre?: string; subtitular?: boolean };
+    const [c] = b.clientId ? await db.select({ id: clients.id, name: clients.name, metadata: clients.metadata }).from(clients).where(eq(clients.id, b.clientId)).limit(1) : [];
+    if (!c) return res.status(404).json({ ok: false, mensaje: "No encuentro ese cliente." });
+    const { piezasDeEngranado, engranarYEntregar } = await import("../services/video-agente.js");
+    const { rutaNas, nasConfigurado } = await import("../services/nas.js");
+    const falta = nasConfigurado();
+    if (falta) return res.status(503).json({ ok: false, mensaje: falta });
+    const raices = (((c.metadata as Record<string, unknown> | null)?.nas as string[] | undefined) ?? []).map((r) => r.replace(/\/$/, "") + "/");
+    const piezas = piezasDeEngranado(b)?.map((x) => rutaNas(x));
+    // Solo piezas de la carpeta de ESE cliente: la ruta viene del navegador.
+    if (!piezas || piezas.some((x) => !x || !raices.some((r) => x.startsWith(r)))) {
+      return res.status(422).json({ ok: false, mensaje: "Las piezas tienen que ser videos de la carpeta del cliente en el NAS." });
+    }
+    const id = engranarYEntregar(db, { clientId: c.id, clienteNombre: c.name, piezas: piezas as string[], subtitular: b.subtitular === true });
+    res.json({ ok: true, id, mensaje: "Engranando. Tarda unos minutos; el video queda en Drive y en «Lo que entregaron»." });
+  });
+
+  // GET /api/contenido/engranado/estado/:id
+  router.get("/contenido/engranado/estado/:id", async (req, res) => {
+    assertMiembro(req);
+    const { estadoDeTarea } = await import("../services/video-agente.js");
+    res.json(estadoDeTarea(String(req.params.id)));
+  });
+
   // GET /api/contenido/para-validar — videos de los agentes sin veredicto (30 días): el aviso de Hoy (plan 17/11, fase 4).
   router.get("/contenido/para-validar", async (req, res) => {
     assertMiembro(req);

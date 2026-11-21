@@ -13,7 +13,9 @@ export interface MesCuenta {
   mes: string; cerrado: boolean; fuente: "instagram" | "clickup" | null;
   posteos: Renglon; videos: Renglon; historias: Renglon; avisos: Renglon; inversionMeta: Renglon; inversionGoogle: Renglon;
   cumplimientoPct: number | null;
+  videosTracker?: { encargados: number; entregados: number } | null;
 }
+type Margen = { mes: string; abono: number; directos: number; imputado: number; participacionPct: number; margen: number; otrasMonedas: number } | { motivo: string };
 export type Senal = "sobre-servicio" | "sub-servicio" | "en-linea" | "sin-datos";
 interface Cuenta {
   cuenta: { meses: MesCuenta[]; senal: Senal } | null;
@@ -23,7 +25,7 @@ interface Cuenta {
     calidadPauta: number | null; seguidores: Record<string, Array<{ mes: string; n: number }>>; mejoras30: number; oportunidades: number;
   };
   cotizado: { metaMes: number | null; googleMes: number | null; avisosMes: number | null };
-  abonoMes: number | null; moneda: string; puedeEditar: boolean; informe: string;
+  abonoMes: number | null; margen?: Margen | null; aprobacionPorLink?: boolean; moneda: string; puedeEditar: boolean; informe: string;
 }
 
 export const SENALES: Record<Senal, { texto: string; clase: string }> = {
@@ -58,6 +60,11 @@ function Vendido({ client, d }: { client: Client; d: Cuenta }) {
     mutationFn: () => api.patch(`/clients/${client.id}`, { cotizado: { metaMes: v.metaMes, googleMes: v.googleMes, avisosMes: v.avisosMes }, abonoMes: v.abonoMes }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "cuenta"] }),
   });
+  const link = useMutation({
+    mutationFn: (prender: boolean) => api.patch(`/clients/${client.id}`, { aprobacionPorLink: prender }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["client", client.slug, "cuenta"] }),
+  });
+  const mg = d.margen;
   const entrada = (k: keyof typeof v, etiqueta: string) => (
     <label className="block text-[13px] text-l-tinta-2">
       {etiqueta}
@@ -79,6 +86,25 @@ function Vendido({ client, d }: { client: Client; d: Cuenta }) {
         {guardar.isError && <span className="text-l-critico-texto"> No se pudo guardar.</span>}
         {guardar.isSuccess && <span className="text-l-bien-texto"> Guardado.</span>}
       </p>
+      <div className="mt-4 border-t border-l-linea pt-3 text-[13px] text-l-tinta-2">
+        <span className="font-semibold text-l-tinta">Margen estimado: </span>
+        {!mg ? "—" : "motivo" in mg ? <span className="text-l-tinta-3">{mg.motivo}</span> : (
+          <>
+            <span className={`text-[16px] font-semibold ${mg.margen >= 0 ? "text-l-bien-texto" : "text-l-critico-texto"}`}>${num(mg.margen)}</span>
+            <span className="text-l-tinta-3"> en {nombreMes(mg.mes)} = abono ${num(mg.abono)} − gastos de este cliente ${num(mg.directos)} − su parte de los gastos generales ${num(mg.imputado)} ({mg.participacionPct} % de las piezas vendidas).
+              {mg.otrasMonedas > 0 && ` ${mg.otrasMonedas} gastos en otra moneda no entraron.`}</span>
+          </>
+        )}
+        <div className="text-[12px] text-l-tinta-3">Sale de los gastos cargados en Finanzas. Es una estimación: no incluye lo que no esté cargado ahí.</div>
+      </div>
+      <label className="mt-4 flex items-start gap-2 border-t border-l-linea pt-3 text-[13px] text-l-tinta-2">
+        <input type="checkbox" className="mt-0.5 h-4 w-4" checked={!!d.aprobacionPorLink} disabled={link.isPending} onChange={(e) => link.mutate(e.target.checked)} />
+        <span>
+          <span className="font-semibold text-l-tinta">El cliente aprueba las piezas desde su link.</span> En su dashboard ve lo que sale en los próximos 21 días sin aprobar, y al tocar «Aprobar» se marca
+          «Aprobación de cliente» en ClickUp. Está apagado hasta que lo prendas.
+          {link.isError && <span className="text-l-critico-texto"> No se pudo cambiar.</span>}
+        </span>
+      </label>
     </Tarjeta>
   );
 }
@@ -134,6 +160,14 @@ export function CuentaTab({ client }: { client: Client }) {
                         : <Celda key={m.mes} r={m[k] as Renglon} plata={plata} />)}
                   </tr>
                 ))}
+                {meses.some((m) => m.videosTracker) && (
+                  <tr className="border-b border-l-linea/60">
+                    <td className="py-1.5 pr-2 text-l-tinta-2">Videos (tracker del equipo)</td>
+                    {meses.map((m) => m.videosTracker
+                      ? <Celda key={m.mes} r={{ cotizado: m.videosTracker.encargados, realizado: m.videosTracker.entregados }} />
+                      : <td key={m.mes} className="px-2 py-1.5 text-right text-l-tinta-3">—</td>)}
+                  </tr>
+                )}
                 <tr>
                   <td className="py-1.5 pr-2 font-semibold text-l-tinta">Cumplimiento de contenido</td>
                   {meses.map((m) => <td key={m.mes} className="px-2 py-1.5 text-right font-semibold text-l-tinta">{m.cumplimientoPct != null ? `${m.cumplimientoPct} %` : <span className="font-normal text-l-tinta-3">sin medir</span>}</td>)}
@@ -141,6 +175,7 @@ export function CuentaTab({ client }: { client: Client }) {
               </tbody>
             </table>
             <p className="mt-2 text-[12px] text-l-tinta-3">
+              «Videos (tracker del equipo)» = entregados / encargados según el Excel del mes del equipo de video; el mes en curso va contra el mes entero.{" "}
               Los meses cerrados se miden solo contra la cuenta de Instagram del cliente; «sin medir» = no la leemos. El mes en curso compara contra la parte del mes que ya pasó. Las historias se cuentan desde el 15/10 y no pesan en el cumplimiento.
             </p>
           </div>
