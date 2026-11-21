@@ -4,6 +4,7 @@
 // comparan sin que gane la que tiene más seguidores. Datos de
 // /api/contenido/que-funciona (services/contenido-analisis.ts).
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Loader2, OctagonAlert, Sparkles } from "lucide-react";
 import { Link } from "@/lib/router";
@@ -180,6 +181,96 @@ export function QueFunciona() {
   );
 }
 
+interface ConScore {
+  id: string; red: string; formato: string | null; fecha: string | null; permalink: string | null; texto: string;
+  score: number | null; partes: Partial<Record<"consultas" | "viralidad" | "intencion" | "interaccion", number>>;
+  interaccion: number; alcance: number | null; difusion: number | null; consultas: number | null; visitasPerfil: number | null; seguidores: number | null;
+}
+const ORDENES = {
+  score: { nombre: "Mejor score", de: (p: ConScore) => p.score },
+  consultas: { nombre: "Más consultas", de: (p: ConScore) => p.consultas },
+  alcance: { nombre: "Más virales", de: (p: ConScore) => p.alcance },
+} as const;
+const NOMBRE_PARTE = { consultas: "consultas", viralidad: "viralidad", intencion: "visitas al perfil", interaccion: "interacción" } as const;
+const num = (x: number) => Intl.NumberFormat("es-AR", { notation: "compact" }).format(x);
+
+/**
+ * Score de publicaciones (pedido 21/11): cada una contra las de la misma cuenta y red, por las consultas del
+ * anuncio que la usa, su alcance y difusión, las visitas al perfil que trajo y su interacción. Lo que una
+ * publicación no tiene medido no cuenta como cero: el score dice con qué partes se armó.
+ */
+function ScorePublicaciones({ clientId }: { clientId: string }) {
+  const [orden, setOrden] = useState<keyof typeof ORDENES>("score");
+  const q = useQuery({
+    queryKey: ["lmtm", "contenido", "score", clientId],
+    queryFn: () => api.get<{ dias: number; publicaciones: ConScore[]; conAlcance: number; pautadas: number }>(`/contenido/score-publicaciones?clientId=${clientId}`),
+    staleTime: 30 * 60_000,
+  });
+  if (q.isLoading) return <p className="text-[14px] text-l-tinta-3">Calificando las publicaciones…</p>;
+  const d = q.data;
+  const conScore = d?.publicaciones.filter((p) => p.score != null) ?? [];
+  if (!d || !conScore.length) {
+    return (
+      <Tarjeta>
+        <TituloFranja>Score de publicaciones</TituloFranja>
+        <p className="text-[14px] text-l-tinta-2">Todavía no se puede calificar: hacen falta al menos 5 publicaciones leídas de una misma red en los últimos 90 días.</p>
+      </Tarjeta>
+    );
+  }
+  const de = ORDENES[orden].de;
+  const filas = conScore.filter((p) => de(p) != null).sort((a, b) => de(b)! - de(a)!).slice(0, 10);
+  return (
+    <Tarjeta>
+      <TituloFranja>Score de publicaciones · {d.dias} días</TituloFranja>
+      <div className="mb-2 flex flex-wrap gap-2">
+        {(Object.keys(ORDENES) as Array<keyof typeof ORDENES>).map((k) => (
+          <button key={k} type="button" onClick={() => setOrden(k)} aria-pressed={orden === k}
+            className={`min-h-9 rounded-full border px-3 text-[13px] ${orden === k ? "border-l-marca text-l-tinta font-semibold" : "border-l-linea text-l-tinta-2 hover:text-l-tinta"}`}>
+            {ORDENES[k].nombre}
+          </button>
+        ))}
+      </div>
+      {filas.length === 0 ? (
+        <p className="py-3 text-[14px] text-l-tinta-2">
+          {orden === "consultas" ? "Ninguna publicación de estos días se usó en un anuncio: no hay consultas que atribuirle a una publicación." : "Meta todavía no dio el alcance de estas publicaciones. Se lee en cada sincronización, solo para Instagram."}
+        </p>
+      ) : (
+        <ul>
+          {filas.map((p) => (
+            <li key={p.id} className="flex items-start gap-3 border-b border-l-linea py-2.5 last:border-b-0">
+              <span className="w-10 shrink-0 pt-0.5 text-right text-[18px] font-semibold tabular-nums" title="Score de 0 a 100 contra las publicaciones de esta cuenta">{p.score}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] text-l-tinta-3">{RED[p.red] ?? p.red} {p.formato ?? ""}{p.fecha ? ` · ${p.fecha.split("-").reverse().join("/")}` : ""}</span>
+                <span className="block text-[14px] [overflow-wrap:anywhere]">{p.texto.slice(0, 140) || "Sin texto"}</span>
+                <span className="mt-0.5 block text-[13px] text-l-tinta-2">
+                  {[
+                    p.consultas != null && `${p.consultas} ${p.consultas === 1 ? "consulta" : "consultas"} por pauta`,
+                    p.alcance != null && `${num(p.alcance)} de alcance`,
+                    p.difusion != null && `${num(p.difusion)} compartidos y guardados`,
+                    p.visitasPerfil != null && `${num(p.visitasPerfil)} visitas al perfil`,
+                    !!p.seguidores && `${num(p.seguidores)} seguidores nuevos`,
+                    `${num(p.interaccion)} de interacción`,
+                  ].filter(Boolean).join(" · ")}
+                </span>
+                <span className="block text-[12px] text-l-tinta-3">Score armado con: {(Object.keys(p.partes) as Array<keyof typeof NOMBRE_PARTE>).map((k) => NOMBRE_PARTE[k]).join(", ")}</span>
+              </span>
+              {p.permalink && (
+                <a href={p.permalink} target="_blank" rel="noreferrer" className="shrink-0 pt-0.5 text-l-tinta-3 hover:text-l-tinta" aria-label="Ver la publicación">
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-[12px] text-l-tinta-3">
+        De 0 a 100 contra las publicaciones de esta misma cuenta y red: consultas 40, viralidad 25, visitas al perfil 20, interacción 15, solo con lo que cada una tiene medido.
+        Las consultas son las del anuncio que usa esa publicación ({d.pautadas} pautadas); quien la vio y escribió por privado sin tocar nada no se puede contar. Con alcance: {d.conAlcance} de {d.publicaciones.length}.
+      </p>
+    </Tarjeta>
+  );
+}
+
 /** Lo de un rubro, para la pantalla de Nichos. */
 /** Lo de un cliente, para su ficha: sus mejores publicaciones, su mejor ángulo
  *  y lo que funciona en su rubro y no usa. */
@@ -189,13 +280,17 @@ export function QueFuncionaCliente({ clientId }: { clientId: string }) {
   const c = q.data?.clientes.find((x) => x.clientId === clientId);
   if (!c) {
     return (
-      <p className="text-[14px] text-l-tinta-2">
-        Esta cuenta no tiene publicaciones suficientes leídas para medirla: hacen falta al menos 8 en una red y que lo normal sea 5 interacciones o más.
-      </p>
+      <div className="space-y-4">
+        <p className="text-[14px] text-l-tinta-2">
+          Esta cuenta no tiene publicaciones suficientes leídas para medirla: hacen falta al menos 8 en una red y que lo normal sea 5 interacciones o más.
+        </p>
+        <ScorePublicaciones clientId={clientId} />
+      </div>
     );
   }
   return (
     <div className="space-y-4">
+      <ScorePublicaciones clientId={clientId} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Tarjeta>
           <TituloFranja>Sus publicaciones que mejor rindieron</TituloFranja>

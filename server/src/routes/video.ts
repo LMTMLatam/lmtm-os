@@ -425,6 +425,19 @@ export function videoRoutes(db: Db): Router {
     }
   });
 
+  // GET /api/contenido/score-publicaciones?clientId=&dias=90 — cada publicación del cliente calificada por
+  // consultas (pauta), viralidad, intención e interacción contra las de su misma cuenta. Solo lectura.
+  router.get("/contenido/score-publicaciones", async (req, res) => {
+    try {
+      const clientId = String(req.query.clientId ?? "");
+      if (!/^[0-9a-f-]{36}$/i.test(clientId)) return res.status(400).json({ error: "Falta el cliente." });
+      const { scorePublicaciones } = await import("../services/score-publicaciones.js");
+      res.json(await scorePublicaciones(db, clientId, Math.min(365, Math.max(30, Number(req.query.dias) || 90))));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   return router;
 }
 

@@ -34,6 +34,48 @@ function gGet<T = unknown>(path: string, params: Record<string, string>, token: 
   });
 }
 
+const DIA_MS = 86_400_000;
+
+/**
+ * Puro. Si a esta publicación de Instagram le toca pedir alcance en esta corrida. El sync corre cada 3 h:
+ * las de hasta 30 días se piden siempre (todavía se mueven); las más viejas, solo en la corrida de la
+ * madrugada (0–3 UTC), una vez por día. Es una llamada por publicación: sin este corte serían miles por día.
+ */
+export function insightsHasta(publicada: Date, ahora: Date): boolean {
+  const dias = (ahora.getTime() - publicada.getTime()) / DIA_MS;
+  return dias <= 30 || ahora.getUTCHours() < 3;
+}
+
+/** Puro. La respuesta de /{media}/insights a filas `ig_<métrica>`. Lo que Meta no da no aparece (no es 0). */
+export function metricasDeInsights(data: Array<{ name?: string; values?: Array<{ value?: unknown }>; total_value?: { value?: unknown } }> | undefined): Array<{ metric: string; value: number }> {
+  const out: Array<{ metric: string; value: number }> = [];
+  for (const d of data ?? []) {
+    const v = d.values?.[0]?.value ?? d.total_value?.value;
+    if (d.name && typeof v === "number") out.push({ metric: `ig_${d.name}`, value: v });
+  }
+  return out;
+}
+
+/**
+ * Alcance, vistas, guardados y compartidos de una publicación de Instagram; en las que no son reel, además
+ * las visitas al perfil, los seguidores y los toques en el perfil que Meta le atribuye a ESA publicación.
+ * Si Meta rechaza el pedido completo (una métrica que ese tipo no tiene), se pide lo básico. Nunca tira:
+ * sin alcance la publicación se guarda igual.
+ */
+async function insightsDeMedia(mediaId: string, esReel: boolean, token: string): Promise<Array<{ metric: string; value: number }>> {
+  const basico = "reach,saved,shares";
+  const pedidos = [esReel ? `${basico},views` : `${basico},views,profile_visits,follows,profile_activity`, basico];
+  for (const metric of pedidos) {
+    try {
+      const r = await gGet<{ data?: Parameters<typeof metricasDeInsights>[0] }>(`/${mediaId}/insights`, { metric }, token);
+      return metricasDeInsights(r.data);
+    } catch (e) {
+      if (metric === basico) console.warn(`[meta-organic] insights de ${mediaId}: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`);
+    }
+  }
+  return [];
+}
+
 /** Si Meta pide "reduce the amount of data", el próximo tamaño de página; si
  *  no corresponde (otro error o ya en el mínimo), null. Pura. */
 export function limiteReducido(limiteActual: number, cuerpoError: string): number | null {
@@ -530,7 +572,7 @@ export const metaProvider: AdsProvider = {
       adset_id?: string; campaign_id?: string; creative?: { id?: string; thumbnail_url?: string; image_url?: string; body?: string; title?: string; call_to_action_type?: string; object_story_spec?: { page_id?: string } };
     }>(
       `/${mapping.adAccountId}/ads`,
-      { fields: "id,name,status,effective_status,adset_id,campaign_id,creative{id,thumbnail_url,image_url,body,title,call_to_action_type,object_story_spec}" },
+      { fields: "id,name,status,effective_status,adset_id,campaign_id,creative{id,thumbnail_url,image_url,body,title,call_to_action_type,object_story_spec,effective_instagram_media_id,source_instagram_media_id,effective_object_story_id}" },
       connection.accessToken,
     )) {
       for (const ad of batch) {
@@ -674,6 +716,7 @@ export const metaProvider: AdsProvider = {
         pageToken,
       );
       const igId = igRes.instagram_business_account?.id;
+      const ahora = new Date();
       if (igId) {
         for await (const media of paginate<{
           id: string; caption?: string; permalink?: string; timestamp?: string;
@@ -705,6 +748,7 @@ export const metaProvider: AdsProvider = {
               metrics: [
                 { metric: "post_reactions_by_type_total", value: m.like_count ?? 0 },
                 { metric: "post_comments", value: m.comments_count ?? 0 },
+                ...(m.timestamp && insightsHasta(new Date(m.timestamp), ahora) ? await insightsDeMedia(m.id, m.media_product_type === "REELS", pageToken) : []),
               ],
               raw: m as Record<string, unknown>,
             });
