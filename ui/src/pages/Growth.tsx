@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { statusBadge, statusBadgeDefault } from "@/lib/status-colors";
 import { Building2, DollarSign, Filter, CheckCircle2, Lightbulb } from "lucide-react";
 import { Encabezado } from "../app/Shell";
+import { SENALES, nombreMes, type MesCuenta, type Senal } from "../app/cliente/Cuenta";
 
 // Spend is a cross-client sum, only meaningful in a single currency; the server
 // sends the shared currency (or null if clients bill in mixed currencies).
@@ -155,7 +156,7 @@ function CotizadoVsRealizado() {
           <div className="text-[11px] text-muted-foreground mt-1">
             "Instagram": el hecho son las publicaciones leídas de la cuenta, contra lo cotizado para Instagram (LinkedIn y TikTok no se leen). "ClickUp (sin verificar)": piezas con la etiqueta "mandado a make" — solo para clientes cuya cuenta no leemos, y no confirma que se haya publicado. Las stories se muestran pero no pesan en el %.
             {data.prorrateoPct != null && data.prorrateoPct < 100 && ` El cotizado está prorrateado al ${data.prorrateoPct}% del período transcurrido (no se exige el mes entero a mitad de mes).`}
-            {" "}"Sin lista" = cliente sin calendario Redes mapeado. La inversión cotizada en $ se suma cuando esté la planilla de facturación.
+            {" "}"Sin lista" = cliente sin calendario Redes mapeado. La inversión y los avisos cotizados se cargan en la ficha del cliente, sección Cuenta.
           </div>
         </div>
       )}
@@ -235,7 +236,58 @@ function SemaforoGeneral() {
   );
 }
 
-interface CargaPersona { nombre: string; cuentas: number; porRol: Record<string, number>; clientes: string[] }
+/** Señal de cobro (plan 21/11, doc de Marcos): a quién se le entrega de más o de
+ *  menos mirando los 3 meses cerrados, no el mes suelto. */
+function SenalDeCobro() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["growth", "cuenta"],
+    queryFn: () => api.get<{ meses: string[]; clientes: Array<{ clientId: string; slug: string; name: string; meses: MesCuenta[]; senal: Senal }> }>("/growth/cuenta"),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (isError || !data) return null;
+  const cerrados = data.meses.slice(1).reverse();
+  const conSenal = data.clientes.filter((c) => c.senal === "sobre-servicio" || c.senal === "sub-servicio");
+  return (
+    <Card className="p-5 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="font-medium">Señal de cobro del trimestre</h2>
+        <span className="text-[11px] text-muted-foreground">cumplimiento de contenido en los 3 meses cerrados: 120 % o más en 2 de 3 es entregar de más; 70 % o menos, de menos</span>
+      </div>
+      {conSenal.length === 0 ? (
+        <div className="text-xs text-muted-foreground">Ningún cliente medido está fuera de línea en el trimestre.</div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground">
+            <tr className="text-left border-b border-border">
+              <th className="py-1.5 pr-2">Cliente</th>
+              {cerrados.map((m) => <th key={m} className="pr-2 text-right">{nombreMes(m)}</th>)}
+              <th className="pr-2">Qué hacer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {conSenal.map((c) => (
+              <tr key={c.clientId} className="border-b border-border/50">
+                <td className="py-1.5 pr-2"><Link to={`/clientes/${c.slug}/cuenta`} className="hover:underline">{c.name}</Link></td>
+                {cerrados.map((m) => {
+                  const pct = c.meses.find((x) => x.mes === m)?.cumplimientoPct ?? null;
+                  return <td key={m} className="pr-2 text-right">{pct != null ? `${pct}%` : <span className="text-muted-foreground/50">—</span>}</td>;
+                })}
+                <td className={`pr-2 ${SENALES[c.senal].clase.split(" ").pop()}`}>{SENALES[c.senal].texto}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="text-[11px] text-muted-foreground">
+        Medido contra la cuenta de Instagram de cada cliente. Sin señal: {data.clientes.filter((c) => c.senal === "en-linea").length} en línea, {data.clientes.filter((c) => c.senal === "sin-datos").length} sin meses medidos. El detalle por mes está en la ficha de cada cliente, sección Cuenta.
+      </div>
+    </Card>
+  );
+}
+
+interface CargaPersona { nombre: string; cuentas: number; piezasMes?: number; porRol: Record<string, number>; clientes: string[] }
 
 /** Carga del equipo (pedido 18/7): cuántas cuentas atiende cada persona según
  *  las columnas "Responsable de atención" de la planilla. Marca sobrecarga. */
@@ -250,15 +302,19 @@ function CargaEquipo() {
   if (isError || !data?.personas.length) return null;
   const max = data.personas[0]?.cuentas ?? 1;
   const mediana = data.personas[Math.floor(data.personas.length / 2)]?.cuentas ?? 0;
+  // 21/11: la carga también en piezas por mes (lo vendido de sus cuentas), no solo en cuentas.
+  const piezas = data.personas.map((p) => p.piezasMes ?? 0).filter((n) => n > 0).sort((a, b) => a - b);
+  const medianaPiezas = piezas[Math.floor(piezas.length / 2)] ?? 0;
   return (
     <Card className="p-5 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="font-medium">Carga del equipo</h2>
-        <span className="text-[11px] text-muted-foreground">cuentas por persona según la planilla — para ver quién está con muchas cuentas</span>
+        <span className="text-[11px] text-muted-foreground">cuentas y piezas por mes de cada persona, según lo vendido en la planilla; ⚠ = el doble de la mediana</span>
       </div>
       <div className="space-y-1.5">
         {data.personas.map((p) => {
-          const sobrecarga = p.cuentas >= mediana * 2 && p.cuentas >= 8;
+          const muchasPiezas = medianaPiezas > 0 && (p.piezasMes ?? 0) >= medianaPiezas * 2;
+          const sobrecarga = (p.cuentas >= mediana * 2 && p.cuentas >= 8) || muchasPiezas;
           return (
             <div key={p.nombre} className="text-xs">
               <button onClick={() => setExpandida(expandida === p.nombre ? null : p.nombre)} className="w-full flex items-center gap-2 text-left">
@@ -266,8 +322,8 @@ function CargaEquipo() {
                 <div className="flex-1 h-3 rounded bg-muted overflow-hidden">
                   <div className={`h-full ${sobrecarga ? "bg-l-critico" : "bg-l-bien"}`} style={{ width: `${Math.round((p.cuentas / max) * 100)}%` }} />
                 </div>
-                <span className={`w-20 text-right ${sobrecarga ? "text-l-critico-texto font-semibold" : "text-muted-foreground"}`}>
-                  {p.cuentas} cuentas{sobrecarga ? " ⚠" : ""}
+                <span className={`w-44 text-right ${sobrecarga ? "text-l-critico-texto font-semibold" : "text-muted-foreground"}`}>
+                  {p.cuentas} cuentas{p.piezasMes ? ` · ${p.piezasMes} piezas/mes` : ""}{sobrecarga ? " ⚠" : ""}
                 </span>
               </button>
               {expandida === p.nombre && (
@@ -361,6 +417,7 @@ export function Growth() {
             <Kpi label="Issues cerrados (últ. semana)" value={fmtInt(data.kpis.issuesDoneThisWeek)} icon={CheckCircle2} />
           </div>
 
+          <SenalDeCobro />
           <CotizadoVsRealizado />
 
           <CargaEquipo />

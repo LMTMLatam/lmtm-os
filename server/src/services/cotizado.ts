@@ -16,8 +16,8 @@
 // leída, y la fila lo dice (fuente "clickup").
 
 import type { Db } from "@paperclipai/db";
-import { adsInsights, clients, organicPostInsights, organicPosts } from "@paperclipai/db";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { adsInsights, clients, organicPostInsights, organicPosts, organicStories } from "@paperclipai/db";
+import { and, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { LECTURA_CONFIABLE_MS } from "./auditor.js";
 import { googleTools } from "./agent-mcp-tools.js";
 import { getRedesCalendar } from "./clickup-sync.js";
@@ -40,6 +40,11 @@ export interface CotizadoRow {
     pautaGoogle: boolean;
     linkedinPosteosSemana: number | null;
     tiktokVideosMes: number | null;
+    /** Plata y avisos vendidos por mes (21/11): no están en la planilla, se
+     *  cargan en la ficha del cliente (clients.metadata.cotizado). */
+    inversionMetaMes: number | null;
+    inversionGoogleMes: number | null;
+    avisosMes: number | null;
   };
   realizado: {
     posteosMes: number;
@@ -47,6 +52,8 @@ export interface CotizadoRow {
     storiesMes: number;
     spendMeta: number;
     spendGoogle: number;
+    /** Anuncios distintos que gastaron en el período (Meta + Google). */
+    avisos: number;
   };
   /** El cliente no tiene lista Redes de ClickUp mapeada → no se puede medir. */
   sinListaClickup: boolean;
@@ -143,7 +150,7 @@ const ES_INSTAGRAM = sql`${organicPosts.permalinkUrl} like '%instagram.com%'`;
 
 /** Publicaciones reales de Instagram en el período, solo de clientes cuya
  *  cuenta leímos hace poco (sin lectura, un cero no es un hecho). */
-async function contarPublicadoInstagram(db: Db, clientIds: string[], desde: Date): Promise<Map<string, { posteos: number; videos: number }>> {
+async function contarPublicadoInstagram(db: Db, clientIds: string[], desde: Date, hasta: Date): Promise<Map<string, { posteos: number; videos: number }>> {
   const out = new Map<string, { posteos: number; videos: number }>();
   if (!clientIds.length) return out;
   const lecturas = await db.select({ clientId: organicPosts.clientId, ultima: sql<string | null>`max(${organicPostInsights.syncedAt})` })
@@ -158,7 +165,7 @@ async function contarPublicadoInstagram(db: Db, clientIds: string[], desde: Date
   if (!out.size) return out;
   const posts = await db.select({ clientId: organicPosts.clientId, tipo: organicPosts.postType })
     .from(organicPosts)
-    .where(and(inArray(organicPosts.clientId, [...out.keys()]), gte(organicPosts.createdTime, desde), ES_INSTAGRAM));
+    .where(and(inArray(organicPosts.clientId, [...out.keys()]), gte(organicPosts.createdTime, desde), lt(organicPosts.createdTime, hasta), ES_INSTAGRAM));
   for (const p of posts) {
     const c = p.clientId ? out.get(p.clientId) : undefined;
     if (c) c[formatoInstagram(p.tipo)] += 1;
@@ -166,37 +173,81 @@ async function contarPublicadoInstagram(db: Db, clientIds: string[], desde: Date
   return out;
 }
 
-export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}): Promise<{ month: string; rows: CotizadoRow[]; sinMatch: string[]; prorrateoPct: number }> {
-  const months = Math.min(Math.max(opts.months ?? 1, 1), 6);
+/** Lo cotizado en plata y avisos, que se carga en la ficha (metadata.cotizado). Pura. */
+export function cotizadoDeFicha(metadata: unknown): { inversionMetaMes: number | null; inversionGoogleMes: number | null; avisosMes: number | null } {
+  const c = ((metadata as Record<string, unknown> | null)?.cotizado ?? {}) as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+  return { inversionMetaMes: n(c.metaMes), inversionGoogleMes: n(c.googleMes), avisosMes: n(c.avisosMes) };
+}
+
+/** Ventana de un mes calendario «YYYY-MM» (UTC, como el resto del archivo). Pura. */
+export function ventanaDeMes(mes: string, ahora: Date): { from: Date; fin: Date; hasta: Date; prorrateo: number; cerrado: boolean } {
+  const [a, m] = mes.split("-").map(Number);
+  const from = new Date(Date.UTC(a, m - 1, 1));
+  const fin = new Date(Date.UTC(a, m, 1));
+  const hasta = ahora < fin ? ahora : fin;
+  const prorrateo = Math.min(1, Math.max(0, (hasta.getTime() - from.getTime()) / (fin.getTime() - from.getTime())));
+  return { from, fin, hasta, prorrateo, cerrado: ahora >= fin };
+}
+
+export type CotizadoResultado = { month: string; rows: CotizadoRow[]; sinMatch: string[]; prorrateoPct: number };
+// Un mes cerrado no cambia: se guarda 6 h (la cuenta del trimestre pide 3 de una).
+const mesesCerrados = new Map<string, { at: number; valor: CotizadoResultado }>();
+
+/**
+ * `months` = los últimos N meses juntos, hasta hoy (la vista de siempre).
+ * `mes` = un solo mes calendario; si ya cerró se mide SOLO contra Instagram: la
+ * etiqueta de ClickUp no es confiable y pedir 3 meses de 41 listas no entra en
+ * un pedido.
+ */
+export async function cotizadoVsRealizado(db: Db, opts: { months?: number; mes?: string } = {}): Promise<CotizadoResultado> {
   const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+  const unMes = opts.mes && /^\d{4}-(0[1-9]|1[0-2])$/.test(opts.mes) ? ventanaDeMes(opts.mes, now) : null;
+  if (unMes?.cerrado) {
+    const g = mesesCerrados.get(opts.mes!);
+    if (g && Date.now() - g.at < 6 * 3600_000) return g.valor;
+  }
+  const months = unMes ? 1 : Math.min(Math.max(opts.months ?? 1, 1), 6);
+  const from = unMes?.from ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+  const hasta = unMes?.hasta ?? now;
   const monthLabel = from.toISOString().slice(0, 7);
   // Fracción del período ya transcurrida (el período termina a fin del mes actual).
-  const finPeriodo = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
-  const prorrateo = Math.min(1, (now.getTime() - from.getTime()) / (finPeriodo - from.getTime()));
+  const finPeriodo = unMes?.fin.getTime() ?? Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  const prorrateo = unMes?.prorrateo ?? Math.min(1, (now.getTime() - from.getTime()) / (finPeriodo - from.getTime()));
 
   const values = await readSheet();
-  const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug }).from(clients).where(eq(clients.status, "active"));
+  const activos = await db.select({ id: clients.id, name: clients.name, slug: clients.slug, metadata: clients.metadata }).from(clients).where(eq(clients.status, "active"));
+  const ids = activos.map((c) => c.id);
 
   // Hecho = calendario Redes de ClickUp con tag "mandado a make" en el período,
   // clasificado por formato ("Tipo de Contenido" o tag reel/story/etc.).
-  const postsByClient = await contarHechoClickUp(db, activos.map((c) => c.id), from.getTime(), now.getTime());
-  const instagram = await contarPublicadoInstagram(db, activos.map((c) => c.id), from);
+  const postsByClient = unMes?.cerrado ? new Map<string, HechoCounts>() : await contarHechoClickUp(db, ids, from.getTime(), hasta.getTime());
+  const instagram = await contarPublicadoInstagram(db, ids, from, hasta);
   const fromDay = from.toISOString().slice(0, 10);
+  const finDay = new Date(finPeriodo).toISOString().slice(0, 10);
   const spend = await db.select({
     clientId: adsInsights.clientId,
     platform: adsInsights.platform,
     spend: sql<string>`coalesce(sum(${adsInsights.spend})::numeric,0)`,
+    // Avisos realizados = anuncios distintos que gastaron (las filas sin ad_id no cuentan).
+    avisos: sql<number>`count(distinct case when ${adsInsights.spend} > 0 then ${adsInsights.adId} end)::int`,
   }).from(adsInsights)
-    .where(gte(adsInsights.date, fromDay))
+    .where(and(gte(adsInsights.date, fromDay), lt(adsInsights.date, finDay)))
     .groupBy(adsInsights.clientId, adsInsights.platform);
-  const spendByClient = new Map<string, { meta: number; google: number }>();
+  const spendByClient = new Map<string, { meta: number; google: number; avisos: number }>();
   for (const s of spend) {
     if (!s.clientId) continue;
-    const cur = spendByClient.get(s.clientId) ?? { meta: 0, google: 0 };
+    const cur = spendByClient.get(s.clientId) ?? { meta: 0, google: 0, avisos: 0 };
     if (s.platform === "google") cur.google += Number(s.spend); else cur.meta += Number(s.spend);
+    cur.avisos += Number(s.avisos) || 0;
     spendByClient.set(s.clientId, cur);
   }
+  // Historias capturadas de la cuenta cada 6 h (desde el 15/10): el equipo no las carga en ClickUp.
+  const capturadas = new Map<string, number>();
+  const historias = await db.select({ clientId: organicStories.clientId, n: sql<number>`count(*)::int` }).from(organicStories)
+    .where(and(isNotNull(organicStories.clientId), gte(organicStories.publicadaAt, from), lt(organicStories.publicadaAt, hasta)))
+    .groupBy(organicStories.clientId);
+  for (const s of historias) if (s.clientId) capturadas.set(s.clientId, s.n);
 
   const rows: CotizadoRow[] = [];
   const sinMatch: string[] = [];
@@ -221,6 +272,7 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
       tiktokVideosMes: num(row[12]),
       pautaMeta: boolCell(row[22]),
       pautaGoogle: boolCell(row[23]),
+      ...cotizadoDeFicha(match?.metadata),
     };
     const ig = match ? instagram.get(match.id) ?? null : null;
     const hecho = match ? postsByClient.get(match.id) ?? null : null;
@@ -230,9 +282,10 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
       posteosMes: ig?.posteos ?? hecho?.posteos ?? 0,
       videosMes: ig?.videos ?? hecho?.videos ?? 0,
       // Las stories no se leen de la red (la API solo da las de 24 h).
-      storiesMes: hecho?.stories ?? 0,
+      storiesMes: Math.max(hecho?.stories ?? 0, match ? capturadas.get(match.id) ?? 0 : 0),
       spendMeta: match ? Math.round(spendByClient.get(match.id)?.meta ?? 0) : 0,
       spendGoogle: match ? Math.round(spendByClient.get(match.id)?.google ?? 0) : 0,
+      avisos: match ? spendByClient.get(match.id)?.avisos ?? 0 : 0,
     };
 
     // Esperado del período: semanal ×4.33×meses, mensual ×meses — prorrateado
@@ -261,7 +314,9 @@ export async function cotizadoVsRealizado(db: Db, opts: { months?: number } = {}
     });
   }
   rows.sort((a, b) => (a.cumplimientoPct ?? 999) - (b.cumplimientoPct ?? 999));
-  return { month: monthLabel, rows, sinMatch, prorrateoPct: Math.round(prorrateo * 100) };
+  const valor = { month: monthLabel, rows, sinMatch, prorrateoPct: Math.round(prorrateo * 100) };
+  if (unMes?.cerrado) mesesCerrados.set(opts.mes!, { at: Date.now(), valor });
+  return valor;
 }
 
 /** Responsables por cliente (pestaña RESPONSABLES) — para derivar tareas. */
@@ -355,24 +410,41 @@ const ROLES: Array<{ col: number; rol: string }> = [
   { col: 33, rol: "Pauta" },
 ];
 
+/**
+ * Piezas por mes que le tocan a un rol en una cuenta, según lo vendido (21/11: la
+ * cantidad de cuentas no decía la carga; 10 cuentas de 2 posteos no son 10 de 20).
+ * Filmaker y edición cargan los videos; diseño, copy y posteos, todo lo que se
+ * publica. Gestión y pauta no se miden en piezas. Pura.
+ */
+export function piezasDelRol(rol: string, row: unknown[]): number {
+  const posteos = ((num(row[2]) ?? 0) + (num(row[9]) ?? 0)) * 4.33;
+  const videos = (num(row[3]) ?? 0) + (num(row[4]) ?? 0) + (num(row[12]) ?? 0);
+  if (rol === "Filmaker" || rol === "Edición") return videos;
+  if (rol === "Diseño" || rol === "Copy" || rol === "Posteos") return posteos + videos;
+  return 0;
+}
+
 export interface CargaPersona {
   nombre: string;
   cuentas: number;
+  /** Piezas por mes que le tocan, sumando sus roles en cada cuenta. */
+  piezasMes: number;
   porRol: Record<string, number>;
   clientes: string[];
 }
 
 export async function cargaEquipo(): Promise<{ personas: CargaPersona[] }> {
   const values = await readSheet();
-  const byPersona = new Map<string, { roles: Map<string, number>; clientes: Set<string> }>();
+  const byPersona = new Map<string, { roles: Map<string, number>; clientes: Set<string>; piezas: number }>();
   for (const row of values.slice(4)) {
     const cliente = String(row[0] ?? "").trim();
     if (!cliente) continue;
     for (const { col, rol } of ROLES) {
       const nombre = String(row[col] ?? "").trim();
       if (!nombre) continue;
-      const cur = byPersona.get(nombre) ?? { roles: new Map(), clientes: new Set() };
+      const cur = byPersona.get(nombre) ?? { roles: new Map(), clientes: new Set(), piezas: 0 };
       cur.roles.set(rol, (cur.roles.get(rol) ?? 0) + 1);
+      cur.piezas += piezasDelRol(rol, row);
       cur.clientes.add(cliente);
       byPersona.set(nombre, cur);
     }
@@ -380,6 +452,7 @@ export async function cargaEquipo(): Promise<{ personas: CargaPersona[] }> {
   const personas = [...byPersona.entries()].map(([nombre, v]) => ({
     nombre,
     cuentas: v.clientes.size,
+    piezasMes: Math.round(v.piezas),
     porRol: Object.fromEntries(v.roles),
     clientes: [...v.clientes].sort(),
   }));

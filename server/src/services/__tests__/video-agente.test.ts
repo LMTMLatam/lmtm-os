@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MOVIMIENTOS, chequearVariedad, faltaAvisoLegal } from "../video-variedad.js";
-import { AVISO_TERCEROS, NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, elegirVozElevenLabs, idDeDrive, rutaSegura } from "../video-agente.js";
+import { AVISO_TERCEROS, NOMBRES_VIDEO, RAIZ, ejecutarHerramientaVideo, elegirVozElevenLabs, idDeDrive, piezasDeEngranado, rutaSegura } from "../video-agente.js";
 import { SKILLS_DE_TODOS } from "../company-skills.js";
 import { proveedorDelProxy } from "@paperclipai/adapter-claude-local/server";
 
@@ -108,6 +108,16 @@ describe("video-agente: rutas", () => {
     for (const t of ["video_voz", "video_transcribir", "video_plano", "video_musica", "video_renderizar", "video_estado", "video_revisar", "video_entregar", "drive_bajar", "encargar_al_productor", "video_describir", "video_retomar"]) {
       expect(NOMBRES_VIDEO.has(t)).toBe(true);
     }
+  });
+
+  it("engranado: gancho, propiedad y cierre en ese orden; nada que no sea un video del NAS", () => {
+    const b = "/LMTM/Clientes/Dunod/VIDEO/TERMINADOS/NO_SUBIDO";
+    expect(piezasDeEngranado({ cierre: `${b}/c.mp4`, cuerpo: `${b}/p.mp4`, gancho: `${b}/g.mp4` })).toEqual([`${b}/g.mp4`, `${b}/p.mp4`, `${b}/c.mp4`]);
+    expect(piezasDeEngranado({ cuerpo: `${b}/p.MP4`, gancho: "" })).toEqual([`${b}/p.MP4`]);
+    expect(piezasDeEngranado({ gancho: `${b}/g.mp4` })).toBeNull();
+    expect(piezasDeEngranado({ cuerpo: `${b}/../../x.mp4` })).toBeNull();
+    expect(piezasDeEngranado({ cuerpo: `${b}/p.prproj` })).toBeNull();
+    expect(NOMBRES_VIDEO.has("video_engranar")).toBe(true);
   });
 
   it("saca el id de cualquier link de Drive", () => {

@@ -9,6 +9,7 @@ import { ResumenCliente } from "../../lmtm/ResumenCliente";
 
 const de = <K extends string>(carga: () => Promise<Record<K, React.ComponentType<any>>>, nombre: K) => lazy(() => carga().then((m) => ({ default: m[nombre] })));
 const PlanAccionTab = de(() => import("./PlanAccion"), "PlanAccionTab");
+const CuentaTab = de(() => import("./Cuenta"), "CuentaTab");
 const PaidMediaTab = de(() => import("./Pauta"), "PaidMediaTab");
 const WebTab = de(() => import("@/components/WebTab"), "WebTab");
 const CalendarTab = de(() => import("./Calendario"), "CalendarTab");
@@ -21,7 +22,7 @@ const CompetidoresTab = de(() => import("./Competencia"), "CompetidoresTab");
 const TasksTab = de(() => import("./Tareas"), "TasksTab");
 
 /** Las secciones que vienen de la ficha vieja; «agentes» y «que-funciona» las arma ClienteApp. */
-export type Tab = "resumen" | "plan-accion" | "tasks" | "calendario" | "dashboard" | "productos" | "ideas" | "ganchos" | "tendencias" | "memoria" | "competidores" | "web";
+export type Tab = "resumen" | "plan-accion" | "cuenta" | "tasks" | "calendario" | "dashboard" | "productos" | "ideas" | "ganchos" | "tendencias" | "memoria" | "competidores" | "web";
 
 export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads?: ClientAdsSummary }) {
   const navigate = useNavigate();
@@ -30,6 +31,8 @@ export function TabContent({ tab, client, ads }: { tab: Tab; client: Client; ads
       return <ResumenCliente clientId={client.id} slug={client.slug} onCalendario={() => navigate(`/clientes/${client.slug}/calendario`)} />;
     case "plan-accion":
       return <PlanAccionTab client={client} />;
+    case "cuenta":
+      return <CuentaTab client={client} />;
     case "dashboard":
       return <PaidMediaTab client={client} ads={ads} />;
     case "web":

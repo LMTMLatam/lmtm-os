@@ -974,7 +974,11 @@ export function adsRoutes(db: Db): Router {
     const body = req.body ?? {};
     const tocaIndustry = "industry" in body;
     const tocaDecisor = "decisor" in body;
-    if (!tocaIndustry && !tocaDecisor) return res.status(400).json({ error: "nothing to update" });
+    // 21/11: lo vendido en plata y avisos (metadata.cotizado) y el abono. Es plata: solo admin.
+    const tocaCotizado = "cotizado" in body;
+    const tocaAbono = "abonoMes" in body;
+    if (!tocaIndustry && !tocaDecisor && !tocaCotizado && !tocaAbono) return res.status(400).json({ error: "nothing to update" });
+    if (tocaCotizado || tocaAbono) assertAdminEmpresa(req);
 
     const cambios: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -986,10 +990,31 @@ export function adsRoutes(db: Db): Router {
     // El decisor vive en metadata, así que hay que leer lo que ya está: un
     // `set` plano del jsonb pisaría cplObjetivo, notifyWhatsapp y todo lo demás
     // que guarda ese mismo campo.
-    if (tocaDecisor) {
+    if (tocaAbono) {
+      const n = body.abonoMes === null || body.abonoMes === "" ? 0 : Number(body.abonoMes);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: "abonoMes tiene que ser un número" });
+      cambios.monthlyRetainerCents = Math.round(n * 100);
+    }
+    if (tocaCotizado) {
       const [actual] = await db.select({ metadata: clients.metadata }).from(clients).where(condition).limit(1);
       if (!actual) return res.status(404).json({ error: "client not found" });
       const meta = { ...((actual.metadata as Record<string, unknown> | null) ?? {}) };
+      const limpio: Record<string, number> = {};
+      for (const k of ["metaMes", "googleMes", "avisosMes"] as const) {
+        const v = (body.cotizado ?? {})[k];
+        if (v === null || v === undefined || v === "") continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: `${k} tiene que ser un número` });
+        limpio[k] = n;
+      }
+      if (Object.keys(limpio).length) meta.cotizado = limpio; else delete meta.cotizado;
+      cambios.metadata = meta;
+    }
+    if (tocaDecisor) {
+      const [actual] = await db.select({ metadata: clients.metadata }).from(clients).where(condition).limit(1);
+      if (!actual) return res.status(404).json({ error: "client not found" });
+      // Si en el mismo pedido se tocó lo cotizado, se parte de eso para no pisarlo.
+      const meta = { ...((cambios.metadata as Record<string, unknown> | undefined) ?? (actual.metadata as Record<string, unknown> | null) ?? {}) };
       const d = body.decisor;
       if (d === null) {
         delete meta.decisor;
@@ -3509,6 +3534,34 @@ export function adsRoutes(db: Db): Router {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       res.status(502).json({ error: "No se pudo leer la planilla de cotizado", detail: msg.slice(0, 300) });
+    }
+  });
+
+  // ── La cuenta del cliente (plan 21/11): trimestre, señal de cobro, salud ────
+  // La ve el equipo (como cotizado vs realizado); el abono y la edición, solo admin. Guardado 10 min.
+  router.get("/growth/cuenta", microCache(10 * 60_000), async (_req, res) => {
+    try {
+      const { cuentaCartera } = await import("../services/cuenta.js");
+      res.json(await cuentaCartera(db));
+    } catch (e) {
+      res.status(502).json({ error: "No se pudo armar la cuenta", detail: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+  router.get("/clients/:id/cuenta", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      const [c] = await db.select({ id: clients.id }).from(clients).where(esUuid ? eq(clients.id, id) : eq(clients.slug, id)).limit(1);
+      if (!c) return res.status(404).json({ error: "client not found" });
+      const { cuentaDeCliente, textoInformeTrimestral } = await import("../services/cuenta.js");
+      const d = await cuentaDeCliente(db, c.id);
+      // El abono es de finanzas: el equipo ve la cuenta, no lo que paga el cliente.
+      let admin = true;
+      try { assertAdminEmpresa(req); } catch { admin = false; }
+      const visible = admin ? d : { ...d, abonoMes: null };
+      res.json({ ...visible, puedeEditar: admin, informe: textoInformeTrimestral(visible) });
+    } catch (e) {
+      res.status(502).json({ error: "No se pudo armar la cuenta", detail: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
     }
   });
 

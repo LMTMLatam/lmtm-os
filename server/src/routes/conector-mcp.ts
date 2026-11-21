@@ -119,6 +119,8 @@ export const HERRAMIENTAS_EQUIPO = [
   // Generar con las cuentas de la agencia (13/11): clips, imágenes, voz y música, bajo
   // /tmp/videos/equipo/ (agent-tools lo exige), con su gasto anotado; se bajan con lmtmVideoLink.
   "lmtmVideoPlano", "lmtmContenidoImagen", "lmtmVideoVoz", "lmtmVideoMusica", "lmtmVideoEstado", "lmtmVideoLink",
+  // Engranar gancho + propiedad + cierre de inmobiliarias (21/11): lee del NAS, no gasta créditos.
+  "lmtmVideoEngranar",
   // Lo que escribe: contenido, tareas y lo aprendido del cliente.
   "lmtmGenerarContenido", "lmtmGenerarPieza", "lmtmCreateClientTask", "lmtmRememberAboutClient", "lmtmSaveHook",
   // Calidad (15/11): el equipo dice si una pieza sirvió y por qué; queda como regla del cliente.

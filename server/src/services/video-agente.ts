@@ -470,6 +470,13 @@ export const VIDEO_TOOLS: ToolDef[] = [
     carpeta: { type: "string", description: `Carpeta de trabajo bajo ${RAIZ}/ (ej. ${RAIZ}/<cliente>-<fecha>)` },
     para: { type: "string", description: "Qué se quiere sacar de la jornada (ayuda a describir mejor)." },
   }, ["ruta", "carpeta"]),
+  def("video_engranar", "ENGRANA un video SIN editarlo (inmobiliarias, 21/11): une gancho + propiedad + cierre, que son videos YA TERMINADOS del NAS y en el mismo formato (el banco suele estar en <cliente>/VIDEO/TERMINADOS/NO_SUBIDO/HOOKS y CIERRES), y nivela el audio para redes. En segundo plano: devuelve un id para video_estado. NO subtitula salvo subtitular=true: los terminados suelen traer el texto ya quemado y se duplicaría; si subtitulás, una persona tiene que leer los nombres propios. Después: video_revisar y video_entregar.", {
+    cuerpo: { type: "string", description: "Archivo del NAS con el video de la propiedad (de nas_listar o nas_buscar)." },
+    gancho: { type: "string", description: "Archivo del NAS con el gancho que va adelante. Opcional." },
+    cierre: { type: "string", description: "Archivo del NAS con el cierre que va al final. Opcional. Si el video de la propiedad termina con el logo, el cierre queda después del logo: pedí la propiedad exportada sin logo." },
+    carpeta: { type: "string", description: `Carpeta de trabajo bajo ${RAIZ}/ (ej. ${RAIZ}/<cliente>-<propiedad>)` },
+    subtitular: { type: "boolean", description: "true SOLO si ninguna de las piezas trae subtítulos quemados." },
+  }, ["cuerpo", "carpeta"]),
   def("virales_buscar", "BUSCA videos virales NUEVOS de Latinoamérica en TikTok o Instagram por palabras (por la API de redes de la oficina, lmtm-redes). Devuelve cada video con vistas, la mediana de SU autor y cuántas veces la superó (viral = 3× o más), fecha, duración y link. Lento a propósito (ritmo de persona): pedí pocos y bien elegidos. Si responde que una red frenó, no insistas.", {
     red: { type: "string", enum: ["tiktok", "instagram"] },
     query: { type: "string", description: "Palabras como las buscaría una persona: «departamento en venta», «cómo se fabrica»." },
@@ -615,6 +622,42 @@ async function prepararCrudos(ruta: string, carpeta: string, para: string): Prom
   ].join("\n"));
   await aNombreDelAgente(carpeta);
   return `Inventario listo: ${md} (${items.length} videos, ${conVoz.length} con voz${faltan.length ? `, ${faltan.length} sin bajar` : ""}). Leelo y armá el plan de piezas.`;
+}
+
+/** En qué orden van las piezas del engranado; null si alguna no es un video o tiene «..». Pura. */
+export function piezasDeEngranado(p: { gancho?: unknown; cuerpo?: unknown; cierre?: unknown }): string[] | null {
+  const piezas = [p.gancho, p.cuerpo, p.cierre].filter((x) => x !== undefined && x !== null && x !== "");
+  if (typeof p.cuerpo !== "string" || !p.cuerpo) return null;
+  for (const x of piezas) if (typeof x !== "string" || !/\.(mp4|mov|m4v)$/i.test(x) || x.split("/").includes("..")) return null;
+  return piezas as string[];
+}
+
+/** video_engranar: baja las piezas del NAS, las une, subtitula si se pidió y nivela el audio. Sin modelos: cero tokens. */
+async function engranar(piezas: string[], carpeta: string, subtitular: boolean): Promise<string> {
+  const nas = await import("./nas.js");
+  const fuente = path.join(carpeta, "fuente");
+  const locales: string[] = [];
+  for (const [i, ruta] of piezas.entries()) {
+    // El número adelante: gancho y cierre pueden llamarse igual que otra pieza.
+    const bajado = await nas.bajarNas(ruta, path.join(fuente, String(i)), 3e9);
+    locales.push(bajado);
+  }
+  const vt = (args: string[]) => run("vtool", args, { timeout: 1_800_000, maxBuffer: 20e6 });
+  let actual = locales[0];
+  if (locales.length > 1) {
+    actual = path.join(carpeta, "engranado.mp4");
+    await vt(["unir", ...locales, "-o", actual]);
+  }
+  if (subtitular) {
+    await vt(["subtitulos", actual]);
+    await vt(["quemar", actual, actual.replace(/\.[^.]+$/, "__subs.srt")]);
+    actual = actual.replace(/\.[^.]+$/, "__subtitulado.mp4");
+  }
+  await vt(["normalizar", actual]);
+  const final = actual.replace(/\.[^.]+$/, "__audio.mp4");
+  if (!fs.existsSync(final)) throw new Error(`vtool no dejó ${final}`);
+  await aNombreDelAgente(carpeta);
+  return `Engranado listo: ${final} (${piezas.length} pieza${piezas.length === 1 ? "" : "s"}${subtitular ? ", con subtítulos: que una persona lea los nombres propios" : ", sin subtitular"}). Falta video_revisar y video_entregar.`;
 }
 
 /**
@@ -1090,6 +1133,18 @@ Descargar (vence ${f.vence.toISOString()}): ${URL_BASE()}/api/public/archivo?t=$
       if (!ruta || !ruta.startsWith("/LMTM/")) return mal("ruta: la carpeta del NAS con los crudos (empieza con /LMTM/)");
       const r = await encargarAlEditor(db, { companyId: ctx.companyId, clientId: c.id, clienteNombre: c.name, ruta, pedido: txt(p.pedido).slice(0, 4000) });
       return r.ok ? ok(r.mensaje) : mal(r.mensaje);
+    }
+
+    if (tool === "video_engranar") {
+      const nas = await import("./nas.js");
+      const falta = nas.nasConfigurado();
+      if (falta) return mal(falta);
+      const piezas = piezasDeEngranado(p)?.map((x) => nas.rutaNas(x));
+      if (!piezas || piezas.some((x) => !x)) return mal("cuerpo, gancho y cierre tienen que ser archivos de video del NAS (.mp4, .mov, .m4v), sin «..»");
+      const carpeta = rutaSegura(p.carpeta);
+      if (!carpeta) return mal(`carpeta tiene que estar bajo ${RAIZ}/`);
+      const id = lanzar("engranado", () => engranar(piezas as string[], carpeta, p.subtitular === true));
+      return ok(`Engranando ${piezas.length} pieza(s) en ${carpeta}. Consultá con video_estado id=${id}.`);
     }
 
     if (tool === "crudos_preparar") {

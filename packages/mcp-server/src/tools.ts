@@ -1414,6 +1414,18 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
       async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "encargar_al_editor", parameters: p } }),
     ),
     makeTool(
+      "lmtmVideoEngranar",
+      "ENGRANA un video de inmobiliaria SIN editarlo: une gancho + propiedad + cierre (videos YA TERMINADOS del NAS, mismo formato; el banco suele estar en <cliente>/VIDEO/TERMINADOS/NO_SUBIDO/HOOKS y CIERRES) y nivela el audio para redes. En segundo plano: devuelve un id para lmtmVideoEstado; el resultado se baja con lmtmVideoLink. No subtitula salvo subtitular=true (los terminados suelen traer el texto quemado).",
+      z.object({
+        cuerpo: z.string().min(1).describe("Archivo del NAS con el video de la propiedad"),
+        gancho: z.string().optional().describe("Archivo del NAS con el gancho que va adelante"),
+        cierre: z.string().optional().describe("Archivo del NAS con el cierre que va al final"),
+        carpeta: z.string().min(1).describe("Carpeta de trabajo bajo /tmp/videos/equipo/"),
+        subtitular: z.boolean().optional().describe("true SOLO si ninguna pieza trae subtítulos quemados"),
+      }),
+      async (p) => client.requestJson("POST", "/agent-tools/execute", { body: { tool: "video_engranar", parameters: p } }),
+    ),
+    makeTool(
       "lmtmCrudosPreparar",
       "PREPARA una carpeta de CRUDOS del NAS para editar (en segundo plano: devuelve un id para lmtmVideoEstado; una jornada tarda 10–40 min). Baja los videos al servidor, describe qué se ve en cada uno y, en los que alguien habla, arma las tomas. Deja <carpeta>/INVENTARIO.md.",
       z.object({

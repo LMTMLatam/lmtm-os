@@ -91,7 +91,7 @@ export function seccionDe(pathname: string): { madre: SeccionPrincipal | null; l
 
 export interface SeccionCliente { id: string; label: string }
 export const GRUPOS_CLIENTE: Array<{ grupo: string; secciones: SeccionCliente[] }> = [
-  { grupo: "Resumen", secciones: [{ id: "resumen", label: "Para hacer" }, { id: "plan-accion", label: "Plan de acción" }] },
+  { grupo: "Resumen", secciones: [{ id: "resumen", label: "Para hacer" }, { id: "plan-accion", label: "Plan de acción" }, { id: "cuenta", label: "Cuenta" }] },
   { grupo: "Pauta", secciones: [{ id: "dashboard", label: "Campañas" }, { id: "web", label: "Web" }] },
   {
     grupo: "Contenido",

@@ -22,6 +22,22 @@ export const STORIES = {
 const JOB = "stories:captura";
 const DIA = 86_400_000;
 
+/**
+ * Guarda los seguidores de una red en la ficha: un número por mes (el último que
+ * se leyó ese mes), en metadata.seguidores.<red>.<YYYY-MM>. Con jsonb_set para no
+ * pisar el resto de metadata, que otros procesos escriben a la vez.
+ */
+export async function sellarSeguidores(db: Db, clientId: string, red: string, n: number, ahora = new Date()): Promise<void> {
+  const mes = ahora.toISOString().slice(0, 7);
+  await db.execute(sql`
+    update clients set metadata = jsonb_set(
+      jsonb_set(coalesce(metadata, '{}'::jsonb), '{seguidores}', coalesce(metadata->'seguidores', '{}'::jsonb), true),
+      array['seguidores', ${red}]::text[],
+      coalesce(metadata->'seguidores'->${red}, '{}'::jsonb) || jsonb_build_object(${mes}::text, ${n}::int),
+      true)
+    where id = ${clientId}`);
+}
+
 /** Lee las stories activas de cada página y guarda las nuevas. */
 export async function capturarStories(db: Db): Promise<{ paginas: number; nuevas: number; errores: number }> {
   const filas = await db
@@ -45,6 +61,7 @@ export async function capturarStories(db: Db): Promise<{ paginas: number; nuevas
     try {
       const r = await storiesActivas(f.token, pageId);
       leidos.push(f.clientId);
+      if (typeof r.seguidores === "number") await sellarSeguidores(db, f.clientId, "instagram", r.seguidores);
       const validas = r.stories.filter((s) => s.timestamp);
       if (r.igUserId && validas.length) {
         const ins = await db.insert(organicStories).values(validas.map((s) => ({

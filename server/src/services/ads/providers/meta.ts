@@ -172,7 +172,7 @@ async function getPageAccessToken(userToken: string, pageId: string): Promise<st
 export async function storiesActivas(
   userToken: string,
   pageId: string,
-): Promise<{ igUserId: string | null; stories: Array<{ id: string; media_type?: string; permalink?: string; timestamp?: string }> }> {
+): Promise<{ igUserId: string | null; seguidores?: number | null; stories: Array<{ id: string; media_type?: string; permalink?: string; timestamp?: string }> }> {
   const pageToken = await getPageAccessToken(userToken, pageId);
   const pagina = await gGet<{ instagram_business_account?: { id?: string } }>(`/${pageId}`, { fields: "instagram_business_account{id}" }, pageToken);
   const igUserId = pagina.instagram_business_account?.id ?? null;
@@ -183,7 +183,11 @@ export async function storiesActivas(
     { fields: "id,media_type,permalink,timestamp" },
     pageToken,
   )) stories.push(...lote);
-  return { igUserId, stories };
+  // Seguidores de la cuenta (21/11, salud del cliente). Pedido aparte: si Meta lo niega, las historias igual se guardan.
+  const seguidores = await gGet<{ followers_count?: number }>(`/${igUserId}`, { fields: "followers_count" }, pageToken)
+    .then((r) => (typeof r.followers_count === "number" ? r.followers_count : null))
+    .catch(() => null);
+  return { igUserId, seguidores, stories };
 }
 
 function inferPostType(permalinkUrl: string | undefined, fullPicture: string | undefined): string {
