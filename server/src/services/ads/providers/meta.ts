@@ -37,9 +37,10 @@ function gGet<T = unknown>(path: string, params: Record<string, string>, token: 
 const DIA_MS = 86_400_000;
 
 /**
- * Puro. Si a esta publicación de Instagram le toca pedir alcance en esta corrida. El sync corre cada 3 h:
- * las de hasta 30 días se piden siempre (todavía se mueven); las más viejas, solo en la corrida de la
- * madrugada (0–3 UTC), una vez por día. Es una llamada por publicación: sin este corte serían miles por día.
+ * Puro. Si a esta publicación de Instagram le toca pedir alcance en esta corrida. Las de hasta 30 días se
+ * piden siempre (todavía se mueven); las más viejas, solo entre las 0 y las 3 UTC, que es cuando cae el sync
+ * diario (ads-autosync.ts). Es una llamada por publicación: el corte evita que cada «Sincronizar» a mano de
+ * día repita cientos.
  */
 export function insightsHasta(publicada: Date, ahora: Date): boolean {
   const dias = (ahora.getTime() - publicada.getTime()) / DIA_MS;
