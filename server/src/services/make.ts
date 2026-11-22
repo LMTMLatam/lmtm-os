@@ -171,6 +171,9 @@ export async function makeScenarioLogs(scenarioId: number, limit = 20): Promise<
  */
 export function fallasVigentes(logs: Pick<MakeLog, "status" | "timestamp">[], ahora: number): Pick<MakeLog, "status" | "timestamp">[] {
   const recientes = logs
+    // Solo corridas: el registro trae también ediciones del escenario (type "modify"), sin estado. El 19/11 una
+    // edición en lote de 13 escenarios se leía como «falló la última corrida» en los 13 (22/11).
+    .filter((l) => typeof l.status === "number")
     .filter((l) => ahora - new Date(l.timestamp).getTime() <= MAKE_ERROR_WINDOW_MS)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   const fallas: Pick<MakeLog, "status" | "timestamp">[] = [];

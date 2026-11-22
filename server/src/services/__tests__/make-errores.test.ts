@@ -20,6 +20,12 @@ describe("clasificar un escenario de Make", () => {
     expect(r.yaAnda?.escenario).toBe("Cliente");
   });
 
+  it("una edición del escenario (sin estado) no es una corrida fallida", () => {
+    const edicion = { id: "m", timestamp: new Date(AHORA - 3_600_000).toISOString(), type: "modify" } as never;
+    expect(clasificar(sc(), [edicion], [], AHORA)).toEqual({ roto: null, yaAnda: null });
+    expect(clasificar(sc(), [edicion, log("a", 1, 5)], [], AHORA)).toEqual({ roto: null, yaAnda: null });
+  });
+
   it("una advertencia (estado 2) no es una falla", () => {
     const r = clasificar(sc(), [log("a", 2, 1)], [], AHORA);
     expect(r).toEqual({ roto: null, yaAnda: null });

@@ -58,6 +58,8 @@ export function clasificar(
   dlqs: MakeIncompleta[],
   ahora: number,
 ): { roto: EscenarioConError | null; yaAnda: ErroresDeMake["yaAndan"][number] | null } {
+  // El registro mezcla corridas con ediciones del escenario (sin estado): acá solo cuentan las corridas.
+  logs = logs.filter((l) => typeof l.status === "number");
   const motivos = agruparMotivos(dlqs);
   const pendientes = motivos.reduce((n, m) => n + m.veces, 0);
   if (sc.isActive === false) {
