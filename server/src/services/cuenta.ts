@@ -55,10 +55,15 @@ export interface MesCuenta {
   inversionMeta: Renglon;
   inversionGoogle: Renglon;
   cumplimientoPct: number | null;
+  /** false = el mes es anterior a la captura de historias (arrancó el 15/10/2026): un 0 ahí no es un hecho. */
+  historiasMedidas: boolean;
   /** Videos según el tracker del equipo de video (Excel del mes en Drive); null = el cliente no está en ese tracker. */
   videosTracker: { encargados: number; entregados: number } | null;
 }
 export interface CuentaCliente { clientId: string; slug: string; name: string; meses: MesCuenta[]; senal: Senal }
+
+/** Primer mes con historias capturadas (stories.ts corre desde el 15/10/2026). */
+export const HISTORIAS_DESDE = "2026-10";
 
 /** Un renglón de la planilla + ficha → el mes de la cuenta. Pura. */
 export function mesDeFila(r: CotizadoRow, mes: string, cerrado: boolean, prorrateoPct: number): MesCuenta {
@@ -75,6 +80,7 @@ export function mesDeFila(r: CotizadoRow, mes: string, cerrado: boolean, prorrat
     inversionMeta: { cotizado: parte(r.cotizado.inversionMetaMes), realizado: r.realizado.spendMeta },
     inversionGoogle: { cotizado: parte(r.cotizado.inversionGoogleMes), realizado: r.realizado.spendGoogle },
     cumplimientoPct: r.cumplimientoPct,
+    historiasMedidas: mes >= HISTORIAS_DESDE,
     videosTracker: null,
   };
 }
@@ -260,7 +266,7 @@ export function textoInformeTrimestral(d: Awaited<ReturnType<typeof cuentaDeClie
   for (const m of cerrados) {
     l.push(`## ${m.mes}`, "", "| | Cotizado | Realizado |", "|---|---|---|");
     // Sin fuente no hay conteo de contenido: un 0 se leería como «no publicó nada».
-    l.push(fila("Posteos", m.posteos, false, !m.fuente), fila("Videos y reels", m.videos, false, !m.fuente), fila("Historias", m.historias), fila("Avisos", m.avisos));
+    l.push(fila("Posteos", m.posteos, false, !m.fuente), fila("Videos y reels", m.videos, false, !m.fuente), fila("Historias", m.historias, false, !m.historiasMedidas), fila("Avisos", m.avisos));
     if (m.videosTracker) l.push(`| Videos (tracker del equipo) | ${m.videosTracker.encargados} | ${m.videosTracker.entregados} |`);
     l.push(fila("Inversión Meta", m.inversionMeta, true), fila("Inversión Google", m.inversionGoogle, true), "");
     l.push(m.cumplimientoPct == null ? "Contenido: sin medir (no se lee la cuenta de Instagram de este cliente)." : `Cumplimiento de contenido: ${m.cumplimientoPct} %.`, "");

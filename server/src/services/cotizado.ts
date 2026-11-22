@@ -193,6 +193,8 @@ export function ventanaDeMes(mes: string, ahora: Date): { from: Date; fin: Date;
 export type CotizadoResultado = { month: string; rows: CotizadoRow[]; sinMatch: string[]; prorrateoPct: number };
 // Un mes cerrado no cambia: se guarda 6 h (la cuenta del trimestre pide 3 de una).
 const mesesCerrados = new Map<string, { at: number; valor: CotizadoResultado }>();
+/** Al cambiar lo vendido de un cliente en la ficha, lo guardado de los meses cerrados ya no vale. */
+export const olvidarMesesCerrados = () => mesesCerrados.clear();
 
 /**
  * `months` = los últimos N meses juntos, hasta hoy (la vista de siempre).

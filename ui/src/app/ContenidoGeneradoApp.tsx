@@ -475,7 +475,10 @@ function FormEngranar() {
               {pedir.isPending || estado.data?.estado === "en_curso" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />} Engranar
             </button>
             {estado.data ? (
-              <span className={`text-[13px] ${estado.data.estado === "fallo" || estado.data.estado === "desconocida" ? "text-l-critico-texto" : listo ? "text-l-bien-texto" : "text-l-tinta-3"}`} role="status">{estado.data.mensaje}</span>
+              <span className={`text-[13px] ${estado.data.estado === "fallo" || estado.data.estado === "desconocida" ? "text-l-critico-texto" : listo ? "text-l-bien-texto" : "text-l-tinta-3"}`} role="status">
+                {estado.data.mensaje.replace(/https?:\/\/\S+/, "").trim()}{" "}
+                {/https?:\/\/\S+/.exec(estado.data.mensaje) && <a href={/https?:\/\/\S+/.exec(estado.data.mensaje)![0]} target="_blank" rel="noreferrer" className="underline">Abrir en Drive</a>}
+              </span>
             ) : <Resultado m={pedir} />}
           </div>
           <p className="text-[12px] text-l-tinta-3">El video queda en Drive, en la carpeta VIDEOS del cliente, y en «Lo que entregaron» para validar. Si la propiedad termina con el logo, el cierre queda después del logo: pedila exportada sin logo.</p>

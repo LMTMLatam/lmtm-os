@@ -13,6 +13,7 @@ export interface MesCuenta {
   mes: string; cerrado: boolean; fuente: "instagram" | "clickup" | null;
   posteos: Renglon; videos: Renglon; historias: Renglon; avisos: Renglon; inversionMeta: Renglon; inversionGoogle: Renglon;
   cumplimientoPct: number | null;
+  historiasMedidas?: boolean;
   videosTracker?: { encargados: number; entregados: number } | null;
 }
 type Margen = { mes: string; abono: number; directos: number; imputado: number; participacionPct: number; margen: number; otrasMonedas: number } | { motivo: string };
@@ -155,7 +156,7 @@ export function CuentaTab({ client }: { client: Client }) {
                     <td className="py-1.5 pr-2 text-l-tinta-2">{nombre}</td>
                     {meses.map((m) =>
                       // Sin fuente no hay conteo de contenido: un 0 se leería como «no publicó nada».
-                      !m.fuente && (k === "posteos" || k === "videos")
+                      (!m.fuente && (k === "posteos" || k === "videos")) || (k === "historias" && m.historiasMedidas === false)
                         ? <td key={m.mes} className="px-2 py-1.5 text-right text-l-tinta-3">sin medir <span className="text-[11px]">/ {num((m[k] as Renglon).cotizado ?? 0)}</span></td>
                         : <Celda key={m.mes} r={m[k] as Renglon} plata={plata} />)}
                   </tr>
@@ -176,7 +177,7 @@ export function CuentaTab({ client }: { client: Client }) {
             </table>
             <p className="mt-2 text-[12px] text-l-tinta-3">
               «Videos (tracker del equipo)» = entregados / encargados según el Excel del mes del equipo de video; el mes en curso va contra el mes entero.{" "}
-              Los meses cerrados se miden solo contra la cuenta de Instagram del cliente; «sin medir» = no la leemos. El mes en curso compara contra la parte del mes que ya pasó. Las historias se cuentan desde el 15/10 y no pesan en el cumplimiento.
+              Los meses cerrados se miden solo contra la cuenta de Instagram del cliente; «sin medir» = no la leemos. El mes en curso compara contra la parte del mes que ya pasó. Las historias se capturan desde el 15/10 (octubre quedó a medias) y no pesan en el cumplimiento.
             </p>
           </div>
         )}

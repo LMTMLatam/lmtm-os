@@ -86,6 +86,12 @@ describe("informe trimestral", () => {
       salud, cotizado: { metaMes: null, googleMes: null, avisosMes: null }, abonoMes: null, margen: null, aprobacionPorLink: false, moneda: "ARS", nombre: "X",
     });
     expect(t).toContain("| Posteos | 13 | sin medir |");
+    expect(t).toContain("| Historias | 9 | 5 |");
+    expect(mesDeFila(filaBase, "2026-09", true, 100).historiasMedidas).toBe(false);
+    expect(textoInformeTrimestral({
+      meses: [], cuenta: { clientId: "1", slug: "x", name: "X", meses: [mesDeFila(filaBase, "2026-09", true, 100)], senal: "sin-datos" },
+      salud, cotizado: { metaMes: null, googleMes: null, avisosMes: null }, abonoMes: null, margen: null, aprobacionPorLink: false, moneda: "ARS", nombre: "X",
+    })).toContain("| Historias | 9 | sin medir |");
     expect(t).toContain("| Avisos | 6 | 4 |");
   });
   it("sin planilla no inventa", () => {

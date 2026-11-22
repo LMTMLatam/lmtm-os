@@ -1042,6 +1042,12 @@ export function adsRoutes(db: Db): Router {
 
     const [row] = await db.update(clients).set(cambios).where(condition).returning();
     if (!row) return res.status(404).json({ error: "client not found" });
+    if (tocaCotizado) {
+      // Si no, los meses cerrados seguían mostrando «sin cargar» hasta 6 h después de guardar (visto en el navegador, 21/11).
+      const { olvidarMesesCerrados } = await import("../services/cotizado.js");
+      olvidarMesesCerrados();
+      invalidateMicroCache("/growth/cuenta");
+    }
 
     // El brain lo lee de acá, así que se refresca ya: si no, el agente sigue
     // diciendo "NO CARGADO" hasta el próximo tick y el equipo cree que no sirvió.
