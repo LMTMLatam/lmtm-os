@@ -10,7 +10,7 @@
 // cada módulo una vez por día.
 
 import type { Db } from "@paperclipai/db";
-import { activityLog, adsAdsets, adsCampaigns, clients, decisiones } from "@paperclipai/db";
+import { activityLog, adsAdsets, adsCampaigns, clients, decisiones, informesSemanales } from "@paperclipai/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { saludFuentes } from "../ingest/salud.js";
 import { costoPorCliente, DIAS_RECIENTES } from "../services/costo-de-no-hacer.js";
@@ -25,6 +25,7 @@ import {
   propuestasDeCobertura,
   propuestasDeCola,
   propuestasDeCosto,
+  propuestasDeInforme,
   propuestasDeSaldo,
 } from "./reglas/existentes.js";
 import { reglaCalificados, reglaCostoCalificado, reglaEscalar, reglaFrecuencia, reglaSinLeads, type ClienteVentana } from "./reglas/pauta.js";
@@ -138,6 +139,15 @@ export async function correrReglas(db: Db, ahora = new Date()): Promise<Resultad
   resultados.push(await correrRegla("cola_humana", ahora, async () => {
     const filas = await filasColaHumana(db);
     return propuestasDeCola(filas.filter((f) => f.clientId && activosIds.has(f.clientId)), nombres);
+  }));
+
+  resultados.push(await correrRegla("informe_sin_publicar", ahora, async () => {
+    const { ultimaSemana } = await import("./informe.js");
+    const semana = ultimaSemana(ahora).desde;
+    const filas = await db.select({ clientId: informesSemanales.clientId, semana: informesSemanales.semana, numeros: informesSemanales.numeros })
+      .from(informesSemanales).where(and(eq(informesSemanales.semana, semana), eq(informesSemanales.estado, "aprobado")));
+    return propuestasDeInforme(filas.filter((f) => activosIds.has(f.clientId))
+      .map((f) => ({ clientId: f.clientId, semana: f.semana, inversion: typeof f.numeros?.inversion === "number" ? f.numeros.inversion : null })));
   }));
 
   resultados.push(await correrRegla("cadena_publicacion", ahora, async () => {

@@ -18,6 +18,7 @@ const FAMILIA: Record<string, string> = {
   cadena: "de la cadena de publicación",
   pauta: "de pauta",
   saldo: "de saldo",
+  informe: "de informes para publicar",
 };
 
 export interface Plegado<T> {

@@ -226,3 +226,17 @@ describe("cobertura", () => {
     expect([...clientesConPautaCiega([s({ estado: "sin_conexion", fuente: "meta_ads", ultimoDato: "2026-09-20" })])]).toEqual(["c1"]);
   });
 });
+
+describe("propuestasDeInforme", () => {
+  it("una decisión por cliente con inversión esa semana; sin inversión no entra a Hoy", async () => {
+    const { propuestasDeInforme } = await import("../reglas/existentes.js");
+    const r = propuestasDeInforme([
+      { clientId: "a", semana: "2026-11-16", inversion: 1500 },
+      { clientId: "b", semana: "2026-11-16", inversion: 0 },
+      { clientId: "c", semana: "2026-11-16", inversion: null },
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ clientId: "a", tipo: "informe:publicar", clave: "informe:a:2026-11-16", responsable: "equipo", accion: null });
+    expect(r[0]!.que).toBe("Leer y publicar el informe de la semana del 16/11");
+  });
+});

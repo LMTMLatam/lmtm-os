@@ -29,6 +29,7 @@ const POR_DECISION: Array<[RegExp, string]> = [
   [/^web:/, "Que la web traiga más consultas"],
   [/^upsell:/, "Ofrecerle al cliente algo que hoy le falta"],
   [/^cola:/, "Que el trabajo frenado (de un agente o del equipo) siga su curso"],
+  [/^informe:/, "Que el cliente lea qué se hizo con su plata esta semana"],
 ];
 
 export function paraQueDecision(tipo: string): string | null {

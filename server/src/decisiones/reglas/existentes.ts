@@ -305,6 +305,35 @@ export function propuestasDeCola(filas: FilaCola[], nombres: Map<string, string>
   return out;
 }
 
+// ── Informe semanal listo y sin publicar ────────────────────────────────
+
+/**
+ * El informe de la semana pasó el auditor y nadie lo publicó: UNA decisión por cliente.
+ *
+ * Del 01/10 al 22/11 se escribieron 194 informes y se publicaron 0: publicar era un botón en la ficha del
+ * cliente que nada pedía apretar (decisión delegada por Naza el 22/11). Solo clientes con inversión esa
+ * semana: un informe que dice «no hubo pauta» no justifica una fila en Hoy.
+ */
+export function propuestasDeInforme(filas: Array<{ clientId: string; semana: string; inversion: number | null }>): Propuesta[] {
+  return filas
+    .filter((f) => (f.inversion ?? 0) > 0)
+    .map((f) => ({
+      clientId: f.clientId,
+      tipo: "informe:publicar",
+      clave: `informe:${f.clientId}:${f.semana}`,
+      que: `Leer y publicar el informe de la semana del ${f.semana.slice(8, 10)}/${f.semana.slice(5, 7)}`,
+      porque: {
+        resumen: "Está escrito y pasó el auditor, pero el cliente no lo ve hasta que una persona lo publique desde su ficha. Leelo antes: el auditor controla los números, no si lo que dice que hicimos es cierto.",
+        datos: [],
+      },
+      arsPorDia: null,
+      responsable: "equipo" as const,
+      creadaPor: "regla:informe_sin_publicar",
+      accion: null,
+      venceEnDias: 7,
+    }));
+}
+
 // ── Cobertura (salud de fuentes, del chat A) ─────────────────────────────
 
 const NOMBRE_FUENTE: Record<Fuente, string> = {
