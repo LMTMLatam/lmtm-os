@@ -373,6 +373,10 @@ async function ponerEstado(db: Db, agentId: string, status: "running" | "idle" |
 
 let reloj: ReturnType<typeof setInterval> | null = null;
 const enCurso = new Set<string>(); // agentes corriendo ahora
+/** Agentes cuya tarea se omitió (cuota, ritmo) y hasta cuándo no se vuelven a probar. 22/11: los dos primeros de la
+ *  lista ocupaban los dos lugares en cada minuto y, con MiniMax sin cuota, Milo (ya en Anthropic) no corría nunca. */
+const omitidos = new Map<string, number>();
+export const ESPERA_OMITIDO_MS = 5 * 60_000;
 
 /** El reloj del motor: cada minuto mira las tareas de los agentes migrados. */
 export function iniciarMotor(db: Db): void {
@@ -394,13 +398,13 @@ export function iniciarMotor(db: Db): void {
       // rutina del día siguiente no puede tomar la suya (índice único issues_open_routine_execution_uq; Luna 18/11).
       await db.update(issues).set({ executionRunId: null, executionLockedAt: null })
         .where(sql`${issues.executionRunId} in (select id from heartbeat_runs where invocation_source = ${FUENTE} and status not in ('queued', 'running'))`);
-      const libres = agentes.filter((a) => !enCurso.has(a));
+      const libres = agentes.filter((a) => !enCurso.has(a) && (omitidos.get(a) ?? 0) < Date.now());
       for (const p of await pendientes(db, libres)) {
         if (enCurso.size >= concurrencia) break;
         enCurso.add(p.agentId);
         void correrTarea(db, p)
           // Las omitidas (cuota, ritmo) se repiten cada minuto: no se loguean.
-          .then((r) => { if (r.estado !== "omitida") console.log(`[motor] ${p.identifier ?? p.issueId}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`); })
+          .then((r) => { if (r.estado === "omitida") omitidos.set(p.agentId, Date.now() + ESPERA_OMITIDO_MS); else console.log(`[motor] ${p.identifier ?? p.issueId}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ""}`); })
           .catch((e) => console.warn("[motor] falló:", e instanceof Error ? e.message : e))
           .finally(() => enCurso.delete(p.agentId));
       }
