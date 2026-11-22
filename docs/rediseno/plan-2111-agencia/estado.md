@@ -94,3 +94,29 @@ También verificado de la primera vuelta: los seguidores de Instagram ya se guar
   y lo renombra, el año sale bien igual (se crea de nuevo), pero un archivo movido desde otro año no.
 - Nombres del tracker que no se pudieron emparejar con un cliente quedan afuera sin aviso en pantalla
   (`videosDelTracker` los devuelve en `sinCliente`).
+
+---
+
+# Tercera vuelta (21/11, noche): mirado en el navegador
+
+Naza inició sesión en el Chrome del perfil «Default» (el que tiene la extensión de Claude). Commits `7b5072a` y
+`b451880`, desplegados.
+
+Visto andando: ficha → Cuenta (tabla por mes, salud, seguidores, margen, interruptor, informe); Semáforo → «Señal de
+cobro del trimestre» (dentro de «Detalle completo»); Contenido → «Engranar» (lista el NAS, lanza, muestra el avance y
+el link de Drive); «Lo que entregaron» con las piezas engranadas; y el link público del cliente con «Aprobar» y
+«Pedir cambios».
+
+Lo que solo se vio en pantalla, ya corregido:
+- Al guardar lo vendido, los meses cerrados seguían diciendo «sin cargar» hasta 6 h después (lo guardado de
+  `cotizado.ts` no se vaciaba). Ahora `PATCH /clients/:id` con `cotizado` llama a `olvidarMesesCerrados()`.
+- Historias de meses anteriores a la captura (15/10) figuraban «0» en rojo: ahora «sin medir»
+  (`MesCuenta.historiasMedidas`, `HISTORIAS_DESDE`).
+- Las piezas engranadas decían «No pasó el control» y «Gasto sin registrar (generado antes del 11/10)»: la revisión
+  técnica se guardaba como texto en `metadata.revision`, que la lista lee como control de calidad. Ahora va en
+  `revisionTecnica` y `revision` dice «Sin control de calidad: piezas ya terminadas…»; gasto «Sin gasto».
+- El link de Drive del engranado no se podía abrir: ahora es un link.
+
+Para saber: la primera carga de Cuenta después de un despliegue tarda 15–20 s (4 meses + los Excel de Drive); después
+queda guardada. Quedaron DOS piezas de prueba de DUNOD en Drive y en «Lo que entregaron»: «JULIO SOSA 8900 …
+(engranado)» y «Vid 4 JUEGOS 2026 … (engranado)».
