@@ -164,7 +164,8 @@ async function comentariosRecientes(db: Db, issueId: string) {
 }
 
 /** Cortes seguidos por el tope de turnos tras los que la tarea se frena para que la mire una persona. */
-export const CORTES_SEGUIDOS_MAX = 3;
+// 22/11: baja de 3 a 2. En 7 días, la tercera corrida tras dos cortes terminó 12 veces y se cortó 35 (62 M de tokens): la cuota semanal se agotó 10 h antes del reset.
+export const CORTES_SEGUIDOS_MAX = 2;
 
 /** Puro. El aviso que deja el motor al frenar una tarea por cortes seguidos. */
 export function textoFrenada(): string {

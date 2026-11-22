@@ -6,13 +6,12 @@ import { AVISOS_QUE_NO_DESPIERTAN, consignaDeTurnos, conTopeDeTurnos, CUOTA_AJUS
 
 describe("tope de cortes seguidos", () => {
   const corte = "max_turns_exhausted";
-  it("frena al tercer corte seguido (los 2 anteriores también cortados)", () => {
-    expect(demasiadosCortes([corte, corte, null])).toBe(true);
+  it("frena al segundo corte seguido (el anterior también cortado)", () => {
+    expect(demasiadosCortes([corte, null])).toBe(true);
   });
-  it("no frena si en el medio hubo una corrida buena, otra falla o todavía no hay 2 anteriores", () => {
-    expect(demasiadosCortes([corte, null, corte])).toBe(false);
-    expect(demasiadosCortes([corte, "timeout"])).toBe(false);
-    expect(demasiadosCortes([corte])).toBe(false);
+  it("no frena si en el medio hubo una corrida buena, otra falla o es la primera corrida", () => {
+    expect(demasiadosCortes([null, corte])).toBe(false);
+    expect(demasiadosCortes(["timeout", corte])).toBe(false);
     expect(demasiadosCortes([])).toBe(false);
   });
 });
