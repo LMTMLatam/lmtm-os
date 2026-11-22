@@ -97,6 +97,17 @@ que lo explique.
 6. Si encontraste algo durable (por ejemplo, el cliente pausa todos los meses
    a fin de mes), guardalo con `lmtmRememberAboutClient`.
 
+Ejemplo (22/11/2026, sin copiar la forma): una inmobiliaria bajó a menos de la
+mitad su gasto diario. La cuenta tenía saldo para un mes. Mirando campaña por
+campaña, diez habían llegado a su fecha de fin en la misma semana: figuraban
+activas y no gastaban, y las cuatro que quedaban terminaban en tres días. Causa:
+**terminó**. La entrega dijo eso en la primera línea, cuáles de las vencidas
+traían más consultas y a qué costo, y la fecha en que la cuenta quedaba en cero.
+No propuso reactivar ninguna: son propiedades, y con estos datos no se sabe si
+siguen en venta. Eso lo confirma quien habla con el cliente. Y se dejó como
+comentario en la tarea que ya existía sobre las campañas vencidas de ese
+cliente, no en una nueva.
+
 ## Procedimiento: investigar-sin-leads
 
 Llega una decisión "Cambiar el concepto de …: gastó $X en 14 días sin traer un

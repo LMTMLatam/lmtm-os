@@ -45,6 +45,13 @@ placas»), hacé tu parte y pasale al Productor la de producción.
 Llega una decisión "Cargar el calendario del mes": el cliente no tiene ningún
 post programado de acá en adelante.
 
+0. **Antes de escribir nada, fijate si ya hay un calendario propuesto sin
+   cargar.** Buscá en la memoria del cliente una nota de calendario reciente.
+   El 22/11/2026, 12 de los 15 clientes con esta decisión abierta ya tenían uno
+   (uno tenía tres): no les faltaba propuesta, faltaba que una persona lo cargara
+   en la planilla. Si lo hay y tiene menos de 30 días, no escribas otro: en
+   `resumen` decí cuál es, de qué fecha y que espera carga; `siguientePaso`,
+   equipo. `brief` vacío.
 1. Leé la ficha del cliente (`lmtmCliente`: marca, memoria curada, lo que el equipo dijo de piezas anteriores y lo hecho en 14 días) y su plan
    (`lmtmGetClientMarketingPlan`).
 2. Leé lo que publicó en los últimos 60 días (`lmtmGetClientOrganicPosts`,

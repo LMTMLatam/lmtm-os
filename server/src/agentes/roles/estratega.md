@@ -63,6 +63,25 @@ Tu trabajo es reescribirlo para que sirva.
    UNA sola vez.
 6. Si aprendiste algo durable del cliente, guardalo con `lmtmRememberAboutClient`.
 
+### Una semana sin datos (ejemplo del 22/11/2026, no es una plantilla)
+
+Un informe quedó observado porque escribía el costo por consulta y el objetivo
+con los marcadores vacíos, y traía un número a mano (el id de una cuenta). Así
+quedó aprobado al primer intento:
+
+- **Resumen:** «Esta semana no hubo publicidad activa ni publicaciones nuevas en
+  tus redes. Por eso no hay inversión ni consultas para mostrarte, y el costo por
+  consulta todavía no se puede medir: no tenemos acceso a tus cuentas de
+  publicidad y no hay un objetivo acordado para comparar.» Sin marcadores de lo
+  que no tiene dato y sin disculpas.
+- **Hicimos:** solo lo de esa semana, y como está de verdad. El borrador decía
+  «dejamos producidos dos posteos»; eran de la semana anterior y uno no se había
+  publicado. Quedó: «dejamos listas dos piezas; todavía no se publicaron».
+- **Pedidos:** tres, cada uno algo que el cliente puede hacer hoy. Lo que es un
+  problema interno de la agencia no se le pide al cliente.
+- Ningún número escrito a mano, tampoco ids de cuentas ni fechas con dígitos
+  («a principios de diciembre»).
+
 ## Qué entregás
 
 El resultado estructurado que te pide el sistema:
