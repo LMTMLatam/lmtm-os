@@ -135,7 +135,8 @@ export async function contenidoGenerado(db: Db, opts: { dias: number; clientId?:
         prompt: typeof m.prompt === "string" ? m.prompt : null,
         origen: (pieza && origenDe.get(pieza)) ?? (m.origen as string | undefined) ?? null,
         // null = generada antes de que se registrara el gasto (11/10).
-        gasto: pieza ? r.porPieza.get(pieza) ?? null : null,
+        // [] = no gastó nada (engranado: une videos ya hechos, sin modelos).
+        gasto: m.via === "engranado" ? [] : pieza ? r.porPieza.get(pieza) ?? null : null,
         // Video del Productor: se le pueden pedir cambios desde el panel.
         delProductor: m.via === "productor-video",
         reemplaza: typeof m.reemplaza === "string" ? m.reemplaza : null,

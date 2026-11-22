@@ -67,7 +67,7 @@ const HERRAMIENTAS: Record<string, { nombre: string; unidad: string }> = {
   elevenlabs: { nombre: "ElevenLabs", unidad: "créditos" },
 };
 const nombreHerramienta = (h: string) => HERRAMIENTAS[h]?.nombre ?? h;
-const ORIGEN: Record<string, string> = { clickup: "Etiqueta de ClickUp", panel: "Panel", claude: "Claude" };
+const ORIGEN: Record<string, string> = { clickup: "Etiqueta de ClickUp", panel: "Panel", claude: "Claude", engranado: "Engranado" };
 const TIPO: Record<string, string> = { video: "Video", placa: "Placa", carrusel: "Carrusel", imagen: "Imagen" };
 const PERIODOS = [7, 30, 90, 365];
 
@@ -644,6 +644,7 @@ export function FilaPieza({ p }: { p: PiezaGenerada }) {
         <div className="text-[12px] tabular-nums text-l-tinta-2">
           {p.gasto == null
             ? "Gasto sin registrar (generado antes del 11/10)"
+            : p.gasto.length === 0 ? "Sin gasto"
             : p.gasto.map((g) => `${nombreHerramienta(g.herramienta)}: ${g.generaciones > 1 ? `${g.generaciones} generaciones, ` : ""}${costo(g)}`).join(" · ")}
         </div>
         <Calidad p={p} />

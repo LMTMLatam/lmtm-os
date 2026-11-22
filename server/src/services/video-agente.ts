@@ -723,7 +723,11 @@ export function engranarYEntregar(db: Db, x: { clientId: string; clienteNombre: 
     await db.insert(agentDeliverables).values({
       companyId: editor.companyId, clientId: x.clientId, agentId: editor.id, kind: "video",
       title: `Video: ${titulo}`.slice(0, 200), content: `Engranado sin editar: ${x.piezas.map((p) => path.basename(p)).join(" + ")}.\n\n${revision}`, url: e.driveLink,
-      metadata: { via: "engranado", piezas: x.piezas, subtitulado: x.subtitular, duracion: await duracion(final), revision },
+      // `revision` con la forma del control de calidad: sin esto la lista decía «No pasó el control» (visto en el navegador, 21/11).
+      metadata: {
+        via: "engranado", origen: "engranado", piezas: x.piezas, subtitulado: x.subtitular, duracion: await duracion(final),
+        revision: { apto: null, sinRevision: "piezas ya terminadas, solo se unieron; tiene la revisión técnica" }, revisionTecnica: revision,
+      },
     });
     fs.rmSync(carpeta, { recursive: true, force: true }); // ya está en Drive: el disco del servidor es de 5 GB
     return `Listo en Drive (Super Redes/${x.clienteNombre}/VIDEOS): ${e.driveLink}`;
