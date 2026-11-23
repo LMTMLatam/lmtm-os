@@ -14,6 +14,11 @@ describe("tope de cortes seguidos", () => {
     expect(demasiadosCortes(["timeout", corte])).toBe(false);
     expect(demasiadosCortes([])).toBe(false);
   });
+  it("las colgadas se cuentan aparte: frena a la segunda seguida y no se suman con los cortes (23/11)", () => {
+    expect(demasiadosCortes(["timeout"], "timeout")).toBe(true);
+    expect(demasiadosCortes([corte], "timeout")).toBe(false);
+    expect(demasiadosCortes([], "timeout")).toBe(false);
+  });
 });
 
 describe("rastro de una corrida cortada", () => {
@@ -77,6 +82,7 @@ describe("comentarios del motor que no despiertan al agente (20/11)", () => {
     const rastro = rastroDeCorte(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Miro la cuenta" }] } }))!;
     expect(noDespierta(rastro)).toBe(true);
     expect(noDespierta(textoFrenada())).toBe(true);
+    expect(noDespierta(textoFrenada(true))).toBe(true);
     expect(noDespierta("Pasada a «en revisión»: hoy no se puede hacer")).toBe(true);
   });
   it("el comentario de una persona sí la despierta", () => {

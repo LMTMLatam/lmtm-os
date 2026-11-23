@@ -71,7 +71,7 @@ export interface Pendiente {
   issueId: string; identifier: string | null; title: string; status: string; priority: string; agentId: string;
   /** 0 rutina · 1 pedida por una persona · 2 urgente/alta de un cliente · 3 el resto (lo primero que se deja con poca cuota). */
   valor?: number;
-  /** La corrida anterior se cortó por el tope de turnos: esta sigue desde su último comentario. */
+  /** La corrida anterior se cortó por el tope de turnos o se colgó: esta sigue desde su último comentario. */
   continua?: boolean;
   /** Sesión de Claude de la corrida cortada: la que sigue la retoma (19/11: arrancando de cero, 5 tareas se cortaron 5-6 veces sin terminar). */
   sesion?: string | null;
@@ -95,7 +95,7 @@ export function consignaDeTurnos(continua: boolean): string {
     "## Presupuesto de esta corrida",
     `Tenés como máximo ${TURNOS_MAX} turnos. Antes del turno ${AVISO_TURNOS}, dejá en la tarea un comentario con: qué hiciste (con los datos que lo prueban), qué falta y el próximo paso concreto. Después terminá.`,
     "Si la tarea es grande, hacé una parte bien y dejá el resto escrito: la próxima corrida arranca de tu comentario, no de cero. No releas lo que ya está en los comentarios.",
-    ...(continua ? ["", "**La corrida anterior se cortó por el tope de turnos.** Seguí desde el último comentario de la tarea; no repitas lo que ya está hecho."] : []),
+    ...(continua ? ["", "**La corrida anterior no terminó: se cortó por el tope de turnos o se colgó.** Seguí desde el último comentario de la tarea; no repitas lo que ya está hecho."] : []),
   ].join("\n");
 }
 
@@ -122,7 +122,11 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
            and c.body !~ ${AVISOS_QUE_NO_DESPIERTAN}) ultimo_ajeno,
         (select max(r.created_at) from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE}) ultima_corrida,
         -- La última corrida del motor sobre la tarea: si se cortó por el tope de turnos, la próxima la retoma (17/11).
-        (select r.error_code from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
+        -- Una colgada cuenta como 'timeout' aunque el adaptador no haya puesto el código (pasó el 20/11).
+        (select case when r.status = 'timed_out' then 'timeout' else r.error_code end from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultimo_codigo,
+        -- Agente de MiniMax: ahí se cuelga el modelo y ahí la consigna de la corrida le dice que siga y no repita.
+        -- El env puede venir como texto o como {type:"plain"}: el like sirve para los dos.
+        (select coalesce(a.adapter_config->'env'->>'ANTHROPIC_BASE_URL', '') like '%minimax.io%' from agents a where a.id = i.assignee_agent_id) con_tope,
         (select r.session_id_after from heartbeat_runs r where r.company_id = i.company_id and r.context_snapshot->>'issueId' = i.id::text and r.invocation_source = ${FUENTE} order by r.created_at desc limit 1) ultima_sesion,
         -- Reparto justo (17/11): ordenando por id de agente, Luna/Milo/Caro se llevaban todos los turnos
         -- y los otros 9 no corrieron en 5 h. Primero va el que hace más que no corre.
@@ -139,11 +143,16 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
     )
     select * from (
     select distinct on (assignee_agent_id) id, identifier, title, status, priority, assignee_agent_id, ultima_del_agente, valor,
-      coalesce(ultimo_codigo = 'max_turns_exhausted', false) as continua,
+      coalesce(reintenta, false) as continua,
+      -- La sesión solo se retoma tras un corte por turnos: la de una colgada no se guarda.
       case when ultimo_codigo = 'max_turns_exhausted' then ultima_sesion end as sesion
-    from cand
+    -- 23/11: la colgada (el modelo deja de responder y la corrida muere a los 20 min) también se reintenta. Antes la tarea
+    -- quedaba «en curso» para siempre: 4 en una noche. No en el Editor ni el Productor: no rehacen un render solos.
+    -- Solo si se colgó en las últimas 24 h: sin eso revivían 10 colgadas de hasta 6 días (rutinas viejas, la de CARVUK).
+    from (select *, (ultimo_codigo = 'max_turns_exhausted'
+                     or (ultimo_codigo = 'timeout' and con_tope and ultima_corrida > now() - interval '24 hours')) as reintenta from cand) c
     where (status in ('todo', 'in_progress') and (ultima_corrida is null or coalesce(ultimo_ajeno, created_at) > ultima_corrida
-           or ultimo_codigo = 'max_turns_exhausted'))
+           or reintenta))
        or (status in ('blocked', 'in_review') and ultimo_ajeno is not null and (ultima_corrida is null or ultimo_ajeno > ultima_corrida)
            and ultimo_ajeno > now() - interval '7 days')
     order by assignee_agent_id,
@@ -168,7 +177,8 @@ async function comentariosRecientes(db: Db, issueId: string) {
 export const CORTES_SEGUIDOS_MAX = 2;
 
 /** Puro. El aviso que deja el motor al frenar una tarea por cortes seguidos. */
-export function textoFrenada(): string {
+export function textoFrenada(colgada = false): string {
+  if (colgada) return `Frenada por cortes seguidos: ${CORTES_SEGUIDOS_MAX} corridas al hilo se colgaron (el modelo dejó de responder) sin terminar. Un comentario de una persona la vuelve a correr.`;
   return `Frenada por cortes seguidos: ${CORTES_SEGUIDOS_MAX} corridas al hilo llegaron al tope de ${TURNOS_MAX} turnos sin terminar. No entra en una corrida: hay que partirla en tareas más chicas o achicarle el alcance. Un comentario de una persona la vuelve a correr.`;
 }
 
@@ -182,10 +192,11 @@ export const AVISOS_QUE_NO_DESPIERTAN = "^(Cerrada en la limpieza|Pasada a «en 
 /**
  * Puro. Con los códigos de error de las corridas ANTERIORES de la tarea (la más nueva primero), si el corte
  * de ahora completa CORTES_SEGUIDOS_MAX seguidos (20/11: LMTM-7110 se cortó 9 veces y LMTM-7195 6, 0 bien).
+ * `ahora` es cómo terminó esta corrida: cortes y colgadas ("timeout") se cuentan por separado, no se suman.
  */
-export function demasiadosCortes(anteriores: Array<string | null>): boolean {
+export function demasiadosCortes(anteriores: Array<string | null>, ahora = "max_turns_exhausted"): boolean {
   const previos = anteriores.slice(0, CORTES_SEGUIDOS_MAX - 1);
-  return previos.length === CORTES_SEGUIDOS_MAX - 1 && previos.every((c) => c === "max_turns_exhausted");
+  return previos.length === CORTES_SEGUIDOS_MAX - 1 && previos.every((c) => c === ahora);
 }
 
 /** Puro. La config del agente con el tope de turnos de la corrida (el menor entre el suyo y TURNOS_MAX). */
@@ -319,22 +330,25 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
       exitCode: res.exitCode, signal: res.signal, usageJson: (res.usage ?? null) as Record<string, unknown> | null, resultJson: res.resultJson ?? null,
       sessionIdAfter: res.sessionId ?? null,
     }).where(eq(heartbeatRuns.id, run.id));
-    // Cortada por el tope: si el agente no comentó en esta corrida, el motor deja el rastro.
-    if (errorCode === "max_turns_exhausted") {
-      const [yaComento] = await db.select({ id: issueComments.id }).from(issueComments)
-        .where(and(eq(issueComments.issueId, p.issueId), eq(issueComments.authorAgentId, agent.id), gte(issueComments.createdAt, run.createdAt))).limit(1);
-      const rastro = yaComento ? null : rastroDeCorte(salida);
-      if (rastro) await db.insert(issueComments).values({ companyId: agent.companyId, issueId: p.issueId, authorType: "system", body: enmascararClaves(rastro) } as never);
-      // Tope de cortes seguidos: sin esto la tarea que no entra en el tope gasta 3 corridas por día toda su vigencia.
-      const anteriores = await db.select({ c: heartbeatRuns.errorCode }).from(heartbeatRuns)
+    const colgada = estado === "timed_out";
+    if (errorCode === "max_turns_exhausted" || colgada) {
+      // Cortada por el tope: si el agente no comentó en esta corrida, el motor deja el rastro.
+      if (!colgada) {
+        const [yaComento] = await db.select({ id: issueComments.id }).from(issueComments)
+          .where(and(eq(issueComments.issueId, p.issueId), eq(issueComments.authorAgentId, agent.id), gte(issueComments.createdAt, run.createdAt))).limit(1);
+        const rastro = yaComento ? null : rastroDeCorte(salida);
+        if (rastro) await db.insert(issueComments).values({ companyId: agent.companyId, issueId: p.issueId, authorType: "system", body: enmascararClaves(rastro) } as never);
+      }
+      // Tope de cortes seguidos: sin esto la tarea que no entra en el tope (o que se cuelga siempre) gasta 3 corridas por día toda su vigencia.
+      const anteriores = await db.select({ c: heartbeatRuns.errorCode, s: heartbeatRuns.status }).from(heartbeatRuns)
         .where(and(sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${p.issueId}`, ne(heartbeatRuns.id, run.id)))
         .orderBy(desc(heartbeatRuns.createdAt)).limit(CORTES_SEGUIDOS_MAX - 1);
-      if (demasiadosCortes(anteriores.map((a) => a.c))) {
+      if (demasiadosCortes(anteriores.map((a) => (a.s === "timed_out" ? "timeout" : a.c)), colgada ? "timeout" : "max_turns_exhausted")) {
         const frenada = await db.update(issues).set({ status: "blocked", updatedAt: new Date() })
           .where(and(eq(issues.id, p.issueId), inArray(issues.status, ["todo", "in_progress"]))).returning({ id: issues.id });
         if (frenada.length) await db.insert(issueComments).values({
           companyId: agent.companyId, issueId: p.issueId, authorType: "system",
-          body: textoFrenada(),
+          body: textoFrenada(colgada),
         } as never);
       }
     }
