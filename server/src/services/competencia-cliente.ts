@@ -161,6 +161,9 @@ export async function competenciaDeCliente(db: Db, clientId: string, dias = 30) 
     meGusta: p.meGusta, comentarios: p.comentarios, link: p.permalink,
     texto: corto((p.texto ?? "").replace(/\s+/g, " ").trim()),
   }));
+  // Una cuenta recién leída puede tener solo publicaciones de menos de 3 días: está medida (sale en «ultimas»),
+  // no es «sin Instagram medido». Banchio figuraba en las dos listas (MA PROPIEDADES 23/11).
+  const conPublicaciones = new Set(posts.map((p) => deUsuario.get(p.usuario)?.nombre));
   const { webDeLaCompetencia } = await import("./competencia-web.js");
-  return { clienteNombre: cl.name.trim(), ...r, ultimas, web: await webDeLaCompetencia(db, clientId) };
+  return { clienteNombre: cl.name.trim(), ...r, sinDatos: r.sinDatos.filter((n) => !conPublicaciones.has(n)), ultimas, web: await webDeLaCompetencia(db, clientId) };
 }

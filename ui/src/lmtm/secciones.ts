@@ -87,7 +87,7 @@ export function seccionDe(pathname: string): { madre: SeccionPrincipal | null; l
   return { madre, label: hit.label };
 }
 
-// ── La ficha del cliente: 5 grupos con las 14 secciones de siempre ──────────
+// ── La ficha del cliente: 5 grupos con las 14 secciones de siempre más Cuenta (21/11) ──────────
 
 export interface SeccionCliente { id: string; label: string }
 export const GRUPOS_CLIENTE: Array<{ grupo: string; secciones: SeccionCliente[] }> = [

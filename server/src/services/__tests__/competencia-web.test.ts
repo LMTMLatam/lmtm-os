@@ -23,6 +23,10 @@ describe("terminosDeLaCompetencia", () => {
     expect(t.some((x) => x.termino === "alquiler de departamentos" || x.termino === "departamentos en funes")).toBe(false);
   });
 
+  it("un eslogan no es un término: «la mejor opción» no cuenta", () => {
+    expect(terminosDeLaCompetencia([web("a.com", "Tu mejor opción"), web("b.com", "La mejor opción con años de experiencia")])).toEqual([]);
+  });
+
   it("no cruza el separador del título: «Pérez | Alquiler» no es un término", () => {
     const dos = terminosDeLaCompetencia([web("a.com", "Casas | Funes"), web("b.com", "Casas - Funes")]);
     expect(dos).toEqual([]);

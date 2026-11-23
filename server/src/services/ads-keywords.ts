@@ -25,6 +25,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { searchStream } from "./ads/providers/google.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
 import { cruzarConBusquedas, loCubre, palabrasClave, terminosDeLaCompetencia, websDeCompetidores, type TerminoCompetencia } from "./competencia-web.js";
+import { conversionesDudosas } from "../metricas/index.js";
 import { hostDe } from "./google-web.js";
 import { issueService } from "./issues.js";
 import { resolveCompanyId } from "./intel-common.js";
@@ -228,6 +229,23 @@ export function esCampanaDeMarca(nombreCliente: string, nombreCampana: string): 
   return sinRuido.length > 0 && sinRuido === normalizar(nombreCliente).replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+/**
+ * Google devuelve una fila por término Y por keyword que lo activó: «inmobiliaria rosario» salía 5 veces en la
+ * misma lista (MA PROPIEDADES 23/11) y un término partido en filas chicas no llegaba al piso de las negativas.
+ * Se suma por término dentro de su grupo de anuncios; queda la keyword que más gastó. Puro.
+ */
+export function sumarTerminos(filas: TerminoBusqueda[]): TerminoBusqueda[] {
+  const m = new Map<string, { t: TerminoBusqueda; tope: number }>();
+  for (const f of filas) {
+    const k = `${normalizar(f.termino).replace(/\s+/g, " ")}|${f.campaignId}|${f.adGroupId}`;
+    const x = m.get(k);
+    if (!x) { m.set(k, { t: { ...f }, tope: f.costo }); continue; }
+    x.t.clics += f.clics; x.t.impresiones += f.impresiones; x.t.costo += f.costo; x.t.conversiones += f.conversiones;
+    if (f.costo > x.tope) { x.tope = f.costo; x.t.keyword = f.keyword; }
+  }
+  return [...m.values()].map((x) => x.t);
+}
+
 const num = (v: unknown): number => {
   const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : 0;
   return Number.isFinite(n) ? n : 0;
@@ -312,7 +330,7 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     ORDER BY metrics.cost_micros DESC
     LIMIT 300`);
 
-  const terminos: TerminoBusqueda[] = filasTerminos.map((r) => ({
+  const terminos: TerminoBusqueda[] = sumarTerminos(filasTerminos.map((r) => ({
     termino: texto(anidado(r, "search_term_view.search_term")),
     keyword: texto(anidado(r, "segments.keyword.info.text")) || null,
     campana: texto(anidado(r, "campaign.name")),
@@ -322,7 +340,7 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     impresiones: num(anidado(r, "metrics.impressions")),
     costo: num(anidado(r, "metrics.cost_micros")) / MICROS,
     conversiones: num(anidado(r, "metrics.conversions")),
-  })).filter((t) => t.termino);
+  })).filter((t) => t.termino));
 
   const keywords: KeywordActiva[] = filasKeywords.map((r) => ({
     texto: texto(anidado(r, "ad_group_criterion.keyword.text")),
@@ -428,6 +446,8 @@ const accionesDe = (a: AuditoriaKeywords) =>
   a.negativas.length + a.nuevas.length + a.pausar.length + a.ampliaCara.length + a.cruceSeo.paraAds.length + a.cruceSeo.paraSeo.length + a.cruceSeo.deCompetencia.length;
 
 const plata = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
+/** «162,6», «26»: Google reparte conversiones en fracciones y salía «162.563379 conversión(es)». */
+const conv = (x: number) => String(Math.round(x * 10) / 10).replace(".", ",");
 
 /**
  * La auditoría convertida en instrucciones que alguien pueda ejecutar sin
@@ -443,6 +463,13 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
   p.push(`Auditoría de keywords de **${a.cliente}** — últimos ${a.dias} días (desde el ${a.desde}).`);
   p.push(`Se revisaron ${a.terminos} términos de búsqueda por ${plata(a.gastoTotal)} de inversión y ${a.conversionesTotal} conversiones.`);
   p.push("");
+
+  // Conversiones que no son consultas (MA PROPIEDADES 23/11: 1.878 conversiones en 500 términos, con «first_visit»
+  // marcada como conversión). La guía le decía al equipo «sumar 12 keywords que ya están convirtiendo» sobre eso.
+  if (conversionesDudosas("google", a.conversionesTotal, a.clicsTotal)) {
+    p.push(`> ⚠️ **Las conversiones de esta cuenta no son consultas:** Google cuenta ${conv(a.conversionesTotal)} conversiones en ${a.clicsTotal.toLocaleString("es-AR")} clics (${Math.round((a.conversionesTotal / a.clicsTotal) * 100)} %). Ninguna campaña convierte un tercio de sus clics: hay acciones marcadas como conversión principal que no son un contacto (primera visita, página vista). **Primero corregir las acciones de conversión** (Google Ads → Objetivos → Conversiones). Hasta entonces las listas de abajo sirven para ver qué se busca, no para decidir qué sumar ni qué pausar.`);
+    p.push("");
+  }
 
   // Si la marca gastó fuerte sin registrar una sola conversión, el problema no
   // son las keywords: es que no se está midiendo. Va ARRIBA de todo porque
@@ -467,7 +494,7 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
     p.push(`### ${++n}. Sumar ${a.nuevas.length} keywords que ya están convirtiendo`);
     p.push("La gente buscó esto, convirtió, y todavía no lo tenemos como keyword propia — o sea que estamos pagando por ellas al precio de la concordancia amplia en vez del suyo. Agregarlas en **concordancia de frase** al grupo de anuncios que mejor les calce:");
     p.push("");
-    for (const t of a.nuevas) p.push(`- \`${t.termino}\` — ${t.conversiones} conversión(es) por ${plata(t.costo)} (campaña ${t.campana})`);
+    for (const t of a.nuevas) p.push(`- \`${t.termino}\` — ${conv(t.conversiones)} conversión(es) por ${plata(t.costo)} (campaña ${t.campana})`);
     p.push("");
   }
 
@@ -506,7 +533,7 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
     p.push("Estas búsquedas convierten en Google Ads y la web no aparece en la primera página de Google. Una página o una nota que responda cada una; cuando posicione, ese clic deja de costar:");
     p.push("");
     for (const t of a.cruceSeo.paraSeo) {
-      p.push(`- \`${t.termino}\` — ${t.conversiones} conversión(es) por ${plata(t.costo)}; en orgánico ${t.posicion != null ? `posición ${num1(t.posicion)}` : "no aparece entre las búsquedas de la web"}`);
+      p.push(`- \`${t.termino}\` — ${conv(t.conversiones)} conversión(es) por ${plata(t.costo)}; en orgánico ${t.posicion != null ? `posición ${num1(t.posicion)}` : "no aparece entre las búsquedas de la web"}`);
     }
     p.push("");
   }

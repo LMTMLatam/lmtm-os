@@ -34,6 +34,8 @@ const VACIAS = new Set([
   "conoce", "descubri", "descubre", "ver", "leer", "aqui", "click", "menu", "blog", "novedades", "quienes", "empresa",
   // Visto al probar con sitios reales (23/11): «propiedades destacadas», «últimas propiedades», «necesitás fabricar».
   "destacadas", "destacados", "ultimas", "ultimos", "necesitas",
+  // Eslóganes: «la mejor opción» salía como término que trabajan dos inmobiliarias (MA PROPIEDADES 23/11).
+  "mejor", "mejores", "opcion", "opciones", "confianza", "experiencia", "trayectoria", "compromiso", "anos",
 ]);
 
 const sinAcentos = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");

@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { SECCIONES_CLIENTE, seccionDe } from "./secciones";
 
 describe("mapa del panel", () => {
-  it("la ficha conserva las 14 secciones de siempre, sin repetir", () => {
+  it("la ficha conserva las 14 secciones de siempre más Cuenta (21/11), sin repetir", () => {
     const ids = SECCIONES_CLIENTE.map((s) => s.id);
-    expect(new Set(ids).size).toBe(14);
-    for (const id of ["resumen", "plan-accion", "dashboard", "web", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"]) {
+    expect(ids).toHaveLength(15);
+    expect(new Set(ids).size).toBe(15);
+    for (const id of ["resumen", "plan-accion", "cuenta", "dashboard", "web", "agentes", "calendario", "que-funciona", "ideas", "ganchos", "tendencias", "productos", "memoria", "competidores", "tasks"]) {
       expect(ids).toContain(id);
     }
   });

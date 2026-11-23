@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { auditoriaAPasos, cruzarSeoConAds, esCampanaDeMarca, esTerminoDeMarca } from "../ads-keywords.js";
+import { auditoriaAPasos, cruzarSeoConAds, esCampanaDeMarca, esTerminoDeMarca, sumarTerminos } from "../ads-keywords.js";
 import { palabrasClave } from "../competencia-web.js";
+
+// MA PROPIEDADES 23/11: lo que se vio al leer la guía con datos reales.
+describe("la guía de keywords con datos reales", () => {
+  const fila = (termino: string, keyword: string, costo: number, conversiones: number, adGroupId = "g1") =>
+    ({ termino, keyword, campana: "Búsqueda", campaignId: "c1", adGroupId, clics: 10, impresiones: 100, costo, conversiones });
+
+  it("un término activado por varias keywords es una sola fila por grupo de anuncios", () => {
+    const r = sumarTerminos([
+      fila("inmobiliaria rosario", "inmobiliaria", 1535, 23.4),
+      fila("Inmobiliaria  Rosario", "inmobiliarias rosario", 1114, 21.9),
+      fila("inmobiliaria rosario", "propiedades", 751, 20),
+      fila("inmobiliaria rosario", "inmobiliaria", 21455, 162.6, "g2"), // otro grupo: va aparte
+    ]);
+    expect(r).toHaveLength(2);
+    expect(r[0]).toMatchObject({ termino: "inmobiliaria rosario", keyword: "inmobiliaria", clics: 30, costo: 3400, adGroupId: "g1" });
+    expect(Math.round(r[0].conversiones * 10) / 10).toBe(65.3);
+  });
+
+  it("avisa arriba de todo cuando las conversiones no son consultas, y no escribe fracciones largas", () => {
+    const base = { cliente: "MA", cuenta: "1", desde: "2026-10-24", dias: 30, terminos: 500, gastoTotal: 233539, negativas: [], pausar: [], ampliaCara: [], ahorroMensual: 0, gastoMarcaSinConversion: 0, cruceSeo: { conSearchConsole: true, paraAds: [], paraSeo: [], deCompetencia: [] } };
+    const nuevas = [fila("inmobiliaria rosario", "inmobiliaria", 21455, 162.563379)];
+    const dudosa = auditoriaAPasos({ ...base, nuevas, clicsTotal: 3500, conversionesTotal: 1878.7 }).cuerpo;
+    expect(dudosa).toContain("Las conversiones de esta cuenta no son consultas");
+    expect(dudosa).toContain("1878,7 conversiones en 3.500 clics (54 %)");
+    expect(dudosa.indexOf("no son consultas")).toBeLessThan(dudosa.indexOf("### 1."));
+    expect(dudosa).toContain("`inmobiliaria rosario` — 162,6 conversión(es) por $21.455");
+    // Una cuenta sana (4 %) no lleva el aviso.
+    expect(auditoriaAPasos({ ...base, nuevas, clicsTotal: 3500, conversionesTotal: 140 }).cuerpo).not.toContain("no son consultas");
+  });
+});
 
 // Pedido de Marcos 23/11: que el SEO y las keywords de Google Ads se nutran entre sí.
 describe("cruzarSeoConAds", () => {
