@@ -1013,7 +1013,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     // las veía: en 45 días no se aplicó ni una optimización en Google.
     makeTool(
       "lmtmAuditoriaKeywordsGoogle",
-      "AUDITAR las keywords de Google Ads de un cliente (solo lee): términos de búsqueda de los últimos N días y qué hacer — negativas (con campaignId), búsquedas que convierten y no son keyword (`nuevas`, con adGroupId), keywords a pausar y amplias caras. Es la ÚNICA fuente válida de textos e ids para lmtmAddNegativeKeywords, lmtmPauseKeywordsGoogle y lmtmAddKeywordsGoogle. Si `conversionesDudosas` es true o la guía avisa gasto de marca sin conversiones, el problema es la MEDICIÓN: decilo y no propongas cambios.",
+      "AUDITAR las keywords de Google Ads de un cliente (solo lee): términos de búsqueda de los últimos N días y qué hacer — negativas (con campaignId), búsquedas que convierten y no son keyword (`nuevas`, con adGroupId), keywords a pausar y amplias caras. Es la ÚNICA fuente válida de textos e ids para lmtmAddNegativeKeywords, lmtmPauseKeywordsGoogle y lmtmAddKeywordsGoogle. Si `conversionesDudosas` es true o la guía avisa gasto de marca sin conversiones, el problema es la MEDICIÓN: decilo y no propongas cambios. Trae `cruceSeo` (cruce con Search Console): `paraAds` = búsquedas con demanda donde la web sale abajo y ninguna keyword las cubre; `paraSeo` = búsquedas pagas que convierten y la web no posiciona (van a Contenido y Web).",
       z.object({
         clientId: z.string().min(1),
         dias: z.number().int().positive().max(90).optional().describe("Ventana hacia atrás (default 30)"),

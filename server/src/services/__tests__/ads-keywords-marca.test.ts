@@ -1,5 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { esCampanaDeMarca, esTerminoDeMarca } from "../ads-keywords.js";
+import { auditoriaAPasos, cruzarSeoConAds, esCampanaDeMarca, esTerminoDeMarca } from "../ads-keywords.js";
+
+// Pedido de Marcos 23/11: que el SEO y las keywords de Google Ads se nutran entre sí.
+describe("cruzarSeoConAds", () => {
+  const esMarca = (s: string) => esTerminoDeMarca("INBELT", s);
+  const q = (clave: string, impresiones: number, posicion: number, detalle = "https://inbelt.com.ar/") => ({ clave, detalle, posicion, impresiones });
+  const consultas = [
+    q("cintas transportadoras usadas", 300, 8.2),
+    q("cintas transportadoras usadas", 40, 15, "https://inbelt.com.ar/usadas"), // misma búsqueda, otra página
+    q("banda transportadora pvc precio", 120, 12),   // la cubre la keyword "banda transportadora"
+    q("rodillos para cinta", 90, 2.1),               // ya sale arriba gratis
+    q("inbelt rosario", 500, 9),                     // marca
+    q("empalme de cintas", 30, 14),                  // poca demanda
+    q("cinta modular plastica", 80, 11),             // ya se le muestra un anuncio
+    q("correas industriales", 60, 18),
+  ];
+  const terminos = [
+    { termino: "cinta modular plastica", conversiones: 0, costo: 900 },
+    { termino: "correas industriales", conversiones: 2, costo: 5000 },
+    { termino: "correas industriales", conversiones: 1, costo: 2500 },  // otra campaña: se suma
+    { termino: "reparacion de cintas en planta", conversiones: 3, costo: 8000 }, // la web no aparece
+    { termino: "rodillos para cinta", conversiones: 4, costo: 3000 },   // la web ya está 2.ª
+    { termino: "inbelt telefono", conversiones: 5, costo: 100 },         // marca
+    { termino: "cintas baratas", conversiones: 0, costo: 4000 },         // no convierte
+  ];
+  const r = cruzarSeoConAds(consultas, terminos, [{ texto: "Banda Transportadora" }], esMarca);
+
+  it("SEO → Ads: demanda donde la web sale abajo y ninguna keyword ni anuncio la cubre", () => {
+    expect(r.paraAds.map((x) => x.consulta)).toEqual(["cintas transportadoras usadas"]);
+    expect(r.paraAds[0]).toMatchObject({ impresiones: 340, posicion: 8.2, pagina: "https://inbelt.com.ar/" });
+  });
+
+  it("Ads → SEO: lo que convierte pagando y no está en la primera página, sin la marca", () => {
+    expect(r.paraSeo).toEqual([
+      { termino: "correas industriales", conversiones: 3, costo: 7500, posicion: 18 },
+      { termino: "reparacion de cintas en planta", conversiones: 3, costo: 8000, posicion: null },
+    ]);
+  });
+
+  it("sin Search Console no cruza nada y la guía lo dice", () => {
+    const vacio = cruzarSeoConAds([], terminos, [], esMarca);
+    expect(vacio).toEqual({ conSearchConsole: false, paraAds: [], paraSeo: [] });
+    const base = { cliente: "INBELT", cuenta: "1", desde: "2026-10-24", dias: 30, terminos: 7, clicsTotal: 50, gastoTotal: 23500, conversionesTotal: 15, negativas: [], nuevas: [], pausar: [], ampliaCara: [], ahorroMensual: 0, gastoMarcaSinConversion: 0 };
+    expect(auditoriaAPasos({ ...base, cruceSeo: vacio }).cuerpo).toContain("Sin Search Console vinculado");
+    const guia = auditoriaAPasos({ ...base, cruceSeo: r });
+    expect(guia.titulo).toContain("3 acciones");
+    expect(guia.cuerpo).toContain("`cintas transportadoras usadas` — 340 impresiones en 28 días, la web sale en la posición 8,2");
+    expect(guia.cuerpo).toContain("`reparacion de cintas en planta` — 3 conversión(es) por $8.000; en orgánico no aparece");
+  });
+});
 
 // El caso real que motivó el guard: el 3/9/26 la auditoría de Distrillantas
 // proponía negativizar cinco búsquedas de marca + sucursal, todas con calidad

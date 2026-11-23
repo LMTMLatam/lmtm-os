@@ -970,7 +970,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_auditoria_keywords_google",
       description:
-        "Auditar las keywords de Google Ads de un cliente: lee el informe de términos de búsqueda de los últimos N días y devuelve qué negativizar, qué keyword nueva sumar, qué pausar y qué bajar de amplia a frase, con los números que justifican cada una. NO toca nada, solo lee. Es la ÚNICA fuente válida de términos para add_negative_keywords y pause_keywords_google — no inventes términos. Si el reporte arranca con una advertencia de gasto de marca sin conversiones, el problema es la MEDICIÓN: informá eso y no propongas optimizaciones sobre esos datos.",
+        "Auditar las keywords de Google Ads de un cliente: lee el informe de términos de búsqueda de los últimos N días y devuelve qué negativizar, qué keyword nueva sumar, qué pausar y qué bajar de amplia a frase, con los números que justifican cada una. NO toca nada, solo lee. Es la ÚNICA fuente válida de términos para add_negative_keywords y pause_keywords_google — no inventes términos. Si el reporte arranca con una advertencia de gasto de marca sin conversiones, el problema es la MEDICIÓN: informá eso y no propongas optimizaciones sobre esos datos. Trae además `cruceSeo` (cruce con Search Console): `paraAds` son búsquedas con demanda donde la web sale abajo y ninguna keyword las cubre (candidatas a keyword: las decide una persona, no van a add_keywords_google porque no tienen grupo) y `paraSeo` son búsquedas pagas que convierten y la web no posiciona (pasarlas a Contenido y Web). Si `conSearchConsole` es false, falta vincular Search Console.",
       parameters: {
         type: "object",
         properties: {
@@ -3011,6 +3011,7 @@ export function agentToolsRoutes(
             negativas: a.negativas.map((t) => ({ termino: t.termino, costo: t.costo, clics: t.clics, campana: t.campana, campaignId: t.campaignId })),
             nuevas: a.nuevas.map((t) => ({ texto: t.termino, adGroupId: t.adGroupId, campana: t.campana, conversiones: Math.round(t.conversiones * 10) / 10, costo: Math.round(t.costo) })),
             pausar: a.pausar.map((k) => ({ texto: k.texto, costo: k.costo, clics: k.clics, campana: k.campana })),
+            cruceSeo: a.cruceSeo,
             conversionesDudosas: conversionesDudosas("google", a.conversionesTotal, a.clicsTotal),
           }));
         } catch (e) {

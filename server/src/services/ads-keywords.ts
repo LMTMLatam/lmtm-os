@@ -20,7 +20,7 @@
 // y derechas, no con datos, con guías paso a paso").
 
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsConnections, clients } from "@paperclipai/db";
+import { adsAccountMappings, adsConnections, clients, webRanking } from "@paperclipai/db";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { searchStream } from "./ads/providers/google.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
@@ -83,6 +83,76 @@ export interface AuditoriaKeywords {
   /** Gasto en búsquedas DE MARCA que no registraron conversión. No es
    *  desperdicio: es la medida de cuánto no está viendo el píxel. */
   gastoMarcaSinConversion: number;
+  cruceSeo: CruceSeo;
+}
+
+/**
+ * Search Console y Google Ads, cada uno con lo que el otro no sabe (pedido de Marcos 23/11:
+ * «que el SEO y las palabras clave de Google Ads se nutran entre sí»). Search Console sabe
+ * qué busca la gente que encuentra la web gratis; Google Ads, qué búsqueda termina en consulta.
+ */
+export interface CruceSeo {
+  /** false = el cliente no tiene búsquedas de Search Console: no hay con qué cruzar. */
+  conSearchConsole: boolean;
+  /** SEO → Ads: búsquedas con demanda donde la web sale abajo y ninguna keyword las cubre. */
+  paraAds: Array<{ consulta: string; impresiones: number; posicion: number; pagina: string | null }>;
+  /** Ads → SEO: búsquedas pagas que convierten y la web no aparece en la primera página. */
+  paraSeo: Array<{ termino: string; conversiones: number; costo: number; posicion: number | null }>;
+}
+
+/** Impresiones en 28 días para proponer una búsqueda como keyword: debajo es ruido. */
+const IMPRESIONES_MIN_CRUCE = 50;
+
+const palabrasDe = (s: string) => normalizar(s).split(/[^a-z0-9]+/).filter((p) => p.length >= 3);
+
+/** Puro. `consultas` son las filas de web_ranking tipo «consulta» (una por búsqueda y página). */
+export function cruzarSeoConAds(
+  consultas: Array<{ clave: string; detalle: string | null; posicion: number | null; impresiones: number | null }>,
+  terminos: Array<Pick<TerminoBusqueda, "termino" | "conversiones" | "costo">>,
+  keywords: Array<Pick<KeywordActiva, "texto">>,
+  esMarca: (s: string) => boolean,
+): CruceSeo {
+  // Una búsqueda puede rankear con varias páginas: vale la que más se mostró.
+  const organico = new Map<string, { consulta: string; impresiones: number; posicion: number; pagina: string | null; tope: number }>();
+  for (const c of consultas) {
+    if (c.posicion == null) continue;
+    const k = normalizar(c.clave);
+    const x = organico.get(k) ?? { consulta: c.clave, impresiones: 0, posicion: c.posicion, pagina: c.detalle, tope: -1 };
+    if ((c.impresiones ?? 0) > x.tope) { x.tope = c.impresiones ?? 0; x.posicion = c.posicion; x.pagina = c.detalle; }
+    x.impresiones += c.impresiones ?? 0;
+    organico.set(k, x);
+  }
+  if (organico.size === 0) return { conSearchConsole: false, paraAds: [], paraSeo: [] };
+
+  // En frase o en amplia, una keyword cubre toda búsqueda que traiga sus palabras.
+  const kws = keywords.map((k) => palabrasDe(k.texto)).filter((p) => p.length > 0);
+  const yaSeMuestra = new Set(terminos.map((t) => normalizar(t.termino)));
+  const paraAds = [...organico.entries()]
+    .filter(([k, o]) => {
+      if (o.impresiones < IMPRESIONES_MIN_CRUCE || o.posicion <= 5 || esMarca(o.consulta) || yaSeMuestra.has(k)) return false;
+      const palabras = new Set(palabrasDe(o.consulta));
+      return !kws.some((kw) => kw.every((p) => palabras.has(p)));
+    })
+    .map(([, o]) => ({ consulta: o.consulta, impresiones: o.impresiones, posicion: o.posicion, pagina: o.pagina }))
+    .sort((a, b) => b.impresiones - a.impresiones)
+    .slice(0, 12);
+
+  // El mismo término sale una vez por campaña y grupo: se suma.
+  const pagos = new Map<string, { termino: string; conversiones: number; costo: number }>();
+  for (const t of terminos) {
+    const k = normalizar(t.termino);
+    const x = pagos.get(k) ?? { termino: t.termino, conversiones: 0, costo: 0 };
+    x.conversiones += t.conversiones;
+    x.costo += t.costo;
+    pagos.set(k, x);
+  }
+  const paraSeo = [...pagos.entries()]
+    .filter(([k, t]) => t.conversiones >= 1 && !esMarca(t.termino) && (organico.get(k)?.posicion ?? 99) > 10)
+    .map(([k, t]) => ({ termino: t.termino, conversiones: Math.round(t.conversiones * 10) / 10, costo: Math.round(t.costo), posicion: organico.get(k)?.posicion ?? null }))
+    .sort((a, b) => b.conversiones - a.conversiones)
+    .slice(0, 12);
+
+  return { conSearchConsole: true, paraAds, paraSeo };
 }
 
 /** Minúsculas y sin acentos, para comparar términos con el nombre del cliente. */
@@ -304,6 +374,11 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     .sort((a, b) => b.costo - a.costo)
     .slice(0, 8);
 
+  const consultas = await db
+    .select({ clave: webRanking.clave, detalle: webRanking.detalle, posicion: webRanking.posicion, impresiones: webRanking.impresiones })
+    .from(webRanking)
+    .where(and(eq(webRanking.clientId, clientId), eq(webRanking.tipo, "consulta")));
+
   return {
     cliente: cliente.name,
     cuenta: customerId,
@@ -316,8 +391,13 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     negativas, nuevas, pausar, ampliaCara,
     ahorroMensual: Math.round(negativas.reduce((a, t) => a + t.costo, 0)),
     gastoMarcaSinConversion,
+    cruceSeo: cruzarSeoConAds(consultas, terminos, keywords, esMarca),
   };
 }
+
+/** Lo que el equipo tiene para hacer: las cuatro listas de la cuenta más las dos del cruce con la web. */
+const accionesDe = (a: AuditoriaKeywords) =>
+  a.negativas.length + a.nuevas.length + a.pausar.length + a.ampliaCara.length + a.cruceSeo.paraAds.length + a.cruceSeo.paraSeo.length;
 
 const plata = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 
@@ -382,12 +462,38 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
     p.push("");
   }
 
-  if (!a.negativas.length && !a.nuevas.length && !a.pausar.length && !a.ampliaCara.length) {
+  const num1 = (x: number) => x.toFixed(1).replace(".", ",");
+  if (a.cruceSeo.paraAds.length) {
+    p.push(`### ${++n}. Probar ${a.cruceSeo.paraAds.length} búsquedas que ya trae la web (Search Console)`);
+    p.push("La gente busca esto en Google, la web aparece pero abajo, y ninguna keyword lo cubre. Sumarlas en **concordancia de frase** al grupo de anuncios que corresponda, con presupuesto acotado, y mirar en 2 semanas si convierten:");
+    p.push("");
+    for (const c of a.cruceSeo.paraAds) p.push(`- \`${c.consulta}\` — ${c.impresiones} impresiones en 28 días, la web sale en la posición ${num1(c.posicion)}`);
+    p.push("");
+    p.push("Leerlas antes: Search Console también trae búsquedas informativas (cómo, qué es) que no compran. Esas van a contenido, no a pauta.");
+    p.push("");
+  }
+
+  if (a.cruceSeo.paraSeo.length) {
+    p.push(`### ${++n}. Pasar a Contenido y Web: ${a.cruceSeo.paraSeo.length} búsquedas que hoy solo llegan pagando`);
+    p.push("Estas búsquedas convierten en Google Ads y la web no aparece en la primera página de Google. Una página o una nota que responda cada una; cuando posicione, ese clic deja de costar:");
+    p.push("");
+    for (const t of a.cruceSeo.paraSeo) {
+      p.push(`- \`${t.termino}\` — ${t.conversiones} conversión(es) por ${plata(t.costo)}; en orgánico ${t.posicion != null ? `posición ${num1(t.posicion)}` : "no aparece entre las búsquedas de la web"}`);
+    }
+    p.push("");
+  }
+
+  if (!a.cruceSeo.conSearchConsole) {
+    p.push("_Sin Search Console vinculado: no se pudo cruzar con las búsquedas orgánicas de la web. Se vincula en la ficha del cliente → Web._");
+    p.push("");
+  }
+
+  if (accionesDe(a) === 0) {
     p.push("**Sin acciones para esta cuenta.** No hay términos que gasten sin convertir por encima del piso, ni búsquedas convertidoras sin keyword. La cuenta está limpia en este período.");
   }
 
   return {
-    titulo: `[${a.cliente}] Optimización de keywords Google Ads — ${a.negativas.length + a.nuevas.length + a.pausar.length + a.ampliaCara.length} acciones`,
+    titulo: `[${a.cliente}] Optimización de keywords Google Ads — ${accionesDe(a)} acciones`,
     cuerpo: p.join("\n"),
   };
 }
@@ -407,7 +513,7 @@ export async function auditarYDerivar(
 ): Promise<{ ok: boolean; acciones: number; issueId?: string; motivo?: string }> {
   const a = await auditarKeywords(db, clientId, dias);
   if (!a) return { ok: false, acciones: 0, motivo: "el cliente no tiene Google Ads mapeado" };
-  const acciones = a.negativas.length + a.nuevas.length + a.pausar.length + a.ampliaCara.length;
+  const acciones = accionesDe(a);
   if (acciones === 0) return { ok: true, acciones: 0, motivo: "la cuenta está limpia en este período" };
 
   const { titulo, cuerpo } = auditoriaAPasos(a);
