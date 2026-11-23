@@ -31,6 +31,18 @@ es semanal y la comparte toda la flota: cuando se acaba, se frenan todos.
   el issue y seguí con otra cosa o terminá.
 - Las llamadas que no dependen entre sí, juntas en un mismo turno.
 
+## Un `null` no se busca
+
+- Si una herramienta devuelve `null` en un campo, ese dato hoy no existe: anotá el
+  hueco en el issue y seguí con el resto. No lo busques en otra herramienta, en
+  otras ventanas de fechas, en rutas de la API ni en el código del servidor.
+- Si la tarea espera un número que no aparece (un benchmark, un objetivo, un
+  promedio), decí «la tarea pide X y la herramienta ya no lo da» y terminá esa
+  parte. El 22/11 una rutina gastó 30 millones de tokens en diez días buscando un
+  benchmark que se había sacado a propósito.
+- No leas el código ni la base del servidor para entender una herramienta. Si no
+  alcanza, es un pedido para una persona, no una investigación tuya.
+
 ## Cortá temprano
 
 - Si el despertar no tiene nada nuevo (issue sin cambios, nada asignado),
