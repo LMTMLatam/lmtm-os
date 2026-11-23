@@ -24,6 +24,8 @@ export const FUENTE = "motor_propio";
 export const MAX_CORRIDAS_POR_TAREA_DIA = 3;
 /** Días sin movimiento después de los cuales una tarea ya no se corre sola. */
 export const DIAS_VIGENTE = 7;
+/** Las colgadas se reintentan desde acá: las 10 anteriores (rutinas viejas, la de CARVUK) no se reviven solas. */
+export const COLGADAS_DESDE = "2026-11-22T12:00:00-03:00";
 
 export interface ConfigMotor { agentes: string[] }
 
@@ -148,9 +150,9 @@ export async function pendientes(db: Db, agentesIds: string[]): Promise<Pendient
       case when ultimo_codigo = 'max_turns_exhausted' then ultima_sesion end as sesion
     -- 23/11: la colgada (el modelo deja de responder y la corrida muere a los 20 min) también se reintenta. Antes la tarea
     -- quedaba «en curso» para siempre: 4 en una noche. No en el Editor ni el Productor: no rehacen un render solos.
-    -- Solo si se colgó en las últimas 24 h: sin eso revivían 10 colgadas de hasta 6 días (rutinas viejas, la de CARVUK).
+    -- Con fecha fija y no «últimas 24 h»: con el freno de ritmo y la cola, el turno de reintentar llega después de las 24 h.
     from (select *, (ultimo_codigo = 'max_turns_exhausted'
-                     or (ultimo_codigo = 'timeout' and con_tope and ultima_corrida > now() - interval '24 hours')) as reintenta from cand) c
+                     or (ultimo_codigo = 'timeout' and con_tope and ultima_corrida > ${COLGADAS_DESDE}::timestamptz)) as reintenta from cand) c
     where (status in ('todo', 'in_progress') and (ultima_corrida is null or coalesce(ultimo_ajeno, created_at) > ultima_corrida
            or reintenta))
        or (status in ('blocked', 'in_review') and ultimo_ajeno is not null and (ultima_corrida is null or ultimo_ajeno > ultima_corrida)
