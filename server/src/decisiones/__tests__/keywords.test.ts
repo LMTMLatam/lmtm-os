@@ -5,7 +5,7 @@ import type { AuditoriaKeywords } from "../../services/ads-keywords.js";
 const base: AuditoriaKeywords = {
   cliente: "BOERO", cuenta: "1234567890", desde: "2026-09-13", dias: 30, terminos: 200, clicsTotal: 200,
   gastoTotal: 300000, conversionesTotal: 40, negativas: [], nuevas: [], pausar: [], ampliaCara: [],
-  ahorroMensual: 0, gastoMarcaSinConversion: 0, cruceSeo: { conSearchConsole: false, paraAds: [], paraSeo: [] },
+  ahorroMensual: 0, gastoMarcaSinConversion: 0, cruceSeo: { conSearchConsole: false, paraAds: [], paraSeo: [], deCompetencia: [] },
 };
 const t = (termino: string, campaignId: string, costo: number) =>
   ({ termino, keyword: null, campana: `Camp ${campaignId}`, campaignId, adGroupId: `g${campaignId}`, clics: 12, impresiones: 300, costo, conversiones: 0 });

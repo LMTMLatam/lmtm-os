@@ -166,6 +166,7 @@ export const clientsApi = {
   rebuildContent: (idOrSlug: string) => api.post<{ items: number }>(`/clients/${idOrSlug}/content/rebuild`, null),
   // Competitors + content (pauta vs posteo)
   listCompetitors: (idOrSlug: string) => api.get<{ competitors: Competitor[] }>(`/clients/${idOrSlug}/competitors`),
+  competencia: (idOrSlug: string) => api.get<CompetenciaCliente>(`/clients/${idOrSlug}/competencia`),
   addCompetitor: (idOrSlug: string, body: Partial<Competitor> & { name: string }) =>
     api.post<Competitor>(`/clients/${idOrSlug}/competitors`, body),
   deleteCompetitor: (idOrSlug: string, cid: string) =>
@@ -300,6 +301,24 @@ export interface ClientTasksResponse {
     publishedLast7: number;
     plannedPastDue: number;
     hasNetwork: boolean;
+  };
+}
+
+/** El cliente contra sus competidores (services/competencia-cliente.ts + competencia-web.ts). */
+export interface CompetenciaCliente {
+  dias: number;
+  competidores: Array<{
+    nombre: string; usuario: string | null; publicaciones: number;
+    mejor: { indice: number | null; angulo: string | null; formato: string | null; fecha: string; link: string | null; texto: string } | null;
+  }>;
+  oportunidades: Array<{ angulo: string; nombre: string; competidores: number; indiceMediano: number | null; ejemplo: string | null }>;
+  sinDatos: string[];
+  /** Lo último que publicaron; las de menos de 3 días todavía juntan interacción. */
+  ultimas: Array<{ competidor: string; fecha: string; formato: string | null; angulo: string | null; meGusta: number | null; comentarios: number | null; link: string | null; texto: string }>;
+  web: {
+    conWeb: number; leidas: number; faltan: number; nota: string; conSearchConsole: boolean;
+    /** posicionDelCliente: su mejor puesto en Google para esa búsqueda; null = no aparece. */
+    terminos: Array<{ termino: string; competidores: number; hosts: string[]; posicionDelCliente: number | null }>;
   };
 }
 

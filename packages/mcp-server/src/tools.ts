@@ -1362,7 +1362,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
     ),
     makeTool(
       "lmtmCompetenciaCliente",
-      "El CLIENTE contra SUS competidores: cuánto publicó cada uno en la ventana, la mejor publicación de cada competidor contra lo normal de SU cuenta (índice 2 = el doble) y los ángulos que la competencia usa con éxito y el cliente no tocó, con link de ejemplo. Base de cualquier revisión de competencia. Los marcados esClienteDeLaAgencia nunca se nombran frente a un cliente.",
+      "El CLIENTE contra SUS competidores: cuánto publicó cada uno en la ventana, la mejor publicación de cada competidor contra lo normal de SU cuenta (índice 2 = el doble) y los ángulos que la competencia usa con éxito y el cliente no tocó, con link de ejemplo. Base de cualquier revisión de competencia. Los marcados esClienteDeLaAgencia nunca se nombran frente a un cliente. Trae también `ultimas` (lo último que publicaron; se relee todos los días) y `web` (términos que repiten varios competidores en su sitio y el puesto del cliente en Google para cada uno).",
       z.object({
         clientId: z.string().min(1).describe("Id, slug o nombre del cliente."),
         dias: z.number().int().min(7).max(60).optional().describe("Ventana en días (por defecto 30)."),

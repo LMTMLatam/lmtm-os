@@ -3273,6 +3273,19 @@ export function adsRoutes(db: Db): Router {
     res.json({ competitors: rows });
   });
 
+  // GET /clients/:id/competencia — el cliente contra sus competidores: lo último que publicaron, la mejor de cada
+  // uno, los ángulos que les rinden y él no usa, y los términos que trabajan en su web. Solo lectura.
+  router.get("/clients/:id/competencia", async (req, res) => {
+    const row = await resolveClient(req.params.id, db);
+    if (!row) return res.status(404).json({ error: "client not found" });
+    try {
+      const { competenciaDeCliente } = await import("../services/competencia-cliente.js");
+      res.json(await competenciaDeCliente(db, row.id, 30));
+    } catch (e) {
+      res.status(500).json({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+
   router.post("/clients/:id/competitors", async (req, res) => {
     const row = await resolveClient(req.params.id, db);
     if (!row) return res.status(404).json({ error: "client not found" });

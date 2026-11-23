@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { auditoriaAPasos, cruzarSeoConAds, esCampanaDeMarca, esTerminoDeMarca } from "../ads-keywords.js";
+import { palabrasClave } from "../competencia-web.js";
 
 // Pedido de Marcos 23/11: que el SEO y las keywords de Google Ads se nutran entre sí.
 describe("cruzarSeoConAds", () => {
@@ -40,13 +41,26 @@ describe("cruzarSeoConAds", () => {
 
   it("sin Search Console no cruza nada y la guía lo dice", () => {
     const vacio = cruzarSeoConAds([], terminos, [], esMarca);
-    expect(vacio).toEqual({ conSearchConsole: false, paraAds: [], paraSeo: [] });
+    expect(vacio).toEqual({ conSearchConsole: false, paraAds: [], paraSeo: [], deCompetencia: [] });
     const base = { cliente: "INBELT", cuenta: "1", desde: "2026-10-24", dias: 30, terminos: 7, clicsTotal: 50, gastoTotal: 23500, conversionesTotal: 15, negativas: [], nuevas: [], pausar: [], ampliaCara: [], ahorroMensual: 0, gastoMarcaSinConversion: 0 };
     expect(auditoriaAPasos({ ...base, cruceSeo: vacio }).cuerpo).toContain("Sin Search Console vinculado");
     const guia = auditoriaAPasos({ ...base, cruceSeo: r });
     expect(guia.titulo).toContain("3 acciones");
     expect(guia.cuerpo).toContain("`cintas transportadoras usadas` — 340 impresiones en 28 días, la web sale en la posición 8,2");
     expect(guia.cuerpo).toContain("`reparacion de cintas en planta` — 3 conversión(es) por $8.000; en orgánico no aparece");
+  });
+
+  it("competencia → pauta y SEO: lo que repiten varios competidores y no cubre ni una keyword ni la primera página", () => {
+    const t = (termino: string, competidores = 2) => ({ termino, palabras: palabrasClave(termino), competidores, hosts: ["a.com", "b.com"] });
+    const c = cruzarSeoConAds(consultas, terminos, [{ texto: "Banda Transportadora" }], esMarca, [
+      t("banda transportadora pvc"),   // lo cubre la keyword
+      t("rodillos para cinta"),        // la web ya sale 2.ª
+      t("cinta sanitaria alimenticia", 3), // nadie lo cubre
+      t("correas industriales"),       // ya se le muestra un anuncio
+    ]);
+    expect(c.deCompetencia).toEqual([{ termino: "cinta sanitaria alimenticia", competidores: 3, hosts: ["a.com", "b.com"] }]);
+    // También sin Search Console: lo que no cubre ninguna keyword sigue siendo un hueco.
+    expect(cruzarSeoConAds([], terminos, [], esMarca, [t("cinta sanitaria alimenticia")]).deCompetencia).toHaveLength(1);
   });
 });
 

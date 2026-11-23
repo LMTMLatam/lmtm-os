@@ -35,6 +35,8 @@ export interface AnalisisContenido {
     cuentas: number; publicaciones: number;
     nichos: Array<{ nicho: string; cuentas: number; publicaciones: number; angulos: Fila[]; formatos: Fila[] }>;
     reutilizar: Ejemplo[];
+    /** La mejor de las últimas dos semanas de cada cuenta de la competencia (se releen todos los días). */
+    ultimo?: Array<Ejemplo & { nicho: string | null }>;
     estado: {
       conInstagram: number; medidas: number; noEncontradas: number; noEmpresa: number; otras: number; sinRevisar: number;
       noExisten?: number; privadas?: number; conFacebook?: number; medidasFacebook?: number; motivoFacebook?: string | null;
@@ -352,6 +354,7 @@ export function NichoVsCompetencia({ nicho }: { nicho: string }) {
   if (q.isLoading) return <p className="text-[13px] text-l-tinta-3">Midiendo las publicaciones del rubro…</p>;
   if (!nuestro && !comp) return null;
   const veces = (x: number) => `${x.toFixed(1).replace(".", ",")}×`;
+  const ultimo = (q.data?.competencia?.ultimo ?? []).filter((e) => e.nicho?.toLowerCase() === nicho.toLowerCase()).slice(0, 5);
   const par = (de: "angulos" | "formatos", max: number) => {
     const claves = [...new Set([...(nuestro?.[de] ?? []), ...(comp?.[de] ?? [])].sort((a, b) => b.indice - a.indice).map((f) => f.clave))].slice(0, max);
     return claves.map((clave) => {
@@ -396,6 +399,27 @@ export function NichoVsCompetencia({ nicho }: { nicho: string }) {
             <BarrasH filas={(nuestro ?? comp)!.formatos.map((f) => ({ etiqueta: f.nombre.replace(/^Instagram · /, ""), valor: f.indice, detalle: `${f.publicaciones} publicaciones` }))} formato={veces} referencia={{ valor: 1, etiqueta: "lo normal de cada cuenta (1×)" }} />
             <p className="mt-4 text-[12px] text-l-tinta-3">{comp ? "Son de la competencia: de nuestras cuentas del rubro todavía no hay muestra suficiente." : "Todavía no hay dos cuentas de la competencia medidas en este rubro."}</p>
           </div>
+        </div>
+      )}
+      {ultimo.length > 0 && (
+        <div className="mt-8">
+          <h3 className="mb-1 text-[14px] font-semibold">Lo último que le funcionó a la competencia <span className="font-normal text-l-tinta-3">· últimas dos semanas, las cuentas se releen todos los días</span></h3>
+          <ul>
+            {ultimo.map((e) => (
+              <li key={`${e.clientId}-${e.permalink}-${e.fecha}`} className="flex items-start gap-3 border-b border-l-linea py-2.5 last:border-b-0">
+                <span className="w-12 shrink-0 pt-0.5 text-right text-[14px] font-semibold tabular-nums">{veces(e.indice)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] text-l-tinta-3">{e.cliente} · {e.formato}{e.anguloNombre ? ` · ${e.anguloNombre}` : ""} · {e.fecha.split("-").reverse().join("/")}</span>
+                  <span className="block truncate text-[13px] text-l-tinta-2">{e.texto}</span>
+                </span>
+                {e.permalink && (
+                  <a href={e.permalink} target="_blank" rel="noreferrer" className="shrink-0 pt-0.5 text-l-tinta-3 hover:text-l-tinta" aria-label="Ver la publicación">
+                    <ExternalLink className="h-4 w-4" aria-hidden />
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <p className="mt-5 text-[12px] text-l-tinta-3">

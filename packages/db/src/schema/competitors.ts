@@ -58,6 +58,18 @@ export const competenciaPosts = pgTable(
   (t) => ({ usuarioIdx: index("competencia_posts_usuario_idx").on(t.usuario, t.publicadoAt) }),
 );
 
+// La portada de la web de cada competidor (migración 0164, competencia-web.ts). Por dominio.
+export const competenciaWebs = pgTable("competencia_webs", {
+  host: text("host").primaryKey(),
+  titulo: text("titulo"),
+  descripcion: text("descripcion"),
+  /** Los h1 y h2 de la portada. */
+  encabezados: jsonb("encabezados").$type<string[]>().notNull().default([]),
+  /** "ok" o por qué no se pudo leer. */
+  estado: text("estado").notNull(),
+  revisadoAt: timestamp("revisado_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Content ideas: AI-generated, split pauta (paid) vs posteo (organic) ───────
 export const contentIdeas = pgTable(
   "content_ideas",

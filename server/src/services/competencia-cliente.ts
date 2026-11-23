@@ -112,7 +112,7 @@ export function compararCompetencia(
 /** «MA Propiedades», «  ma propiedades » → «ma propiedades». Puro. */
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
-export async function competenciaDeCliente(db: Db, clientId: string, dias = 30): Promise<ResultadoCompetencia & { clienteNombre: string }> {
+export async function competenciaDeCliente(db: Db, clientId: string, dias = 30) {
   const [cl] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
   if (!cl) throw new Error("No existe ese cliente.");
   const filas = await db.select({ nombre: competitors.name, ig: competitors.igHandle, web: competitors.website })
@@ -143,5 +143,18 @@ export async function competenciaDeCliente(db: Db, clientId: string, dias = 30):
     ? filasPropias.filter((p) => p.fecha).map((p) => ({ fecha: p.fecha!.toISOString().slice(0, 10), angulo: p.angulo }))
     : null;
   const r = compararCompetencia(propios, conUsuario.map((c) => ({ ...c, posts: c.usuario ? porUsuario.get(c.usuario) ?? [] : [] })), dias);
-  return { clienteNombre: cl.name.trim(), ...r };
+  // Lo último que publicaron (23/11: «que se renueve todo el tiempo con lo último»): las cuentas se releen todos
+  // los días. Acá entran también las de los últimos días, que todavía juntan interacción: por eso van sin índice.
+  const deUsuario = new Map(conUsuario.filter((c) => c.usuario).map((c) => [c.usuario!, c]));
+  const ultimas = [...posts].sort((a, b) => b.publicadoAt.getTime() - a.publicadoAt.getTime()).slice(0, 12).map((p) => ({
+    competidor: deUsuario.get(p.usuario)?.nombre ?? `@${p.usuario}`,
+    esClienteDeLaAgencia: !!deUsuario.get(p.usuario)?.esClienteDeLaAgencia,
+    fecha: p.publicadoAt.toISOString().slice(0, 10),
+    formato: p.formato,
+    angulo: p.angulo && p.angulo !== SIN_TEXTO ? nombreDeAngulo(p.angulo) : null,
+    meGusta: p.meGusta, comentarios: p.comentarios, link: p.permalink,
+    texto: (p.texto ?? "").replace(/\s+/g, " ").trim().slice(0, 160),
+  }));
+  const { webDeLaCompetencia } = await import("./competencia-web.js");
+  return { clienteNombre: cl.name.trim(), ...r, ultimas, web: await webDeLaCompetencia(db, clientId) };
 }

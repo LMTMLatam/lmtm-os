@@ -34,15 +34,17 @@ import {
 const GRAPH = "https://graph.facebook.com/v21.0";
 /** Publicaciones por cuenta en cada lectura (las más nuevas). */
 const POR_CUENTA = 30;
-/** Cuentas por vuelta: Instagram limita las llamadas por hora. */
-const POR_VUELTA = 40;
+/** Cuentas por vuelta: Instagram limita las llamadas por hora. 23/11: eran 40 y las ~26 que esperan al
+ *  lector propio (frenado desde Railway) van primeras y se comían el lugar: con 80 entran todas en el día. */
+const POR_VUELTA = 80;
 /** Lecturas con el lector propio por vuelta, y la pausa entre una y otra: ritmo de persona, no de robot. */
 const PROPIO_POR_VUELTA = 15;
 const PAUSA_PROPIO_MS = 20_000;
 /** Días que tarda una publicación en juntar casi toda su interacción. */
 export const MADURA_DIAS = 3;
-/** Cada cuánto se vuelve a medir una cuenta. */
-const DIAS_ENTRE_LECTURAS = 6;
+/** Cada cuánto se vuelve a medir una cuenta. 23/11 (Marcos: «que se renueve todo el tiempo con lo
+ *  último»): eran 6 días; son ~150 cuentas por Business Discovery, entran todos los días. */
+const DIAS_ENTRE_LECTURAS = 1;
 const FB_POR_VUELTA = 15;
 const FB_DIAS_ENTRE_LECTURAS = 10;
 
@@ -430,6 +432,11 @@ export async function estadoCompetencia(db: Db): Promise<{
   };
 }
 
+/** La mejor publicación de las últimas dos semanas de cada cuenta de la competencia que dobló lo normal, de mayor a menor. Puro. */
+export function ultimoDeLaCompetencia(a: AnalisisContenido) {
+  return a.clientes.filter((c) => c.mejorReciente).map((c) => ({ nicho: c.nicho, ...c.mejorReciente! })).sort((x, y) => y.indice - x.indice);
+}
+
 /**
  * Para los agentes y el generador de ideas: qué le funciona a la competencia
  * del rubro. "" si el rubro no tiene dos cuentas de la competencia medidas. Puro.
@@ -446,13 +453,16 @@ export function textoCompetencia(a: AnalisisContenido, nicho: string | null | un
   if (n.angulos.length) out.push(`- Ángulos que más rinden: ${n.angulos.slice(0, 3).map(linea).join("; ")}.`);
   if (n.formatos.length) out.push(`- Formatos: ${n.formatos.slice(0, 4).map(linea).join("; ")}.`);
   if (ejemplos.length) out.push("- Publicaciones de la competencia que doblaron lo normal de su cuenta:", ...ejemplos.map((e) => `  · ${citar(e)}`));
+  // Lo último: la mejor de las últimas dos semanas de cada cuenta del rubro (las cuentas se releen todos los días).
+  const ultimo = ultimoDeLaCompetencia(a).filter((e) => e.nicho?.toLowerCase() === nicho.toLowerCase()).slice(0, 3);
+  if (ultimo.length) out.push("- Lo último que les funcionó (dos semanas):", ...ultimo.map((e) => `  · ${citar(e)}`));
   out.push("Tomá el ángulo o el formato para diferenciarte, nunca el texto ni la marca del competidor.");
   return out.join("\n");
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
-/** Cada 3 horas una vuelta: las cuentas nuevas primero, después cada 6 días (Facebook cada 10). */
+/** Cada 3 horas una vuelta: las cuentas nuevas primero, después una vez por día (Facebook cada 10). */
 export function initCompetenciaIg(db: Db): void {
   if (timer) return;
   const vuelta = () => {

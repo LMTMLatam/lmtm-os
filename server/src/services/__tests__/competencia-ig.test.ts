@@ -32,6 +32,8 @@ describe("competencia medida (08/10)", () => {
     const t = textoCompetencia(a, "turismo-hoteleria");
     expect(t).toContain("2 cuentas de competidores (Instagram y Facebook)");
     expect(t).toContain("nunca el texto");
+    // Lo último: los reels de la semana triplicaron lo normal de su cuenta (23/11).
+    expect(t).toContain("Lo último que les funcionó (dos semanas):");
     expect(textoCompetencia(a, "inmobiliaria")).toBe("");
   });
 });

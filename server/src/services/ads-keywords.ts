@@ -24,6 +24,7 @@ import { adsAccountMappings, adsConnections, clients, webRanking } from "@paperc
 import { and, eq, ne, sql } from "drizzle-orm";
 import { searchStream } from "./ads/providers/google.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
+import { cruzarConBusquedas, loCubre, palabrasClave, terminosDeLaCompetencia, websDeCompetidores, type TerminoCompetencia } from "./competencia-web.js";
 import { issueService } from "./issues.js";
 import { resolveCompanyId } from "./intel-common.js";
 
@@ -98,6 +99,9 @@ export interface CruceSeo {
   paraAds: Array<{ consulta: string; impresiones: number; posicion: number; pagina: string | null }>;
   /** Ads → SEO: búsquedas pagas que convierten y la web no aparece en la primera página. */
   paraSeo: Array<{ termino: string; conversiones: number; costo: number; posicion: number | null }>;
+  /** Competencia → pauta y SEO: términos que repiten varios competidores en su web (competencia-web.ts) y el
+   *  cliente no cubre con ninguna keyword ni tiene en la primera página. */
+  deCompetencia: Array<{ termino: string; competidores: number; hosts: string[] }>;
 }
 
 /** Impresiones en 28 días para proponer una búsqueda como keyword: debajo es ruido. */
@@ -111,7 +115,18 @@ export function cruzarSeoConAds(
   terminos: Array<Pick<TerminoBusqueda, "termino" | "conversiones" | "costo">>,
   keywords: Array<Pick<KeywordActiva, "texto">>,
   esMarca: (s: string) => boolean,
+  competencia: TerminoCompetencia[] = [],
 ): CruceSeo {
+  // Lo cubre la pauta si una keyword entra entera en el término (en frase o amplia se muestra) o si ya
+  // se le mostró un anuncio a una búsqueda que lo trae.
+  const kwsRaiz = keywords.map((k) => palabrasClave(k.texto)).filter((p) => p.length > 0);
+  const buscado = terminos.map((t) => t.termino);
+  const enPauta = (t: TerminoCompetencia) => kwsRaiz.some((kw) => kw.every((p) => t.palabras.includes(p))) || loCubre(t, buscado);
+  const deCompetencia = cruzarConBusquedas(competencia, consultas)
+    .filter((t, i) => (t.posicionDelCliente == null || t.posicionDelCliente > 10) && !esMarca(t.termino) && !enPauta(competencia[i]))
+    .map((t) => ({ termino: t.termino, competidores: t.competidores, hosts: t.hosts }))
+    .slice(0, 10);
+
   // Una búsqueda puede rankear con varias páginas: vale la que más se mostró.
   const organico = new Map<string, { consulta: string; impresiones: number; posicion: number; pagina: string | null; tope: number }>();
   for (const c of consultas) {
@@ -122,7 +137,7 @@ export function cruzarSeoConAds(
     x.impresiones += c.impresiones ?? 0;
     organico.set(k, x);
   }
-  if (organico.size === 0) return { conSearchConsole: false, paraAds: [], paraSeo: [] };
+  if (organico.size === 0) return { conSearchConsole: false, paraAds: [], paraSeo: [], deCompetencia };
 
   // En frase o en amplia, una keyword cubre toda búsqueda que traiga sus palabras.
   const kws = keywords.map((k) => palabrasDe(k.texto)).filter((p) => p.length > 0);
@@ -152,7 +167,7 @@ export function cruzarSeoConAds(
     .sort((a, b) => b.conversiones - a.conversiones)
     .slice(0, 12);
 
-  return { conSearchConsole: true, paraAds, paraSeo };
+  return { conSearchConsole: true, paraAds, paraSeo, deCompetencia };
 }
 
 /** Minúsculas y sin acentos, para comparar términos con el nombre del cliente. */
@@ -391,13 +406,13 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     negativas, nuevas, pausar, ampliaCara,
     ahorroMensual: Math.round(negativas.reduce((a, t) => a + t.costo, 0)),
     gastoMarcaSinConversion,
-    cruceSeo: cruzarSeoConAds(consultas, terminos, keywords, esMarca),
+    cruceSeo: cruzarSeoConAds(consultas, terminos, keywords, esMarca, terminosDeLaCompetencia((await websDeCompetidores(db, clientId)).webs)),
   };
 }
 
-/** Lo que el equipo tiene para hacer: las cuatro listas de la cuenta más las dos del cruce con la web. */
+/** Lo que el equipo tiene para hacer: las cuatro listas de la cuenta más las tres del cruce con la web y la competencia. */
 const accionesDe = (a: AuditoriaKeywords) =>
-  a.negativas.length + a.nuevas.length + a.pausar.length + a.ampliaCara.length + a.cruceSeo.paraAds.length + a.cruceSeo.paraSeo.length;
+  a.negativas.length + a.nuevas.length + a.pausar.length + a.ampliaCara.length + a.cruceSeo.paraAds.length + a.cruceSeo.paraSeo.length + a.cruceSeo.deCompetencia.length;
 
 const plata = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 
@@ -480,6 +495,14 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
     for (const t of a.cruceSeo.paraSeo) {
       p.push(`- \`${t.termino}\` — ${t.conversiones} conversión(es) por ${plata(t.costo)}; en orgánico ${t.posicion != null ? `posición ${num1(t.posicion)}` : "no aparece entre las búsquedas de la web"}`);
     }
+    p.push("");
+  }
+
+  if (a.cruceSeo.deCompetencia.length) {
+    p.push(`### ${++n}. Mirar ${a.cruceSeo.deCompetencia.length} términos que trabaja la competencia y no cubrimos`);
+    p.push("Los repiten varios competidores en el título o los encabezados de su web, ninguna keyword nuestra los cubre y la web no aparece en la primera página con ellos. No dice cuánto se buscan: mirar el volumen en el Planificador de palabras clave antes de sumarlos, y pasarle los que sirvan a Contenido y Web:");
+    p.push("");
+    for (const t of a.cruceSeo.deCompetencia) p.push(`- \`${t.termino}\` — ${t.competidores} competidores (${t.hosts.slice(0, 3).join(", ")})`);
     p.push("");
   }
 

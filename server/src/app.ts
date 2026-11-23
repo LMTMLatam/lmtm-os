@@ -460,6 +460,9 @@ export async function createApp(
         // La competencia medida en Instagram, para comparar rubros sin cuentas propias.
         const { initCompetenciaIg } = await import("./services/competencia-ig.js");
         initCompetenciaIg(db);
+        // Y su web: qué términos trabaja cada competidor en su portada.
+        const { initCompetenciaWeb } = await import("./services/competencia-web.js");
+        initCompetenciaWeb(db);
         // El tipo de video de cada video de la competencia («Tipos de video»).
         const { initVideoTipos } = await import("./services/video-tipos.js");
         initVideoTipos(db);

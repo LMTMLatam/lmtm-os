@@ -932,7 +932,7 @@ const CORE_TOOLS: ToolDef[] = [
     function: {
       name: "get_competencia_cliente",
       description:
-        "El CLIENTE contra SUS competidores en las últimas semanas: cuánto publicó cada uno, la mejor publicación de cada competidor medida contra lo normal de SU propia cuenta (índice 2 = el doble), y los ángulos que la competencia usa con éxito y el cliente no tocó (oportunidades, con link de ejemplo). Es la base de una revisión de competencia: usala antes de opinar sobre la competencia de un cliente. Los competidores con esClienteDeLaAgencia=true también son clientes de LMTM: sirven para el análisis, nunca se nombran frente a un cliente. Sin modelo: números y links reales.",
+        "El CLIENTE contra SUS competidores en las últimas semanas: cuánto publicó cada uno, la mejor publicación de cada competidor medida contra lo normal de SU propia cuenta (índice 2 = el doble), y los ángulos que la competencia usa con éxito y el cliente no tocó (oportunidades, con link de ejemplo). Es la base de una revisión de competencia: usala antes de opinar sobre la competencia de un cliente. Los competidores con esClienteDeLaAgencia=true también son clientes de LMTM: sirven para el análisis, nunca se nombran frente a un cliente. Sin modelo: números y links reales. Trae además `ultimas` (lo último que publicaron, se relee todos los días; las de menos de 3 días todavía juntan interacción) y `web` (los términos que repiten varios competidores en la portada de su sitio y el puesto del cliente en Google para cada uno: los que no tiene en la primera página son contenido o keywords para proponer).",
       parameters: {
         type: "object",
         properties: {
