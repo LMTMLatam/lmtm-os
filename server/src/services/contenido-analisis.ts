@@ -28,9 +28,12 @@ import { SIN_TEXTO } from "./contenido-angulos.js";
 
 /** Publicaciones con métricas que necesita una cuenta en una red para tener "lo normal". */
 export const MIN_POR_CUENTA = 8;
-/** Para afirmar que un ángulo o formato funciona. */
-export const MIN_PUBLICACIONES = 6;
+/** Para afirmar que un ángulo o formato funciona. 23/11: eran 6 y «detrás de escena» salía
+ *  primero en inmobiliaria con 9 publicaciones de 520; la mediana de 6 valores salta sola. */
+export const MIN_PUBLICACIONES = 10;
 export const MIN_CUENTAS = 2;
+/** Publicaciones de un formato que necesita una cuenta para tener "lo normal de ese formato". */
+export const MIN_POR_FORMATO = 5;
 /** Lo normal de una cuenta tiene que ser al menos esto para medir contra ella.
  *  Muchas páginas de Facebook sacan 1 interacción por post: contra eso, un post
  *  con 430 daba "172 veces lo normal", un número cierto pero que no enseña nada. */
@@ -64,7 +67,9 @@ export interface Fila {
   nombre: string;
   publicaciones: number;
   cuentas: number;
-  /** Mediana del índice: 1 = lo normal de cada cuenta. */
+  /** Parte de las publicaciones medidas del grupo (0 a 1): un ángulo puede rendir mucho y usarse casi nunca. */
+  cuota: number;
+  /** Mediana del índice: 1 = lo normal de cada cuenta (en los ángulos, lo normal de ese formato en la cuenta). */
   indice: number;
   mejor: Ejemplo;
 }
@@ -110,7 +115,8 @@ export function mediana(xs: number[]): number {
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-type ConIndice = PublicacionMedida & { indice: number };
+/** indiceFormato: contra lo normal del MISMO formato en su cuenta (reel contra reel). */
+type ConIndice = PublicacionMedida & { indice: number; indiceFormato: number };
 
 function ejemplo(p: ConIndice): Ejemplo {
   return {
@@ -120,7 +126,10 @@ function ejemplo(p: ConIndice): Ejemplo {
   };
 }
 
-function agrupar(ps: ConIndice[], clave: (p: ConIndice) => string | null, nombre: (k: string) => string, min: { publicaciones: number; cuentas: number }): Fila[] {
+function agrupar(
+  ps: ConIndice[], clave: (p: ConIndice) => string | null, nombre: (k: string) => string, min: { publicaciones: number; cuentas: number },
+  valor: (p: ConIndice) => number = (p) => p.indice,
+): Fila[] {
   const g = new Map<string, ConIndice[]>();
   for (const p of ps) {
     const k = clave(p);
@@ -131,13 +140,19 @@ function agrupar(ps: ConIndice[], clave: (p: ConIndice) => string | null, nombre
   for (const [k, arr] of g) {
     const cuentas = new Set(arr.map((p) => p.clientId)).size;
     if (arr.length < min.publicaciones || cuentas < min.cuentas) continue;
-    const mejor = arr.reduce((a, b) => (b.indice > a.indice ? b : a));
-    filas.push({ clave: k, nombre: nombre(k), publicaciones: arr.length, cuentas, indice: r2(mediana(arr.map((p) => p.indice))), mejor: ejemplo(mejor) });
+    const mejor = arr.reduce((a, b) => (valor(b) > valor(a) ? b : a));
+    filas.push({ clave: k, nombre: nombre(k), publicaciones: arr.length, cuentas, cuota: r2(arr.length / ps.length), indice: r2(mediana(arr.map(valor))), mejor: ejemplo(mejor) });
   }
   return filas.sort((a, b) => b.indice - a.indice);
 }
 
 const claveAngulo = (p: ConIndice) => (p.angulo && p.angulo !== SIN_TEXTO ? p.angulo : null);
+/**
+ * Los ángulos se miden contra el mismo formato (23/11). Un reel junta más interacción que una
+ * foto se cuente desde donde se cuente: contra lo normal de toda la cuenta, «detrás de escena»
+ * (casi todo reels) daba 2,26× en autopartes y era el reel, no el ángulo (1,29× reel contra reel).
+ */
+const porFormato = (p: ConIndice) => p.indiceFormato;
 const claveFormato = (p: ConIndice) => `${p.red === "instagram" ? "Instagram" : "Facebook"} · ${p.formato}`;
 
 /** Puro: todo el análisis a partir de las publicaciones medidas. */
@@ -153,11 +168,18 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
     if (arr.length < MIN_POR_CUENTA) continue;
     const normal = mediana(arr.map((p) => p.engagement));
     if (normal < MIN_NORMAL) continue; // lo normal es casi cero: no hay contra qué medir
-    for (const p of arr) medidas.push({ ...p, indice: p.engagement / normal });
+    const delFormato = new Map<string, number[]>();
+    for (const p of arr) delFormato.set(p.formato, [...(delFormato.get(p.formato) ?? []), p.engagement]);
+    for (const p of arr) {
+      // Con pocas del formato, o si lo normal de ese formato es casi cero, vale lo normal de la cuenta.
+      const f = delFormato.get(p.formato)!;
+      const normalFormato = f.length >= MIN_POR_FORMATO ? mediana(f) : 0;
+      medidas.push({ ...p, indice: p.engagement / normal, indiceFormato: p.engagement / (normalFormato >= MIN_NORMAL ? normalFormato : normal) });
+    }
   }
 
   const global = { publicaciones: MIN_PUBLICACIONES, cuentas: MIN_CUENTAS };
-  const angulos = agrupar(medidas, claveAngulo, nombreDeAngulo, global);
+  const angulos = agrupar(medidas, claveAngulo, nombreDeAngulo, global, porFormato);
   const formatos = agrupar(medidas, claveFormato, (k) => k, global);
 
   // 2) Por nicho: solo los que tienen al menos dos cuentas medidas.
@@ -168,7 +190,7 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
       nicho,
       cuentas: new Set(arr.map((p) => p.clientId)).size,
       publicaciones: arr.length,
-      angulos: agrupar(arr, claveAngulo, nombreDeAngulo, global),
+      angulos: agrupar(arr, claveAngulo, nombreDeAngulo, global, porFormato),
       formatos: agrupar(arr, claveFormato, (k) => k, global),
     }))
     .filter((n) => n.cuentas >= MIN_CUENTAS)
@@ -214,7 +236,7 @@ export function analizarPublicaciones(pubs: PublicacionMedida[], dias: number, a
     const reciente = arr
       .filter((p) => p.fecha.slice(0, 10) >= desdeDos && p.indice >= INDICE_DESTACADO && p.engagement >= 10)
       .reduce<ConIndice | null>((m, p) => (!m || p.indice > m.indice ? p : m), null);
-    const propios = agrupar(arr, claveAngulo, nombreDeAngulo, { publicaciones: 3, cuentas: 1 });
+    const propios = agrupar(arr, claveAngulo, nombreDeAngulo, { publicaciones: 3, cuentas: 1 }, porFormato);
     const usos = new Map<string, number>();
     for (const p of arr) { const k = claveAngulo(p); if (k) usos.set(k, (usos.get(k) ?? 0) + 1); }
     const delNicho = c.nicho ? nichoPorNombre.get(c.nicho) : undefined;
@@ -296,7 +318,7 @@ export async function analisisContenido(db: Db, dias = 180, fresco = false): Pro
 
 // Un decimal, igual que el panel: "1,9×".
 const veces = (x: number) => `${x.toFixed(x >= 10 ? 0 : 1).replace(".", ",")}×`;
-export const linea = (f: Fila) => `${f.nombre} ${veces(f.indice)} (${f.publicaciones} publicaciones, ${f.cuentas} cuenta${f.cuentas === 1 ? "" : "s"})`;
+export const linea = (f: Fila) => `${f.nombre} ${veces(f.indice)} (${f.publicaciones} publicaciones, el ${Math.round(f.cuota * 100)} % de las medidas, ${f.cuentas} cuenta${f.cuentas === 1 ? "" : "s"})`;
 export const citar = (e: Ejemplo) => `${e.cliente}, ${e.fecha}, ${e.red} ${e.formato}${e.anguloNombre ? `, ángulo ${e.anguloNombre}` : ""}: ${veces(e.indice)} — "${e.texto.slice(0, 110)}"${e.permalink ? ` ${e.permalink}` : ""}`;
 
 /**
@@ -307,6 +329,7 @@ export function textoParaAgente(a: AnalisisContenido, opts: { nicho?: string | n
   const out: string[] = [
     `QUÉ FUNCIONA EN ORGÁNICO — datos reales de ${a.cuentas} cuentas, últimos ${a.dias} días.`,
     "Índice = interacción de la publicación contra lo normal de SU cuenta (1× = lo normal, 2× = el doble). Interacción = reacciones + comentarios×3 + compartidos×5; no hay alcance.",
+    "Los ángulos se miden contra el mismo formato de la cuenta (reel contra reel). El % dice cuánto se usa: un ángulo con poco % rinde en pocas publicaciones, es para probar más, no una regla.",
   ];
   const n = opts.nicho ? a.nichos.find((x) => x.nicho.toLowerCase() === opts.nicho!.toLowerCase()) : undefined;
   if (n) {

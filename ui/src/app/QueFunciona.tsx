@@ -17,7 +17,8 @@ export interface Ejemplo {
   angulo: string | null; anguloNombre: string | null;
   indice: number; engagement: number; fecha: string; permalink: string | null; texto: string;
 }
-export interface Fila { clave: string; nombre: string; publicaciones: number; cuentas: number; indice: number; mejor: Ejemplo }
+/** cuota: parte de las publicaciones medidas del grupo (0 a 1). */
+export interface Fila { clave: string; nombre: string; publicaciones: number; cuentas: number; cuota: number; indice: number; mejor: Ejemplo }
 export interface AnalisisContenido {
   generadoAt: string; dias: number; publicaciones: number; cuentas: number; clasificadas: number; sinClasificar: number;
   angulos: Fila[]; formatos: Fila[];
@@ -73,7 +74,7 @@ function FilaRanking({ f, conEjemplo = true }: { f: Fila; conEjemplo?: boolean }
         <span className={`w-12 shrink-0 text-right text-[14px] font-semibold tabular-nums ${f.indice >= 1 ? "" : "text-l-tinta-3"}`}>{veces(f.indice)}</span>
       </div>
       <div className="mt-0.5 text-[12px] text-l-tinta-3">
-        {f.publicaciones} publicaciones de {f.cuentas} {f.cuentas === 1 ? "cuenta" : "cuentas"}
+        {f.publicaciones} publicaciones ({Math.round(f.cuota * 100)} % de las medidas) de {f.cuentas} {f.cuentas === 1 ? "cuenta" : "cuentas"}
         {conEjemplo && (
           <>
             {" · la mejor: "}
@@ -101,8 +102,9 @@ function Nota({ a }: { a: AnalisisContenido }) {
   return (
     <p className="text-[12px] leading-relaxed text-l-tinta-3">
       {a.publicaciones.toLocaleString("es-AR")} publicaciones de {a.cuentas} cuentas, últimos {a.dias} días. Cada una se compara con lo normal de su cuenta en
-      esa red (1× = lo normal). Interacción = reacciones + comentarios×3 + compartidos×5; Meta no nos da el alcance de estas cuentas. Una fila aparece con al
-      menos 6 publicaciones de 2 cuentas.
+      esa red (1× = lo normal); los ángulos, con lo normal de ese mismo formato en la cuenta (reel contra reel), para que un ángulo no gane solo por estar
+      hecho en reel. Interacción = reacciones + comentarios×3 + compartidos×5; Meta no nos da el alcance de estas cuentas. Una fila aparece con al
+      menos 10 publicaciones de 2 cuentas; el % dice cuánto se usa: rendir mucho con pocas publicaciones es para probar más, no una regla.
       {a.sinClasificar > 0 && ` Hay ${a.sinClasificar} publicaciones todavía sin ángulo: se clasifican solas cada hora.`}
     </p>
   );
@@ -355,7 +357,8 @@ export function NichoVsCompetencia({ nicho }: { nicho: string }) {
     return claves.map((clave) => {
       const a = nuestro?.[de].find((f) => f.clave === clave);
       const b = comp?.[de].find((f) => f.clave === clave);
-      return { etiqueta: (a ?? b)!.nombre.replace(/^Instagram · /, ""), a: a?.indice ?? 0, b: b?.indice ?? 0 };
+      // Con cuántas publicaciones se midió cada lado: un 2× de 10 publicaciones no pesa como uno de 300.
+      return { etiqueta: `${(a ?? b)!.nombre.replace(/^Instagram · /, "")} · ${a?.publicaciones ?? "pocas"} nuestras, ${b?.publicaciones ?? "pocas"} de la competencia`, a: a?.indice ?? 0, b: b?.indice ?? 0 };
     });
   };
   return (
@@ -364,13 +367,13 @@ export function NichoVsCompetencia({ nicho }: { nicho: string }) {
       {comp && nuestro ? (
         <div className="grid gap-8 lg:grid-cols-2">
           <div>
-            <h3 className="mb-3 text-[14px] font-semibold">Ángulos que más rinden <span className="font-normal text-l-tinta-3">· 1× = lo normal de cada cuenta</span></h3>
-            <BarrasPar grupos={par("angulos", 6)} nombres={["Nuestros clientes", "Competencia"]} formato={veces} />
+            <h3 className="mb-3 text-[14px] font-semibold">Ángulos que más rinden <span className="font-normal text-l-tinta-3">· 1× = lo normal de ese formato en cada cuenta</span></h3>
+            <BarrasPar grupos={par("angulos", 6)} nombres={["Nuestros clientes", "Competencia"]} formato={veces} tope={5} />
           </div>
           <div className="space-y-8">
             <div>
               <h3 className="mb-3 text-[14px] font-semibold">Formatos</h3>
-              <BarrasPar grupos={par("formatos", 4)} nombres={["Nuestros clientes", "Competencia"]} formato={veces} />
+              <BarrasPar grupos={par("formatos", 4)} nombres={["Nuestros clientes", "Competencia"]} formato={veces} tope={5} />
             </div>
             <div>
               <h3 className="mb-3 text-[14px] font-semibold">Publicaciones por cuenta</h3>

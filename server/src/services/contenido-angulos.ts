@@ -26,7 +26,19 @@ const MODELO_CLASIFICAR = process.env.NVIDIA_MODEL_CLASIFICAR?.trim() || MODELO_
  * ponytail: corte fijo por fecha; si se vuelve a cambiar la lista, mover la fecha.
  */
 const RECLASIFICAR_ANTES_DE = new Date("2026-10-07T19:40:00Z");
-const pendiente = () => or(isNull(organicPosts.angulo), and(lt(organicPosts.anguloAt, RECLASIFICAR_ANTES_DE), ne(organicPosts.angulo, SIN_TEXTO)));
+/**
+ * 23/11: «detrás de escena» se le ponía a cualquier copy con la frase «detrás de cada pieza hay
+ * un equipo», a los avances de obra y a las entrevistas (la mitad de las 24 de inmobiliaria y
+ * autopartes). Con la regla afinada en SISTEMA, lo etiquetado así antes de esta hora se vuelve
+ * a leer una vez; los demás ángulos no cambian porque la regla solo achica este.
+ */
+const DETRAS = "detras-de-escena";
+const RELEER_DETRAS_ANTES_DE = new Date("2026-11-23T19:30:00Z");
+const pendiente = () => or(
+  isNull(organicPosts.angulo),
+  and(lt(organicPosts.anguloAt, RECLASIFICAR_ANTES_DE), ne(organicPosts.angulo, SIN_TEXTO)),
+  and(lt(organicPosts.anguloAt, RELEER_DETRAS_ANTES_DE), eq(organicPosts.angulo, DETRAS)),
+);
 
 const TODOS = [...ANGULOS, ...ANGULOS_ORGANICO];
 const IDS = new Set(TODOS.map((a) => a.id));
@@ -40,6 +52,7 @@ const SISTEMA = [
   "Ángulos posibles (id — nombre: cómo se reconoce):",
   ...TODOS.map((a) => `- ${a.id} — ${a.nombre}: ${a.como}`),
   "Elegí UNO por publicación: el más específico. Si muestra la propiedad o el producto con sus datos y nada más, es vitrina.",
+  `${DETRAS} es SOLO cuando la publicación muestra o recorre cómo se hace algo: el proceso, la fábrica o el taller por dentro, un día de trabajo, el armado, una persona del equipo mostrando su tarea. La frase "detrás de cada producto hay un equipo" usada como lema de marca NO alcanza: eso es institucional. Un avance de obra es novedad; una entrevista o una charla es experto u origen.`,
   'Respondé SOLO con un array JSON, sin texto alrededor: [{"i":<número>,"angulo":"<id>"}]. Un elemento por publicación, con el mismo "i".',
 ].join("\n");
 
@@ -128,7 +141,10 @@ export async function clasificarCompetencia(db: Db, max = 300): Promise<{ clasif
     const pendientes = await db
       .select({ id: competenciaPosts.id, texto: competenciaPosts.texto, tipo: competenciaPosts.formato })
       .from(competenciaPosts)
-      .where(and(isNull(competenciaPosts.angulo), gte(competenciaPosts.publicadoAt, desde)))
+      .where(and(
+        or(isNull(competenciaPosts.angulo), and(lt(competenciaPosts.anguloAt, RELEER_DETRAS_ANTES_DE), eq(competenciaPosts.angulo, DETRAS))),
+        gte(competenciaPosts.publicadoAt, desde),
+      ))
       .orderBy(desc(competenciaPosts.publicadoAt))
       .limit(max);
     const vacias = pendientes.filter((p) => (p.texto ?? "").trim().length < 15);

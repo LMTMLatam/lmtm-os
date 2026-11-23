@@ -117,12 +117,13 @@ export function BarrasH({ filas, formato, referencia }: { filas: Array<{ etiquet
 }
 
 /** Dos series por grupo (nosotros / competencia), con leyenda y el valor escrito en cada barra. */
-export function BarrasPar({ grupos, nombres, formato }: { grupos: Array<{ etiqueta: string; a: number; b: number }>; nombres: [string, string]; formato: (n: number) => string }) {
-  const max = Math.max(...grupos.flatMap((g) => [g.a, g.b])) || 1;
+export function BarrasPar({ grupos, nombres, formato, tope }: { grupos: Array<{ etiqueta: string; a: number; b: number }>; nombres: [string, string]; formato: (n: number) => string; tope?: number }) {
+  // tope: una barra fuera de escala (los sorteos de la competencia dan 124× por los comentarios) no aplasta a las demás; el número se escribe entero.
+  const max = Math.min(Math.max(...grupos.flatMap((g) => [g.a, g.b])) || 1, tope ?? Infinity);
   const barra = (v: number, color: string, nombre: string, etiqueta: string) => (
     <div className="grid grid-cols-[1fr_auto] items-center gap-2" title={`${etiqueta} · ${nombre}: ${formato(v)}`}>
       <span className="relative h-2.5 rounded-full bg-l-linea">
-        <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${(v / max) * 100}%`, background: color }} />
+        <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.min(100, (v / max) * 100)}%`, background: color }} />
       </span>
       <span className="w-12 text-right text-[12px] tabular-nums text-l-tinta">{formato(v)}</span>
     </div>
