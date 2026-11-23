@@ -296,12 +296,17 @@ export async function correrTarea(db: Db, p: Pendiente, opts: { manual?: boolean
       conTope ? conTopeDeTurnos(agent.adapterConfig) : ((agent.adapterConfig ?? {}) as Record<string, unknown>),
       { consumerType: "agent", consumerId: agent.id, actorType: "agent", actorId: agent.id, issueId: p.issueId, heartbeatRunId: run.id },
     );
+    // Las skills de la empresa, como en el heartbeat de paperclip (22/11: sin esto el adaptador solo veía las de /app/skills;
+    // el núcleo —caveman, lmtm-ahorro-tokens— y las de la lista de cada agente salían «Unknown skill» desde la migración).
+    const { companySkillService } = await import("../services/company-skills.js");
+    const paperclipRuntimeSkills = await companySkillService(db).listRuntimeSkillEntries(agent.companyId)
+      .catch((e) => { console.error("[motor] no se pudieron listar las skills:", e); return []; });
     const res = await adapter.execute({
       runId: run.id,
       agent: { id: agent.id, companyId: agent.companyId, name: agent.name, adapterType: agent.adapterType, adapterConfig: agent.adapterConfig },
       // Si la sesión ya no existe (un deploy borra el disco), el adaptador arranca una nueva solo.
       runtime: { sessionId: p.sesion ?? null, sessionParams: null, sessionDisplayId: null, taskKey: p.issueId },
-      config,
+      config: { ...config, paperclipRuntimeSkills },
       context: contexto,
       onLog,
       authToken,
