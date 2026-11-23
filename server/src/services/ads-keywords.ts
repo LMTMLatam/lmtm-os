@@ -539,7 +539,7 @@ export function auditoriaAPasos(a: AuditoriaKeywords): { titulo: string; cuerpo:
   }
 
   if (a.cruceSeo.deCompetencia.length) {
-    p.push(`### ${++n}. Mirar ${a.cruceSeo.deCompetencia.length} términos que trabaja la competencia y no cubrimos`);
+    p.push(`### ${++n}. Mirar ${a.cruceSeo.deCompetencia.length === 1 ? "1 término" : `${a.cruceSeo.deCompetencia.length} términos`} que trabaja la competencia y no cubrimos`);
     p.push("Los repiten varios competidores en el título o los encabezados de su web, ninguna keyword nuestra los cubre y la web no aparece en la primera página con ellos. No dice cuánto se buscan: mirar el volumen en el Planificador de palabras clave antes de sumarlos, y pasarle los que sirvan a Contenido y Web:");
     p.push("");
     for (const t of a.cruceSeo.deCompetencia) p.push(`- \`${t.termino}\` — ${t.competidores} competidores (${t.hosts.slice(0, 3).join(", ")})`);
