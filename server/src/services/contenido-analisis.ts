@@ -121,7 +121,8 @@ type ConIndice = PublicacionMedida & { indice: number; indiceFormato: number };
 function ejemplo(p: ConIndice): Ejemplo {
   return {
     clientId: p.clientId, cliente: p.cliente, slug: p.slug, red: p.red, formato: p.formato,
-    angulo: p.angulo, anguloNombre: p.angulo ? nombreDeAngulo(p.angulo) : null,
+    // «sin-texto» es la marca de una publicación sin copy, no un ángulo: salía escrito «ángulo sin-texto».
+    angulo: p.angulo, anguloNombre: p.angulo && p.angulo !== SIN_TEXTO ? nombreDeAngulo(p.angulo) : null,
     indice: r2(p.indice), engagement: p.engagement, fecha: p.fecha, permalink: p.permalink, texto: p.texto.slice(0, 220),
   };
 }

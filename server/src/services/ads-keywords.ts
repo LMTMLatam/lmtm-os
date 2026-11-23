@@ -20,11 +20,12 @@
 // y derechas, no con datos, con guías paso a paso").
 
 import type { Db } from "@paperclipai/db";
-import { adsAccountMappings, adsConnections, clients, webRanking } from "@paperclipai/db";
+import { adsAccountMappings, adsConnections, clients, competitors, webRanking } from "@paperclipai/db";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { searchStream } from "./ads/providers/google.js";
 import { withFreshAccessToken } from "./ads/token-refresh.js";
 import { cruzarConBusquedas, loCubre, palabrasClave, terminosDeLaCompetencia, websDeCompetidores, type TerminoCompetencia } from "./competencia-web.js";
+import { hostDe } from "./google-web.js";
 import { issueService } from "./issues.js";
 import { resolveCompanyId } from "./intel-common.js";
 
@@ -106,6 +107,8 @@ export interface CruceSeo {
 
 /** Impresiones en 28 días para proponer una búsqueda como keyword: debajo es ruido. */
 const IMPRESIONES_MIN_CRUCE = 50;
+// shortcut: lista fija de portales vistos en las cuentas (23/11); si una cuenta compra otro, sumarlo acá.
+const PORTALES = ["zonaprop", "argenprop", "mercadolibre", "properati", "booking", "despegar", "tripadvisor", "airbnb"];
 
 const palabrasDe = (s: string) => normalizar(s).split(/[^a-z0-9]+/).filter((p) => p.length >= 3);
 
@@ -116,6 +119,8 @@ export function cruzarSeoConAds(
   keywords: Array<Pick<KeywordActiva, "texto">>,
   esMarca: (s: string) => boolean,
   competencia: TerminoCompetencia[] = [],
+  /** El término nombra a un competidor o a un portal: en orgánico no se posiciona el nombre de otro. */
+  otraMarca: (s: string) => boolean = () => false,
 ): CruceSeo {
   // Lo cubre la pauta si una keyword entra entera en el término (en frase o amplia se muestra) o si ya
   // se le mostró un anuncio a una búsqueda que lo trae.
@@ -144,7 +149,8 @@ export function cruzarSeoConAds(
   const yaSeMuestra = new Set(terminos.map((t) => normalizar(t.termino)));
   const paraAds = [...organico.entries()]
     .filter(([k, o]) => {
-      if (o.impresiones < IMPRESIONES_MIN_CRUCE || o.posicion <= 5 || esMarca(o.consulta) || yaSeMuestra.has(k)) return false;
+      // Menos de 4 letras («ma», 613 impresiones en MA PROPIEDADES) no dice qué se busca.
+      if (o.impresiones < IMPRESIONES_MIN_CRUCE || o.posicion <= 5 || k.length < 4 || esMarca(o.consulta) || yaSeMuestra.has(k)) return false;
       const palabras = new Set(palabrasDe(o.consulta));
       return !kws.some((kw) => kw.every((p) => palabras.has(p)));
     })
@@ -162,7 +168,7 @@ export function cruzarSeoConAds(
     pagos.set(k, x);
   }
   const paraSeo = [...pagos.entries()]
-    .filter(([k, t]) => t.conversiones >= 1 && !esMarca(t.termino) && (organico.get(k)?.posicion ?? 99) > 10)
+    .filter(([k, t]) => t.conversiones >= 1 && !esMarca(t.termino) && !otraMarca(t.termino) && (organico.get(k)?.posicion ?? 99) > 10)
     .map(([k, t]) => ({ termino: t.termino, conversiones: Math.round(t.conversiones * 10) / 10, costo: Math.round(t.costo), posicion: organico.get(k)?.posicion ?? null }))
     .sort((a, b) => b.conversiones - a.conversiones)
     .slice(0, 12);
@@ -393,6 +399,13 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     .select({ clave: webRanking.clave, detalle: webRanking.detalle, posicion: webRanking.posicion, impresiones: webRanking.impresiones })
     .from(webRanking)
     .where(and(eq(webRanking.clientId, clientId), eq(webRanking.tipo, "consulta")));
+  // Marcas ajenas: los portales y los competidores cargados, por su dominio y su usuario de Instagram
+  // («uno propiedades» → uno-propiedades.com.ar). MA PROPIEDADES compra «zonaprop rosario» y «uno propiedades»:
+  // convierten, pero proponerlas a Contenido como búsquedas para posicionar no tiene sentido.
+  const comps = await db.select({ ig: competitors.igHandle, web: competitors.website }).from(competitors).where(eq(competitors.clientId, clientId));
+  const pegado = (s: string) => normalizar(s).replace(/[^a-z0-9]/g, "");
+  const ajenas = [...PORTALES, ...comps.flatMap((c) => [hostDe(c.web)?.split(".")[0] ?? "", /^@?[\w.]+$/.test(c.ig ?? "") ? c.ig! : ""]).map(pegado)].filter((x) => x.length >= 4);
+  const otraMarca = (s: string) => { const j = pegado(s); return ajenas.some((a) => j.includes(a)) || nombraOtroCliente(s); };
 
   return {
     cliente: cliente.name,
@@ -406,7 +419,7 @@ export async function auditarKeywords(db: Db, clientId: string, dias = 30): Prom
     negativas, nuevas, pausar, ampliaCara,
     ahorroMensual: Math.round(negativas.reduce((a, t) => a + t.costo, 0)),
     gastoMarcaSinConversion,
-    cruceSeo: cruzarSeoConAds(consultas, terminos, keywords, esMarca, terminosDeLaCompetencia((await websDeCompetidores(db, clientId)).webs)),
+    cruceSeo: cruzarSeoConAds(consultas, terminos, keywords, esMarca, terminosDeLaCompetencia((await websDeCompetidores(db, clientId)).webs), otraMarca),
   };
 }
 

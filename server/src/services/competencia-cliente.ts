@@ -50,6 +50,8 @@ export interface ResultadoCompetencia {
 }
 
 const nombre = (a: string) => nombreDeAngulo(a);
+/** Por caracteres completos: un .slice parte en dos las letras «𝗩𝗘𝗡𝗧𝗔» y deja un \ud835 suelto en el JSON. */
+const corto = (s: string) => Array.from(s).slice(0, 160).join("");
 
 /** Puro. `ahora` fija la ventana: [ahora − dias, ahora − MADURA_DIAS] para las de la competencia. */
 export function compararCompetencia(
@@ -90,7 +92,7 @@ export function compararCompetencia(
     return {
       nombre: c.nombre, usuario: c.usuario, publicaciones: ventana.length, normal: normal != null ? Math.round(normal) : null,
       esClienteDeLaAgencia: !!c.esClienteDeLaAgencia,
-      mejor: mejor ? { indice: mejor.indice, angulo: am ? nombre(am) : null, formato: mejor.formato, fecha: mejor.fecha, link: mejor.permalink, texto: mejor.texto.slice(0, 160) } : null,
+      mejor: mejor ? { indice: mejor.indice, angulo: am ? nombre(am) : null, formato: mejor.formato, fecha: mejor.fecha, link: mejor.permalink, texto: corto(mejor.texto) } : null,
       angulos: [...new Set(ventana.map((p) => angulo(p.angulo)).filter((a): a is string => !!a))].map(nombre),
     };
   }).sort((a, b) => b.publicaciones - a.publicaciones);
@@ -146,14 +148,18 @@ export async function competenciaDeCliente(db: Db, clientId: string, dias = 30) 
   // Lo último que publicaron (23/11: «que se renueve todo el tiempo con lo último»): las cuentas se releen todos
   // los días. Acá entran también las de los últimos días, que todavía juntan interacción: por eso van sin índice.
   const deUsuario = new Map(conUsuario.filter((c) => c.usuario).map((c) => [c.usuario!, c]));
-  const ultimas = [...posts].sort((a, b) => b.publicadoAt.getTime() - a.publicadoAt.getTime()).slice(0, 12).map((p) => ({
+  // Hasta 2 por cuenta: una inmobiliaria que sube 5 avisos por día tapaba a todas las demás.
+  const porCuenta = new Map<string, number>();
+  const ultimas = [...posts].sort((a, b) => b.publicadoAt.getTime() - a.publicadoAt.getTime())
+    .filter((p) => { const n = porCuenta.get(p.usuario) ?? 0; porCuenta.set(p.usuario, n + 1); return n < 2; })
+    .slice(0, 12).map((p) => ({
     competidor: deUsuario.get(p.usuario)?.nombre ?? `@${p.usuario}`,
     esClienteDeLaAgencia: !!deUsuario.get(p.usuario)?.esClienteDeLaAgencia,
     fecha: p.publicadoAt.toISOString().slice(0, 10),
     formato: p.formato,
     angulo: p.angulo && p.angulo !== SIN_TEXTO ? nombreDeAngulo(p.angulo) : null,
     meGusta: p.meGusta, comentarios: p.comentarios, link: p.permalink,
-    texto: (p.texto ?? "").replace(/\s+/g, " ").trim().slice(0, 160),
+    texto: corto((p.texto ?? "").replace(/\s+/g, " ").trim()),
   }));
   const { webDeLaCompetencia } = await import("./competencia-web.js");
   return { clienteNombre: cl.name.trim(), ...r, ultimas, web: await webDeLaCompetencia(db, clientId) };

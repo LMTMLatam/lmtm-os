@@ -62,6 +62,16 @@ describe("cruzarSeoConAds", () => {
     // También sin Search Console: lo que no cubre ninguna keyword sigue siendo un hueco.
     expect(cruzarSeoConAds([], terminos, [], esMarca, [t("cinta sanitaria alimenticia")]).deCompetencia).toHaveLength(1);
   });
+
+  it("no manda a Contenido el nombre de un portal o de un competidor, ni a pauta una búsqueda de dos letras", () => {
+    // MA PROPIEDADES 23/11: «zonaprop rosario» y «uno propiedades» convertían y salían como «para posicionar»; «ma» como keyword.
+    const pagos = [{ termino: "zonaprop rosario", conversiones: 106, costo: 9522 }, { termino: "uno propiedades", conversiones: 37, costo: 3545 }, { termino: "casas en venta rosario", conversiones: 42, costo: 2585 }];
+    const ajenas = ["zonaprop", "unopropiedades"];
+    const otraMarca = (s: string) => ajenas.some((a) => s.replace(/\s+/g, "").includes(a));
+    const c = cruzarSeoConAds([q("ma", 613, 10.7), q("la finca ii", 270, 8.7)], pagos, [], () => false, [], otraMarca);
+    expect(c.paraSeo.map((x) => x.termino)).toEqual(["casas en venta rosario"]);
+    expect(c.paraAds.map((x) => x.consulta)).toEqual(["la finca ii"]);
+  });
 });
 
 // El caso real que motivó el guard: el 3/9/26 la auditoría de Distrillantas
